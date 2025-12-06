@@ -1,0 +1,15 @@
+[submodule "external/mo_yanxi_vulkan_wrapper"]
+	path = external/mo_yanxi_vulkan_wrapper
+	url = https://github.com/Yuria-Shikibe/mo_yanxi_vulkan_wrapper.git
+[submodule "external/plf_hive"]
+	path = external/plf_hive
+	url = https://github.com/mattreecebentley/plf_hive.git
+[submodule "external/small_vector"]
+	path = external/small_vector
+	url = https://github.com/gharveymn/small_vector.git
+[submodule "external/stb"]
+	path = external/stb
+	url = https://github.com/nothings/stb.git
+[submodule "external/allocator2d"]
+	path = external/allocator2d
+	url = https://github.com/Yuria-Shikibe/allocator2d.git
