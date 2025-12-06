@@ -1,0 +1,555 @@
+module;
+
+#include <cassert>
+#include <vulkan/vulkan.h>
+#include <mo_yanxi/enum_operator_gen.hpp>
+#include "gch/small_vector.hpp"
+
+export module mo_yanxi.gui.renderer.frontend;
+
+import mo_yanxi.math.rect_ortho;
+import mo_yanxi.math.vector2;
+import mo_yanxi.math.matrix3;
+
+export import mo_yanxi.graphic.draw.instruction.general;
+
+import mo_yanxi.gui.alloc;
+import mo_yanxi.type_register;
+//TODO move this to other namespace
+import mo_yanxi.vk.util.uniform;
+
+import mo_yanxi.meta_programming;
+
+import std;
+
+namespace mo_yanxi::gui{
+
+struct scissor{
+	math::vec2 src{};
+	math::vec2 dst{};
+
+	//TODO margin is never used
+	float margin{};
+
+	constexpr friend bool operator==(const scissor& lhs, const scissor& rhs) noexcept = default;
+};
+
+struct scissor_raw{
+	math::frect rect{};
+	float margin{};
+
+	[[nodiscard]] scissor_raw intersection_with(const scissor_raw& other) const noexcept{
+		return {rect.intersection_with(other.rect), margin};
+	}
+
+	void uniform(const math::mat3& mat) noexcept{
+		if(rect.area() < 0.05f){
+			rect = {};
+			return;
+		}
+
+		auto src = rect.get_src();
+		auto dst = rect.get_end();
+		src *= mat;
+		dst *= mat;
+
+		rect = {tags::from_vertex, src, dst};
+	}
+
+	constexpr friend bool operator==(const scissor_raw& lhs, const scissor_raw& rhs) noexcept = default;
+
+	constexpr explicit(false) operator scissor() const noexcept{
+		return scissor{rect.get_src(), rect.get_end(), margin};
+	}
+};
+
+export
+struct layer_viewport{
+	struct transform_pair{
+		math::mat3 current;
+		math::mat3 accumul;
+	};
+
+	math::frect viewport{};
+	std::vector<scissor_raw> scissors{};
+
+	math::mat3 transform_to_root_screen{};
+	std::vector<transform_pair> element_local_transform{};
+
+	[[nodiscard]] layer_viewport() = default;
+
+	[[nodiscard]] layer_viewport(
+		const math::frect& viewport,
+		const scissor_raw& scissors,
+		std::nullptr_t allocator_, //TODO
+		const math::mat3& transform_to_root_screen)
+		:
+		viewport(viewport),
+		scissors({scissors}/*, alloc*/),
+		transform_to_root_screen(transform_to_root_screen),
+		element_local_transform({{math::mat3_idt, math::mat3_idt}}/*, alloc*/){
+	}
+
+	[[nodiscard]] scissor_raw top_scissor() const noexcept{
+		assert(!scissors.empty());
+		return scissors.back();
+	}
+
+	void pop_scissor() noexcept{
+		assert(scissors.size() > 1);
+		scissors.pop_back();
+	}
+
+	void push_scissor(const scissor_raw& scissor){
+		scissors.push_back(scissor.intersection_with(top_scissor()));
+	}
+
+	[[nodiscard]] math::mat3 get_element_to_root_screen() const noexcept{
+		assert(!element_local_transform.empty());
+		return transform_to_root_screen * element_local_transform.back().accumul;
+	}
+
+	void push_local_transform(const math::mat3& mat){
+		assert(!element_local_transform.empty());
+		auto& last = element_local_transform.back();
+		element_local_transform.push_back({mat, last.accumul * mat});
+	}
+
+	void pop_local_transform() noexcept{
+		assert(element_local_transform.size() > 1);
+		element_local_transform.pop_back();
+	}
+
+	void set_local_transform(const math::mat3& mat) noexcept{
+		assert(!element_local_transform.empty() && "cannot set empty transform");
+		auto& last = element_local_transform.back();
+		last.current = mat;
+		if(element_local_transform.size() > 1){
+			last.accumul = element_local_transform[element_local_transform.size() - 2].accumul * mat;
+		}else{
+			last.accumul = mat;
+		}
+
+	}
+};
+
+struct alignas(16) ubo_screen_info{
+	vk::padded_mat3 screen_to_uniform;
+};
+
+struct alignas(16) ubo_layer_info{
+	vk::padded_mat3 element_to_screen;
+	scissor scissor;
+
+	std::uint32_t cap[3];
+};
+
+export
+enum struct state_type{
+	blit,
+	mode,
+	reserved_count
+};
+
+export
+struct blit_config{
+	math::rect_ortho_trivial<std::uint32_t> blit_region;
+	std::uint32_t blit_index;
+};
+
+export
+enum struct draw_mode : std::uint16_t{
+	def,
+	def_msaa,
+	msdf,
+
+	COUNT_or_fallback,
+};
+
+export
+enum struct blending_type : std::uint16_t{
+	alpha,
+	add,
+	reverse,
+	lock_alpha,
+	SIZE,
+};
+
+export
+struct draw_mode_param{
+	draw_mode mode;
+	blending_type blending;
+};
+
+export
+enum struct primitive_draw_mode : std::uint32_t{
+	none,
+
+	draw_slide_line = 1 << 0,
+
+	target_background = 1 << 1,
+};
+
+BITMASK_OPS(export , primitive_draw_mode);
+
+export
+template <typename T>
+struct draw_state_config_deduce{};
+
+template <>
+struct draw_state_config_deduce<blit_config>{
+	static constexpr graphic::draw::instruction::state_change_config value{
+		.index = std::to_underlying(state_type::blit)
+	};
+};
+
+
+template <>
+struct draw_state_config_deduce<draw_mode_param>{
+	static constexpr graphic::draw::instruction::state_change_config value{
+		.index = std::to_underlying(state_type::mode)
+	};
+};
+
+template <typename T>
+concept draw_state_config_deduceable = requires{
+	requires std::same_as<std::remove_cvref_t<decltype(draw_state_config_deduce<T>::value)>, graphic::draw::instruction::state_change_config>;
+};
+
+template <typename T>
+constexpr inline graphic::draw::instruction::state_change_config draw_state_index_deduce_v = draw_state_config_deduce<T>::value;
+
+export
+using gui_reserved_user_data_tuple = std::tuple<ubo_screen_info, ubo_layer_info>;
+
+template <typename T>
+constexpr inline graphic::draw::instruction::user_data_indices reserved_data_index_of{tuple_index_v<T, gui_reserved_user_data_tuple>, 0};
+
+
+export
+struct renderer_frontend{
+private:
+	using user_table_type = graphic::draw::instruction::user_data_index_table<mr::vector<graphic::draw::instruction::user_data_identity_entry>>;
+	user_table_type table{};
+	mr::vector<std::byte> user_data_cache_{};
+	gch::small_vector<std::uint8_t, 32, mr::unvs_allocator<std::uint8_t>> changed_flags{};
+	gch::small_vector<std::uint32_t, 8, mr::unvs_allocator<std::uint32_t>> changed_user_data_indices{};
+
+	graphic::draw::instruction::batch_backend_interface batch_backend_interface_{};
+	math::frect region_{};
+
+
+	//screen space to uniform space viewport
+	mr::vector<layer_viewport> viewports{};
+	math::mat3 uniform_proj{};
+
+	void flush_user_data(){
+		using namespace graphic::draw;
+		if(changed_user_data_indices.empty())return;
+
+		for (std::uint32_t changed_user_data_index : changed_user_data_indices){
+			const auto& entry = table[changed_user_data_index];
+			const auto base = user_data_cache_.data() + entry.global_offset * 2;
+			const auto temp = base + entry.size;
+			if(std::memcmp(base, temp, entry.size)){
+				std::memcpy(base, temp, entry.size);
+
+				auto* next = batch_backend_interface_.acquire(entry.size + sizeof(instruction::instruction_head));
+				instruction::place_ubo_update_at(next, base, entry.size, instruction::user_data_indices{changed_user_data_index, entry.group_index});
+			}
+		}
+		std::memset(changed_flags.data(), 0, changed_flags.size());
+		changed_user_data_indices.clear();
+	}
+
+public:
+	[[nodiscard]] renderer_frontend() = default;
+
+	template <typename A>
+	[[nodiscard]] explicit renderer_frontend(
+		const graphic::draw::instruction::user_data_index_table<A>& user_data_table,
+		const graphic::draw::instruction::batch_backend_interface& batch_backend_interface)
+	: table(user_data_table, user_table_type::allocator_type{})
+	, user_data_cache_(table.required_capacity() * 2)
+	, changed_flags(table.size())
+	, batch_backend_interface_(batch_backend_interface){
+
+	}
+
+	[[nodiscard]] math::frect get_region() const noexcept{
+		return region_;
+	}
+
+	auto& top_viewport(this auto& self) noexcept{
+		assert(!self.viewports.empty());
+		return self.viewports.back();
+	}
+
+	template <typename Instr, typename ...Args>
+	void push(const Instr& instr, const Args& ...args) {
+		using namespace graphic::draw;
+		if constexpr (instruction::known_instruction<Instr>){
+			flush_user_data();
+
+			auto* next = batch_backend_interface_.acquire(instruction::get_instr_size<Instr, Args...>(args...));
+			instruction::place_instruction_at(next, instr, args...);
+		}else{
+			static_assert(sizeof...(Args) == 0, "User Data with args is prohibited currently");
+
+			const instruction::user_data_entry* entry;
+			std::uint32_t idx;
+			if constexpr (reserved_data_index_of<Instr>.global_index == std::tuple_size_v<gui_reserved_user_data_tuple>){
+				static constexpr type_identity_index tidx = unstable_type_identity_of<Instr>();
+				const auto* ientry = table[tidx];
+				idx = ientry - table.begin();
+				if(idx >= table.size()){
+					throw std::out_of_range("index out of range");
+				}
+
+				entry = std::addressof(ientry->entry);
+			}else{
+				static constexpr instruction::user_data_indices idcs = reserved_data_index_of<Instr>;
+				idx = idcs.global_index;
+				entry = std::addressof(table[idcs.global_index]);
+			}
+
+			std::memcpy(
+					user_data_cache_.data() + entry->global_offset * 2 + entry->size,
+					std::addressof(instr), entry->size);
+			if(!changed_flags[idx]){
+				changed_flags[idx] = true;
+				changed_user_data_indices.push_back(idx);
+			}
+
+		}
+	}
+
+	template <typename Instr>
+	void update_state(const Instr& instr, graphic::draw::instruction::state_change_config config) {
+		using namespace graphic::draw;
+		static_assert(!instruction::known_instruction<Instr>);
+
+		batch_backend_interface_.update_state(
+			config,
+			std::span{reinterpret_cast<const std::byte*>(std::addressof(instr)), sizeof(Instr)});
+	}
+
+	template <draw_state_config_deduceable Instr>
+	void update_state(const Instr& instr) {
+		this->update_state(instr, draw_state_index_deduce_v<Instr>);
+	}
+
+private:
+	[[nodiscard]] bool try_push(const std::byte* instr, const std::size_t instr_size) const{
+		assert(instr_size % graphic::draw::instruction::instr_required_align == 0);
+		auto ptr_to_batch = batch_backend_interface_.acquire(instr_size);
+		if(!ptr_to_batch)return false;
+		std::memcpy(ptr_to_batch, instr, instr_size);
+		return true;
+	}
+
+	[[nodiscard]] bool try_push(const std::span<const std::byte> raw_instr) const{
+		return try_push(raw_instr.data(), raw_instr.size());
+	}
+
+public:
+	bool push_same_instr(const std::span<const std::byte> raw_instr, const std::size_t instr_unit_size){
+		assert(raw_instr.size() % instr_unit_size == 0);
+
+		flush_user_data();
+
+		const std::byte* cur = raw_instr.data();
+		const std::byte* const sentinel = raw_instr.data() + raw_instr.size();
+		const std::byte* next = sentinel;
+
+		while(cur != sentinel){
+			while(true){
+				if(!try_push(std::span{cur, next})){
+					const auto sub = ((next - cur) / instr_unit_size) / 2 * instr_unit_size;
+					if(!sub)return false;
+					next -= sub;
+				}else{
+					auto dst_to_cur = next - cur;
+					auto dst_to_stl = sentinel - next;
+					cur = next;
+					next += std::min(dst_to_stl, dst_to_cur * 2);
+					break;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	void resize(const math::frect region){
+		if(region_ == region)return;
+		region_ = region;
+		init_projection();
+	}
+
+	void init_projection(){
+		viewports.clear();
+		viewports.push_back(layer_viewport{region_, {{region_}}, nullptr, math::mat3_idt});
+		uniform_proj = math::mat3{}.set_orthogonal(region_.get_src(), region_.extent());
+
+		push(ubo_screen_info{uniform_proj});
+		notify_viewport_changed();
+	}
+
+	void flush() const{
+		batch_backend_interface_.flush();
+	}
+
+	void consume() const{
+		batch_backend_interface_.consume_all();
+	}
+
+	void notify_viewport_changed() {
+		const auto& vp = top_viewport();
+		push(ubo_layer_info{vp.get_element_to_root_screen(), vp.top_scissor()});
+	}
+
+	void push_viewport(const math::frect viewport, scissor_raw scissor_raw){
+		assert(!viewports.empty());
+
+		const auto& last = viewports.back();
+
+		const auto trs = math::mat3{}.set_rect_transform(viewport.src, viewport.extent(), last.viewport.src, last.viewport.extent());
+		const auto scissor_intersection = scissor_raw.intersection_with(last.top_scissor()).intersection_with({viewport});
+
+		viewports.push_back(layer_viewport{viewport, {scissor_raw}, nullptr, last.get_element_to_root_screen() * trs});
+	}
+
+	void push_viewport(const math::frect viewport){
+		push_viewport(viewport, {viewport});
+	}
+
+	void pop_viewport() noexcept{
+		assert(viewports.size() > 1);
+		viewports.pop_back();
+	}
+
+	void push_scissor(const scissor_raw& scissor_in_screen_space){
+		top_viewport().push_scissor(scissor_in_screen_space);
+	}
+
+	void pop_scissor() noexcept {
+		top_viewport().pop_scissor();
+	}
+
+};
+
+template <typename D>
+struct guard_base{
+private:
+	friend D;
+	renderer_frontend* renderer_;
+
+public:
+	[[nodiscard]] explicit guard_base(renderer_frontend& renderer)
+		: renderer_(std::addressof(renderer)){
+	}
+
+	guard_base(const guard_base& other) = delete;
+
+	guard_base(guard_base&& other) noexcept
+		: renderer_{std::exchange(other.renderer_, {})}{
+	}
+
+	guard_base& operator=(const guard_base& other) = delete;
+
+	guard_base& operator=(guard_base&& other) noexcept{
+		if(this == &other) return *this;
+		if(renderer_){
+			static_cast<D*>(this)->pop();
+		}
+		renderer_ = std::exchange(other.renderer_, {});
+		return *this;
+	}
+
+	~guard_base(){
+		if(renderer_){
+			static_cast<D*>(this)->pop();
+		}
+	}
+};
+
+export
+struct viewport_guard : guard_base<viewport_guard>{
+private:
+	friend guard_base;
+
+	void pop() const{
+		renderer_->pop_viewport();
+		renderer_->notify_viewport_changed();
+	}
+
+public:
+	[[nodiscard]] viewport_guard(renderer_frontend& renderer, const math::frect viewport, const scissor_raw& scissor_raw) :
+	guard_base(renderer){
+		renderer.push_viewport(viewport, scissor_raw);
+		renderer.notify_viewport_changed();
+	}
+
+	[[nodiscard]] viewport_guard(renderer_frontend& renderer, const math::frect viewport) :
+	guard_base(renderer){
+		renderer.push_viewport(viewport);
+		renderer.notify_viewport_changed();
+	}
+};
+
+export
+struct scissor_guard : guard_base<scissor_guard>{
+private:
+	friend guard_base;
+
+	void pop() const{
+		renderer_->pop_scissor();
+		renderer_->notify_viewport_changed();
+	}
+
+public:
+	[[nodiscard]] scissor_guard(renderer_frontend& renderer, const scissor_raw& scissor_raw) :
+	guard_base(renderer){
+		renderer.push_scissor(scissor_raw);
+		renderer.notify_viewport_changed();
+	}
+
+};
+
+export
+struct transform_guard : guard_base<transform_guard>{
+private:
+	friend guard_base;
+
+	void pop() const{
+		renderer_->top_viewport().pop_local_transform();
+		renderer_->notify_viewport_changed();
+	}
+
+public:
+	[[nodiscard]] transform_guard(renderer_frontend& renderer, const math::mat3& transform) :
+	guard_base(renderer){
+		renderer.top_viewport().push_local_transform(transform);
+		renderer.notify_viewport_changed();
+	}
+
+};
+export
+struct mode_guard : guard_base<mode_guard>{
+private:
+	friend guard_base;
+
+	void pop() const{
+		renderer_->update_state(draw_mode_param{draw_mode::COUNT_or_fallback});
+	}
+
+public:
+	[[nodiscard]] mode_guard(renderer_frontend& renderer, const draw_mode_param& param) :
+	guard_base(renderer){
+		renderer.update_state(param);
+	}
+
+};
+
+}

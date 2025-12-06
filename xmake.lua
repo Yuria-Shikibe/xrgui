@@ -25,6 +25,7 @@ add_requires("msdfgen", {
 add_requires("freetype")
 add_requires("nanosvg")
 add_requires("clipper2")
+add_requires("mimalloc v2.2.4")
 
 target("xrgui")
     set_extension(".exe")
@@ -42,6 +43,7 @@ target("xrgui")
     add_includedirs("external/plf_hive")
     add_includedirs("external/small_vector/source/include")
     add_includedirs("external/stb")
+    add_includedirs("external/include")
 
     add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2")
     add_files("external/allocator2d/include/mo_yanxi/allocator2d.ixx")
