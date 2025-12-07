@@ -15,7 +15,7 @@ assets::resource_manager& resource_manager() noexcept{
 	return u.resource_manager;
 }
 
-void initialize_resource_manager(mr::arena_id_t arena_id){
+void initialize_assets_manager(mr::arena_id_t arena_id){
 	if(builtin_page_){
 		throw assets::duplicated_error{"GUI Resource Manager Already Initialized"};
 	}
@@ -23,7 +23,7 @@ void initialize_resource_manager(mr::arena_id_t arena_id){
 	builtin_page_ = std::addressof(u.resource_manager.create_page(assets::builtin::page_name));
 }
 
-bool terminate_resource_manager() noexcept{
+bool terminate_assets_manager() noexcept{
 	if(builtin_page_){
 		std::destroy_at(&u.resource_manager);
 		builtin_page_ = nullptr;

@@ -228,10 +228,10 @@ export
 [[nodiscard]] assets::resource_manager& resource_manager() noexcept;
 
 export
-void initialize_resource_manager(mr::arena_id_t arena_id);
+void initialize_assets_manager(mr::arena_id_t arena_id);
 
 export
-bool terminate_resource_manager() noexcept;
+bool terminate_assets_manager() noexcept;
 }
 
 namespace assets::builtin{

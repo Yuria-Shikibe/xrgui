@@ -6,7 +6,7 @@ module;
 
 #include "gch/small_vector.hpp"
 
-export module prototype.renderer.ui;
+export module mo_yanxi.backend.vulkan.renderer;
 
 export import mo_yanxi.gui.renderer.frontend;
 
@@ -19,15 +19,15 @@ import mo_yanxi.graphic.draw.instruction;
 
 import mo_yanxi.vk.util.uniform;
 import mo_yanxi.vk.util;
-import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
+import mo_yanxi.vk;
 
 import mo_yanxi.gui.alloc;
 
 import std;
 
-namespace mo_yanxi::gui{
-
+namespace mo_yanxi::backend::vulkan{
+using namespace gui;
 
 constexpr VkPipelineColorBlendAttachmentState get_blending(blending_type type) noexcept{
 	switch(type){
@@ -843,7 +843,7 @@ public:
 	}
 
 	[[nodiscard]] vk::image_handle get_base() const noexcept{
-		return attachments_[draw_attachment_create_info_.attachments.size()];
+		return get_blit_attachments().front();
 	}
 
 	[[nodiscard]] const math::mat3& get_screen_uniform_proj() const noexcept{

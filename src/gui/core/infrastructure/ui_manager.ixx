@@ -121,6 +121,10 @@ public:
 		if(focus) focus->input_key(k);
 	}
 
+	void input_inbound(bool is_inbound) const{
+		if(focus) focus->input_inbound(is_inbound);
+	}
+
 	void input_mouse(const input_handle::key_set k) const{
 		if(focus) focus->input_mouse(k);
 	}

@@ -291,6 +291,10 @@ private:
 		update_mouse_state(key);
 	}
 
+	void input_inbound(bool is_inbound){
+		inputs_.set_inbound(is_inbound);
+	}
+
 	void on_unicode_input(char32_t val) const;
 
 	void on_scroll(const math::vec2 scroll) const;
