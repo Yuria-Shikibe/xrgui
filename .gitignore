@@ -1,0 +1,4 @@
+/.xmake/
+/_ReSharper.Caches/
+/build/
+/cmake-build-debug/
