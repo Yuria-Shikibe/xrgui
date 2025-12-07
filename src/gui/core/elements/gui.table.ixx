@@ -6,7 +6,7 @@ export module mo_yanxi.gui.elem.table;
 
 export import mo_yanxi.gui.layout.policies;
 export import mo_yanxi.gui.layout.cell;
-export import mo_yanxi.gui.celled_group;
+export import mo_yanxi.gui.elem.celled_group;
 export import mo_yanxi.gui.util;
 import std;
 

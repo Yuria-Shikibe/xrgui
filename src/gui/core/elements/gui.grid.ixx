@@ -5,7 +5,7 @@ module;
 
 export module mo_yanxi.gui.elem.grid;
 
-import mo_yanxi.gui.celled_group;
+import mo_yanxi.gui.elem.celled_group;
 import mo_yanxi.math;
 import std;
 

@@ -2,7 +2,7 @@ module;
 
 #include <cassert>
 
-export module mo_yanxi.gui.infrastructure.group;
+export module mo_yanxi.gui.elem.group;
 
 import mo_yanxi.gui.infrastructure;
 import std;

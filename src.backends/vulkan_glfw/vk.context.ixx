@@ -371,14 +371,14 @@ public:
 			};
 	}
 
+	void record_post_command(bool no_fence_wait);
+
 private:
 	static void waitOnQueue(VkQueue queue){
 		if(const auto rst = vkQueueWaitIdle(queue)){
 			throw vk_error{rst, "Wait On Queue Failed"};
 		}
 	}
-
-	void record_post_command(bool no_fence_wait);
 
 	void init(const VkApplicationInfo& app_info){
 		auto exts = get_required_extensions();

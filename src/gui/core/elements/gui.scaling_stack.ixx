@@ -4,7 +4,7 @@
 
 export module mo_yanxi.gui.elem.manual_table;
 
-export import mo_yanxi.gui.celled_group;
+export import mo_yanxi.gui.elem.celled_group;
 import std;
 namespace mo_yanxi::gui{
 	using passive_cell_adaptor = cell_adaptor<layout::scaled_cell>;

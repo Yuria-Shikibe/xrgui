@@ -2,9 +2,9 @@ module;
 
 #include <cassert>
 
-export module mo_yanxi.gui.celled_group;
+export module mo_yanxi.gui.elem.celled_group;
 
-export import mo_yanxi.gui.infrastructure.group;
+export import mo_yanxi.gui.elem.group;
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.gui.layout.cell;
 import mo_yanxi.handle_wrapper;
