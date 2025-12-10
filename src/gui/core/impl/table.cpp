@@ -10,9 +10,7 @@ namespace mo_yanxi::gui{
 //TODO apply scaling
 table_layout_context::pre_layout_result table_layout_context::layout_masters(
 	const std::span<const cell_adaptor_type> cells, math::vec2 scaling) noexcept{
-	auto line_view = cells | std::views::chunk_by([](const cell_adaptor_type& current, const cell_adaptor_type&){
-		return !current.line_feed;
-	}) | std::views::enumerate;
+	auto line_view = cells | table_chunk_by | std::views::enumerate;
 	const auto [
 		pad_major_src, pad_major_dst,
 		pad_minor_src, pad_minor_dst
@@ -67,9 +65,7 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
                                                               math::vec2 valid_extent, pre_layout_result pre_result){
 	math::vec2 passive_usable_extent = valid_extent - pre_result.captured_extent;
 
-	auto line_view = cells | std::views::chunk_by([](const cell_adaptor_type& current, const cell_adaptor_type&){
-		return !current.line_feed;
-	}) | std::views::enumerate;
+	auto line_view = cells | table_chunk_by | std::views::enumerate;
 
 	const auto [extent_major, extent_minor] = get_extent_ptr(policy_);
 	const auto [major_target, minor_target] = get_vec_ptr<>(policy_);
@@ -213,8 +209,7 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 			}
 		}
 
-		passive_usable_extent.*minor_target -= line_minor_size;
-		assert(passive_usable_extent.*minor_target >= 0);
+		passive_usable_extent.*minor_target = std::fdim(passive_usable_extent.*minor_target, line_minor_size);
 		line_minor_size = 0.;
 
 		if(!head_minor.mastering()){
@@ -247,9 +242,7 @@ math::vec2 table_layout_context::allocate_cells(
 }
 
 void table_layout_context::place_cells(const std::span<cell_adaptor_type> cells, table& parent, math::frect region){
-	auto view = cells | std::views::chunk_by([](const cell_adaptor_type& current, const cell_adaptor_type&){
-		return !current.line_feed;
-	}) | std::views::enumerate;
+	auto view = cells | table_chunk_by | std::views::enumerate;
 
 	const auto [extent_major, extent_minor] = get_extent_ptr(policy_);
 	const auto [major_target, minor_target] = get_vec_ptr<>(policy_);

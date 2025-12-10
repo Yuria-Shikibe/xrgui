@@ -687,8 +687,11 @@ protected:
 			successor.entity->erase_predecessor_single_edge(successor.index, *this);
 		}
 		successors.clear();
-		parent->erase_successors_single_edge(0, *this);
-		parent = nullptr;
+		if(parent){
+			parent->erase_successors_single_edge(0, *this);
+			parent = nullptr;
+		}
+
 	}
 
 private:

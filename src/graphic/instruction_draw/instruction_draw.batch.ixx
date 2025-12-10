@@ -289,11 +289,12 @@ public:
 export
 struct batch;
 
+export
 struct working_group{
 	constexpr static std::array semaphore_stages{
 		VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		// VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		// VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 	};
 	friend batch;
 private:
@@ -311,6 +312,14 @@ private:
 	}
 
 public:
+	[[nodiscard]] VkSemaphoreSubmitInfo get_waiting_submit_info(std::size_t idx) const noexcept{
+		return VkSemaphoreSubmitInfo{
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+			.semaphore = semaphores[idx],
+			.value = get_current_signal_index(),
+			.stageMask = semaphore_stages[idx],
+		};
+	}
 	[[nodiscard]] std::uint64_t get_current_signal_index() const noexcept{
 		return current_signal_index;
 	}

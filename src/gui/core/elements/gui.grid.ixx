@@ -386,6 +386,8 @@ private:
 	bool need_relayout_head_{false};
 
 public:
+	//TODO entire align when there are spare space
+
 	[[nodiscard]] grid(scene& scene, elem* parent)
 	: universal_group<grid_cell>(scene, parent){
 
@@ -460,7 +462,7 @@ private:
 	}
 
 	void place_cells(){
-		if(cells_.empty())return;
+		if(cells_.empty() || grid_table_head_.empty())return;
 		const auto columns = extent_spec_.x.size();
 		const auto rows = extent_spec_.y.size();
 		if(columns == 0 || rows == 0)return;
@@ -612,7 +614,7 @@ private:
 
 
 		auto passives_usable = valid_extent.copy().fdim(mastering_size);
-		auto passive_unit = passives_usable / math::vec2{result.x.passive, result.y.passive};
+		auto passive_unit = (passives_usable / math::vec2{result.x.passive, result.y.passive}).nan_to0();
 
 		grid_table_head_.resize(table_head.size());
 

@@ -135,6 +135,7 @@ namespace mo_yanxi::gui::layout{
 	struct mastering_cell : basic_cell{
 		stated_extent stated_extent{};
 		align::spacing pad{};
+		bool end_line{};
 
 		/**
 		 * @brief indicate the cell to grow to the whole line space
@@ -152,10 +153,16 @@ namespace mo_yanxi::gui::layout{
 			return set_size({sz, sz});
 		}
 
+		constexpr mastering_cell& set_end_line(bool lf = true) noexcept {
+			end_line = lf;
+			return *this;
+		}
+
 		constexpr mastering_cell& set_pad(align::spacing pad) noexcept {
 			this->pad = pad;
 			return *this;
 		}
+
 		constexpr mastering_cell& set_pad(float pad) noexcept {
 			this->pad.set(pad);
 			return *this;

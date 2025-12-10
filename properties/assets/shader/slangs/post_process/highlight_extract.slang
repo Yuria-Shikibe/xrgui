@@ -9,7 +9,7 @@ restrict WTexture2D output;
 restrict readonly RWTexture2D input;
 
 //TODO
-static const float u_threshold = 1.f;
+static const float u_threshold = .4f;
 static const float u_smoothness = 1.f;
 
 [shader("compute")]

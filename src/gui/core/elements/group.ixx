@@ -224,6 +224,17 @@ protected:
 	void notify_layout_changed_on_element_change() override{
 		notify_isolated_layout_changed();
 	}
+
+	void layout_elem() override{
+		for(const auto& element : children_){
+			util::set_fill_parent(*element, content_extent());
+			element->try_layout();
+			element->update_abs_src(content_src_pos_abs());
+		}
+
+		elem::layout_elem();
+
+	}
 };
 
 }

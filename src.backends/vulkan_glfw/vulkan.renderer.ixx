@@ -563,7 +563,6 @@ public:
 	std::array<draw_state_update_handler, std::to_underlying(state_type::reserved_count)> state_handlers{
 		+[](void* host, std::span<const std::byte> payload){
 			auto& r = *static_cast<struct renderer*>(host);
-			r.batch_.consume_all();
 			r.process_blit_(payload);
 		},
 		+[](void* host, std::span<const std::byte> payload){
@@ -888,9 +887,13 @@ private:
 	void process_blit_(
 		std::span<const std::byte> data_span
 		){
+		batch_.consume_all();
+
 		const auto& cfg = *reinterpret_cast<const blit_config*>(data_span.data());
 
 		auto& cmd_unit = blitter_.blit(cfg.blit_region);
+
+
 		auto blit_semaphore_submit_info = cmd_unit.get_next_semaphore_submit_info(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 		auto cmd_submit_info = cmd_unit.get_command_submit_info();
 		std::array cmd_submits{cmd_submit_info, VkCommandBufferSubmitInfo{
@@ -906,6 +909,7 @@ private:
 		};
 
 		vkQueueSubmit2(queue_, 1, &info, nullptr);
+
 	}
 
 #pragma region Command

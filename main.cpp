@@ -18,6 +18,11 @@ import mo_yanxi.font;
 import mo_yanxi.font.manager;
 import mo_yanxi.font.typesetting;
 
+import mo_yanxi.graphic.compositor.manager;
+import mo_yanxi.graphic.compositor.post_process_pass;
+import mo_yanxi.graphic.compositor.bloom;
+
+import mo_yanxi.vk.cmd;
 import std;
 
 struct slide_line_config{
@@ -36,7 +41,7 @@ struct slide_line_config{
 };
 
 
-mo_yanxi::vk::sampler ui_sampler{};
+mo_yanxi::vk::sampler sampler_ui{};
 mo_yanxi::vk::shader_module ui_basic{};
 mo_yanxi::vk::shader_module ui_msdf{};
 mo_yanxi::vk::shader_module ui_blit{};
@@ -51,10 +56,10 @@ auto make_renderer(
 	ui_basic = {ctx.get_device(), shader_spv_path / "ui.draw.basic.spv"};
 	ui_msdf = {ctx.get_device(), shader_spv_path / "ui.draw.sdf.spv"};
 	ui_blit = {ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
-	ui_sampler = {ctx.get_device(), vk::preset::ui_texture_sampler};
+	sampler_ui = {ctx.get_device(), vk::preset::ui_texture_sampler};
 
 	ctx.add_dispose([] noexcept {
-		ui_sampler = {};
+		sampler_ui = {};
 		ui_basic = {};
 		ui_msdf = {};
 		ui_blit = {};
@@ -136,21 +141,21 @@ auto make_renderer(
 	return renderer{
 			{
 				.allocator = ctx.get_allocator(),
-				.sampler = ui_sampler,
+				.sampler = sampler_ui,
 				.queue = ctx.graphic_queue(),
 				.command_pool = ctx.get_graphic_command_pool(),
 				.draw_create_info = {draw_pipelines, draw_user_data_index_tables},
 				.blit_create_info = {blit_pipelines},
 				.draw_attachment_create_info = draw_attachment_create_info{
 					{
-						{{VK_FORMAT_R8G8B8A8_UNORM}},
+						{{VK_FORMAT_R16G16B16A16_SFLOAT}},
 						{{VK_FORMAT_R8G8B8A8_UNORM}},
 					},
 					// VK_SAMPLE_COUNT_4_BIT
 				},
 				.blit_attachment_create_info = blit_attachment_create_info{
 					{
-						{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_TRANSFER_SRC_BIT},
+						{VK_FORMAT_R16G16B16A16_SFLOAT},
 						{VK_FORMAT_R8G8B8A8_UNORM},
 
 					},
@@ -159,8 +164,13 @@ auto make_renderer(
 		};
 }
 
-void app_run(mo_yanxi::backend::vulkan::context& ctx){
+void app_run(
+	mo_yanxi::backend::vulkan::context& ctx,
+	mo_yanxi::graphic::compositor::manager& manager,
+	mo_yanxi::vk::command_buffer& cmd
+	){
 	using namespace mo_yanxi;
+
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 	while(!ctx.window().should_close()){
@@ -171,12 +181,24 @@ void app_run(mo_yanxi::backend::vulkan::context& ctx){
 		gui::global::manager.layout();
 
 		gui::global::manager.draw();
+		vk::cmd::submit_command(ctx.graphic_queue(), cmd);
 		ctx.flush();
 	}
 }
 
-int main(){
+void run_ui(){
+
 	using namespace mo_yanxi;
+	using namespace graphic;
+
+#ifndef NDEBUG
+	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
+		vk::enable_validation_layers = false;
+	}else{
+		vk::enable_validation_layers = true;
+	}
+#endif
+
 
 	font::initialize();
 	backend::glfw::initialize();
@@ -186,7 +208,7 @@ int main(){
 	{
 		constexpr VkApplicationInfo ApplicationInfo{
 			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-			.pApplicationName = "Hello Triangle",
+			.pApplicationName = "Hello Xrgui",
 			.applicationVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
 			.pEngineName = "No Engine",
 			.engineVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
@@ -194,10 +216,10 @@ int main(){
 		};
 
 		backend::vulkan::context ctx{ApplicationInfo};
-		mo_yanxi::vk::load_ext(ctx.get_instance());
+		vk::load_ext(ctx.get_instance());
 
 
-		graphic::image_atlas image_atlas{
+		image_atlas image_atlas{
 			ctx,
 			ctx.graphic_family(),
 			ctx.get_device().graphic_queue(1)
@@ -208,30 +230,89 @@ int main(){
 
 		{
 			const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
-
 			auto& SourceHanSansCN_regular = font_manager.register_face("srchs", (font_path / "SourceHanSansCN-Regular.otf").string());
-
 			font::typesetting::default_font_manager = &font_manager;
 			font::typesetting::default_font = &SourceHanSansCN_regular;
 		}
 
 		auto renderer = make_renderer(ctx);
 		auto& ui_root = gui::global::manager;
-
-		auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
+		const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
 		scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
-
-		// gui::assets::load_default_assets(assets::dir::svg);
 		gui::example::build_main_ui(ctx, scene_add_rst.scene, scene_add_rst.root_group);
-
 		scene_add_rst.scene.renderer().push(slide_line_config{});
 
+
+#pragma region SetupRenderGraph
+
+		compositor::manager manager{ctx.get_allocator()};
+		manager.resize(ctx.get_extent());
+		std::filesystem::path shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
+		vk::shader_module shader_filter_high_light = {ctx.get_device(), shader_spv_path / "post_process.highlight_extract.spv"};
+		vk::shader_module shader_hdr_to_sdr = {ctx.get_device(), shader_spv_path / "post_process.hdr_to_sdr.spv"};
+
+		vk::sampler sampler_blit{ctx.get_device(), vk::preset::default_blit_sampler};
+		vk::shader_module shader_bloom{ctx.get_device(), shader_spv_path / "bloom.comp.spv"};
+
+
+
+		auto& ui_input = manager.add_external_resource(compositor::resource_entity_external{
+			compositor::image_entity{.handle = renderer.get_base()}, compositor::resource_dependency{
+				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+			}
+		});
+
+		auto pass_filter_high_light = manager.add_pass<compositor::post_process_stage>(compositor::post_process_meta{
+			shader_filter_high_light, {
+				{{0}, compositor::no_slot, 0},
+				{{1}, 0, compositor::no_slot},
+			}
+		});
+
+		pass_filter_high_light.id()->add_input({{ui_input, 0}});
+
+
+		auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
+		pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
+		pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
+		pass_bloom.pass.add_local({1, compositor::no_slot});
+
+
+		compositor::post_process_meta meta{
+			shader_hdr_to_sdr, {
+					{{0}, compositor::no_slot, 0},
+					{{1}, 0, compositor::no_slot},
+				}
+		};
+		meta.sockets.at_out(0).get<compositor::image_requirement>().usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+
+		auto pass_h2s = manager.add_pass<compositor::post_process_stage>(meta);
+		pass_h2s.id()->add_dep({pass_bloom.id(), 0, 0});
+		pass_h2s.id()->add_local({compositor::no_slot, 0});
+
+		manager.sort();
+
+
+
+#pragma endregion
+
+		auto cmd = ctx.get_compute_command_pool().obtain();
 		ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
 			renderer.resize({event.size.width, event.size.height});
 			gui::global::manager.resize(math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
-			ctx.set_staging_image(
+
+			ui_input.resource = compositor::image_entity{.handle = renderer.get_base()};
+			manager.analysis_minimal_allocation();
+			manager.pass_post_init();
+			{
+				vk::scoped_recorder s{cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
+				manager.create_command(s);
+			}
+
+			context.set_staging_image(
 				{
-					.image = renderer.get_base().image,
+					.image = pass_h2s.pass.get_used_resources().get_out(0).as_image().handle.image,
 					.extent = event.size,
 					.clear = false,
 					.owner_queue_family = context.compute_family(),
@@ -245,11 +326,21 @@ int main(){
 		});
 		ctx.record_post_command(true);
 
-		app_run(ctx);
+		app_run(ctx, manager, cmd);
+
+		ctx.wait_on_device();
 	}
 
 	gui::global::terminate_assets_manager();
 	gui::global::terminate();
 	backend::glfw::terminate();
 	font::terminate();
+
+}
+
+int main(){
+	using namespace mo_yanxi;
+	using namespace graphic;
+
+	run_ui();
 }

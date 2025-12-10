@@ -23,7 +23,9 @@ export struct table_cell_adaptor : cell_adaptor<layout::mastering_cell>{
 
 	[[nodiscard]] table_cell_adaptor() = default;
 
-	bool line_feed{};
+	bool line_feed() const noexcept{
+		return cell.end_line;
+	}
 };
 
 //TODO allocators for temp vectors
@@ -36,6 +38,10 @@ public:
 };
 
 export struct table;
+
+constexpr auto table_chunk_by = std::views::chunk_by([](const table_cell_adaptor& current, const table_cell_adaptor&){
+	return !current.line_feed();
+});
 
 class table_layout_context{
 	using cell_adaptor_type = table_cell_adaptor;
@@ -209,7 +215,7 @@ struct table : universal_group<table_cell_adaptor::cell_type, table_cell_adaptor
 
 	table& end_line(){
 		if(cells_.empty()) return *this;
-		cells_.back().line_feed = true;
+		cells_.back().cell.end_line = true;
 		return *this;
 	}
 
@@ -218,9 +224,7 @@ struct table : universal_group<table_cell_adaptor::cell_type, table_cell_adaptor
 		if(grid.empty()) return;
 		auto end_idx = std::ranges::max(grid) - 1;
 
-		auto view = cells_ | std::views::chunk_by([](const adaptor_type& current, const adaptor_type&){
-			return !current.line_feed;
-		}) | std::views::enumerate;
+		auto view = cells_ | table_chunk_by | std::views::enumerate;
 
 		bool changed{};
 
