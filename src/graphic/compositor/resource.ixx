@@ -143,7 +143,6 @@ struct image_extent_spec{
 
 export
 struct image_requirement{
-	access_flag access{};
 
 	VkSampleCountFlags sample_count{};
 
@@ -203,7 +202,6 @@ struct image_requirement{
 		}
 
 		sample_count = std::max(sample_count, other.sample_count);
-		access |= other.access;
 
 		mip_level = get_optional_max(mip_level, other.mip_level);
 		if(other.format != VK_FORMAT_UNDEFINED && format != VK_FORMAT_UNDEFINED && other.format != format) return false;
@@ -230,7 +228,7 @@ struct image_requirement{
 		return get_expected_layout();
 	}
 
-	[[nodiscard]] VkAccessFlags2 get_image_access(const VkPipelineStageFlags2 pipelineStageFlags2) const noexcept{
+	[[nodiscard]] VkAccessFlags2 get_image_access(access_flag access, const VkPipelineStageFlags2 pipelineStageFlags2) const noexcept{
 		switch(pipelineStageFlags2){
 		case VK_PIPELINE_STAGE_2_TRANSFER_BIT : switch(access){
 			case access_flag::read : return VK_ACCESS_2_TRANSFER_READ_BIT;
@@ -239,7 +237,6 @@ struct image_requirement{
 					VK_ACCESS_2_TRANSFER_WRITE_BIT;
 			default : return VK_ACCESS_2_NONE;
 			}
-
 
 		default : if(is_sampled_image()) return VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 			switch(access){
@@ -325,12 +322,10 @@ struct buffer_size_spec{
 export
 struct buffer_requirement{
 	buffer_size_spec size;
-	access_flag access;
 	VkBufferUsageFlags usage{};
 
 	bool promote(const buffer_requirement& other) noexcept{
 		if(!size.try_spec_by(other.size)) return false;
-		access |= other.access;
 		usage |= other.usage;
 		return true;
 	}
@@ -344,7 +339,8 @@ struct buffer_requirement{
 export
 struct resource_requirement{
 	std::variant<std::monostate, image_requirement, buffer_requirement> req{};
-
+	access_flag access;
+	VkPipelineStageFlags2 last_used_stage{VK_PIPELINE_STAGE_2_NONE};
 
 	template <typename T>
 	auto get_if() const noexcept{
@@ -356,7 +352,17 @@ struct resource_requirement{
 		return std::get<T>(self.req);
 	}
 
+	VkAccessFlags2 get_access_flags(VkPipelineStageFlags2 append_stages) const noexcept{
+		return std::visit<VkAccessFlags2>(overload_def_noop{
+			std::in_place_type<VkAccessFlags2>,
+			[&, this](const image_requirement& l){
+				return l.get_image_access(access, append_stages | last_used_stage);
+			}
+		}, req);
+	}
+
 	[[nodiscard("false result should be addressed")]] bool promote(const resource_requirement& other) noexcept{
+		access |= other.access;
 		return std::visit<bool>(overload_def_noop{
 			std::in_place_type<bool>,
 			[](image_requirement& l, const image_requirement& r) {

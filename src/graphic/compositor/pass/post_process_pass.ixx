@@ -80,7 +80,7 @@ std::size_t get_buffer_size(
 	return size;
 }
 
-image_requirement extract_image_state(
+resource_requirement extract_image_state(
 	const spirv_cross::CompilerGLSL& complier,
 	const spirv_cross::Resource& resource){
 	access_flag decr{};
@@ -101,12 +101,16 @@ image_requirement extract_image_state(
 		throw std::runtime_error("Unsupported image dimension");
 	}
 
-	return image_requirement{
-			.access = decr,
+	return resource_requirement{
+		.req = image_requirement{
+
 			.sample_count = VkSampleCountFlags{type.image.sampled == 1},
 			.format = convertImageFormatToVkFormat(type.image.format),
 			.extent = image_extent_spec{0},
-		};
+		},
+		.access = decr,
+		.last_used_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	};
 }
 
 template <typename T>

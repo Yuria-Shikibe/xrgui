@@ -174,6 +174,7 @@ void app_run(
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 	while(!ctx.window().should_close()){
+
 		ctx.window().poll_events();
 		timer.fetch_time();
 
@@ -246,7 +247,6 @@ void run_ui(){
 #pragma region SetupRenderGraph
 
 		compositor::manager manager{ctx.get_allocator()};
-		manager.resize(ctx.get_extent());
 		std::filesystem::path shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
 		vk::shader_module shader_filter_high_light = {ctx.get_device(), shader_spv_path / "post_process.highlight_extract.spv"};
 		vk::shader_module shader_hdr_to_sdr = {ctx.get_device(), shader_spv_path / "post_process.hdr_to_sdr.spv"};
@@ -302,10 +302,14 @@ void run_ui(){
 			renderer.resize({event.size.width, event.size.height});
 			gui::global::manager.resize(math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
 
+			ctx.wait_on_device();
 			ui_input.resource = compositor::image_entity{.handle = renderer.get_base()};
-			manager.analysis_minimal_allocation();
-			manager.pass_post_init();
+			manager.resize(event.size, true);
+
+			ctx.wait_on_device();
+
 			{
+				cmd = ctx.get_compute_command_pool().obtain();
 				vk::scoped_recorder s{cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
 				manager.create_command(s);
 			}

@@ -9,6 +9,7 @@ export module mo_yanxi.graphic.compositor.manager;
 
 export import mo_yanxi.graphic.compositor.resource;
 export import mo_yanxi.math.vector2;
+import mo_yanxi.math;
 
 import mo_yanxi.utility;
 import mo_yanxi.vk;
@@ -633,6 +634,10 @@ private:
 
 struct manager{
 private:
+
+	vk::allocator allocator_major_{};
+	vk::allocator allocator_frags_{};
+
 	plf::hive<pass_data> passes_{};
 	std::vector<pass_data*> execute_sequence_{};
 
@@ -649,12 +654,24 @@ public:
 	[[nodiscard]] manager() = default;
 
 	[[nodiscard]] explicit manager(const vk::allocator_usage& allocator)
-		: gpu_mem_(allocator){
+	: allocator_major_(allocator.get_context_info(), VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT | VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT)
+	, allocator_frags_(allocator.get_context_info(), VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT | VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT)
+	, gpu_mem_{allocator_major_}
+	{
 	}
 
-	void resize(VkExtent2D ext){
+	void resize(VkExtent2D ext, bool update = true){
 		if(extent_.width == ext.width && extent_.height == ext.height) return;
 		extent_ = ext;
+
+		allocated_images_.clear();
+		allocated_buffers_.clear();
+
+		if(update){
+			analysis_minimal_allocation();
+			pass_post_init();
+		}
+
 	}
 
 	[[nodiscard]] VkExtent2D get_extent() const noexcept{
@@ -665,7 +682,7 @@ public:
 	add_result<T> add_pass(Args&&... args){
 		pass_data& pass = *passes_.insert(pass_data{
 				std::make_unique<T>(
-					mo_yanxi::front_redundant_construct<T>(gpu_mem_.get_allocator(), std::forward<Args>(args)...))
+					mo_yanxi::front_redundant_construct<T>(vk::allocator_usage{allocator_frags_}, std::forward<Args>(args)...))
 			});
 		return add_result<T>{pass, static_cast<T&>(*pass.meta)};
 	}
@@ -681,8 +698,8 @@ public:
 
 	void pass_post_init(){
 		for(auto& stage : passes_){
-			stage.meta->post_init(gpu_mem_.get_allocator(), {extent_.width, extent_.height});
-			stage.meta->reset_resources(gpu_mem_.get_allocator(), stage, {extent_.width, extent_.height});
+			stage.meta->post_init(allocator_frags_, {extent_.width, extent_.height});
+			stage.meta->reset_resources(allocator_frags_, stage, {extent_.width, extent_.height});
 		}
 	}
 
@@ -779,7 +796,7 @@ public:
 
 		// --- 第一步：创建虚句柄并获取内存需求 ---
 		// 注意：这里需要 context/device，假设你能在 manager 中访问到
-		VkDevice device = gpu_mem_.get_allocator().get_device();
+		VkDevice device = vk::allocator_usage{allocator_major_}.get_device();
 
 		auto process_requirement = [&](
 			const resource_requirement& req,
@@ -844,7 +861,9 @@ public:
 		// 按照大小降序排列，有助于减少碎片
 		std::ranges::sort(intervals, std::ranges::greater{}, &LiveInterval::required_size);
 
+		VkDeviceSize align = 1;
 		VkDeviceSize total_size = 0;
+
 		std::vector<LiveInterval*> assigned; // 已分配偏移的资源
 
 		for(auto& current : intervals){
@@ -863,47 +882,46 @@ public:
 					concurrent_ranges.push_back({
 							other->assigned_offset, other->assigned_offset + other->requirements.size
 						});
-				}
+					}
 			}
 
 			// 2. 对空间区间排序
 			std::ranges::sort(concurrent_ranges);
 
 			// 3. 在缝隙中寻找位置
-			for(const auto& range : concurrent_ranges){
+			for(const auto& [from, to] : concurrent_ranges){
 				// 对齐调整
-				VkDeviceSize needed_start = (candidate_offset + current.requirements.alignment - 1)
-					/ current.requirements.alignment * current.requirements.alignment;
+				VkDeviceSize needed_start =
+					math::div_ceil(candidate_offset, current.requirements.alignment) * current.requirements.alignment;
 
-				if(needed_start + current.requirements.size <= range.first){
+				if(needed_start + current.requirements.size <= from){
 					// 找到缝隙了（在这个 range 之前）
 					candidate_offset = needed_start;
 					goto found;
 				}
 				// 否则跳过这个 range
-				candidate_offset = std::max(candidate_offset, range.second);
+				candidate_offset = std::max(candidate_offset, to);
 			}
 
 			// 4. 如果所有缝隙都不行，放在最后
-			candidate_offset = (candidate_offset + current.requirements.alignment - 1)
-				/ current.requirements.alignment * current.requirements.alignment;
+			candidate_offset = math::div_ceil(candidate_offset, current.requirements.alignment) * current.requirements.alignment;
 
-		found:
-			current.assigned_offset = candidate_offset;
+			found:
+				current.assigned_offset = candidate_offset;
 			total_size = std::max(total_size, candidate_offset + current.requirements.size);
 			assigned.push_back(&current);
 		}
 
-		// --- 第四步：使用 VMA 进行实际分配 ---
-
 		// 1. 分配一大块物理显存
-		VkMemoryRequirements final_req = {};
-		final_req.size = total_size;
-		final_req.memoryTypeBits = common_mem_type_bits;
-		final_req.alignment = 1; // 具体的对齐已经在 offset 计算中处理了
+		const VkMemoryRequirements final_req{
+			.size = total_size,
+			.alignment = align,
+			.memoryTypeBits = common_mem_type_bits
+		};
 
-		VmaAllocationCreateInfo alloc_create_info = {};
-		alloc_create_info.usage = VMA_MEMORY_USAGE_GPU_ONLY; // 或 AUTO
+		constexpr VmaAllocationCreateInfo alloc_create_info{
+			.usage = VMA_MEMORY_USAGE_GPU_ONLY
+		};
 
 		gpu_mem_.allocate(final_req, alloc_create_info);
 
@@ -1048,25 +1066,16 @@ public:
 
 							// [关键修改]：检查资源状态
 							if(const auto itr = res_states.find(rentity.get_identity()); itr != res_states.end()){
-								// 如果之前用过（追踪到了状态），继承之前的布局
 								old_layout = itr->second.last_layout;
 								old_stage = itr->second.last_stage;
 								old_access = itr->second.last_access;
 							} else{
-								// [别名修正]：如果是第一次遇到这个实体（新别名），强制 UNDEFINED
-								// 即使物理内存里有数据，对于这个新 Image 句柄也是无效的
 								old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-								// [同步修正]：检查这块物理内存之前是否被其他别名使用过
-								// 如果有，我们需要一个 Execution Barrier 等待之前的操作完成
-								// 这里简化处理：假设上一帧的 fence 已经处理了帧间同步，
-								// 我们只关注帧内 Pass 间的内存复用。
-								// 如果不想追踪 Allocation，可以在每个 Pass 开始前加一个 Global Barrier (性能略低但安全)
 							}
 
 							//TODO
 							const auto next_stage = deduce_stage(new_layout);
-							const auto next_access = req.get_image_access(next_stage);
+							const auto next_access = cur_req.get_access_flags(next_stage);
 							const auto aspect = r.get_aspect();
 
 							dependency_gen.push(
@@ -1104,7 +1113,7 @@ public:
 						}
 					};
 
-				std::visit(overloader, rentity.overall_requirement.req, rentity.resource);
+				std::visit(overloader, cur_req.req, rentity.resource);
 			}
 
 			// --- 阶段 2: 处理输出资源的初始化 (Pre-Pass) ---
@@ -1122,11 +1131,6 @@ public:
 							VkPipelineStageFlags2 old_stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
 							VkAccessFlags2 old_access = VK_ACCESS_2_NONE;
 
-							// [别名修正] 输出通常意味着写入。
-							// 如果这是该 Pass 独占的别名 Image，它总是从 UNDEFINED 开始。
-							// 除非它是 "Load" 操作（inout slot），但那是上面 valid_in 处理的。
-							// 所以对于纯 output，我们倾向于认为它是 discard 内容的。
-
 							if(const auto itr = res_states.find(rentity.get_identity()); itr != res_states.end()){
 								old_layout = itr->second.last_layout;
 								old_stage = itr->second.last_stage;
@@ -1137,7 +1141,7 @@ public:
 
 							const auto new_layout = req.get_expected_layout();
 							const auto next_stage = deduce_stage(new_layout);
-							const auto next_access = req.get_image_access(next_stage);
+							const auto next_access = cur_req.get_access_flags(next_stage);
 							const auto aspect = r.get_aspect();
 
 							dependency_gen.push(
@@ -1170,44 +1174,13 @@ public:
 						[&](const buffer_requirement& r, const buffer_entity& entity){
 						}
 					};
-				std::visit(overloader, rentity.overall_requirement.req, rentity.resource);
+				std::visit(overloader, cur_req.req, rentity.resource);
 			}
-
-			// [应用 Barrier]
-			// 这一步解决了布局转换，但对于别名内存，可能还需要一个 Global Execution Barrier
-			// 如果你的 dependency_gen 足够智能，可以自动合并，否则建议在这里手动插入一个
-			// 针对内存复用的粗粒度 Barrier (防止 Write-After-Write 或 Write-After-Read Hazard)
-			// {
-			// 	// 简单的安全性策略：在 Pass 开始前，确保所有之前的 Compute/Graphics 任务完成
-			// 	// 仅当使用了内存别名时才必须，但为了安全可以全局加
-			// 	// 优化方案是只针对 dirty 的 allocation 加 barrier
-			// 	VkMemoryBarrier2 memory_barrier = {
-			// 			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-			// 			.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, // 过于保守，可优化
-			// 			.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
-			// 			.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-			// 			.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT
-			// 		};
-			// 	VkDependencyInfo dep_info = {
-			// 			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-			// 			.memoryBarrierCount = 1,
-			// 			.pMemoryBarriers = &memory_barrier
-			// 		};
-			// 	// 注意：这会序列化所有 Pass，这是最安全的别名迁移策略。
-			// 	// 如果想优化，需要分析 LiveInterval 的重叠情况。
-			// 	vkCmdPipelineBarrier2(buffer, &dep_info);
-			// }
 
 			if(!dependency_gen.empty()) dependency_gen.apply(buffer);
 
-			// --- 阶段 3: 记录 Pass 命令 ---
-			stage.meta->record_command(gpu_mem_.get_allocator(), stage, {extent_.width, extent_.height}, buffer);
+			stage.meta->record_command(allocator_frags_, stage, {extent_.width, extent_.height}, buffer);
 
-			// --- 阶段 4: 状态更新与最终转换 (Post-Pass) ---
-			// 恢复输出的最终格式（如果需要在 Pass 内完成 Transition）
-			// ... (保持你原有的逻辑，更新 res_states) ...
-
-			// [原有代码逻辑]
 			for(const auto& [out_idx, data_idx] : inout.get_valid_in()){
 				// ... 更新 state ...
 				const auto rentity = ref.inputs[out_idx];
@@ -1218,34 +1191,35 @@ public:
 						auto& state = res_states.at(rentity.get_identity());
 						//TODO update access check
 						state.last_layout = layout;
-						state.last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-						state.last_access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+						state.last_stage = cur_req.last_used_stage;
+						state.last_access = cur_req.get_access_flags(state.last_stage);
 					},
 					[&](const buffer_requirement&, const buffer_entity&){
 					}
 				};
 
-				std::visit(overloader, rentity.overall_requirement.req, rentity.resource);
+				std::visit(overloader, cur_req.req, rentity.resource);
 			}
 
 			for(const auto& [out_idx, data_idx] : inout.get_valid_out()){
 				// ... 同样更新 Outputs 的 state ...
 				const auto rentity = ref.outputs[out_idx];
 				auto& cur_req = inout.data[data_idx];
+
 				const overload_narrow overloader{
 					[&](const image_requirement& r, const image_entity& entity){
 						auto layout = cur_req.get<image_requirement>().get_expected_layout_on_output();
 						auto& state = res_states.at(rentity.get_identity());
 						//TODO update access check
 						state.last_layout = layout;
-						state.last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-						state.last_access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+						state.last_stage = cur_req.last_used_stage;
+						state.last_access = cur_req.get_access_flags(state.last_stage);
 					},
 					[&](const buffer_requirement&, const buffer_entity&){
 					}
 				};
 
-				std::visit(overloader, rentity.overall_requirement.req, rentity.resource);
+				std::visit(overloader, cur_req.req, rentity.resource);
 
 				// --- 阶段 5: 处理外部输出 (External Outputs) ---
 				// 保持你原有的逻辑，将资源转换回外部期望的 Layout
@@ -1273,7 +1247,6 @@ public:
 																  deduce_external_image_access(next_stage),
 																  VK_ACCESS_2_NONE);
 
-								const auto& req = cur_req.get<image_requirement>();
 								const auto aspect = r.get_aspect();
 
 								dependency_gen.push(

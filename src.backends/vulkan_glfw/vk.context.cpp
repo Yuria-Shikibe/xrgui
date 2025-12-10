@@ -68,7 +68,7 @@ void context::flush(){
 		frame.post_command,
 		current_syncs.fence,           // 提交完成后 signal 这个 fence
 		current_syncs.fetch_semaphore, // 等待 Acquire 完成
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT, // 等待阶段 (根据 post_command 实际操作调整，通常是 Transfer)
+		VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, // 等待阶段 (根据 post_command 实际操作调整，通常是 Transfer)
 		frame.flush_semaphore,         // 渲染/拷贝完成后 signal 这个 semaphore
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT // Signal 阶段
 	);
@@ -228,7 +228,7 @@ void context::record_post_command(bool no_fence_wait){
 			dependency_gen.push_post_write(
 				swap_chain_frame.image,
 				VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-				VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				0,
 				VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 				subresource_range
 			);
