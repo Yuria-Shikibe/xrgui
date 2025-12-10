@@ -252,7 +252,7 @@ void run_ui(){
 		vk::shader_module shader_hdr_to_sdr = {ctx.get_device(), shader_spv_path / "post_process.hdr_to_sdr.spv"};
 
 		vk::sampler sampler_blit{ctx.get_device(), vk::preset::default_blit_sampler};
-		vk::shader_module shader_bloom{ctx.get_device(), shader_spv_path / "bloom.comp.spv"};
+		vk::shader_module shader_bloom{ctx.get_device(), shader_spv_path / "post_process.bloom.spv"};
 
 
 

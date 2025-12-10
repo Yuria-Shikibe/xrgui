@@ -188,6 +188,7 @@ public:
 
 		for(const auto& pass : inout_map.get_connections()){
 			if(!std::ranges::contains(resources_, pass.binding)){
+				auto is = refl.compiler().get_combined_image_samplers();
 				throw std::invalid_argument("binding not match");
 			}
 		}

@@ -15,6 +15,12 @@ public float luma(float3 rgb)
     return dot(rgb, float3(0.299, 0.587, 0.114));
 }
 
+[ForceInline]
+public float luma(float4 val)
+{
+    return luma(val.rgb) * val.a;
+}
+
 namespace blend
 {
 
