@@ -520,11 +520,13 @@ public:
 		return descriptor_buffer_.get_allocator();
 	}
 
-	std::byte* acquire(std::size_t instr_self_size) {
+	FORCE_INLINE std::byte* acquire(std::size_t instr_self_size) {
 		// context().wait_on_device();
 		/*
 		 * TODO eagerly consume valids?
 		 */
+		static constexpr auto try_consume_count = std::max(1uz, working_group_count / 2);
+
 		const auto total_reserved_req = instr_self_size + sizeof(instruction_head);
 		if(total_reserved_req > instruction_buffer_.size()){
 			return nullptr;
@@ -532,17 +534,17 @@ public:
 
 		while(this->check_need_block<false>(instruction_idle_ptr_, total_reserved_req)){
 			if(is_all_idle()){
-				consume_n(working_group_count / 2);
+				consume_n(try_consume_count);
 			}
 			wait_one(false);
 		}
 
 		if(instruction_idle_ptr_ + total_reserved_req > instruction_buffer_.end()){
-			if(is_all_idle()) consume_n(working_group_count / 2);
+			if(is_all_idle()) consume_n(try_consume_count);
 			//Reverse buffer to head
 			while(this->check_need_block<true>(instruction_buffer_.begin(), total_reserved_req)){
 				if(is_all_idle()){
-					consume_n(working_group_count / 2);
+					consume_n(try_consume_count);
 				}
 				wait_one(false);
 				if(is_all_done()){
@@ -563,40 +565,50 @@ public:
 		return std::exchange(instruction_idle_ptr_, next);
 	}
 
-	template <instruction::known_instruction T, typename... Args>
-		requires (instruction::valid_consequent_argument<T, Args...>)
-	void push_instruction(const T& instr, const Args&... args){
-		instruction::place_instruction_at(this->acquire(instruction::get_instr_size<T, Args...>(args...)), instr, args...);
-
-	}
-
-	template <typename T>
-		requires (!instruction::known_instruction<T>)
-	void update_ubo(const T& instr){
-		instruction::place_ubo_update_at(this->acquire(instruction::get_instr_size<T>()), instr, ubo_table_.index_of<T>());
-	}
-
-	[[nodiscard]] bool is_all_done() const noexcept{
+	[[nodiscard]] FORCE_INLINE bool is_all_done() const noexcept{
 		return
 			instruction_idle_ptr_ == instruction_dspt_ptr_ &&
 			instruction_idle_ptr_ == instruction_pend_ptr_ &&
 			is_all_idle();
 	}
 
-	void consume_all(){
+	FORCE_INLINE void consume_all(){
 		consume_n(std::numeric_limits<std::uint32_t>::max());
 	}
 
-	bool consume_n(unsigned count){
+	FORCE_INLINE bool consume_n(unsigned count){
 		assert(count > 0);
 
 		unsigned initial_idle_group_index = current_idle_group_index_;
 		unsigned submitted_current{};
 		unsigned submitted_total{};
 		auto initial_idle = groups_.size() - get_pushed_group_count();
+
 		const auto need_wait = [&](const unsigned has_dispatched_count) -> bool{
 			return has_dispatched_count >= initial_idle;
 		};
+
+		// --- 优化开始：引入暂存容器以合并写入 ---
+		// 预估本次可能处理的最大数量，避免扩容
+		const auto reserve_count = std::min(count, static_cast<unsigned>(working_group_count));
+
+		// 暂存 Dispatch Info
+		gch::small_vector<dispatch_config, 32> pending_dispatch_configs;
+		pending_dispatch_configs.reserve(reserve_count);
+
+		// 暂存 Indirect Commands
+		gch::small_vector<VkDrawMeshTasksIndirectCommandEXT, 32> pending_indirect_cmds;
+		pending_indirect_cmds.reserve(reserve_count);
+
+		// 暂存指令 Buffer 的拷贝范围 (offset, size)
+		// 通常指令是连续的，但如果遇到 Buffer 回绕，可能会断开，所以用 vector 存储片段
+		struct copy_range { std::ptrdiff_t offset; std::size_t size; };
+		gch::small_vector<copy_range, 4> instr_copy_ranges;
+
+		// 记录当前批次涉及的 group index，用于最后统一计算写入位置
+		unsigned batch_start_group_index = current_idle_group_index_;
+		// --- 优化结束：容器初始化 ---
+
 		while(true){
 			auto& group = groups_[current_idle_group_index_];
 			const auto begin = instruction_pend_ptr_;
@@ -610,6 +622,7 @@ public:
 				temp_dispatch_info_.group_info,
 				group.image_view_history, last_primit_offset_,
 				last_vertex_offset_);
+
 			instruction_pend_ptr_ = dspcinfo.next;
 			last_primit_offset_ = dspcinfo.next_primit_offset;
 			last_vertex_offset_ = dspcinfo.next_vertex_offset;
@@ -620,15 +633,71 @@ public:
 
 
 			if(dspcinfo.img_requires_update){
-				//TODO better image update strategy ?
 				if(!dspcinfo.count){
 					group.image_view_history.clear();
 					continue;
 				}
 			}
 
+			// 定义 Helper: 批量提交暂存的数据到 GPU
+			auto flush_batch_writes = [&](){
+				if (pending_dispatch_configs.empty()) return;
+
+				const auto batch_size = pending_dispatch_configs.size();
+
+				// 1. 批量写入指令数据 (Instruction Buffer)
+				// 使用作用域确保 mapper 在写入后立即析构并 Flush
+				{
+					vk::buffer_mapper instr_mapper{instruction_gpu_buffer};
+					for(const auto& range : instr_copy_ranges){
+						// instruction_buffer_ 是 ring buffer，这里直接根据 range 拷贝对应的 CPU 内存到 GPU 内存
+						// 注意：源数据在 instruction_buffer_ (CPU cache)，这里需要计算由于 begin 指针推导出的源地址
+						// 但由于 range 记录的是 offset，我们直接用 base address + offset
+						instr_mapper.load(
+							instruction_buffer_.begin() + range.offset,
+							range.size,
+							range.offset
+						);
+					}
+				}
+				instr_copy_ranges.clear();
+
+				// 2. 批量写入 Dispatch Info Buffer
+				// 注意：这里涉及 Ring Buffer 的回绕写入，虽然 vector 是连续的，但目标显存索引可能回绕
+				{
+					vk::buffer_mapper dispatch_mapper{dispatch_info_buffer_};
+					for(size_t i = 0; i < batch_size; ++i){
+						unsigned target_group = (batch_start_group_index + i) % groups_.size();
+						dispatch_mapper.load(
+							pending_dispatch_configs[i],
+							sizeof(dispatch_config) * target_group
+						);
+					}
+				}
+				pending_dispatch_configs.clear();
+
+				// 3. 批量写入 Indirect Buffer
+				{
+					vk::buffer_mapper indirect_mapper{indirect_buffer};
+					for(size_t i = 0; i < batch_size; ++i){
+						unsigned target_group = (batch_start_group_index + i) % groups_.size();
+						indirect_mapper.load(
+							pending_indirect_cmds[i],
+							sizeof(VkDrawMeshTasksIndirectCommandEXT) * target_group
+						);
+					}
+				}
+				pending_indirect_cmds.clear();
+
+				// 更新下一次批次的起始索引
+				batch_start_group_index = current_idle_group_index_;
+			};
+
 			auto submit_cached = [&](){
 				if(submitted_current){
+					// 在提交 Semaphore 之前，必须确保所有数据已经 Flush 到 GPU
+					flush_batch_writes();
+
 					submit_current(submitted_current, initial_idle_group_index);
 					submitted_total += submitted_current;
 					submitted_current = 0;
@@ -639,62 +708,41 @@ public:
 				}
 				return false;
 			};
+
 			auto update_ubo = [&](std::span<const std::byte> data){
 				submit_cached();
 
 				const auto idx = next_head.payload.ubo.global_index;
-
 				const auto& entry = ubo_table_[idx];
 				assert(entry.size == data.size_bytes());
 				std::memcpy(ubo_cache_.data() + entry.global_offset, data.data(), data.size_bytes());
 				++ubo_timeline_mark_[idx * (1 + groups_.size())];
 			};
 
-            // [新增 helper] 尝试连续消耗后续的 uniform_update 指令
+			// [Inline Helper] 尝试消耗连续的 UBO 更新 (保持原逻辑)
             auto try_consume_consecutive_updates = [&]() {
                 while(true) {
-                    // 重新计算当前的 sentinel，因为 pend_ptr 已经前移
                     const auto current_sentinel = instruction_idle_ptr_ >= instruction_pend_ptr_
-                                                ? instruction_idle_ptr_
-                                                : instruction_buffer_.end();
-
-                    // 检查是否有足够的空间读取头部
+                                                ? instruction_idle_ptr_ : instruction_buffer_.end();
                     if(instruction_pend_ptr_ + sizeof(instruction_head) > current_sentinel) break;
-
-                    const auto& head = get_instr_head(instruction_pend_ptr_);
-
-                    // 如果类型不是 uniform_update，停止
+					const auto& head = get_instr_head(instruction_pend_ptr_);
                     if(head.type != instr_type::uniform_update) break;
-
-                    const auto instr_size = head.get_instr_byte_size();
-
-                    // 检查是否有足够的空间读取完整指令
+					const auto instr_size = head.get_instr_byte_size();
                     if(instruction_pend_ptr_ + instr_size > current_sentinel) break;
 
-                    // 获取 payload 并更新
-                    // 注意：这里需要根据新的 ptr 获取 payload，不能复用外部的 next_head
-                    // 假设 get_payload_data_span 可以直接作用于指针
-                    const auto payload = get_payload_data_span(instruction_pend_ptr_);
+					const auto payload = get_payload_data_span(instruction_pend_ptr_);
 
-                    // 这里的 update_ubo 需要稍微调整逻辑，因为它依赖了外部捕获的 `next_head` 中的 global_index。
-                    // 原始 update_ubo 捕获了 next_head (dspcinfo.next)。
-                    // 我们需要内联 update_ubo 的逻辑，或者让 update_ubo 接受 head 参数。
-                    // 为保持改动最小，这里直接内联 update_ubo 的核心逻辑：
-
-                    // --- 内联 UBO 更新逻辑开始 ---
-                    // 仍然需要调用 submit_cached 确保之前的绘制命令已提交
+					// UBO 更新必须触发此前的 DrawCall 提交
                     submit_cached();
 
                     const auto idx = head.payload.ubo.global_index;
                     const auto& entry = ubo_table_[idx];
                     assert(entry.size == payload.size_bytes());
                     std::memcpy(ubo_cache_.data() + entry.global_offset, payload.data(), payload.size_bytes());
-                    ++ubo_timeline_mark_[idx * (1 + groups_.size())];
-                    // --- 内联 UBO 更新逻辑结束 ---
+					++ubo_timeline_mark_[idx * (1 + groups_.size())];
 
-                    // 推进指针
                     instruction_pend_ptr_ += instr_size;
-                }
+				}
             };
 
 
@@ -708,15 +756,27 @@ public:
 
 				const bool is_img_history_changed = group.image_view_history.check_changed();
 				if(need_wait(submitted_current)){
-					//If requires wait and is not undispatched command
+					// 如果必须等待，先把手头暂存的数据 Flush 进去，防止等待过程中数据未就绪
+					flush_batch_writes();
 					wait_one(is_img_history_changed);
 				}
 
-				(void)vk::buffer_mapper{instruction_gpu_buffer}
-					.load_range(
-						std::span{begin + last_shared_instr_size_, dspcinfo.next + instr_shared_size},
-						instr_byte_off + last_shared_instr_size_);
-				//Resolved the condition when two drawcall share one instruction, so override the first instr img index is needed
+				// --- 优化：合并指令拷贝范围 ---
+				// 检查是否可以与上一个范围合并
+				if (!instr_copy_ranges.empty() &&
+					(instr_copy_ranges.back().offset + static_cast<std::ptrdiff_t>(instr_copy_ranges.back().size) == instr_byte_off + static_cast<std::ptrdiff_t>(last_shared_instr_size_)))
+				{
+					// 连续，延长上一个 range
+					instr_copy_ranges.back().size += (instr_size - last_shared_instr_size_);
+				} else {
+					// 不连续（或第一次），新增 range
+					instr_copy_ranges.push_back({
+						instr_byte_off + static_cast<std::ptrdiff_t>(last_shared_instr_size_),
+						static_cast<std::size_t>(instr_size - last_shared_instr_size_)
+					});
+				}
+				// ---------------------------
+
 				if(last_shared_instr_size_){
 					auto& generic = reinterpret_cast<primitive_generic&>(*(begin + sizeof(instruction_head)));
 					assert(generic.image.index < image_view_history::max_cache_count || generic.image.index == ~0U);
@@ -725,8 +785,8 @@ public:
 					temp_dispatch_info_.shared_instr_image_index_override = image_view_history::max_cache_count;
 				}
 				last_shared_instr_size_ = instr_shared_size;
+
 				if(instr_shared_size){
-					//Resume next image from index to pointer to view
 					auto& generic = reinterpret_cast<primitive_generic&>(*(dspcinfo.next + sizeof(instruction_head)));
 					generic.image.set_view(dspcinfo.current_img);
 				}
@@ -737,18 +797,23 @@ public:
 						           group.image_view_history.get(), current_idle_group_index_);
 				}
 
-				(void)vk::buffer_mapper{dispatch_info_buffer_}
-					.load(static_cast<const void*>(&temp_dispatch_info_),
-					      16 + sizeof(dispatch_group_info) * dspcinfo.count,
-					      sizeof(dispatch_config) * current_idle_group_index_);
+				// --- 优化：暂存数据而非直接写入 ---
+				// Dispatch Info
+				pending_dispatch_configs.push_back(temp_dispatch_info_);
+
+				// Descriptor Binding (Instruction Buffer Pointer)
+				// 注意：这里仍然直接写入 Descriptor，因为它可能需要立即生效或者它本身的开销较小
+				// 但为了极致优化，也可以 batch。不过 descriptor_mapper 内部通常直接 map，这里暂保持原样，
+				// 除非 set_storage_buffer 也是瓶颈。通常 buffer 偏移更新很快。
 				(void)vk::descriptor_mapper{descriptor_buffer_}
 					.set_storage_buffer(0,
 					                    instruction_gpu_buffer.get_address() + instr_byte_off,
 					                    instr_size,
 					                    current_idle_group_index_);
-				VkDrawMeshTasksIndirectCommandEXT indirectCommandExt{dspcinfo.count, 1, 1};
-				(void)vk::buffer_mapper{indirect_buffer}
-					.load(indirectCommandExt, sizeof(VkDrawMeshTasksIndirectCommandEXT) * current_idle_group_index_);
+
+				// Indirect Command
+				pending_indirect_cmds.push_back(VkDrawMeshTasksIndirectCommandEXT{dspcinfo.count, 1, 1});
+				// -------------------------------
 
 				++submitted_current;
 				++group.current_signal_index;
@@ -758,8 +823,6 @@ public:
 				case instr_type::uniform_update :{
 					update_ubo(next_payload);
 					instruction_pend_ptr_ += next_head.get_instr_byte_size();
-
-                    // [修改] 尝试继续消耗后续的 uniform_update
                     try_consume_consecutive_updates();
 					break;
 				}
@@ -780,10 +843,7 @@ public:
 				case instr_type::uniform_update :{
 					update_ubo(next_payload);
 					instruction_pend_ptr_ += next_head.get_instr_byte_size();
-
-                    // [修改] 尝试继续消耗后续的 uniform_update
                     try_consume_consecutive_updates();
-
 					patch_dspt_ptr();
 					break;
 				}
@@ -799,21 +859,67 @@ public:
 
 			bool hasNext = !dspcinfo.no_next(begin);
 
-
 			if(!hasNext || (submitted_total >= count)){
 				break;
 			}
 		}
 
 		if(submitted_current){
-			submit_current(submitted_current, initial_idle_group_index);
-			submitted_total += submitted_current;
+			// 最后提交前，确保清理掉所有暂存数据
+			// 注意：submit_current 内部现在会调用 submit_cached，而 submit_cached 已经被修改为调用 flush_batch_writes
+			// 但这里是循环外，我们需要显式调用一次 submit_current 逻辑
+			// 直接复用 submit_cached 逻辑即可，因为它封装了 flush + submit
+			auto submit_cached_final = [&](){
+					// 这里的逻辑必须和上面定义的 submit_cached 一致
+					if(submitted_current){
+						// FLUSH!
+						if (!pending_dispatch_configs.empty()) {
+							// 复制上面的 flush_batch_writes 逻辑，或者将其提取为函数
+							// 为简洁起见，这里假设 flush_batch_writes 可见
+							// 实际代码中建议把 flush_batch_writes 定义在最外层
+							{
+								vk::buffer_mapper instr_mapper{instruction_gpu_buffer};
+								for(const auto& range : instr_copy_ranges){
+									instr_mapper.load(
+										instruction_buffer_.begin() + range.offset,
+										range.size,
+										range.offset
+									);
+								}
+							}
+							instr_copy_ranges.clear();
+
+							{
+								vk::buffer_mapper dispatch_mapper{dispatch_info_buffer_};
+								for(size_t i = 0; i < pending_dispatch_configs.size(); ++i){
+									unsigned target_group = (batch_start_group_index + i) % groups_.size();
+									dispatch_mapper.load(pending_dispatch_configs[i], sizeof(dispatch_config) * target_group);
+								}
+							}
+							pending_dispatch_configs.clear();
+
+							{
+								vk::buffer_mapper indirect_mapper{indirect_buffer};
+								for(size_t i = 0; i < pending_indirect_cmds.size(); ++i){
+									unsigned target_group = (batch_start_group_index + i) % groups_.size();
+									indirect_mapper.load(pending_indirect_cmds[i], sizeof(VkDrawMeshTasksIndirectCommandEXT) * target_group);
+								}
+							}
+							pending_indirect_cmds.clear();
+							batch_start_group_index = current_idle_group_index_;
+						}
+
+						submit_current(submitted_current, initial_idle_group_index);
+						submitted_total += submitted_current;
+					}
+			};
+			submit_cached_final();
 		}
 
 		return submitted_total < count;
 	}
 
-	void wait_one(bool wait_on_frag = true){
+	FORCE_INLINE void wait_one(bool wait_on_frag = true){
 		if(const auto group = get_front_group()){
 			group->semaphores[wait_on_frag].wait(group->current_signal_index);
 
@@ -861,6 +967,17 @@ public:
 
 	void wait_all(bool wait_on_frag = true){
 		wait_n(get_pushed_group_count(), wait_on_frag);
+	}
+
+	void skip_wait(){
+		auto count = get_pushed_group_count();
+		if(!count) return;
+
+		for_each_submit([&](unsigned, const working_group& group){
+			instruction_dspt_ptr_ = group.span_end;
+		});
+
+		pop_n_group(count);
 	}
 
 	void record_command(
