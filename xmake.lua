@@ -25,6 +25,7 @@ add_requires("msdfgen", {
 })
 add_requires("freetype")
 add_requires("nanosvg")
+add_requires("spirv-reflect")
 add_requires("clipper2")
 add_requires("mimalloc v2.2.4")
 
@@ -32,11 +33,14 @@ add_requires("mimalloc v2.2.4")
 add_requires("glfw")
 
 function set_xrgui_deps()
+    mo_yanxi_vulkan_wrapper_use_vulkan()
+
     add_packages("msdfgen", {public = true})
     add_packages("freetype", {public = true})
     add_packages("mimalloc", {public = true})
     add_packages("nanosvg", {public = true})
     add_packages("clipper2", {public = true})
+    add_packages("spirv-reflect", {public = true})
 
 
     add_includedirs("external/VulkanMemoryAllocator/include", {public = true})
@@ -48,7 +52,7 @@ function set_xrgui_deps()
     add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2", {public = true})
     add_files("external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
 
-    add_deps("mo_yanxi.vulkan_wrapper")
+
     add_files("src/**.cpp")
     add_files("src/**.ixx", {public = true})
 end
@@ -100,4 +104,24 @@ task("gen_slang")
     end)
 
     set_menu{usage = "compile slang to spirv"}
+task_end()
+
+task("set_mode")
+set_menu({
+    usage = "xmake build_release",
+    description = "Switch to mode and generate cmake",
+    options = {
+        {'m', "mode", "kv", nil, "Select mode"}
+    }
+})
+
+on_run(function ()
+    import("core.base.task")
+    import("core.base.option")
+
+    os.exec("xmake f -m " .. option.get("mode"))
+    task.run("gen_ide_hintonly_cmake")
+
+    print("Switch To " .. option.get("mode"))
+end)
 task_end()

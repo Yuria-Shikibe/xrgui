@@ -328,6 +328,10 @@ public:
 		return blit_command_chunk.get_pool();
 	}
 
+	auto get_to_wait(VkPipelineStageFlags2 flags2) const noexcept{
+		return blit_command_chunk.get_waiting_semaphores(flags2);
+	}
+
 	[[nodiscard]] vk::descriptor_mapper get_mapper() {
 		return main_resource.get_mapper();
 	}
@@ -869,6 +873,9 @@ public:
 			};
 	}
 
+	auto get_blit_wait_semaphores(VkPipelineStageFlags2 flags2) const{
+		return blitter_.get_to_wait(flags2);
+	}
 private:
 	void process_draw_mode_(std::span<const std::byte> payload){
 		//TODO lazy submit
@@ -888,20 +895,28 @@ private:
 		std::span<const std::byte> data_span
 		){
 		batch_.consume_all();
+		batch_.wait_all();
 
 		const auto& cfg = *reinterpret_cast<const blit_config*>(data_span.data());
 
 		auto& cmd_unit = blitter_.blit(cfg.blit_region);
-
-
+		//
 		auto blit_semaphore_submit_info = cmd_unit.get_next_semaphore_submit_info(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 		auto cmd_submit_info = cmd_unit.get_command_submit_info();
+		// std::vector<VkSemaphoreSubmitInfo> submit_infos;
+		// submit_infos.reserve(batch_.work_group_count());
+		// batch_.for_each_submit([&](unsigned, const graphic::draw::instruction::working_group& working_group){
+		// 	submit_infos.push_back(working_group.get_waiting_submit_info(1));
+		// });
+
 		std::array cmd_submits{cmd_submit_info, VkCommandBufferSubmitInfo{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
 			.commandBuffer = attachments_multisamples_clean_cmd_
 		}};
 		const VkSubmitInfo2 info{
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+			// .waitSemaphoreInfoCount = static_cast<std::uint32_t>(submit_infos.size()),
+			// .pWaitSemaphoreInfos = submit_infos.data(),
 			.commandBufferInfoCount = static_cast<std::uint32_t>(1 + draw_attachment_create_info_.enables_multisample()),
 			.pCommandBufferInfos = cmd_submits.data(),
 			.signalSemaphoreInfoCount = 1,
@@ -910,6 +925,7 @@ private:
 
 		vkQueueSubmit2(queue_, 1, &info, nullptr);
 
+		// batch_.skip_wait();
 	}
 
 #pragma region Command

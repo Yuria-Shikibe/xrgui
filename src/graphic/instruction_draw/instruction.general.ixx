@@ -66,23 +66,17 @@ public:
 		return std::assume_aligned<align>(src);
 	}
 
+	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::byte* data() const noexcept{
+		return std::assume_aligned<align>(src);
+	}
+
 	void clear() const noexcept{
 		std::memset(begin(), 0, size());
 	}
 
-	//
-	// [[nodiscard]] FORCE_INLINE CONST_FN constexpr std::byte* begin() noexcept{
-	// 	return std::assume_aligned<align>(src);
-	// }
-
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::byte* end() const noexcept{
 		return std::assume_aligned<align>(dst);
 	}
-
-	//
-	// [[nodiscard]] FORCE_INLINE CONST_FN constexpr std::byte* end() noexcept{
-	// 	return std::assume_aligned<align>(dst);
-	// }
 
 	instruction_buffer(const instruction_buffer& other)
 		: instruction_buffer(other.size()){
@@ -109,6 +103,24 @@ public:
 		dst = std::exchange(other.dst, {});
 		return *this;
 	}
+
+	template <bool noCheck = false>
+	void resize(const std::size_t new_size){
+		if constexpr (!noCheck){
+			if(size() == new_size){
+				return;
+			}
+		}
+
+
+		const auto p = ::operator new(new_size, std::align_val_t{align});
+		auto* next = new(p) std::byte[new_size]{};
+		std::memcpy(next, src, size());
+		::operator delete(src, size(), std::align_val_t{align});
+		src = next;
+		dst = src + new_size;
+	}
+
 };
 
 
@@ -141,6 +153,16 @@ template <typename T>
 }
 
 export
+template <typename T>
+[[nodiscard]] T* start_lifetime_as(void* p) noexcept{
+	const auto mp = p;
+	const auto bytes = new(mp) std::byte[sizeof(T)];
+	const auto ptr = reinterpret_cast<T*>(bytes);
+	(void)*ptr;
+	return ptr;
+}
+
+export
 struct user_data_indices{
 	std::uint32_t global_index;
 	std::uint32_t group_index;
@@ -148,6 +170,11 @@ struct user_data_indices{
 
 export
 struct state_change_config{
+	std::uint32_t index;
+};
+
+export
+struct gpu_vertex_data_advance_data{
 	std::uint32_t index;
 };
 
@@ -160,7 +187,7 @@ union dispatch_info_payload{
 	T draw;
 
 	user_data_indices ubo;
-	state_change_config state;
+	gpu_vertex_data_advance_data marching_data;
 };
 
 export
@@ -257,6 +284,7 @@ public:
 	void update_state(state_change_config index, std::span<const std::byte> payload) const{
 		state_handle_table[index.index](host, payload);
 	}
+
 };
 
 
@@ -275,8 +303,9 @@ static_assert(sizeof(image_handle_t) == 8)
 
 //TODO support user defined size?
 export
+template <std::size_t CacheCount = 4>
 struct image_view_history{
-	static constexpr std::size_t max_cache_count = 4;
+	static constexpr std::size_t max_cache_count = (CacheCount + 3) / 4 * 4;
 	static_assert(max_cache_count % 4 == 0);
 	static_assert(sizeof(void*) == sizeof(std::uint64_t));
 	using handle_t = image_handle_t;
@@ -304,23 +333,25 @@ public:
 	[[nodiscard]] FORCE_INLINE /*constexpr*/ std::uint32_t try_push(handle_t image) noexcept{
 		if(!image) return std::numeric_limits<std::uint32_t>::max(); //directly vec4(1)
 		if(image == latest) return latest_index;
-		//
-		// for(std::size_t i = 0; i < maximum_images; ++i){
-		// 	auto& cur = images[i];
-		// 	if(image == cur){
-		// 		latest = image;
-		// 		latest_index = i;
-		// 		return i;
-		// 	}
-		//
-		// 	if(cur == nullptr){
-		// 		latest = cur = image;
-		// 		latest_index = i;
-		// 		count = i + 1;
-		// 		changed = true;
-		// 		return i;
-		// 	}
-		// }
+
+#ifndef __AVX2__
+		for(std::size_t i = 0; i < images.size(); ++i){
+			auto& cur = images[i];
+			if(image == cur){
+				latest = image;
+				latest_index = i;
+				return i;
+			}
+
+			if(cur == nullptr){
+				latest = cur = image;
+				latest_index = i;
+				count = i + 1;
+				changed = true;
+				return i;
+			}
+		}
+#else
 
 		const __m256i target = _mm256_set1_epi64x(std::bit_cast<std::int64_t>(image));
 		const __m256i zero = _mm256_setzero_si256();
@@ -347,8 +378,158 @@ public:
 				return idx;
 			}
 		}
+#endif
 
 		return max_cache_count;
+	}
+};
+
+
+template <typename T, std::size_t Alignment = alignof(T)>
+class aligned_allocator {
+public:
+	using value_type = T;
+	using size_type = std::size_t;
+	using difference_type = std::ptrdiff_t;
+	using propagate_on_container_move_assignment = std::true_type;
+	using is_always_equal = std::true_type;
+
+	static_assert(std::has_single_bit(Alignment), "Alignment must be a power of 2");
+	static_assert(Alignment >= alignof(T), "Alignment must be at least alignof(T)");
+
+	constexpr aligned_allocator() noexcept = default;
+	constexpr aligned_allocator(const aligned_allocator&) noexcept = default;
+
+	template <typename U>
+	constexpr aligned_allocator(const aligned_allocator<U, Alignment>&) noexcept {}
+
+	template <typename U>
+	struct rebind {
+		using other = aligned_allocator<U, Alignment>;
+	};
+
+	[[nodiscard]] static T* allocate(std::size_t n) {
+		if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+			throw std::bad_alloc();
+		}
+
+		const std::size_t bytes = n * sizeof(T);
+		void* p = ::operator new(bytes, std::align_val_t{Alignment});
+		return static_cast<T*>(p);
+	}
+
+	static void deallocate(T* p, std::size_t n) noexcept {
+		::operator delete(p, static_cast<std::align_val_t>(Alignment));
+	}
+
+	friend bool operator==(const aligned_allocator&, const aligned_allocator&) { return true; }
+	friend bool operator!=(const aligned_allocator&, const aligned_allocator&) { return false; }
+};
+
+export
+struct image_view_history_dynamic{
+	static_assert(sizeof(void*) == sizeof(std::uint64_t));
+	using handle_t = image_handle_t;
+
+private:
+	std::vector<handle_t, aligned_allocator<handle_t, 32>> images{};
+	handle_t latest{};
+	std::uint32_t latest_index{};
+	std::uint32_t count_{};
+	bool changed{};
+
+public:
+	[[nodiscard]] image_view_history_dynamic() = default;
+
+	[[nodiscard]] image_view_history_dynamic(std::uint32_t capacity){
+		set_capacity(capacity);
+	}
+
+	void set_capacity(std::uint32_t new_capacity){
+		images.resize((new_capacity + 3) / 4 * 4);
+	}
+
+	void extend(handle_t handle){
+		auto lastSz = images.size();
+		images.resize(images.size() + 4);
+		images[lastSz] = handle;
+	}
+
+	bool check_changed() noexcept{
+		return std::exchange(changed, false);
+	}
+
+	auto size() const noexcept{
+		return images.size();
+	}
+
+	FORCE_INLINE void clear(this image_view_history_dynamic& self) noexcept{
+		self = {};
+	}
+
+	FORCE_INLINE void reset() noexcept{
+		images.clear();
+		latest = nullptr;
+		latest_index = 0;
+		count_ = 0;
+		changed = false;
+	}
+
+	[[nodiscard]] FORCE_INLINE std::span<const handle_t> get() const noexcept{
+		return {images.data(), count_};
+	}
+
+	[[nodiscard]] FORCE_INLINE /*constexpr*/ std::uint32_t try_push(handle_t image) noexcept{
+		if(!image) return std::numeric_limits<std::uint32_t>::max(); //directly vec4(1)
+		if(image == latest) return latest_index;
+
+#ifndef __AVX2__
+		for(std::size_t i = 0; i < images.size(); ++i){
+			auto& cur = images[i];
+			if(image == cur){
+				latest = image;
+				latest_index = i;
+				return i;
+			}
+
+			if(cur == nullptr){
+				latest = cur = image;
+				latest_index = i;
+				count_ = i + 1;
+				changed = true;
+				return i;
+			}
+		}
+#else
+
+		const __m256i target = _mm256_set1_epi64x(std::bit_cast<std::int64_t>(image));
+		const __m256i zero = _mm256_setzero_si256();
+
+		for(std::uint32_t group_idx = 0; group_idx != images.size(); group_idx += 4){
+			const auto group = _mm256_load_si256(reinterpret_cast<const __m256i*>(images.data() + group_idx));
+
+			const auto eq_mask = _mm256_cmpeq_epi64(group, target);
+			if(const auto eq_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(eq_mask))){
+				const auto idx = group_idx + /*local offset*/std::countr_zero(eq_bits) / 8;
+				latest = image;
+				latest_index = idx;
+				return idx;
+			}
+
+			const auto null_mask = _mm256_cmpeq_epi64(group, zero);
+			if(const auto null_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(null_mask))){
+				const auto idx = group_idx + /*local offset*/std::countr_zero(null_bits) / 8;
+				images[idx] = image;
+				latest = image;
+				latest_index = idx;
+				count_ = idx + 1;
+				changed = true;
+				return idx;
+			}
+		}
+#endif
+
+		return images.size();
 	}
 };
 
@@ -589,13 +770,13 @@ export
 }
 
 export
-FORCE_INLINE inline image_set_result set_image_index(void* instruction, image_view_history& cache) noexcept{
+FORCE_INLINE inline image_set_result set_image_index(void* instruction, image_view_history<>& cache) noexcept{
 	auto& generic = *static_cast<primitive_generic*>(instruction);
 
 	const auto view = generic.image.get_image_view();
 	assert(std::bit_cast<std::uintptr_t>(view) != 0x00000000'ffffffffULL);
 	const auto idx = cache.try_push(view);
-	if(idx == image_view_history::max_cache_count) return image_set_result{view, false};
+	if(idx == image_view_history<>::max_cache_count) return image_set_result{view, false};
 	generic.image.set_index(idx);
 	return image_set_result{view, true};
 }
@@ -606,6 +787,8 @@ struct user_data_entry{
 	std::uint32_t local_offset;
 	std::uint32_t global_offset;
 	std::uint32_t group_index;
+
+	bool is_vertex_only;
 
 	explicit operator bool() const noexcept{
 		return size != 0;
@@ -668,7 +851,10 @@ private:
 					.size = static_cast<std::uint32_t>(sizeof(Ty)),
 					.local_offset = static_cast<std::uint32_t>(required_capacity_ - current_base_size),
 					.global_offset = static_cast<std::uint32_t>(required_capacity_),
-					.group_index = I
+					.group_index = I,
+					.is_vertex_only = requires{
+						typename Ty::vertex_only;
+					}
 				}
 			});
 

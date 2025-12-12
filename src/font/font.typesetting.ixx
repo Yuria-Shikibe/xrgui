@@ -602,6 +602,11 @@ private:
 	layout_policy policy_{};
 
 public:
+	std::size_t glyph_size() const noexcept{
+		if(elements.empty()) return 0;
+		return elements.back().glyphs.back().layout_pos.index;
+	}
+
 	void clear(){
 		elements.clear();
 		captured_size = {};
