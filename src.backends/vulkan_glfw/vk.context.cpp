@@ -39,6 +39,8 @@ void context::flush(){
 	auto& current_syncs = ++sync_arr;
 	std::uint32_t imageIndex;
 
+	current_syncs.fence.wait_and_reset();
+
 	const VkAcquireNextImageInfoKHR acquire_info{
 			.sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
 			.pNext = nullptr,
@@ -60,8 +62,6 @@ void context::flush(){
 	}
 
 	const auto& frame = swap_chain_frames[imageIndex];
-
-	current_syncs.fence.wait_and_reset();
 
 	cmd::submit_command(
 		device.primary_graphics_queue(),

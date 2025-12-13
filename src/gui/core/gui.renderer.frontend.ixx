@@ -243,25 +243,6 @@ private:
 	mr::vector<layer_viewport> viewports{};
 	math::mat3 uniform_proj{};
 
-	void flush_user_data(){
-		using namespace graphic::draw;
-		if(changed_user_data_indices.empty())return;
-
-		for (std::uint32_t changed_user_data_index : changed_user_data_indices){
-			const auto& entry = table[changed_user_data_index];
-			const auto base = user_data_cache_.data() + entry.global_offset * 2;
-			const auto temp = base + entry.size;
-			if(std::memcmp(base, temp, entry.size)){
-				std::memcpy(base, temp, entry.size);
-
-				auto* next = batch_backend_interface_.acquire(entry.size + sizeof(instruction::instruction_head));
-				instruction::place_ubo_update_at(next, base, entry.size, instruction::user_data_indices{changed_user_data_index, entry.group_index});
-			}
-		}
-		std::memset(changed_flags.data(), 0, changed_flags.size());
-		changed_user_data_indices.clear();
-	}
-
 public:
 	[[nodiscard]] renderer_frontend() = default;
 
@@ -288,39 +269,23 @@ public:
 	template <typename Instr, typename ...Args>
 	void push(const Instr& instr, const Args& ...args) {
 		using namespace graphic::draw;
-		if constexpr (instruction::known_instruction<Instr>){
-			flush_user_data();
+		const auto instr_size = instruction::get_instr_size<Instr, Args...>(args...);
 
-			auto* next = batch_backend_interface_.acquire(instruction::get_instr_size<Instr, Args...>(args...));
-			instruction::place_instruction_at(next, instr, args...);
+		std::byte buffer[512];
+
+		if constexpr (instruction::known_instruction<Instr>){
+			instruction::place_instruction_at(buffer, instr, args...);
+			batch_backend_interface_.push(std::span<const std::byte>{+buffer, instr_size});
 		}else{
 			static_assert(sizeof...(Args) == 0, "User Data with args is prohibited currently");
-
-			const instruction::user_data_entry* entry;
-			std::uint32_t idx;
-			if constexpr (reserved_data_index_of<Instr>.global_index == std::tuple_size_v<gui_reserved_user_data_tuple>){
-				static constexpr type_identity_index tidx = unstable_type_identity_of<Instr>();
-				const auto* ientry = table[tidx];
-				idx = ientry - table.begin();
-				if(idx >= table.size()){
-					throw std::out_of_range("index out of range");
-				}
-
-				entry = std::addressof(ientry->entry);
-			}else{
-				static constexpr instruction::user_data_indices idcs = reserved_data_index_of<Instr>;
-				idx = idcs.global_index;
-				entry = std::addressof(table[idcs.global_index]);
+			static constexpr type_identity_index tidx = unstable_type_identity_of<Instr>();
+			const auto* ientry = table[tidx];
+			const auto idx = ientry - table.begin();
+			if(idx >= table.size()){
+				throw std::out_of_range("index out of range");
 			}
-
-			std::memcpy(
-					user_data_cache_.data() + entry->global_offset * 2 + entry->size,
-					std::addressof(instr), entry->size);
-			if(!changed_flags[idx]){
-				changed_flags[idx] = true;
-				changed_user_data_indices.push_back(idx);
-			}
-
+			instruction::place_ubo_update_at(buffer, instr, instruction::user_data_indices{static_cast<std::uint32_t>(idx), 0});
+			batch_backend_interface_.push(std::span<const std::byte>{+buffer, instr_size});
 		}
 	}
 
@@ -340,45 +305,44 @@ public:
 	}
 
 private:
-	[[nodiscard]] bool try_push(const std::byte* instr, const std::size_t instr_size) const{
-		assert(instr_size % graphic::draw::instruction::instr_required_align == 0);
-		auto ptr_to_batch = batch_backend_interface_.acquire(instr_size);
-		if(!ptr_to_batch)return false;
-		std::memcpy(ptr_to_batch, instr, instr_size);
-		return true;
-	}
-
-	[[nodiscard]] bool try_push(const std::span<const std::byte> raw_instr) const{
-		return try_push(raw_instr.data(), raw_instr.size());
-	}
+	// [[nodiscard]] bool try_push(const std::byte* instr, const std::size_t instr_size) const{
+	// 	assert(instr_size % graphic::draw::instruction::instr_required_align == 0);
+	// 	auto ptr_to_batch = batch_backend_interface_.acquire(instr_size);
+	// 	if(!ptr_to_batch)return false;
+	// 	std::memcpy(ptr_to_batch, instr, instr_size);
+	// 	return true;
+	// }
+	//
+	// [[nodiscard]] bool try_push(const std::span<const std::byte> raw_instr) const{
+	// 	return try_push(raw_instr.data(), raw_instr.size());
+	// }
 
 public:
 	bool push_same_instr(const std::span<const std::byte> raw_instr, const std::size_t instr_unit_size){
-		assert(raw_instr.size() % instr_unit_size == 0);
-
-		flush_user_data();
-
-		const std::byte* cur = raw_instr.data();
-		const std::byte* const sentinel = raw_instr.data() + raw_instr.size();
-		const std::byte* next = sentinel;
-
-		while(cur != sentinel){
-			while(true){
-				if(!try_push(std::span{cur, next})){
-					const auto sub = ((next - cur) / instr_unit_size) / 2 * instr_unit_size;
-					if(!sub)return false;
-					next -= sub;
-				}else{
-					auto dst_to_cur = next - cur;
-					auto dst_to_stl = sentinel - next;
-					cur = next;
-					next += std::min(dst_to_stl, dst_to_cur * 2);
-					break;
-				}
-			}
-		}
-
 		return true;
+		// assert(raw_instr.size() % instr_unit_size == 0);
+		//
+		// const std::byte* cur = raw_instr.data();
+		// const std::byte* const sentinel = raw_instr.data() + raw_instr.size();
+		// const std::byte* next = sentinel;
+		//
+		// while(cur != sentinel){
+		// 	while(true){
+		// 		if(!try_push(std::span{cur, next})){
+		// 			const auto sub = ((next - cur) / instr_unit_size) / 2 * instr_unit_size;
+		// 			if(!sub)return false;
+		// 			next -= sub;
+		// 		}else{
+		// 			auto dst_to_cur = next - cur;
+		// 			auto dst_to_stl = sentinel - next;
+		// 			cur = next;
+		// 			next += std::min(dst_to_stl, dst_to_cur * 2);
+		// 			break;
+		// 		}
+		// 	}
+		// }
+		//
+		// return true;
 	}
 
 	void resize(const math::frect region){

@@ -857,19 +857,19 @@ public:
 	renderer_frontend create_frontend() noexcept {
 		using namespace graphic::draw::instruction;
 		return renderer_frontend{
-				batch_.get_ubo_table(), batch_backend_interface{
-					*this,
-					[](renderer& b, std::size_t size) static{
-						return b.batch_.acquire(size);
-					},
-					[](renderer& b) static{
-						b.batch_.consume_all();
-					},
-					[](renderer& b) static{
-						b.batch_.wait_all();
-					},
-					state_handlers
-				}
+				// batch_.get_ubo_table(), batch_backend_interface{
+				// 	*this,
+				// 	[](renderer& b, std::size_t size) static{
+				// 		return b.batch_.acquire(size);
+				// 	},
+				// 	[](renderer& b) static{
+				// 		b.batch_.consume_all();
+				// 	},
+				// 	[](renderer& b) static{
+				// 		b.batch_.wait_all();
+				// 	},
+				// 	state_handlers
+				// }
 			};
 	}
 

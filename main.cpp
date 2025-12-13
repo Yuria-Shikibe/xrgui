@@ -32,7 +32,7 @@ import renderer_v2;
 
 void app_run(
 	mo_yanxi::backend::vulkan::context& ctx,
-	mo_yanxi::backend::vulkan::renderer& renderer,
+	mo_yanxi::graphic::renderer_v2& renderer,
 	mo_yanxi::graphic::compositor::manager& manager,
 	mo_yanxi::vk::command_buffer& cmd
 	){
@@ -48,22 +48,45 @@ void app_run(
 		gui::global::manager.update(timer.global_delta_tick());
 		gui::global::manager.layout();
 
+		renderer.batch.begin_rendering();
+
+		auto& r = gui::global::manager.get_current_focus().renderer();
+// 		r.init_projection();
+// 		{
+// 			using namespace graphic::draw::instruction;
+// 			r.push(rectangle_ortho{
+// 				.v00 = {800, 500},
+// 				.v11 = {1000, 700},
+// 				// .vert_color =
+// 			});
+// 			gui::transform_guard transform_guard{r, math::mat3{}.idt().set_translation({-400, -300})};
+// ;
+//
+// 			r.push(rectangle_ortho{
+// 				.v00 = {800, 500},
+// 				.v11 = {1000, 700},
+// 				// .vert_color =
+// 			});
+// 		}
 		gui::global::manager.draw();
-		auto to_wait = renderer.get_blit_wait_semaphores(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-		VkCommandBufferSubmitInfo cmd_submit_info{
-			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-			.commandBuffer = cmd,
-		};
-		VkSubmitInfo2 submit_info{
-			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-			.waitSemaphoreInfoCount = static_cast<std::uint32_t>(to_wait.size()),
-			.pWaitSemaphoreInfos = to_wait.data(),
-			.commandBufferInfoCount = 1,
-			.pCommandBufferInfos = &cmd_submit_info,
+		renderer.batch.end_renderering();
+		renderer.batch.load_to_gpu();
+		vk::cmd::submit_command(ctx.graphic_queue(), cmd);
+		// auto to_wait = renderer.get_blit_wait_semaphores(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+		// VkCommandBufferSubmitInfo cmd_submit_info{
+		// 	.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+		// 	.commandBuffer = cmd,
+		// };
+		// VkSubmitInfo2 submit_info{
+		// 	.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+		// 	.waitSemaphoreInfoCount = static_cast<std::uint32_t>(to_wait.size()),
+		// 	.pWaitSemaphoreInfos = to_wait.data(),
+		// 	.commandBufferInfoCount = 1,
+		// 	.pCommandBufferInfos = &cmd_submit_info,
+		//
+		// };
 
-		};
-
-		vkQueueSubmit2(ctx.graphic_queue(), 1, &submit_info, nullptr);
+		// vkQueueSubmit2(ctx.graphic_queue(), 1, &submit_info, nullptr);
 		ctx.flush();
 
 	}
@@ -104,7 +127,8 @@ void prepare(){
 #pragma endregion
 
 #pragma region InitUI
-	auto renderer = gui::make_renderer(ctx);
+	graphic::renderer_v2 renderer{ctx.get_allocator()};
+	// auto renderer = gui::make_renderer(ctx);
 	auto& ui_root = gui::global::manager;
 	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
 	scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
@@ -168,24 +192,32 @@ void prepare(){
 
 		ctx.wait_on_device();
 
+		// {
+		// 	cmd = ctx.get_compute_command_pool().obtain();
+		// 	vk::scoped_recorder s{cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
+		// 	manager.create_command(s);
+		// }
+
 		{
-			cmd = ctx.get_compute_command_pool().obtain();
+
+			cmd = ctx.get_graphic_command_pool().obtain();
 			vk::scoped_recorder s{cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
-			manager.create_command(s);
+			renderer.record_cmd(cmd);
 		}
 
 		context.set_staging_image(
 			{
-				.image = pass_h2s.pass.get_used_resources().get_out(0).as_image().handle.image,
+				// .image = pass_h2s.pass.get_used_resources().get_out(0).as_image().handle.image,
+				.image = renderer.get_base().image,
 				.extent = event.size,
 				.clear = false,
-				.owner_queue_family = context.compute_family(),
-				.src_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				.src_access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-				.dst_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				.dst_access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-				.src_layout = VK_IMAGE_LAYOUT_GENERAL,
-				.dst_layout = VK_IMAGE_LAYOUT_GENERAL
+				.owner_queue_family = context.graphic_family(),
+				.src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				.src_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+				.dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				.dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+				.src_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				.dst_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 			}, false);
 	});
 

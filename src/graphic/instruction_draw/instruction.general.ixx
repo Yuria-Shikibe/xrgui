@@ -211,14 +211,14 @@ export
 struct batch_backend_interface{
 	using host_impl_ptr = void*;
 
-	using function_signature_buffer_acquire = void*(host_impl_ptr, std::size_t instruction_size);
+	using function_signature_buffer_acquire = void(host_impl_ptr, std::span<const std::byte> payload);
 	using function_signature_consume_all = void(host_impl_ptr);
 	using function_signature_wait_idle = void(host_impl_ptr);
 	using function_signature_update_state_entry = void(host_impl_ptr, std::span<const std::byte> payload);
 
 private:
 	host_impl_ptr host;
-	std::add_pointer_t<function_signature_buffer_acquire> fptr_acquire;
+	std::add_pointer_t<function_signature_buffer_acquire> fptr_push;
 	std::add_pointer_t<function_signature_consume_all> fptr_consume;
 	std::add_pointer_t<function_signature_wait_idle> fptr_wait_idle;
 
@@ -228,19 +228,18 @@ public:
 	[[nodiscard]] constexpr batch_backend_interface() = default;
 
 	template <typename HostT,
-	std::invocable<HostT&, std::size_t> AcqFn,
+	std::invocable<HostT&, std::span<const std::byte>> AcqFn,
 	std::invocable<HostT&> ConsumeFn,
 	std::invocable<HostT&> WaitIdleFn
 	>
-		requires (std::convertible_to<std::invoke_result_t<AcqFn, HostT&, std::size_t>, void*>)
 	[[nodiscard]] constexpr batch_backend_interface(
 		HostT& host,
 		AcqFn,
 		ConsumeFn,
 		WaitIdleFn,
 		std::span<const std::add_pointer_t<function_signature_update_state_entry>> state_handle_table
-	) noexcept : host(std::addressof(host)), fptr_acquire(+[](host_impl_ptr host, std::size_t instruction_size) static -> void* {
-		return AcqFn::operator()(*static_cast<HostT*>(host), instruction_size);
+	) noexcept : host(std::addressof(host)), fptr_push(+[](host_impl_ptr host, std::span<const std::byte> instr){
+		return AcqFn::operator()(*static_cast<HostT*>(host), instr);
 	}), fptr_consume(+[](host_impl_ptr host) static {
 		ConsumeFn::operator()(*static_cast<HostT*>(host));
 	}), fptr_wait_idle(+[](host_impl_ptr host) static {
@@ -259,10 +258,9 @@ public:
 		return *static_cast<HostTy*>(host);
 	}
 
-	template <typename T = std::byte>
-	T* acquire(std::size_t instruction_size) const {
-		CHECKED_ASSUME(fptr_acquire != nullptr);
-		return static_cast<T*>(fptr_acquire(host, instruction_size));
+	void push(std::span<const std::byte> instr) const {
+		CHECKED_ASSUME(fptr_push != nullptr);
+		fptr_push(host, instr);
 	}
 
 	void consume_all() const{
@@ -282,6 +280,9 @@ public:
 
 
 	void update_state(state_change_config index, std::span<const std::byte> payload) const{
+		if(index.index >= state_handle_table.size()){
+			return;
+		}
 		state_handle_table[index.index](host, payload);
 	}
 
@@ -431,8 +432,13 @@ struct image_view_history_dynamic{
 	static_assert(sizeof(void*) == sizeof(std::uint64_t));
 	using handle_t = image_handle_t;
 
+	struct use_record{
+		handle_t handle;
+		std::uint32_t use_count;
+	};
 private:
 	std::vector<handle_t, aligned_allocator<handle_t, 32>> images{};
+	std::vector<use_record> use_count{};
 	handle_t latest{};
 	std::uint32_t latest_index{};
 	std::uint32_t count_{};
@@ -447,6 +453,7 @@ public:
 
 	void set_capacity(std::uint32_t new_capacity){
 		images.resize((new_capacity + 3) / 4 * 4);
+		use_count.resize((new_capacity + 3) / 4 * 4);
 	}
 
 	void extend(handle_t handle){
@@ -469,10 +476,33 @@ public:
 
 	FORCE_INLINE void reset() noexcept{
 		images.clear();
+		use_count.clear();
 		latest = nullptr;
 		latest_index = 0;
 		count_ = 0;
 		changed = false;
+	}
+
+	FORCE_INLINE void optimize_and_reset() noexcept{
+		for(unsigned i = 0; i < images.size(); ++i){
+			use_count[i].handle = images[i];
+		}
+		std::ranges::sort(use_count, std::ranges::greater{}, &use_record::use_count);
+		unsigned i = 0;
+		for(; i < images.size(); ++i){
+			if(use_count[i].use_count == 0){
+				break;
+			}
+			images[i] = use_count[i].handle;
+		}
+		images.erase(images.begin() + i, images.end());
+
+		use_count.clear();
+		latest = nullptr;
+		latest_index = 0;
+		count_ = 0;
+		changed = false;
+
 	}
 
 	[[nodiscard]] FORCE_INLINE std::span<const handle_t> get() const noexcept{
@@ -484,20 +514,22 @@ public:
 		if(image == latest) return latest_index;
 
 #ifndef __AVX2__
-		for(std::size_t i = 0; i < images.size(); ++i){
-			auto& cur = images[i];
+		for(std::size_t idx = 0; idx < images.size(); ++idx){
+			auto& cur = images[idx];
 			if(image == cur){
 				latest = image;
-				latest_index = i;
-				return i;
+				latest_index = idx;
+				++use_count[idx].use_count;
+				return idx;
 			}
 
 			if(cur == nullptr){
 				latest = cur = image;
-				latest_index = i;
-				count_ = i + 1;
+				latest_index = idx;
+				count_ = idx + 1;
+				++use_count[idx].use_count;
 				changed = true;
-				return i;
+				return idx;
 			}
 		}
 #else
@@ -513,6 +545,7 @@ public:
 				const auto idx = group_idx + /*local offset*/std::countr_zero(eq_bits) / 8;
 				latest = image;
 				latest_index = idx;
+				++use_count[idx].use_count;
 				return idx;
 			}
 
@@ -523,13 +556,20 @@ public:
 				latest = image;
 				latest_index = idx;
 				count_ = idx + 1;
+				++use_count[idx].use_count;
 				changed = true;
 				return idx;
 			}
 		}
 #endif
 
-		return images.size();
+		const auto idx =  images.size();
+		set_capacity(idx * 2);
+		images[idx] = image;
+		++use_count[idx].use_count;
+		latest = image;
+		latest_index = idx;
+		return idx;
 	}
 };
 

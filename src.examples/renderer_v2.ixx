@@ -26,13 +26,13 @@ struct renderer_v2{
 
 	vk::pipeline_layout pipeline_layout;
 	vk::pipeline pipeline;
-	vk::command_buffer command_buffer;
 
 	[[nodiscard]] explicit renderer_v2(
 		const vk::allocator_usage& allocator_usage
 		)
 		: allocator_usage(allocator_usage)
 		, batch(allocator_usage, {}, table, nullptr)
+		, attachment_base(allocator_usage, {4, 4}, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
 	{
 		create_pipe();
 	}
@@ -41,7 +41,7 @@ struct renderer_v2{
 		attachment_base.resize(extent);
 	}
 
-	void record_cmd(){
+	void record_cmd(VkCommandBuffer command_buffer){
 		vk::dynamic_rendering dynamic_rendering{};
 		dynamic_rendering.push_color_attachment(
 			attachment_base.get_image_view(),
@@ -50,7 +50,6 @@ struct renderer_v2{
 			VK_ATTACHMENT_STORE_OP_STORE
 		);
 
-		vk::scoped_recorder recorder{command_buffer, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
 
 		vk::cmd::dependency_gen dependency;
 		dependency.push(attachment_base.get_image(),
@@ -64,29 +63,32 @@ struct renderer_v2{
 		);
 		dependency.apply(command_buffer);
 
-		dynamic_rendering.begin_rendering(command_buffer, {{}, attachment_base.get_image().get_extent2()});
+		VkRect2D region = {{}, attachment_base.get_image().get_extent2()};
+		dynamic_rendering.begin_rendering(command_buffer, region);
+		pipeline.bind(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+
+		vk::cmd::set_viewport(command_buffer, region);
+		vk::cmd::set_scissor(command_buffer, region);
+
 		batch.record_command(pipeline_layout, command_buffer);
 		vkCmdEndRendering(command_buffer);
 	}
 
-	// gui::renderer_frontend create_frontend() noexcept {
-	// 	using namespace graphic::draw::instruction;
-	// 	return gui::renderer_frontend{
-	// 		table, batch_backend_interface{
-	// 			*this,
-	// 			[](renderer_v2& b, std::size_t size) static{
-	// 				return b.batch.acquire(size);
-	// 			},
-	// 			[](renderer_v2& b) static{
-	// 				b.batch_.consume_all();
-	// 			},
-	// 			[](renderer_v2& b) static{
-	// 				b.batch_.wait_all();
-	// 			},
-	// 			state_handlers
-	// 		}
-	// 	};
-	// }
+	gui::renderer_frontend create_frontend() noexcept {
+		using namespace graphic::draw::instruction;
+		return gui::renderer_frontend{
+			table, batch_backend_interface{
+				*this,
+				[](renderer_v2& b, std::span<const std::byte> data) static{
+					return b.batch.push_instr(data);
+				},
+				[](renderer_v2& b) static{},
+				[](renderer_v2& b) static{},
+				{}
+			}
+		};
+	}
 
 	void create_pipe(){
 		const auto shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
@@ -104,6 +106,10 @@ struct renderer_v2{
 			VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 			gtp
 		};
+	}
+
+	vk::image_handle get_base() const noexcept{
+		return attachment_base;
 	}
 };
 

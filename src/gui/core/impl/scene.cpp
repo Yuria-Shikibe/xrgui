@@ -28,8 +28,10 @@ void scene::update(float delta_in_tick){
 }
 
 void scene::draw(rect clip){
+	renderer().init_projection();
 	{
 		gui::viewport_guard _{renderer(), region_};
+
 		gui::mode_guard _m{renderer(), gui::draw_mode_param{gui::draw_mode::msdf}};
 		const auto root_bound = region_.round<int>().max_src({});
 
