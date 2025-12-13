@@ -452,8 +452,8 @@ public:
 	}
 
 	void set_capacity(std::uint32_t new_capacity){
-		images.resize((new_capacity + 3) / 4 * 4);
-		use_count.resize((new_capacity + 3) / 4 * 4);
+		images.resize(4 + (new_capacity + 3) / 4 * 4);
+		use_count.resize(4 + (new_capacity + 3) / 4 * 4);
 	}
 
 	void extend(handle_t handle){
@@ -496,8 +496,8 @@ public:
 			images[i] = use_count[i].handle;
 		}
 		images.erase(images.begin() + i, images.end());
+		use_count.assign(images.size(), use_record{});
 
-		use_count.clear();
 		latest = nullptr;
 		latest_index = 0;
 		count_ = 0;
@@ -545,6 +545,7 @@ public:
 				const auto idx = group_idx + /*local offset*/std::countr_zero(eq_bits) / 8;
 				latest = image;
 				latest_index = idx;
+				count_ = std::max(count_, idx + 1);
 				++use_count[idx].use_count;
 				return idx;
 			}

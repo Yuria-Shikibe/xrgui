@@ -38,7 +38,6 @@ struct alignas(16) dispatch_group_info{
 };
 
 struct submit_extend_params{
-	std::uint32_t lastInstrOffset{};
 	std::uint32_t verticesBreakpoint{};
 	std::uint32_t nextPrimitiveOffset{};
 };
@@ -175,13 +174,13 @@ public:
 	}
 
 	submit_extend_params get_extend_able_params() const noexcept{
-		return {index_to_last_chunk_head_, verticesBreakpoint, nextPrimitiveOffset};
+		return {verticesBreakpoint, nextPrimitiveOffset};
 	}
 
 	void reset(submit_extend_params param){
 		std::memset(dispatch_config_storage.data(), 0, dispatch_config_storage.size() * sizeof(dispatch_group_info));
 		ptr_to_head = instruction_buffer_.begin();
-		index_to_last_chunk_head_ = param.lastInstrOffset;
+		index_to_last_chunk_head_ = 0;
 		verticesBreakpoint = param.verticesBreakpoint;
 		nextPrimitiveOffset = param.nextPrimitiveOffset;
 		currentMeshCount = 0;
@@ -212,7 +211,7 @@ public:
 		}
 	}
 
-	bool push(const instruction_head& head, const std::byte* data){
+	bool push(const instruction_head& head, const std::byte* data) noexcept {
 		assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
 		auto instruction_index = ptr_to_head - instruction_buffer_.begin();
@@ -281,6 +280,22 @@ public:
 
 		return false;
 	}
+
+	void resolve_image(image_view_history_dynamic& history_dynamic) const{
+		auto cur = instruction_buffer_.data();
+		while(cur != ptr_to_head){
+			assert(cur < ptr_to_head);
+			const instruction_head& head = get_instr_head(cur);
+			switch(head.type){
+				case instr_type::noop : break;
+				case instr_type::uniform_update : break;
+			default : auto& gen = *instruction::start_lifetime_as<primitive_generic>(cur + sizeof(instruction_head));
+				gen.image.index = history_dynamic.try_push(gen.image.get_image_view());
+				break;
+			}
+			cur += head.size;
+		}
+	}
 };
 
 
@@ -322,8 +337,11 @@ private:
 	user_data_index_table<> user_vertex_data_entries_{};
 	std::vector<vertex_data_entry> vertex_data_entries_{};
 
+	image_view_history_dynamic dynamic_image_view_history_{};
+
+	std::vector<vk::binding_spec> bindings{};
 	vk::descriptor_layout descriptor_layout_{};
-	vk::descriptor_buffer descriptor_buffer_{};
+	vk::dynamic_descriptor_buffer descriptor_buffer_{};
 
 	VkSampler sampler_{};
 	std::uint32_t hardware_mesh_maximum_dispatch_count_{};
@@ -335,6 +353,7 @@ private:
 public:
 	[[nodiscard]] batch_v2() = default;
 
+	//TODO basic descriptor usage binding?
 	[[nodiscard]] explicit batch_v2(
 		const vk::allocator_usage& a,
 		const batch_base_line_config& config,
@@ -349,8 +368,20 @@ public:
 				.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
 			}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU})
 		, user_vertex_data_entries_{vertex_data_table}
+		, dynamic_image_view_history_(config.image_usable_count)
+		, bindings({
+			{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+			{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+
+			{2, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
+
+			{3, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+			{4, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+
+		})
 		, descriptor_layout_{
-			a.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+			a.get_device(),
+			VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 			[&](vk::descriptor_layout_builder& builder){
 				//dispatch info {instruction range, vtx ubo index initialize}
 				builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
@@ -358,13 +389,16 @@ public:
 				//instructions
 				builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 
+				//Textures
+				builder.push_seq(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1, VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
+
 				//vertex ubos
 				for(unsigned i = 0; i < vertex_data_table.size(); ++i){
 					builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 				}
 				//TODO uniform buffer
 			}}
-		, descriptor_buffer_(allocator_, descriptor_layout_, descriptor_layout_.binding_count())
+		, descriptor_buffer_(allocator_, descriptor_layout_, descriptor_layout_.binding_count(), {})
 		, sampler_(sampler){
 		set_batch_vertex_data_entries_();
 	}
@@ -386,13 +420,24 @@ public:
 		current_group = submit_groups_.data();
 	}
 
-	void end_renderering() noexcept{
+	void end_rendering() noexcept{
 		current_group->finalize();
+		dynamic_image_view_history_.optimize_and_reset();
+		const auto submit_group_subrange = std::span{submit_groups_.data(), current_group + 1};
+
+		for (const auto & group_subrange : submit_group_subrange){
+			group_subrange.resolve_image(dynamic_image_view_history_);
+		}
+		auto cur_size = dynamic_image_view_history_.get().size();
+		if(bindings[2].count != cur_size){
+			bindings[2].count = cur_size;
+			descriptor_buffer_.reconfigure(descriptor_layout_, descriptor_layout_.binding_count(), bindings);
+		}
 	}
 
 	void push_instr(std::span<const std::byte> instr){
 		check_size(instr.size());
-		const auto& instr_head = *instruction::start_lifetime_as<instruction_head>(instr.data());
+		const auto& instr_head = get_instr_head(instr.data());
 		assert(std::to_underlying(instr_head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
 
@@ -428,11 +473,10 @@ public:
 
 
 	void load_to_gpu(){
-		// test();
-
 		assert(current_group != nullptr);
 		assert(!submit_groups_.empty());
 		const auto submit_group_subrange = std::span{submit_groups_.data(), current_group + 1};
+
 
 		std::uint32_t totalDispatchCount{};
 
@@ -444,7 +488,7 @@ public:
 			for (const auto & group : submit_group_subrange){
 				deviceSize += group.get_used_dispatch_groups().size_bytes() + group.get_used_time_line_datas().size_bytes();
 			}
-			deviceSize += sizeof(dispatch_group_info); //patch sentinel instruction offset
+			deviceSize += dispatch_unit_size; //patch sentinel instruction offset
 
 			if(buffer_dispatch_info_.get_size() < deviceSize){
 				buffer_dispatch_info_ = vk::buffer{
@@ -518,7 +562,6 @@ public:
 				std::uint32_t _align;
 			};
 
-			const std::size_t vtx_data_group_size = user_vertex_data_entries_.size();
 			std::uint32_t instructionSize{};
 			for (const auto & [idx, submit_group] : submit_group_subrange | std::views::enumerate){
 				instructionSize += submit_group.get_total_instruction_size();
@@ -546,13 +589,18 @@ public:
 			}
 
 
-			vk::descriptor_mapper dbo_mapper{descriptor_buffer_};
-			dbo_mapper.set_storage_buffer(0, buffer_dispatch_info_.get_address(), dispatch_unit_size * (1 + totalDispatchCount));
-			dbo_mapper.set_storage_buffer(1, buffer_instruction_.get_address(), instructionSize);
+			vk::dynamic_descriptor_mapper dbo_mapper{descriptor_buffer_};
+			dbo_mapper.set_element_at(0, 0, buffer_dispatch_info_.get_address(), dispatch_unit_size * (1 + totalDispatchCount));
+
+
+			dbo_mapper.set_element_at(1, 0, buffer_instruction_.get_address(), instructionSize);
+
+
+			dbo_mapper.set_images_at(2, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_, dynamic_image_view_history_.get());
 
 			VkDeviceSize cur_offset{};
 			for (const auto& [i, entry] : vertex_data_entries_ | std::views::enumerate){
-				dbo_mapper.set_storage_buffer(2 + i, buffer_vertex_data_.get_address() + cur_offset, entry.get_required_byte_size());
+				dbo_mapper.set_element_at(3 + i, 0, buffer_vertex_data_.get_address() + cur_offset, entry.get_required_byte_size());
 				cur_offset += entry.get_required_byte_size();
 			}
 		}

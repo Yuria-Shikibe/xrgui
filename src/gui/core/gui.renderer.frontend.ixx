@@ -319,6 +319,14 @@ private:
 
 public:
 	bool push_same_instr(const std::span<const std::byte> raw_instr, const std::size_t instr_unit_size){
+		auto cur = raw_instr.data();
+		auto end = raw_instr.data() + raw_instr.size();
+
+		while(cur < end){
+			batch_backend_interface_.push(std::span{cur, instr_unit_size});
+			cur += instr_unit_size;
+		}
+
 		return true;
 		// assert(raw_instr.size() % instr_unit_size == 0);
 		//

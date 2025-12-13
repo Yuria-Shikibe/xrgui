@@ -28,10 +28,11 @@ struct renderer_v2{
 	vk::pipeline pipeline;
 
 	[[nodiscard]] explicit renderer_v2(
-		const vk::allocator_usage& allocator_usage
+		const vk::allocator_usage& allocator_usage,
+		VkSampler sampler
 		)
 		: allocator_usage(allocator_usage)
-		, batch(allocator_usage, {}, table, nullptr)
+		, batch(allocator_usage, {}, table, sampler)
 		, attachment_base(allocator_usage, {4, 4}, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
 	{
 		create_pipe();

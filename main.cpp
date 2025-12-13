@@ -51,25 +51,23 @@ void app_run(
 		renderer.batch.begin_rendering();
 
 		auto& r = gui::global::manager.get_current_focus().renderer();
-// 		r.init_projection();
-// 		{
-// 			using namespace graphic::draw::instruction;
-// 			r.push(rectangle_ortho{
-// 				.v00 = {800, 500},
-// 				.v11 = {1000, 700},
-// 				// .vert_color =
-// 			});
-// 			gui::transform_guard transform_guard{r, math::mat3{}.idt().set_translation({-400, -300})};
-// ;
+		//r.init_projection();
+		//{
+		//	using namespace graphic::draw::instruction;
 //
-// 			r.push(rectangle_ortho{
-// 				.v00 = {800, 500},
-// 				.v11 = {1000, 700},
-// 				// .vert_color =
-// 			});
-// 		}
+		//	for(int x = 0; x < 200; ++x){
+		//		for(int y = 0; y < 100; ++y){
+		//			r.push(rectangle_ortho{
+		//				.v00 = {x * 10.f + 100, y * 10.f + 100},
+		//				.v11 = {x * 10.f + 110, y * 10.f + 110},
+		//				.vert_color = {graphic::colors::white}
+		//			});
+		//		}
+		//	}
+//
+		//}
 		gui::global::manager.draw();
-		renderer.batch.end_renderering();
+		renderer.batch.end_rendering();
 		renderer.batch.load_to_gpu();
 		vk::cmd::submit_command(ctx.graphic_queue(), cmd);
 		// auto to_wait = renderer.get_blit_wait_semaphores(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
@@ -127,7 +125,9 @@ void prepare(){
 #pragma endregion
 
 #pragma region InitUI
-	graphic::renderer_v2 renderer{ctx.get_allocator()};
+	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
+
+	graphic::renderer_v2 renderer{ctx.get_allocator(), sampler_ui};
 	// auto renderer = gui::make_renderer(ctx);
 	auto& ui_root = gui::global::manager;
 	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());

@@ -93,6 +93,8 @@ constexpr VkPhysicalDeviceVulkan12Features PhysicalDeviceVulkan12Features{
 			features.bufferDeviceAddress = true;
 			features.timelineSemaphore = true;
 			features.shaderFloat16 = true;
+			features.descriptorBindingPartiallyBound = true;
+			features.runtimeDescriptorArray = true;
 
 			return features;
 		}()
