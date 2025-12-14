@@ -3,7 +3,6 @@ module;
 #include <cassert>
 #include <vulkan/vulkan.h>
 #include <mo_yanxi/enum_operator_gen.hpp>
-#include "gch/small_vector.hpp"
 
 export module mo_yanxi.gui.renderer.frontend;
 
@@ -133,16 +132,26 @@ struct layer_viewport{
 	}
 };
 
+
 struct alignas(16) ubo_screen_info{
+	using tag_vertex_only = void;
 	vk::padded_mat3 screen_to_uniform;
 };
 
 struct alignas(16) ubo_layer_info{
+	using tag_vertex_only = void;
 	vk::padded_mat3 element_to_screen;
 	scissor scissor;
 
 	std::uint32_t cap[3];
 };
+
+export
+template <typename T>
+constexpr inline bool is_vertex_stage_only = requires{
+	typename T::tag_vertex_only;
+};
+
 
 export
 enum struct state_type{
@@ -230,10 +239,8 @@ export
 struct renderer_frontend{
 private:
 	using user_table_type = graphic::draw::instruction::user_data_index_table<mr::vector<graphic::draw::instruction::user_data_identity_entry>>;
-	user_table_type table{};
-	mr::vector<std::byte> user_data_cache_{};
-	gch::small_vector<std::uint8_t, 32, mr::unvs_allocator<std::uint8_t>> changed_flags{};
-	gch::small_vector<std::uint32_t, 8, mr::unvs_allocator<std::uint32_t>> changed_user_data_indices{};
+	user_table_type table_vertex_only{};
+	user_table_type table_general{};
 
 	graphic::draw::instruction::batch_backend_interface batch_backend_interface_{};
 	math::frect region_{};
@@ -246,13 +253,13 @@ private:
 public:
 	[[nodiscard]] renderer_frontend() = default;
 
-	template <typename A>
+	template <typename A1, typename A2>
 	[[nodiscard]] explicit renderer_frontend(
-		const graphic::draw::instruction::user_data_index_table<A>& user_data_table,
+		const graphic::draw::instruction::user_data_index_table<A1>& user_data_table_vertex_only,
+		const graphic::draw::instruction::user_data_index_table<A2>& user_data_table_general,
 		const graphic::draw::instruction::batch_backend_interface& batch_backend_interface)
-	: table(user_data_table, user_table_type::allocator_type{})
-	, user_data_cache_(table.required_capacity() * 2)
-	, changed_flags(table.size())
+	: table_vertex_only(user_data_table_vertex_only, user_table_type::allocator_type{})
+	, table_general(user_data_table_general, user_table_type::allocator_type{})
 	, batch_backend_interface_(batch_backend_interface){
 
 	}
@@ -272,6 +279,7 @@ public:
 		const auto instr_size = instruction::get_instr_size<Instr, Args...>(args...);
 
 		std::byte buffer[512];
+		assert(instr_size <= sizeof(buffer));
 
 		if constexpr (instruction::known_instruction<Instr>){
 			instruction::place_instruction_at(buffer, instr, args...);
@@ -279,13 +287,23 @@ public:
 		}else{
 			static_assert(sizeof...(Args) == 0, "User Data with args is prohibited currently");
 			static constexpr type_identity_index tidx = unstable_type_identity_of<Instr>();
-			const auto* ientry = table[tidx];
-			const auto idx = ientry - table.begin();
-			if(idx >= table.size()){
+			static constexpr bool vtx_only = is_vertex_stage_only<Instr>;
+
+			std::uint32_t idx;
+			if constexpr (vtx_only){
+				const auto* ientry = table_vertex_only[tidx];
+				idx = ientry - table_vertex_only.begin();
+			}else{
+				const auto* ientry = table_general[tidx];
+				idx = ientry - table_general.begin();
+			}
+
+			if(idx >= table_vertex_only.size()){
 				throw std::out_of_range("index out of range");
 			}
-			instruction::place_ubo_update_at(buffer, instr, instruction::user_data_indices{static_cast<std::uint32_t>(idx), 0});
+			instruction::place_ubo_update_at(buffer, instr, instruction::user_data_indices{static_cast<std::uint32_t>(idx), !vtx_only});
 			batch_backend_interface_.push(std::span<const std::byte>{+buffer, instr_size});
+
 		}
 	}
 
@@ -356,7 +374,7 @@ public:
 	void resize(const math::frect region){
 		if(region_ == region)return;
 		region_ = region;
-		init_projection();
+		// init_projection();
 	}
 
 	void init_projection(){

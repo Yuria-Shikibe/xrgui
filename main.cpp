@@ -29,13 +29,12 @@ import mo_yanxi.pipeline_configure;
 
 import instruction_draw.batch.v2;
 import renderer_v2;
+import mo_yanxi.gui.draw_config;
 
 void app_run(
 	mo_yanxi::backend::vulkan::context& ctx,
 	mo_yanxi::graphic::renderer_v2& renderer,
-	mo_yanxi::graphic::compositor::manager& manager,
-	mo_yanxi::vk::command_buffer& cmd
-	){
+	mo_yanxi::graphic::compositor::manager& manager){
 	using namespace mo_yanxi;
 
 
@@ -48,28 +47,46 @@ void app_run(
 		gui::global::manager.update(timer.global_delta_tick());
 		gui::global::manager.layout();
 
+
+
 		renderer.batch.begin_rendering();
+		renderer.batch.get_data_group_non_vertex_info().push_default(gui::draw_config::ui_state(
+			timer.global_time()
+		));
+		renderer.batch.get_data_group_non_vertex_info().push_default(gui::draw_config::slide_line_config{});
 
 		auto& r = gui::global::manager.get_current_focus().renderer();
-		//r.init_projection();
-		//{
-		//	using namespace graphic::draw::instruction;
-//
-		//	for(int x = 0; x < 200; ++x){
-		//		for(int y = 0; y < 100; ++y){
-		//			r.push(rectangle_ortho{
-		//				.v00 = {x * 10.f + 100, y * 10.f + 100},
-		//				.v11 = {x * 10.f + 110, y * 10.f + 110},
-		//				.vert_color = {graphic::colors::white}
-		//			});
-		//		}
-		//	}
-//
-		//}
+		r.init_projection();
+		{
+			using namespace graphic::draw::instruction;
+			for(int x = 0; x < 5; ++x){
+				for(int y = 0; y < 5; ++y){
+					r.push(rectangle_ortho{
+						.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+						.v00 = {x * 60.f, y * 60.f},
+						.v11 = {x * 60.f + 40, y * 60.f + 40},
+						.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
+					});
+					if((x + y) & 1){
+
+						r.push(gui::draw_config::slide_line_config{
+							.angle = -45,
+							.spacing = 10,
+							.stroke = 15,
+						});
+					}else{
+						r.push(gui::draw_config::slide_line_config{});
+					}
+				}
+			}
+		}
+
 		gui::global::manager.draw();
 		renderer.batch.end_rendering();
 		renderer.batch.load_to_gpu();
-		vk::cmd::submit_command(ctx.graphic_queue(), cmd);
+		renderer.create_command();
+
+		vk::cmd::submit_command(ctx.graphic_queue(), renderer.get_valid_cmd_buf(), renderer.get_fence());
 		// auto to_wait = renderer.get_blit_wait_semaphores(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
 		// VkCommandBufferSubmitInfo cmd_submit_info{
 		// 	.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
@@ -127,7 +144,7 @@ void prepare(){
 #pragma region InitUI
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 
-	graphic::renderer_v2 renderer{ctx.get_allocator(), sampler_ui};
+	graphic::renderer_v2 renderer{ctx.get_allocator(), ctx.get_graphic_command_pool(), sampler_ui};
 	// auto renderer = gui::make_renderer(ctx);
 	auto& ui_root = gui::global::manager;
 	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
@@ -181,29 +198,14 @@ void prepare(){
 	manager.sort();
 #pragma endregion
 
-	auto cmd = ctx.get_compute_command_pool().obtain();
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
 		renderer.resize({event.size.width, event.size.height});
 		gui::global::manager.resize(math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
 
-		ctx.wait_on_device();
 		ui_input.resource = compositor::image_entity{.handle = renderer.get_base()};
 		manager.resize(event.size, true);
 
-		ctx.wait_on_device();
-
-		// {
-		// 	cmd = ctx.get_compute_command_pool().obtain();
-		// 	vk::scoped_recorder s{cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
-		// 	manager.create_command(s);
-		// }
-
-		{
-
-			cmd = ctx.get_graphic_command_pool().obtain();
-			vk::scoped_recorder s{cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
-			renderer.record_cmd(cmd);
-		}
+		// renderer.create_command();
 
 		context.set_staging_image(
 			{
@@ -223,7 +225,7 @@ void prepare(){
 
 	ctx.record_post_command(true);
 
-	app_run(ctx, renderer, manager, cmd);
+	app_run(ctx, renderer, manager);
 
 	ctx.wait_on_device();
 }

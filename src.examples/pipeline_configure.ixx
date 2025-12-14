@@ -7,25 +7,12 @@ export module mo_yanxi.pipeline_configure;
 import mo_yanxi.vk;
 import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.backend.vulkan.context;
+import mo_yanxi.gui.draw_config;
 
 import std;
 
 namespace mo_yanxi::gui{
-export
-struct slide_line_config{
-	float angle{45};
-	float scale{1};
-
-	float spacing{5};
-	float stroke{15};
-
-	float speed{15};
-	float phase{0};
-
-	float margin{0.05f};
-
-	float opacity{0};
-};
+using gui::draw_config::slide_line_config;
 
 mo_yanxi::vk::sampler sampler_ui{};
 mo_yanxi::vk::shader_module ui_basic{};

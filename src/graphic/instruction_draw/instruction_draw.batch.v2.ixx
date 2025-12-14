@@ -9,13 +9,26 @@ module;
 export module instruction_draw.batch.v2;
 
 export import mo_yanxi.graphic.draw.instruction.general;
+export import mo_yanxi.graphic.draw.instruction.util;
 export import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.type_register;
 import mo_yanxi.vk;
+import mo_yanxi.vk.cmd;
 import mo_yanxi.vk.util;
 import std;
 
 namespace mo_yanxi::graphic::draw::instruction{
 constexpr inline std::uint32_t MaxVerticesPerMesh = 64;
+
+constexpr inline bool is_draw_instr(const instruction_head& head) noexcept{
+	return head.type != instr_type::noop && head.type != instr_type::uniform_update;
+}
+
+inline void check_size(std::size_t size){
+	if(size % 16 != 0){
+		throw std::invalid_argument("instruction size must be a multiple of 16");
+	}
+}
 
 export
 struct batch_base_line_config{
@@ -45,21 +58,46 @@ struct submit_extend_params{
 export
 struct batch_v2;
 
-struct vertex_data_entry{
+struct vertex_check_result{
+	std::uint32_t cur_offset;
+	bool requires_advance;
+};
+
+struct draw_user_data_entry{
 	std::size_t unit_size{};
 	std::vector<std::byte> data_{};
 	bool pending{};
+
+	std::span<const std::byte> operator[](const std::size_t idx) const noexcept{
+		const auto off = idx * unit_size;
+		return {data_.begin() + off, data_.begin() + (off + unit_size)};
+	}
 
 	void reset() noexcept{
 		data_.clear();
 		pending = false;
 	}
 
-	std::size_t get_current_index() noexcept{
-		if(data_.empty())return 0;
-		pending = false;
-		return get_count();
+	vertex_check_result get_current_index() noexcept{
+		if(data_.empty())return {};
+		auto p = std::exchange(pending, false);
+		auto c = get_count();
+		return {c, p};
 	}
+
+	void push_default(const void* data){
+		assert(data_.empty());
+		data_.resize(unit_size);
+		std::memcpy(data_.data(), data, unit_size);
+	}
+
+	template <typename T>
+		requires (std::is_trivially_copyable_v<T> && !std::is_pointer_v<T> && std::is_class_v<T>)
+	void push_default(const T& v){
+		assert(unit_size == sizeof(T));
+		push_default(static_cast<const void*>(std::addressof(v)));
+	}
+
 	/**
 	 * @brief check if the pending ubo object is different from the last one, if so, accept it and return True
 	 * @return true if accepted(acquires timeline marching)
@@ -82,26 +120,40 @@ struct vertex_data_entry{
 			return true;
 		}
 	}
-
-	void push(std::span<const std::byte> data){
-		assert(unit_size == data.size());
-
+	void push(const void* data){
 		if(pending){
 			auto last = get_count();
 			assert(last > 0);
 			auto p = (last - 1) * unit_size + data_.data();
-			std::memcpy(p, data.data(), data.size());
+			std::memcpy(p, data, unit_size);
 		}else{
 			auto last = get_count();
-			data_.resize(data_.size() + data.size());
+			data_.resize(data_.size() + unit_size);
 			auto p = last * unit_size + data_.data();
-			std::memcpy(p, data.data(), data.size());
+			std::memcpy(p, data, unit_size);
 			pending = true;
 		}
-
 	}
 
-	std::size_t get_count() const noexcept{
+	void push(std::span<const std::byte> data){
+		assert(unit_size == data.size());
+
+		push(data.data());
+	}
+
+	template <typename T>
+		requires (std::is_trivially_copyable_v<T> && !std::is_pointer_v<T> && std::is_class_v<T>)
+	void push(const T& v){
+		assert(unit_size == sizeof(T));
+
+		push(static_cast<const void*>(std::addressof(v)));
+	}
+
+	bool empty() const noexcept{
+		return data_.empty();
+	}
+
+	std::uint32_t get_count() const noexcept{
 		return data_.size() / unit_size;
 	}
 
@@ -114,7 +166,6 @@ struct vertex_data_entry{
 	}
 };
 
-
 struct submit_group{
 	friend batch_v2;
 private:
@@ -122,7 +173,7 @@ private:
 	std::vector<dispatch_group_info> dispatch_config_storage{};
 	std::vector<std::uint32_t> group_initial_vertex_data_timestamps_{};
 
-	std::span<vertex_data_entry> vertex_data_entries_{};
+	std::span<draw_user_data_entry> vertex_data_entries_{};
 
 	std::byte* ptr_to_head{};
 	std::uint32_t index_to_last_chunk_head_{};
@@ -136,8 +187,17 @@ private:
 
 	void setup_current_dispatch_group_info(){
 		for (const auto & [i, vertex_data_entry] : vertex_data_entries_ | std::views::enumerate){
-			const auto idx = vertex_data_entries_.size() * currentMeshCount + i;
-			group_initial_vertex_data_timestamps_[idx] = vertex_data_entry.get_current_index();
+			const std::uint32_t idx = vertex_data_entries_.size() * currentMeshCount + i;
+			auto [timeline, p] = vertex_data_entry.get_current_index();
+			group_initial_vertex_data_timestamps_[idx] = timeline;
+			if(p){
+				instruction_head head{
+					.type = instr_type::uniform_update,
+					.size = sizeof(instruction_head),
+					.payload = {.marching_data = {.index = idx}}
+				};
+				push(head, reinterpret_cast<const std::byte*>(&head));
+			}
 		}
 
 		dispatch_config_storage[currentMeshCount].primitive_offset = nextPrimitiveOffset;
@@ -150,7 +210,7 @@ public:
 	[[nodiscard]] explicit(false) submit_group(
 		std::size_t vertex_data_slot_count,
 		std::uint32_t dispatch_group_count,
-		std::span<vertex_data_entry> entries
+		std::span<draw_user_data_entry> entries
 		)
 	: dispatch_config_storage(dispatch_group_count)
 	, group_initial_vertex_data_timestamps_(vertex_data_slot_count * dispatch_group_count), vertex_data_entries_(entries){
@@ -298,21 +358,145 @@ public:
 	}
 };
 
+struct submit_breakpoint{
+	/**
+	 * @brief before which submit group should this breakpoint occur
+	 */
+	unsigned break_before_index{};
 
-}
+	/**
+	 * @brief determine the LOAD_OP after this call
+	 */
+	bool clear_draw_after_break{};
 
-namespace mo_yanxi::graphic::draw::instruction{
+	//TODO external update flags for pipeline switch or other command insert
+	std::vector<std::uint32_t> uniform_buffer_marching_indices;
 
-bool is_draw_instr(const instruction_head& head) noexcept{
-	return head.type != instr_type::noop && head.type != instr_type::uniform_update;
-}
+	//TODO how to pass user breakpoint data??
+	std::vector<std::uint32_t> user_defined_flags{};
 
-void check_size(std::size_t size){
-	if(size % 16 != 0){
-		throw std::invalid_argument("instruction size must be a multiple of 16");
+	[[nodiscard]] submit_breakpoint() = default;
+
+	[[nodiscard]] explicit submit_breakpoint(unsigned break_before_index)
+		: break_before_index(break_before_index){
 	}
-}
 
+	bool operator==(const submit_breakpoint&) const noexcept = default;
+};
+
+struct data_entry_group{
+private:
+	template <typename T>
+	unsigned get_index_of() const{
+		static constexpr auto idx = unstable_type_identity_of<T>();
+		const auto* ientry = table[idx];
+		const auto i = ientry - table.begin();
+		if(i >= table.size()){
+			throw std::out_of_range{std::format("Unknown type: {}", idx->name())};
+		}
+		return i;
+	}
+public:
+	user_data_index_table<> table{};
+	std::vector<draw_user_data_entry> entries{};
+
+	vk::buffer gpu_buffer{};
+
+
+	[[nodiscard]] data_entry_group() = default;
+
+	[[nodiscard]] explicit data_entry_group(const user_data_index_table<>& table)
+		: table(table), entries(table.size()){
+
+		for (auto&& [idx, data_entry] : table | std::views::enumerate){
+			entries[idx].unit_size = data_entry.entry.size;
+			entries[idx].data_.reserve(data_entry.entry.size * 8);
+		}
+	}
+
+	void reset() noexcept {
+		for (auto& vertex_data_entry : entries){
+			vertex_data_entry.reset();
+		}
+	}
+
+	std::size_t size() const noexcept{
+		return entries.size();
+	}
+
+	template <typename T>
+	void push(const T& data){
+		const unsigned i = get_index_of<T>();
+		entries[i].push(data);
+	}
+
+	template <typename T>
+	void push_default(const T& data){
+		const unsigned i = get_index_of<T>();
+		entries[i].push_default(data);
+	}
+
+	void push(std::uint32_t index, std::span<const std::byte> data){
+		entries[index].push(data);
+	}
+
+	VkDeviceAddress get_buffer_address() const noexcept{
+		return gpu_buffer.get_address();
+	}
+
+	VkDeviceSize load_to_gpu(const vk::allocator_usage& allocator, VkBufferUsageFlags flags){
+		VkDeviceSize required_size{};
+		for (const auto& entry : entries){
+			required_size += entry.get_required_byte_size();
+		}
+
+		if(gpu_buffer.get_size() < required_size){
+			gpu_buffer = vk::buffer{
+					allocator, {
+						.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+						.size = required_size,
+						.usage = flags,
+					}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU}
+				};
+		}
+
+		vk::buffer_mapper mapper{gpu_buffer};
+		VkDeviceSize cur_offset{};
+		for (const auto& entry : entries){
+			mapper.load_range(entry.get_data_span(), cur_offset);
+			cur_offset += entry.get_required_byte_size();
+		}
+
+		return cur_offset;
+	}
+};
+
+export
+struct breakpoint_command_context{
+	vk::cmd::dependency_gen dependency{};
+	std::vector<std::uint32_t> timelines{};
+	std::vector<VkDeviceSize> buffer_offsets{};
+	std::vector<VkBufferCopy> copy_info{};
+
+	[[nodiscard]] breakpoint_command_context() = default;
+
+	[[nodiscard]] explicit breakpoint_command_context(std::size_t data_entry_count)
+	: timelines(data_entry_count)
+	, buffer_offsets(data_entry_count){
+		dependency.buffer_memory_barriers.reserve(data_entry_count);
+		copy_info.reserve(data_entry_count);
+	}
+
+	void submit_copy(VkCommandBuffer cmd, VkBuffer src, VkBuffer dst) {
+		vkCmdCopyBuffer(cmd, src, dst, copy_info.size(), copy_info.data());
+		copy_info.clear();
+	}
+};
+
+struct dispatch_config{
+	std::uint32_t group_offset;
+	std::uint32_t _cap[3];
+};
 
 struct batch_v2{
 private:
@@ -320,9 +504,10 @@ private:
 	vk::allocator_usage allocator_{};
 
 	std::vector<submit_group> submit_groups_{};
+	std::vector<submit_breakpoint> submit_breakpoints_{};
+
 	submit_group* current_group{};
 
-	std::byte* head_{nullptr};
 
 	std::size_t get_baseline_size() const noexcept{
 		return config_.get_instruction_size();
@@ -330,18 +515,22 @@ private:
 
 	vk::buffer buffer_dispatch_info_{};
 	vk::buffer buffer_instruction_{};
-	vk::buffer buffer_vertex_data_{};
-
 	vk::buffer buffer_indirect_{};
 
-	user_data_index_table<> user_vertex_data_entries_{};
-	std::vector<vertex_data_entry> vertex_data_entries_{};
+
+	data_entry_group data_group_vertex_info_{};
+	data_entry_group data_group_non_vertex_info_{};
+
+	vk::buffer buffer_non_vertex_info_uniform_buffer_{};
 
 	image_view_history_dynamic dynamic_image_view_history_{};
 
 	std::vector<vk::binding_spec> bindings{};
 	vk::descriptor_layout descriptor_layout_{};
 	vk::dynamic_descriptor_buffer descriptor_buffer_{};
+
+	vk::descriptor_layout non_vertex_descriptor_layout_{};
+	vk::descriptor_buffer non_vertex_descriptor_buffer_{};
 
 	VkSampler sampler_{};
 	std::uint32_t hardware_mesh_maximum_dispatch_count_{};
@@ -358,66 +547,100 @@ public:
 		const vk::allocator_usage& a,
 		const batch_base_line_config& config,
 		const user_data_index_table<>& vertex_data_table,
+		const user_data_index_table<>& non_vertex_data_table,
 		VkSampler sampler
 	)
-		: config_(config)
-		, allocator_{a}
-		, buffer_indirect_(allocator_, {
-				.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-				.size = sizeof(VkDrawMeshTasksIndirectCommandEXT),
-				.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-			}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU})
-		, user_vertex_data_entries_{vertex_data_table}
-		, dynamic_image_view_history_(config.image_usable_count)
-		, bindings({
-			{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+	: config_(config)
+	, allocator_{a}
+	, buffer_indirect_(allocator_, {
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = sizeof(VkDrawMeshTasksIndirectCommandEXT) * 32,
+			.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+		}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU})
+	, data_group_vertex_info_{vertex_data_table}
+	, data_group_non_vertex_info_{non_vertex_data_table}
+	, buffer_non_vertex_info_uniform_buffer_(allocator_, {
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = sizeof(dispatch_config) + non_vertex_data_table.required_capacity(),
+			.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+		}, {.usage = VMA_MEMORY_USAGE_GPU_ONLY})
+	, dynamic_image_view_history_(config.image_usable_count)
+	, bindings({
+			{0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER},
 			{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+			{2, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 
-			{2, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
+			{3, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER},
 
-			{3, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 			{4, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+			{5, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 
 		})
-		, descriptor_layout_{
-			a.get_device(),
-			VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
-			[&](vk::descriptor_layout_builder& builder){
-				//dispatch info {instruction range, vtx ubo index initialize}
+	, descriptor_layout_(allocator_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+		[&](vk::descriptor_layout_builder& builder){
+			//dispatch info {instruction range, vtx ubo index initialize}
+			builder.push_seq(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+
+			builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+
+			//instructions
+			builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+
+			//Textures
+			builder.push_seq(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1, VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
+
+			//vertex ubos
+			for(unsigned i = 0; i < vertex_data_table.size(); ++i){
 				builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+			}
+			//TODO uniform buffer
+		})
+	, descriptor_buffer_(allocator_, descriptor_layout_, descriptor_layout_.binding_count(), {})
+	, non_vertex_descriptor_layout_{
+		a.get_device(),
+		VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+		[&](vk::descriptor_layout_builder& builder){
+			for (const auto & data_table : non_vertex_data_table){
+				builder.push_seq(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
+			}
+		}}
+	, non_vertex_descriptor_buffer_(a, non_vertex_descriptor_layout_, non_vertex_descriptor_layout_.binding_count())
+	, sampler_(sampler){
 
-				//instructions
-				builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+		for(auto&& [group, chunk] :
+		    this->data_group_non_vertex_info_.table
+		    | std::views::chunk_by([](const user_data_identity_entry& l, const user_data_identity_entry& r){
+			    return l.entry.group_index == r.entry.group_index;
+		    })
+		    | std::views::enumerate){
+			assert(group == 0);
 
-				//Textures
-				builder.push_seq(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1, VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
-
-				//vertex ubos
-				for(unsigned i = 0; i < vertex_data_table.size(); ++i){
-					builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
-				}
-				//TODO uniform buffer
-			}}
-		, descriptor_buffer_(allocator_, descriptor_layout_, descriptor_layout_.binding_count(), {})
-		, sampler_(sampler){
-		set_batch_vertex_data_entries_();
+			vk::descriptor_mapper mapper{non_vertex_descriptor_buffer_};
+			for(auto&& [binding, entry] : chunk | std::views::enumerate){
+				(void)mapper.set_uniform_buffer(
+					binding,
+					buffer_non_vertex_info_uniform_buffer_.get_address() + sizeof(dispatch_config) + entry.entry.global_offset, entry.entry.size
+				);
+			}
+		}
 	}
 
 	void begin_rendering() noexcept{
 		if(submit_groups_.empty()){
-			submit_groups_.push_back({user_vertex_data_entries_.size(), get_mesh_dispatch_limit(), vertex_data_entries_});
+			submit_groups_.push_back({data_group_vertex_info_.size(), get_mesh_dispatch_limit(), data_group_vertex_info_.entries});
 		}
 
 		for (auto && submit_group : submit_groups_){
 			submit_group.instruction_buffer_.clear();
 		}
 
-		for (auto& vertex_data_entry : vertex_data_entries_){
-			vertex_data_entry.reset();
-		}
+		data_group_non_vertex_info_.reset();
+		data_group_vertex_info_.reset();
+
 
 		submit_groups_.front().reset({});
 		current_group = submit_groups_.data();
+		submit_breakpoints_.clear();
 	}
 
 	void end_rendering() noexcept{
@@ -428,31 +651,31 @@ public:
 		for (const auto & group_subrange : submit_group_subrange){
 			group_subrange.resolve_image(dynamic_image_view_history_);
 		}
-		auto cur_size = dynamic_image_view_history_.get().size();
-		if(bindings[2].count != cur_size){
-			bindings[2].count = cur_size;
-			descriptor_buffer_.reconfigure(descriptor_layout_, descriptor_layout_.binding_count(), bindings);
-		}
+
 	}
 
 	void push_instr(std::span<const std::byte> instr){
+		assert(current_group);
+
 		check_size(instr.size());
 		const auto& instr_head = get_instr_head(instr.data());
 		assert(std::to_underlying(instr_head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
 
 		if(instr_head.type == instr_type::uniform_update){
+			const auto payload = get_payload_data_span(instr.data());
+			const auto targetIndex = instr_head.payload.ubo.global_index;
+			//TODO use other name to replace group index
 			if(instr_head.payload.ubo.group_index){
-				// const auto& entry = user_non_vertex_data_entries_[instr_head.payload.ubo.global_index];
+				data_group_non_vertex_info_.push(targetIndex, payload);
 			}else{
-				const auto& entry = user_vertex_data_entries_[instr_head.payload.ubo.global_index];
-				vertex_data_entries_[instr_head.payload.ubo.global_index].push(get_payload_data_span(instr.data()));
+				data_group_vertex_info_.push(targetIndex, payload);
 			}
 
 			return;
 		}
 
-		for (auto&& [idx, vertex_data_entry] : vertex_data_entries_ | std::views::enumerate){
+		for (auto&& [idx, vertex_data_entry] : data_group_vertex_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				const instruction_head instruction_head{
 					.type = instr_type::uniform_update,
@@ -461,6 +684,22 @@ public:
 				};
 				try_push_(instruction_head);
 			}
+		}
+
+		submit_breakpoint* breakpoint{};
+		for (auto&& [idx, vertex_data_entry] : data_group_non_vertex_info_.entries | std::views::enumerate){
+			if(vertex_data_entry.collapse()){
+				if(!breakpoint){
+					const auto cur_idx = current_group - submit_groups_.data() + 1;
+					breakpoint = &submit_breakpoints_.emplace_back(cur_idx);
+				}
+
+				breakpoint->uniform_buffer_marching_indices.push_back(idx);
+			}
+		}
+		if(breakpoint){
+			current_group->finalize();
+			advance_current_group();
 		}
 
 		try_push_(instr_head, instr.data());
@@ -472,15 +711,47 @@ public:
 	}
 
 
-	void load_to_gpu(){
+	bool load_to_gpu(){
 		assert(current_group != nullptr);
 		assert(!submit_groups_.empty());
 		const auto submit_group_subrange = std::span{submit_groups_.data(), current_group + 1};
 
+		const auto dispatchCountGroups = [&]{
+			std::vector<VkDrawMeshTasksIndirectCommandEXT> groups(submit_breakpoints_.size() + 1);
+			std::uint32_t currentSubmitGroupIndex = 0;
+			for (const auto & [idx, submit_breakpoint] : submit_breakpoints_ | std::views::enumerate){
+				const auto section_end = submit_breakpoint.break_before_index;
+				std::uint32_t submitCount{};
+				for(auto i = currentSubmitGroupIndex; i < section_end; ++i){
+					submitCount += submit_group_subrange[i].get_used_dispatch_groups().size();
+				}
+				groups[idx] = {submitCount, 1, 1};
+				currentSubmitGroupIndex = section_end;
+			}
+
+			std::uint32_t submitCount{};
+			for(auto i = currentSubmitGroupIndex; i < submit_group_subrange.size(); ++i){
+				submitCount += submit_group_subrange[i].get_used_dispatch_groups().size();
+			}
+			groups.back() = {submitCount, 1, 1};
+			return groups;
+		}();
+
+
+		bool requires_command_record = false;
+
+		if(const auto reqSize = dispatchCountGroups.size() * sizeof(VkDrawMeshTasksIndirectCommandEXT); buffer_indirect_.get_size() < reqSize){
+			buffer_indirect_ = vk::buffer(allocator_, {
+					.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+					.size = reqSize,
+					.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+				}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU});
+		}
+
+		vk::buffer_mapper{buffer_indirect_}.load_range(dispatchCountGroups);
 
 		std::uint32_t totalDispatchCount{};
-
-		const auto dispatch_timeline_size = vertex_data_entries_.size() * sizeof(std::uint32_t);
+		const auto dispatch_timeline_size = data_group_vertex_info_.size() * sizeof(std::uint32_t);
 		const auto dispatch_unit_size = sizeof(dispatch_group_info) + dispatch_timeline_size;
 		{
 			//setup dispatch config buffer;
@@ -514,7 +785,7 @@ public:
 					auto info = dispatch[i];
 					info.instruction_offset += current_instr_offset;
 					std::memcpy(buffer.data() + dispatch_unit_size * i, &info, sizeof(info));
-					std::memcpy(buffer.data() + dispatch_unit_size * i + sizeof(info), timeline.data() + i * vertex_data_entries_.size(), dispatch_timeline_size);
+					std::memcpy(buffer.data() + dispatch_unit_size * i + sizeof(info), timeline.data() + i * data_group_vertex_info_.size(), dispatch_timeline_size);
 				}
 
 				mapper.load_range(buffer, pushed_size);
@@ -528,32 +799,8 @@ public:
 			mapper.load(dispatch_group_info{current_instr_offset}, pushed_size);
 		}
 
-		{
-			//reserve vertex transform data
-			//TODO add align?
-			{
-				VkDeviceSize required_size{};
-				for (const auto& entry : vertex_data_entries_){
-					required_size += entry.get_required_byte_size();
-				}
-				if(buffer_vertex_data_.get_size() < required_size){
-					buffer_vertex_data_ = vk::buffer{
-						allocator_, {
-							.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-							.size = required_size,
-							.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-						}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU}
-					};
-				}
-			}
-
-			vk::buffer_mapper mapper{buffer_vertex_data_};
-			VkDeviceSize cur_offset{};
-			for (const auto& entry : vertex_data_entries_){
-				mapper.load_range(entry.get_data_span(), cur_offset);
-				cur_offset += entry.get_required_byte_size();
-			}
-		}
+		data_group_vertex_info_.load_to_gpu(allocator_, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+		data_group_non_vertex_info_.load_to_gpu(allocator_, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 
 		//update buffers
 		{
@@ -588,67 +835,188 @@ public:
 				}
 			}
 
+			{
+				//Setup descriptor buffer
 
-			vk::dynamic_descriptor_mapper dbo_mapper{descriptor_buffer_};
-			dbo_mapper.set_element_at(0, 0, buffer_dispatch_info_.get_address(), dispatch_unit_size * (1 + totalDispatchCount));
+				if(const auto cur_size = dynamic_image_view_history_.get().size(); bindings[3].count != cur_size){
+					bindings[3].count = cur_size;
+					descriptor_buffer_.reconfigure(descriptor_layout_, descriptor_layout_.binding_count(), bindings);
+					requires_command_record = true;
+				}
 
+				vk::dynamic_descriptor_mapper dbo_mapper{descriptor_buffer_};
+				dbo_mapper.set_element_at(0, 0, buffer_non_vertex_info_uniform_buffer_.get_address(), sizeof(dispatch_config), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 
-			dbo_mapper.set_element_at(1, 0, buffer_instruction_.get_address(), instructionSize);
+				dbo_mapper.set_element_at(1, 0, buffer_dispatch_info_.get_address(), dispatch_unit_size * (1 + totalDispatchCount), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 
+				dbo_mapper.set_element_at(2, 0, buffer_instruction_.get_address(), instructionSize, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 
-			dbo_mapper.set_images_at(2, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_, dynamic_image_view_history_.get());
+				dbo_mapper.set_images_at(3, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_, dynamic_image_view_history_.get());
 
-			VkDeviceSize cur_offset{};
-			for (const auto& [i, entry] : vertex_data_entries_ | std::views::enumerate){
-				dbo_mapper.set_element_at(3 + i, 0, buffer_vertex_data_.get_address() + cur_offset, entry.get_required_byte_size());
-				cur_offset += entry.get_required_byte_size();
+				VkDeviceSize cur_offset{};
+				for (const auto& [i, entry] : data_group_vertex_info_.entries | std::views::enumerate){
+					dbo_mapper.set_element_at(4 + i, 0, data_group_vertex_info_.get_buffer_address() + cur_offset, entry.get_required_byte_size(), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+					cur_offset += entry.get_required_byte_size();
+				}
 			}
 		}
 
-		vk::buffer_mapper{buffer_indirect_}.load(VkDrawMeshTasksIndirectCommandEXT{
-			.groupCountX = totalDispatchCount,
-			.groupCountY = 1,
-			.groupCountZ = 1
+		return requires_command_record;
+	}
+
+
+	std::array<VkDescriptorSetLayout, 2> get_descriptor_set_layout() const noexcept{
+		return {descriptor_layout_, non_vertex_descriptor_layout_};
+	}
+
+	breakpoint_command_context record_command_set_up_non_vertex_buffer(VkCommandBuffer cmd) const {
+		breakpoint_command_context ctx{data_group_non_vertex_info_.size()};
+		VkDeviceSize currentBufferOffset{};
+		for (const auto & [idx, table] : data_group_non_vertex_info_.table | std::views::enumerate){
+			const auto& entry = data_group_non_vertex_info_.entries[idx];
+			if(entry.empty())continue;
+
+			ctx.copy_info.push_back({
+				.srcOffset = currentBufferOffset,
+				.dstOffset = sizeof(dispatch_config) + table.entry.global_offset,
+				.size = table.entry.size
+			});
+			ctx.buffer_offsets[idx] = currentBufferOffset;
+			currentBufferOffset += entry.get_required_byte_size();
+		}
+
+		constexpr dispatch_config cfg{};
+		vkCmdUpdateBuffer(cmd, buffer_non_vertex_info_uniform_buffer_, 0, sizeof(dispatch_config), &cfg);
+		ctx.submit_copy(cmd, data_group_non_vertex_info_.gpu_buffer, buffer_non_vertex_info_uniform_buffer_);
+		ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+			VK_PIPELINE_STAGE_2_COPY_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT,
+			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+			VK_ACCESS_2_UNIFORM_READ_BIT,
+				VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, sizeof(dispatch_config)
+			);
+		ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+			VK_PIPELINE_STAGE_2_COPY_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT,
+			VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
+			VK_ACCESS_2_UNIFORM_READ_BIT,
+				VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, 0, sizeof(dispatch_config)
+			);
+		ctx.dependency.apply(cmd);
+		return ctx;
+	}
+
+	void record_command_advance_non_vertex_buffer(breakpoint_command_context& ctx, VkCommandBuffer cmd, std::size_t current_breakpoint) const{
+		//TODO try elision
+		if(current_breakpoint == submit_breakpoints_.size())return;
+		const auto& breakpoint = submit_breakpoints_[current_breakpoint];
+		if(breakpoint.uniform_buffer_marching_indices.empty())return;
+
+		const bool insertFullBuffer = breakpoint.uniform_buffer_marching_indices.size() >= data_group_non_vertex_info_.size() / 2;
+		for (const auto idx : breakpoint.uniform_buffer_marching_indices){
+			const auto timestamp = ++ctx.timelines[idx];
+			const auto unitSize = data_group_non_vertex_info_.table[idx].size;
+			const auto dst_offset = sizeof(dispatch_config) + data_group_non_vertex_info_.table[idx].global_offset;
+			const auto src_offset = ctx.buffer_offsets[idx] + timestamp * unitSize;
+
+			ctx.copy_info.push_back({
+				.srcOffset = src_offset,
+				.dstOffset = dst_offset,
+				.size = unitSize
+			});
+
+			if(!insertFullBuffer){
+				ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+					VK_ACCESS_2_UNIFORM_READ_BIT,
+					VK_PIPELINE_STAGE_2_COPY_BIT,
+					VK_ACCESS_2_TRANSFER_WRITE_BIT,
+						VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, dst_offset, unitSize
+					);
+			}
+		}
+
+		if(insertFullBuffer){
+			ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+				VK_PIPELINE_STAGE_2_COPY_BIT,
+				VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_ACCESS_2_UNIFORM_READ_BIT,
+				VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, sizeof(dispatch_config)
+			);
+		}
+
+		ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+			VK_PIPELINE_STAGE_2_COPY_BIT,
+			VK_ACCESS_2_TRANSFER_WRITE_BIT,
+			VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
+			VK_ACCESS_2_UNIFORM_READ_BIT,
+			VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, 0, sizeof(dispatch_config)
+		);
+
+		dispatch_config cfg{};
+		std::uint32_t currentSubmitGroupIndex = 0;
+		for (const auto & [idx, submit_breakpoint] : submit_breakpoints_ | std::views::take(current_breakpoint + 1) | std::views::enumerate){
+			const auto section_end = submit_breakpoint.break_before_index;
+			for(auto i = currentSubmitGroupIndex; i < section_end; ++i){
+				cfg.group_offset += submit_groups_[i].get_used_dispatch_groups().size();
+			}
+			currentSubmitGroupIndex = section_end;
+		}
+
+		ctx.dependency.apply(cmd, true);
+		vkCmdUpdateBuffer(cmd, buffer_non_vertex_info_uniform_buffer_, 0, sizeof(dispatch_config), &cfg);
+		ctx.submit_copy(cmd, data_group_non_vertex_info_.gpu_buffer, buffer_non_vertex_info_uniform_buffer_);
+		ctx.dependency.swap_stages();
+		ctx.dependency.apply(cmd);
+
+	}
+
+	void record_command_bind_and_draw(VkPipelineLayout pipelineLayout, VkCommandBuffer cmd, std::uint32_t dispatch_group_index){
+		//TODO cache the contexts
+		record_context<> record_context{};
+		record_context.get_bindings().push_back({
+			.info = descriptor_buffer_,
+			.target_set = 0
 		});
+		record_context.get_bindings().push_back({
+			.info = non_vertex_descriptor_buffer_,
+			.target_set = 1
+		});
+		record_context.prepare_bindings();
+		record_context(pipelineLayout, cmd, 0, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+		vk::cmd::drawMeshTasksIndirect(cmd, buffer_indirect_, dispatch_group_index * sizeof(VkDrawMeshTasksIndirectCommandEXT), 1);
 	}
 
-
-	VkDescriptorSetLayout get_descriptor_set_layout() const noexcept{
-		return descriptor_layout_;
+	std::uint32_t get_submit_sections_count() const noexcept{
+		return submit_breakpoints_.size() + 1;
 	}
 
-	void record_command(VkPipelineLayout pipelineLayout, VkCommandBuffer cmd){
-		const VkDescriptorBufferBindingInfoEXT info = descriptor_buffer_;
-		vk::cmd::bindDescriptorBuffersEXT(cmd, 1, &info);
-		std::uint32_t Zero{};
-		std::size_t Zerot{};
-		vk::cmd::setDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &Zero, &Zerot);
-
-		vk::cmd::drawMeshTasksIndirect(cmd, buffer_indirect_);
+	//TODO replace the getter
+	[[nodiscard]] data_entry_group& get_data_group_vertex_info() noexcept{
+		return data_group_vertex_info_;
 	}
 
-
+	[[nodiscard]] data_entry_group& get_data_group_non_vertex_info() noexcept{
+		return data_group_non_vertex_info_;
+	}
 
 private:
-	void set_batch_vertex_data_entries_(){
-		vertex_data_entries_.resize(user_vertex_data_entries_.size());
-		for (auto&& [idx, data_entry] : user_vertex_data_entries_ | std::views::enumerate){
-			vertex_data_entries_[idx].unit_size = data_entry.entry.size;
-			vertex_data_entries_[idx].data_.reserve(data_entry.entry.size * 8);
+	void advance_current_group(){
+		auto last_param = current_group->get_extend_able_params();
+		if(current_group == std::to_address(submit_groups_.rbegin())){
+			current_group = &submit_groups_.emplace_back(data_group_vertex_info_.size(), get_mesh_dispatch_limit(), data_group_vertex_info_.entries);
+		}else{
+			++current_group;
 		}
-	}
 
+		current_group->reset(last_param);
+	}
 
 	bool try_push_(const instruction_head& instr_head, const std::byte* instr){
 		while(!current_group->push(instr_head, instr)){
-			auto last_param = current_group->get_extend_able_params();
-			if(current_group == std::to_address(submit_groups_.rbegin())){
-				current_group = &submit_groups_.emplace_back(user_vertex_data_entries_.size(), get_mesh_dispatch_limit(), vertex_data_entries_);
-			}else{
-				++current_group;
-			}
-
-			current_group->reset(last_param);
+			advance_current_group();
 		}
 		return false;
 	}
