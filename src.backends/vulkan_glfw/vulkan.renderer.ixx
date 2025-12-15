@@ -564,17 +564,17 @@ private:
 
 
 public:
-	std::array<draw_state_update_handler, std::to_underlying(state_type::reserved_count)> state_handlers{
-		+[](void* host, std::span<const std::byte> payload){
-			auto& r = *static_cast<struct renderer*>(host);
-			r.process_blit_(payload);
-		},
-		+[](void* host, std::span<const std::byte> payload){
-			auto& r = *static_cast<struct renderer*>(host);
-			r.process_draw_mode_(payload);
-		},
-
-	};
+	// std::array<draw_state_update_handler, std::to_underlying(state_type::reserved_count)> state_handlers{
+	// 	+[](void* host, std::span<const std::byte> payload){
+	// 		auto& r = *static_cast<struct renderer*>(host);
+	// 		r.process_blit_(payload);
+	// 	},
+	// 	+[](void* host, std::span<const std::byte> payload){
+	// 		auto& r = *static_cast<struct renderer*>(host);
+	// 		r.process_draw_mode_(payload);
+	// 	},
+	//
+	// };
 
 	[[nodiscard]] renderer() = default;
 

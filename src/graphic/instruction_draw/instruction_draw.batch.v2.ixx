@@ -6,6 +6,8 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
+#include "magic_enum/magic_enum.hpp"
+
 export module instruction_draw.batch.v2;
 
 export import mo_yanxi.graphic.draw.instruction.general;
@@ -78,11 +80,9 @@ struct draw_user_data_entry{
 		pending = false;
 	}
 
-	vertex_check_result get_current_index() noexcept{
-		if(data_.empty())return {};
-		auto p = std::exchange(pending, false);
-		auto c = get_count();
-		return {c, p};
+	std::uint32_t get_current_index() noexcept{
+		if(data_.empty())return 0;
+		return get_count() - pending;
 	}
 
 	void push_default(const void* data){
@@ -188,16 +188,9 @@ private:
 	void setup_current_dispatch_group_info(){
 		for (const auto & [i, vertex_data_entry] : vertex_data_entries_ | std::views::enumerate){
 			const std::uint32_t idx = vertex_data_entries_.size() * currentMeshCount + i;
-			auto [timeline, p] = vertex_data_entry.get_current_index();
+			auto timeline = vertex_data_entry.get_current_index();
 			group_initial_vertex_data_timestamps_[idx] = timeline;
-			if(p){
-				instruction_head head{
-					.type = instr_type::uniform_update,
-					.size = sizeof(instruction_head),
-					.payload = {.marching_data = {.index = idx}}
-				};
-				push(head, reinterpret_cast<const std::byte*>(&head));
-			}
+
 		}
 
 		dispatch_config_storage[currentMeshCount].primitive_offset = nextPrimitiveOffset;
@@ -358,22 +351,76 @@ public:
 	}
 };
 
-struct submit_breakpoint{
-	/**
-	 * @brief before which submit group should this breakpoint occur
-	 */
-	unsigned break_before_index{};
+export
+struct breakpoint_entry{
+	std::uint32_t flag;
+	std::span<const std::byte> data;
+
+	template <typename T>
+		requires (std::is_trivially_copyable_v<T>)
+	const T& as() const noexcept{
+		assert(sizeof(T) == data.size());
+		return *reinterpret_cast<const T*>(data.data());
+	}
+};
+
+export
+struct breakpoint_config{
+	struct entry{
+		std::uint32_t flag;
+		std::uint32_t offset;
+		std::uint32_t size;
+
+		std::span<const std::byte> get_payload(const std::byte* basePtr) const noexcept{
+			return {basePtr + offset, size};
+		}
+	};
 
 	/**
 	 * @brief determine the LOAD_OP after this call
 	 */
 	bool clear_draw_after_break{};
 
-	//TODO external update flags for pipeline switch or other command insert
-	std::vector<std::uint32_t> uniform_buffer_marching_indices;
+	std::vector<entry> user_defined_flags{};
+	std::vector<std::byte> payload_storage{};
+
+	[[nodiscard]] auto get_entries() const noexcept{
+		return user_defined_flags | std::views::transform([base = payload_storage.data()](const entry& e){
+			return breakpoint_entry{e.flag, e.get_payload(base)};
+		});
+	}
+
+	void push(std::uint32_t flag, std::span<const std::byte> payload){
+		entry e{flag};
+		if(!payload.empty()){
+			e.offset = payload_storage.size();
+			e.size = payload.size();
+			payload_storage.resize(e.offset + e.size);
+			std::memcpy(payload_storage.data() + e.offset, payload.data(), e.size);
+		}
+		user_defined_flags.push_back(e);
+;	}
+
+	template <typename T>
+		requires (std::is_trivially_copyable_v<T>)
+	void push(std::uint32_t flag, const T& payload){
+		this->push(flag, std::span{reinterpret_cast<const std::byte*>(std::addressof(payload)), sizeof(T)});
+	}
+
+	bool operator==(const breakpoint_config&) const noexcept = default;
+};
+
+struct submit_breakpoint{
+	/**
+	 * @brief before which submit group should this breakpoint occur
+	 */
+	unsigned break_before_index{};
+
+	std::vector<std::uint32_t> uniform_buffer_marching_indices{};
+
 
 	//TODO how to pass user breakpoint data??
-	std::vector<std::uint32_t> user_defined_flags{};
+	breakpoint_config config{};
 
 	[[nodiscard]] submit_breakpoint() = default;
 
@@ -488,6 +535,7 @@ struct breakpoint_command_context{
 	}
 
 	void submit_copy(VkCommandBuffer cmd, VkBuffer src, VkBuffer dst) {
+		if(copy_info.empty())return;
 		vkCmdCopyBuffer(cmd, src, dst, copy_info.size(), copy_info.data());
 		copy_info.clear();
 	}
@@ -497,6 +545,11 @@ struct dispatch_config{
 	std::uint32_t group_offset;
 	std::uint32_t _cap[3];
 };
+
+struct command_update_flags{
+
+};
+
 
 struct batch_v2{
 private:
@@ -513,9 +566,9 @@ private:
 		return config_.get_instruction_size();
 	}
 
-	vk::buffer buffer_dispatch_info_{};
-	vk::buffer buffer_instruction_{};
-	vk::buffer buffer_indirect_{};
+	vk::buffer_cpu_to_gpu buffer_dispatch_info_{};
+	vk::buffer_cpu_to_gpu buffer_instruction_{};
+	vk::buffer_cpu_to_gpu buffer_indirect_{};
 
 
 	data_entry_group data_group_vertex_info_{};
@@ -552,11 +605,7 @@ public:
 	)
 	: config_(config)
 	, allocator_{a}
-	, buffer_indirect_(allocator_, {
-			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			.size = sizeof(VkDrawMeshTasksIndirectCommandEXT) * 32,
-			.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-		}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU})
+	, buffer_indirect_(allocator_, sizeof(VkDrawMeshTasksIndirectCommandEXT) * 32, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)
 	, data_group_vertex_info_{vertex_data_table}
 	, data_group_non_vertex_info_{non_vertex_data_table}
 	, buffer_non_vertex_info_uniform_buffer_(allocator_, {
@@ -654,6 +703,20 @@ public:
 
 	}
 
+	void push_state(std::uint32_t flag, std::span<const std::byte> payload){
+		submit_breakpoint* breakpoint;
+		if(current_group->get_total_instruction_size() != 0 || submit_breakpoints_.empty()){
+			current_group->finalize();
+			advance_current_group();
+			const auto cur_idx = current_group - submit_groups_.data();
+			breakpoint = &submit_breakpoints_.emplace_back(cur_idx);
+		}else{
+			breakpoint = &submit_breakpoints_.back();
+		}
+
+		breakpoint->config.push(flag, payload);
+	}
+
 	void push_instr(std::span<const std::byte> instr){
 		assert(current_group);
 
@@ -741,11 +804,7 @@ public:
 		bool requires_command_record = false;
 
 		if(const auto reqSize = dispatchCountGroups.size() * sizeof(VkDrawMeshTasksIndirectCommandEXT); buffer_indirect_.get_size() < reqSize){
-			buffer_indirect_ = vk::buffer(allocator_, {
-					.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-					.size = reqSize,
-					.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-				}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU});
+			buffer_indirect_ = vk::buffer_cpu_to_gpu(allocator_, reqSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
 		}
 
 		vk::buffer_mapper{buffer_indirect_}.load_range(dispatchCountGroups);
@@ -762,12 +821,8 @@ public:
 			deviceSize += dispatch_unit_size; //patch sentinel instruction offset
 
 			if(buffer_dispatch_info_.get_size() < deviceSize){
-				buffer_dispatch_info_ = vk::buffer{
-					allocator_, {
-						.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-						.size = deviceSize,
-						.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-					}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU}
+				buffer_dispatch_info_ = vk::buffer_cpu_to_gpu{
+					allocator_, deviceSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 				};
 			}
 
@@ -815,12 +870,8 @@ public:
 			}
 
 			if(buffer_instruction_.get_size() < instructionSize){
-				buffer_instruction_ = vk::buffer{
-					allocator_, {
-						.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-						.size = instructionSize,
-						.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-					}, {.usage = VMA_MEMORY_USAGE_CPU_TO_GPU}
+				buffer_instruction_ = vk::buffer_cpu_to_gpu{
+					allocator_, instructionSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 				};
 			}
 
@@ -910,9 +961,9 @@ public:
 		//TODO try elision
 		if(current_breakpoint == submit_breakpoints_.size())return;
 		const auto& breakpoint = submit_breakpoints_[current_breakpoint];
-		if(breakpoint.uniform_buffer_marching_indices.empty())return;
+		// if(breakpoint.uniform_buffer_marching_indices.empty())return;
 
-		const bool insertFullBuffer = breakpoint.uniform_buffer_marching_indices.size() >= data_group_non_vertex_info_.size() / 2;
+		const bool insertFullBuffer = breakpoint.uniform_buffer_marching_indices.size() > data_group_non_vertex_info_.size() / 2;
 		for (const auto idx : breakpoint.uniform_buffer_marching_indices){
 			const auto timestamp = ++ctx.timelines[idx];
 			const auto unitSize = data_group_non_vertex_info_.table[idx].size;
@@ -954,6 +1005,7 @@ public:
 			VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, 0, sizeof(dispatch_config)
 		);
 
+		//TODO cache offset
 		dispatch_config cfg{};
 		std::uint32_t currentSubmitGroupIndex = 0;
 		for (const auto & [idx, submit_breakpoint] : submit_breakpoints_ | std::views::take(current_breakpoint + 1) | std::views::enumerate){
@@ -991,6 +1043,10 @@ public:
 
 	std::uint32_t get_submit_sections_count() const noexcept{
 		return submit_breakpoints_.size() + 1;
+	}
+
+	const breakpoint_config& get_break_config_at(std::size_t index) const noexcept{
+		return submit_breakpoints_[index].config;
 	}
 
 	//TODO replace the getter

@@ -33,7 +33,7 @@ import mo_yanxi.gui.draw_config;
 
 void app_run(
 	mo_yanxi::backend::vulkan::context& ctx,
-	mo_yanxi::graphic::renderer_v2& renderer,
+	mo_yanxi::backend::vulkan::renderer_v2& renderer,
 	mo_yanxi::graphic::compositor::manager& manager){
 	using namespace mo_yanxi;
 
@@ -59,26 +59,44 @@ void app_run(
 		r.init_projection();
 		{
 			using namespace graphic::draw::instruction;
-			for(int x = 0; x < 5; ++x){
-				for(int y = 0; y < 5; ++y){
-					r.push(rectangle_ortho{
-						.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
-						.v00 = {x * 60.f, y * 60.f},
-						.v11 = {x * 60.f + 40, y * 60.f + 40},
-						.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
-					});
-					if((x + y) & 1){
+			// r.push(rectangle_ortho{
+			// 			.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+			// 			.v00 = {100, 100},
+			// 			.v11 = {200, 200},
+			// 			.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
+			// 		});
+			//
+			// r.update_state(gui::draw_mode_param{});
+			//
+			// r.push(rectangle_ortho{
+			// 			.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+			// 			.v00 = {300, 300},
+			// 			.v11 = {400, 400},
+			// 			.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
+			// 		});
+			//
+			// r.update_state(gui::draw_mode_param{});
 
-						r.push(gui::draw_config::slide_line_config{
-							.angle = -45,
-							.spacing = 10,
-							.stroke = 15,
-						});
-					}else{
-						r.push(gui::draw_config::slide_line_config{});
-					}
-				}
-			}
+			// for(int x = 0; x < 5; ++x){
+			// 	for(int y = 0; y < 5; ++y){
+			// 		r.push(rectangle_ortho{
+			// 			.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+			// 			.v00 = {x * 60.f, y * 60.f},
+			// 			.v11 = {x * 60.f + 40, y * 60.f + 40},
+			// 			.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
+			// 		});
+			// 		if((x + y) & 1){
+			//
+			// 			r.push(gui::draw_config::slide_line_config{
+			// 				.angle = -45,
+			// 				.spacing = 10,
+			// 				.stroke = 15,
+			// 			});
+			// 		}else{
+			// 			r.push(gui::draw_config::slide_line_config{});
+			// 		}
+			// 	}
+			// }
 		}
 
 		gui::global::manager.draw();
@@ -87,23 +105,7 @@ void app_run(
 		renderer.create_command();
 
 		vk::cmd::submit_command(ctx.graphic_queue(), renderer.get_valid_cmd_buf(), renderer.get_fence());
-		// auto to_wait = renderer.get_blit_wait_semaphores(VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-		// VkCommandBufferSubmitInfo cmd_submit_info{
-		// 	.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-		// 	.commandBuffer = cmd,
-		// };
-		// VkSubmitInfo2 submit_info{
-		// 	.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-		// 	.waitSemaphoreInfoCount = static_cast<std::uint32_t>(to_wait.size()),
-		// 	.pWaitSemaphoreInfos = to_wait.data(),
-		// 	.commandBufferInfoCount = 1,
-		// 	.pCommandBufferInfos = &cmd_submit_info,
-		//
-		// };
-
-		// vkQueueSubmit2(ctx.graphic_queue(), 1, &submit_info, nullptr);
 		ctx.flush();
-
 	}
 }
 
@@ -144,7 +146,7 @@ void prepare(){
 #pragma region InitUI
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 
-	graphic::renderer_v2 renderer{ctx.get_allocator(), ctx.get_graphic_command_pool(), sampler_ui};
+	backend::vulkan::renderer_v2 renderer{ctx.get_allocator(), ctx.get_graphic_command_pool(), sampler_ui};
 	// auto renderer = gui::make_renderer(ctx);
 	auto& ui_root = gui::global::manager;
 	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
@@ -214,12 +216,12 @@ void prepare(){
 				.extent = event.size,
 				.clear = false,
 				.owner_queue_family = context.graphic_family(),
-				.src_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				.src_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-				.dst_stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				.dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-				.src_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				.dst_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+				.src_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				.dst_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				.src_layout = VK_IMAGE_LAYOUT_GENERAL,
+				.dst_layout = VK_IMAGE_LAYOUT_GENERAL
 			}, false);
 	});
 
@@ -246,6 +248,7 @@ int main(){
 	backend::glfw::initialize();
 	gui::global::initialize();
 	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
+
 
 	prepare();
 

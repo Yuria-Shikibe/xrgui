@@ -206,27 +206,22 @@ template <typename T>
 struct draw_state_config_deduce{};
 
 template <>
-struct draw_state_config_deduce<blit_config>{
-	static constexpr graphic::draw::instruction::state_change_config value{
-		.index = std::to_underlying(state_type::blit)
-	};
+struct draw_state_config_deduce<blit_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::blit)>{
 };
 
 
 template <>
-struct draw_state_config_deduce<draw_mode_param>{
-	static constexpr graphic::draw::instruction::state_change_config value{
-		.index = std::to_underlying(state_type::mode)
-	};
+struct draw_state_config_deduce<draw_mode_param> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::mode)>{
 };
 
 template <typename T>
 concept draw_state_config_deduceable = requires{
-	requires std::same_as<std::remove_cvref_t<decltype(draw_state_config_deduce<T>::value)>, graphic::draw::instruction::state_change_config>;
+	requires std::same_as<typename draw_state_config_deduce<T>::value_type, std::uint32_t>;
 };
 
+export
 template <typename T>
-constexpr inline graphic::draw::instruction::state_change_config draw_state_index_deduce_v = draw_state_config_deduce<T>::value;
+constexpr inline std::uint32_t draw_state_index_deduce_v = draw_state_config_deduce<T>::value;
 
 export
 using gui_reserved_user_data_tuple = std::tuple<ubo_screen_info, ubo_layer_info>;
@@ -308,18 +303,18 @@ public:
 	}
 
 	template <typename Instr>
-	void update_state(const Instr& instr, graphic::draw::instruction::state_change_config config) {
+	void update_state(std::uint32_t flag, const Instr& instr) {
 		using namespace graphic::draw;
 		static_assert(!instruction::known_instruction<Instr>);
 
 		batch_backend_interface_.update_state(
-			config,
+			flag,
 			std::span{reinterpret_cast<const std::byte*>(std::addressof(instr)), sizeof(Instr)});
 	}
 
 	template <draw_state_config_deduceable Instr>
 	void update_state(const Instr& instr) {
-		this->update_state(instr, draw_state_index_deduce_v<Instr>);
+		this->update_state(draw_state_index_deduce_v<Instr>, instr);
 	}
 
 private:

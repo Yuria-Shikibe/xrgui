@@ -214,15 +214,15 @@ struct batch_backend_interface{
 	using function_signature_buffer_acquire = void(host_impl_ptr, std::span<const std::byte> payload);
 	using function_signature_consume_all = void(host_impl_ptr);
 	using function_signature_wait_idle = void(host_impl_ptr);
-	using function_signature_update_state_entry = void(host_impl_ptr, std::span<const std::byte> payload);
+	using function_signature_update_state_entry = void(host_impl_ptr, std::uint32_t flag, std::span<const std::byte> payload);
 
 private:
 	host_impl_ptr host;
 	std::add_pointer_t<function_signature_buffer_acquire> fptr_push;
 	std::add_pointer_t<function_signature_consume_all> fptr_consume;
 	std::add_pointer_t<function_signature_wait_idle> fptr_wait_idle;
+	std::add_pointer_t<function_signature_update_state_entry> state_handle;
 
-	std::span<const std::add_pointer_t<function_signature_update_state_entry>> state_handle_table;
 
 public:
 	[[nodiscard]] constexpr batch_backend_interface() = default;
@@ -230,21 +230,24 @@ public:
 	template <typename HostT,
 	std::invocable<HostT&, std::span<const std::byte>> AcqFn,
 	std::invocable<HostT&> ConsumeFn,
-	std::invocable<HostT&> WaitIdleFn
+	std::invocable<HostT&> WaitIdleFn,
+	std::invocable<HostT&, std::uint32_t, std::span<const std::byte>> StateHandleFn
 	>
 	[[nodiscard]] constexpr batch_backend_interface(
 		HostT& host,
 		AcqFn,
 		ConsumeFn,
 		WaitIdleFn,
-		std::span<const std::add_pointer_t<function_signature_update_state_entry>> state_handle_table
+		StateHandleFn
 	) noexcept : host(std::addressof(host)), fptr_push(+[](host_impl_ptr host, std::span<const std::byte> instr){
 		return AcqFn::operator()(*static_cast<HostT*>(host), instr);
 	}), fptr_consume(+[](host_impl_ptr host) static {
 		ConsumeFn::operator()(*static_cast<HostT*>(host));
 	}), fptr_wait_idle(+[](host_impl_ptr host) static {
 		WaitIdleFn::operator()(*static_cast<HostT*>(host));
-	}), state_handle_table(state_handle_table){
+	}), state_handle(+[](host_impl_ptr host, std::uint32_t flag, std::span<const std::byte> payload) static {
+		StateHandleFn::operator()(*static_cast<HostT*>(host), flag, payload);
+	}){
 
 	}
 
@@ -279,11 +282,8 @@ public:
 	}
 
 
-	void update_state(state_change_config index, std::span<const std::byte> payload) const{
-		if(index.index >= state_handle_table.size()){
-			return;
-		}
-		state_handle_table[index.index](host, payload);
+	void update_state(std::uint32_t index, std::span<const std::byte> payload) const{
+		state_handle(host, index, payload);
 	}
 
 };
