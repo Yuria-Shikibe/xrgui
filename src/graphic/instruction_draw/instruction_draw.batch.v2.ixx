@@ -349,6 +349,10 @@ public:
 			cur += head.size;
 		}
 	}
+
+	bool empty() const noexcept{
+		return ptr_to_head == instruction_buffer_.data();
+	}
 };
 
 export
@@ -524,6 +528,7 @@ struct breakpoint_command_context{
 	std::vector<std::uint32_t> timelines{};
 	std::vector<VkDeviceSize> buffer_offsets{};
 	std::vector<VkBufferCopy> copy_info{};
+	std::uint32_t current_submit_group_index{};
 
 	[[nodiscard]] breakpoint_command_context() = default;
 
@@ -566,6 +571,7 @@ private:
 		return config_.get_instruction_size();
 	}
 
+	std::vector<VkDrawMeshTasksIndirectCommandEXT> submit_info_{};
 	vk::buffer_cpu_to_gpu buffer_dispatch_info_{};
 	vk::buffer_cpu_to_gpu buffer_instruction_{};
 	vk::buffer_cpu_to_gpu buffer_indirect_{};
@@ -695,12 +701,25 @@ public:
 	void end_rendering() noexcept{
 		current_group->finalize();
 		dynamic_image_view_history_.optimize_and_reset();
-		const auto submit_group_subrange = std::span{submit_groups_.data(), current_group + 1};
+
+		if(current_group->empty()){
+
+		}else{
+			current_group++;
+			submit_breakpoints_.emplace_back(get_current_submit_group_index());
+		}
+
+		const auto submit_group_subrange = get_valid_submit_groups();
 
 		for (const auto & group_subrange : submit_group_subrange){
 			group_subrange.resolve_image(dynamic_image_view_history_);
 		}
 
+
+	}
+
+	std::span<submit_group> get_valid_submit_groups(){
+		return std::span{submit_groups_.data(), current_group};
 	}
 
 	void push_state(std::uint32_t flag, std::span<const std::byte> payload){
@@ -708,8 +727,7 @@ public:
 		if(current_group->get_total_instruction_size() != 0 || submit_breakpoints_.empty()){
 			current_group->finalize();
 			advance_current_group();
-			const auto cur_idx = current_group - submit_groups_.data();
-			breakpoint = &submit_breakpoints_.emplace_back(cur_idx);
+			breakpoint = &submit_breakpoints_.emplace_back(get_current_submit_group_index());
 		}else{
 			breakpoint = &submit_breakpoints_.back();
 		}
@@ -753,7 +771,7 @@ public:
 		for (auto&& [idx, vertex_data_entry] : data_group_non_vertex_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				if(!breakpoint){
-					const auto cur_idx = current_group - submit_groups_.data() + 1;
+					const auto cur_idx = get_current_submit_group_index() + 1;
 					breakpoint = &submit_breakpoints_.emplace_back(cur_idx);
 				}
 
@@ -777,10 +795,13 @@ public:
 	bool load_to_gpu(){
 		assert(current_group != nullptr);
 		assert(!submit_groups_.empty());
-		const auto submit_group_subrange = std::span{submit_groups_.data(), current_group + 1};
+		const auto submit_group_subrange = get_valid_submit_groups();
+		if(submit_group_subrange.empty()){
+			return false;
+		}
 
 		const auto dispatchCountGroups = [&]{
-			std::vector<VkDrawMeshTasksIndirectCommandEXT> groups(submit_breakpoints_.size() + 1);
+			submit_info_.resize(submit_breakpoints_.size());
 			std::uint32_t currentSubmitGroupIndex = 0;
 			for (const auto & [idx, submit_breakpoint] : submit_breakpoints_ | std::views::enumerate){
 				const auto section_end = submit_breakpoint.break_before_index;
@@ -788,16 +809,10 @@ public:
 				for(auto i = currentSubmitGroupIndex; i < section_end; ++i){
 					submitCount += submit_group_subrange[i].get_used_dispatch_groups().size();
 				}
-				groups[idx] = {submitCount, 1, 1};
+				submit_info_[idx] = {submitCount, 1, 1};
 				currentSubmitGroupIndex = section_end;
 			}
-
-			std::uint32_t submitCount{};
-			for(auto i = currentSubmitGroupIndex; i < submit_group_subrange.size(); ++i){
-				submitCount += submit_group_subrange[i].get_used_dispatch_groups().size();
-			}
-			groups.back() = {submitCount, 1, 1};
-			return groups;
+			return std::span{std::as_const(submit_info_)};
 		}();
 
 
@@ -938,6 +953,7 @@ public:
 
 		constexpr dispatch_config cfg{};
 		vkCmdUpdateBuffer(cmd, buffer_non_vertex_info_uniform_buffer_, 0, sizeof(dispatch_config), &cfg);
+
 		ctx.submit_copy(cmd, data_group_non_vertex_info_.gpu_buffer, buffer_non_vertex_info_uniform_buffer_);
 		ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
 			VK_PIPELINE_STAGE_2_COPY_BIT,
@@ -958,8 +974,6 @@ public:
 	}
 
 	void record_command_advance_non_vertex_buffer(breakpoint_command_context& ctx, VkCommandBuffer cmd, std::size_t current_breakpoint) const{
-		//TODO try elision
-		if(current_breakpoint == submit_breakpoints_.size())return;
 		const auto& breakpoint = submit_breakpoints_[current_breakpoint];
 		// if(breakpoint.uniform_buffer_marching_indices.empty())return;
 
@@ -1005,16 +1019,8 @@ public:
 			VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, 0, sizeof(dispatch_config)
 		);
 
-		//TODO cache offset
-		dispatch_config cfg{};
-		std::uint32_t currentSubmitGroupIndex = 0;
-		for (const auto & [idx, submit_breakpoint] : submit_breakpoints_ | std::views::take(current_breakpoint + 1) | std::views::enumerate){
-			const auto section_end = submit_breakpoint.break_before_index;
-			for(auto i = currentSubmitGroupIndex; i < section_end; ++i){
-				cfg.group_offset += submit_groups_[i].get_used_dispatch_groups().size();
-			}
-			currentSubmitGroupIndex = section_end;
-		}
+		ctx.current_submit_group_index += submit_info_[current_breakpoint].groupCountX;
+		const dispatch_config cfg{ctx.current_submit_group_index};
 
 		ctx.dependency.apply(cmd, true);
 		vkCmdUpdateBuffer(cmd, buffer_non_vertex_info_uniform_buffer_, 0, sizeof(dispatch_config), &cfg);
@@ -1042,7 +1048,7 @@ public:
 	}
 
 	std::uint32_t get_submit_sections_count() const noexcept{
-		return submit_breakpoints_.size() + 1;
+		return submit_breakpoints_.size();
 	}
 
 	const breakpoint_config& get_break_config_at(std::size_t index) const noexcept{
@@ -1081,4 +1087,5 @@ private:
 		return try_push_(instr_head, reinterpret_cast<const std::byte*>(std::addressof(instr_head)));
 	}
 };
+
 }

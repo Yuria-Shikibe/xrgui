@@ -1,7 +1,9 @@
 module;
 
 #include <vulkan/vulkan.h>
-#include <spirv_reflect.h>
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#include <spirv_reflect.h>;
+#endif
 
 export module mo_yanxi.graphic.compositor.post_process_pass;
 
@@ -15,6 +17,9 @@ export import mo_yanxi.vk;
 import mo_yanxi.meta_programming;
 import mo_yanxi.utility;
 import std;
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <spirv_reflect.h>;
+#endif
 
 namespace mo_yanxi::graphic::compositor {
 
@@ -241,13 +246,13 @@ public:
 	}
 
 protected:
-	void init_pipeline(const vk::allocator_usage& ctx) noexcept{
+	void init_pipeline(const vk::allocator_usage& ctx, std::initializer_list<VkPushConstantRange> pushConstantRanges = {}) noexcept{
 		descriptor_layout_ = {
 				ctx.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 				meta_.descriptor_layout_builder_
 			};
 		if(external_descriptor_usages_.empty()){
-			pipeline_layout_ = vk::pipeline_layout{ctx.get_device(), 0, {descriptor_layout_}};
+			pipeline_layout_ = vk::pipeline_layout{ctx.get_device(), 0, {descriptor_layout_}, pushConstantRanges};
 		} else{
 			std::vector<VkDescriptorSetLayout> layouts{};
 			layouts.reserve(1 + external_descriptor_usages_.size());
@@ -256,7 +261,7 @@ protected:
 				[](const external_descriptor_usage& u){
 					return u.entry->layout;
 				}));
-			pipeline_layout_ = vk::pipeline_layout{ctx.get_device(), 0, layouts};
+			pipeline_layout_ = vk::pipeline_layout{ctx.get_device(), 0, layouts, pushConstantRanges};
 		}
 
 		pipeline_ = vk::pipeline{

@@ -1,7 +1,12 @@
 module;
 
 #include <cassert>
-#include <freetype/freetype.h>
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+//no sense the compiler cannot find std::hash<sv>
+#include <string_view>
+#endif
+
 
 export module mo_yanxi.font.manager;
 

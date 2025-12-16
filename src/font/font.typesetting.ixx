@@ -1202,7 +1202,7 @@ void apd_default_modifiers(parser& parser){
 		};
 }
 
-export inline const parser global_parser{
+export const parser global_parser{
 		[]{
 			parser p;
 			apd_default_modifiers(p);
@@ -1210,7 +1210,7 @@ export inline const parser global_parser{
 		}()
 	};
 
-export inline const parser global_empty_parser{
+export const parser global_empty_parser{
 		[]{
 			parser p;
 			apd_default_modifiers(p);

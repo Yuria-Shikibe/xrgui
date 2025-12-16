@@ -34,7 +34,9 @@ import mo_yanxi.gui.draw_config;
 void app_run(
 	mo_yanxi::backend::vulkan::context& ctx,
 	mo_yanxi::backend::vulkan::renderer_v2& renderer,
-	mo_yanxi::graphic::compositor::manager& manager){
+	mo_yanxi::graphic::compositor::manager& manager,
+	mo_yanxi::vk::command_buffer& cmdBUf
+	){
 	using namespace mo_yanxi;
 
 
@@ -47,8 +49,6 @@ void app_run(
 		gui::global::manager.update(timer.global_delta_tick());
 		gui::global::manager.layout();
 
-
-
 		renderer.batch.begin_rendering();
 		renderer.batch.get_data_group_non_vertex_info().push_default(gui::draw_config::ui_state(
 			timer.global_time()
@@ -59,44 +59,27 @@ void app_run(
 		r.init_projection();
 		{
 			using namespace graphic::draw::instruction;
-			// r.push(rectangle_ortho{
-			// 			.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
-			// 			.v00 = {100, 100},
-			// 			.v11 = {200, 200},
-			// 			.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
-			// 		});
-			//
-			// r.update_state(gui::draw_mode_param{});
-			//
-			// r.push(rectangle_ortho{
-			// 			.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
-			// 			.v00 = {300, 300},
-			// 			.v11 = {400, 400},
-			// 			.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
-			// 		});
-			//
-			// r.update_state(gui::draw_mode_param{});
 
-			// for(int x = 0; x < 5; ++x){
-			// 	for(int y = 0; y < 5; ++y){
-			// 		r.push(rectangle_ortho{
-			// 			.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
-			// 			.v00 = {x * 60.f, y * 60.f},
-			// 			.v11 = {x * 60.f + 40, y * 60.f + 40},
-			// 			.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
-			// 		});
-			// 		if((x + y) & 1){
-			//
-			// 			r.push(gui::draw_config::slide_line_config{
-			// 				.angle = -45,
-			// 				.spacing = 10,
-			// 				.stroke = 15,
-			// 			});
-			// 		}else{
-			// 			r.push(gui::draw_config::slide_line_config{});
-			// 		}
-			// 	}
-			// }
+			for(int x = 0; x < 5; ++x){
+				for(int y = 0; y < 5; ++y){
+					r.push(rectangle_ortho{
+						.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+						.v00 = {x * 60.f, y * 60.f},
+						.v11 = {x * 60.f + 40, y * 60.f + 40},
+						.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
+					});
+					if((x + y) & 1){
+
+						r.push(gui::draw_config::slide_line_config{
+							.angle = -45,
+							.spacing = 10,
+							.stroke = 15,
+						});
+					}else{
+						r.push(gui::draw_config::slide_line_config{});
+					}
+				}
+			}
 		}
 
 		gui::global::manager.draw();
@@ -104,7 +87,9 @@ void app_run(
 		renderer.batch.load_to_gpu();
 		renderer.create_command();
 
-		vk::cmd::submit_command(ctx.graphic_queue(), renderer.get_valid_cmd_buf(), renderer.get_fence());
+
+		std::array<VkCommandBuffer, 2> buffers{renderer.get_valid_cmd_buf(), cmdBUf};
+		vk::cmd::submit_command(ctx.graphic_queue(), buffers, renderer.get_fence());
 		ctx.flush();
 	}
 }
@@ -200,6 +185,7 @@ void prepare(){
 	manager.sort();
 #pragma endregion
 
+	auto post_process_cmd = ctx.get_compute_command_pool().obtain();
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
 		renderer.resize({event.size.width, event.size.height});
 		gui::global::manager.resize(math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
@@ -207,12 +193,15 @@ void prepare(){
 		ui_input.resource = compositor::image_entity{.handle = renderer.get_base()};
 		manager.resize(event.size, true);
 
-		// renderer.create_command();
+		{
+			vk::scoped_recorder r{post_process_cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
+			manager.create_command(post_process_cmd);
+		}
 
 		context.set_staging_image(
 			{
-				// .image = pass_h2s.pass.get_used_resources().get_out(0).as_image().handle.image,
-				.image = renderer.get_base().image,
+				.image = pass_h2s.pass.get_used_resources().get_out(0).as_image().handle.image,
+				// .image = renderer.get_base().image,
 				.extent = event.size,
 				.clear = false,
 				.owner_queue_family = context.graphic_family(),
@@ -227,7 +216,7 @@ void prepare(){
 
 	ctx.record_post_command(true);
 
-	app_run(ctx, renderer, manager);
+	app_run(ctx, renderer, manager, post_process_cmd);
 
 	ctx.wait_on_device();
 }

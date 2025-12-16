@@ -1,15 +1,21 @@
 import post_process_lib;
 import general_lib;
 
-struct bloom_param {
+struct bloom_defines {
+    uint2 currentLayerExtent;
     uint mip_index;
     uint up_scaling;
     uint total_layer;
+}
+
+[[vk::push_constant]]
+bloom_defines defines;
+
+struct bloom_param {
     float scale;
     float strength_src;
     float strength_dst;
     float align_cap1;
-    float align_cap2;
 }
 
 [[vk::binding(0, 0)]]
@@ -34,6 +40,7 @@ static constexpr float3[9] tent_kernal = {
     float3(-1, -1, 1), float3(0, -1, 2), float3(1, -1, 1)
 };
 
+[[ForceInline]]
 float4 sample_input(const float2 where, const uint raw_mip_index){
     if (raw_mip_index == 0) {
         return input_image.SampleLevel(where, 0);
@@ -42,11 +49,12 @@ float4 sample_input(const float2 where, const uint raw_mip_index){
     }
 }
 
-
+[[ForceInline]]
 float4 down_blur(const float2 where, const float2 size_inv, const float scale, const uint raw_mip_index){
     var color = float4(0);
     float weight = 0;
 
+    [[ForceUnroll]]
     for (int i = 0; i < 9; ++i) {
         let ker = tent_kernal[i];
         let sampled = sample_input(where + ker.xy * scale * size_inv, raw_mip_index);
@@ -58,10 +66,12 @@ float4 down_blur(const float2 where, const float2 size_inv, const float scale, c
     return color /= weight;
 }
 
+[[ForceInline]]
 float4 up_blur(const float2 where, const float2 size_inv, const float scale, const uint raw_mip_index){
     var color = float4(0);
     float weight = 0;
 
+    [[ForceUnroll]]
     for (int i = 0; i < 9; ++i) {
         let ker = tent_kernal[i];
         let sampled = sample_input(where + ker.xy * scale * size_inv, raw_mip_index);
@@ -73,7 +83,8 @@ float4 up_blur(const float2 where, const float2 size_inv, const float scale, con
     return color /= weight;
 }
 
-//TODO
+// TODO
+[[ForceInline]]
 float4 screen(float4 src, float4 dst) {
     let color = 1.0 - (1.0 - src.rgb) * (1.0 - dst.rgb);
     let scr = float4(color, (src.a + dst.a) * .65f);
@@ -85,20 +96,19 @@ float4 screen(float4 src, float4 dst) {
 void main(
     uint3 dispatchThreadID: SV_DispatchThreadID
 ) {
-    let current_index = param.mip_index;
-    let div = 1 << (current_index + int(current_index < param.total_layer) - 1);
+    let current_index = defines.mip_index;
+    let div = 1 << (current_index + int(current_index < defines.total_layer) - 1);
 
-    let size_inv = float2(1) / float2(target.imageSize2D());
+    let size_inv = float2(1) / float2(defines.currentLayerExtent);
 
     let mipPos = int2(dispatchThreadID.xy);
     let uv = (float2(mipPos) + float2(0.5f, 0.5f)) * size_inv;
 
-    if (bool(param.up_scaling)){
+    if (bool(defines.up_scaling)){
         float4 colorSrc;
 
-
         let colorDst = up_blur(uv, size_inv / 2, param.scale, current_index);
-        if (current_index == param.total_layer - 1) {
+        if (current_index == defines.total_layer - 1) {
             colorSrc = down_mipmap_sample.SampleLevel(uv, current_index);
         } else {
             colorSrc = up_mipmap_sample.SampleLevel(uv, current_index + 1);
@@ -109,8 +119,8 @@ void main(
             float4(colorDst.rgb * param.strength_dst, colorDst.a));
 
         target.Store(mipPos, src);
-    }else{
-        let src = down_blur(uv, size_inv * 2, param.scale, param.mip_index);
+    } else {
+        let src = down_blur(uv, size_inv * 2, param.scale, defines.mip_index);
 
         target.Store(mipPos, src);
     }

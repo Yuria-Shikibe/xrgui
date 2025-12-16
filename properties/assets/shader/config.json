@@ -1,0 +1,48 @@
+{
+  "shader_root": "./slangs",
+
+  "include_dir": [
+    "lib/"
+  ],
+
+  "common_options": [
+    "-O2",
+    "-fvk-use-gl-layout"
+  ],
+
+  "shaders": [
+    {
+      "file": "post_process/hdr_to_sdr.slang"
+    },
+    {
+      "file": "post_process/bloom.slang"
+    },
+    {
+      "file": "post_process/volume_pass.slang"
+    },
+    {
+      "file": "post_process/highlight_extract.slang"
+    },
+    {
+      "file": "post_process/bloom.merge.slang"
+    },
+    
+    {
+      "file": "ui/draw_v2.slang"
+    },
+
+    {
+      "file": "ui/draw.slang",
+      "alias": "ui/draw/basic"
+    },
+    {
+      "file": "ui/draw.slang",
+      "alias": "ui/draw/sdf",
+      "options": ["-DMODE_SDF=1"]
+    },
+    {
+      "file": "ui/blit.default.slang",
+      "alias": "ui/blit/basic"
+    }
+  ]
+}

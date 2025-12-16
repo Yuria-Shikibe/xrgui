@@ -25,16 +25,18 @@ namespace mo_yanxi::graphic::compositor{
 	return std::min(expected, vk::get_recommended_mip_level(extent.x, extent.y));
 }
 
-struct bloom_uniform_block{
+struct bloom_defines {
+	math::vector2<std::uint32_t> currentLayerExtent;
 	std::uint32_t current_layer;
 	std::uint32_t up_scaling;
 	std::uint32_t total_layer;
-	float scale;
+};
 
+struct bloom_uniform_block{
+	float scale;
 	float strength_src;
 	float strength_dst;
 	float c2;
-	float c3;
 };
 
 export
@@ -80,31 +82,32 @@ private:
 
 private:
 	void post_init(const vk::allocator_usage& alloc, const math::u32size2 extent) override{
-		init_pipeline(alloc);
+		init_pipeline(alloc, {
+			VkPushConstantRange{
+				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+				.offset = 0,
+				.size = sizeof(bloom_defines)
+			}});
 	}
 
 	void reset_resources(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
 		current_mip_level_ = get_real_mipmap_level(extent);
-		uniform_buffer_ = {alloc, sizeof(bloom_uniform_block) * current_mip_level_ * 2};
+		uniform_buffer_ = {alloc, sizeof(bloom_uniform_block)};
 		reset_descriptor_buffer(alloc, current_mip_level_ * 2);
-
+		vk::buffer_mapper ubo_mapper{uniform_buffer_};
+		(void)ubo_mapper.load(
+			bloom_uniform_block{
+				.scale = scale,
+				.strength_src = strength_src,
+				.strength_dst = strength_dst,
+			});
 		{
 			vk::descriptor_mapper info{descriptor_buffer_};
-			vk::buffer_mapper ubo_mapper{uniform_buffer_};
 			for(std::uint32_t i = 0; i < current_mip_level_ * 2; ++i){
 				(void)info.set_uniform_buffer(
 					4,
-					uniform_buffer_.get_address() + i * sizeof(bloom_uniform_block),
-					sizeof(bloom_uniform_block), i);
+					uniform_buffer_.get_address(), sizeof(bloom_uniform_block), i);
 
-				(void)ubo_mapper.load(bloom_uniform_block{
-					                      .current_layer = reverse_after(i, current_mip_level_),
-					                      .up_scaling = i >= current_mip_level_,
-					                      .total_layer = current_mip_level_,
-					                      .scale = scale,
-					                      .strength_src = strength_src,
-					                      .strength_dst = strength_dst,
-				                      }, sizeof(bloom_uniform_block) * i);
 			}
 		}
 
@@ -233,8 +236,27 @@ private:
 			cmd::set_descriptor_offsets(buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0, {0},
 			                            {descriptor_buffer_.get_chunk_offset(i)});
 			const auto groups = get_work_group_size(current_ext);
+
+			const auto layerinfo = get_current_defines(i, extent);
+			vkCmdPushConstants(buffer, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(bloom_defines), &layerinfo);
 			vkCmdDispatch(buffer, groups.x, groups.y, 1);
 		}
+	}
+
+private:
+	bloom_defines get_current_defines(unsigned layerIndex, const math::u32size2 extent) const noexcept{
+		return {
+			.currentLayerExtent = [&] -> math::u32size2{
+				if(layerIndex < current_mip_level_){
+					return {extent.x >> (layerIndex + 1), extent.y >> (layerIndex + 1)};
+				} else{
+					return {extent.x >> reverse_after(layerIndex, current_mip_level_), extent.y >> reverse_after(layerIndex, current_mip_level_)};
+				}
+			}(),
+				.current_layer = reverse_after(layerIndex, current_mip_level_),
+				.up_scaling = layerIndex >= current_mip_level_,
+				.total_layer = current_mip_level_,
+		};
 	}
 };
 

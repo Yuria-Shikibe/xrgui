@@ -121,11 +121,9 @@ struct renderer_v2{
 		for (const auto & [idx, draw_attachment] : attachment_manager.get_blit_attachments() | std::views::enumerate){
 			mapper.set_storage_image(1 + attachment_manager.get_draw_attachments().size() + idx, draw_attachment.get_image_view());
 		}
-
-
 	}
 
-	void create_pipe_binding_cmd(std::uint32_t index){
+	void create_pipe_binding_cmd(std::uint32_t index, gui::draw_mode mode){
 		VkCommandBufferInheritanceRenderingInfo inheritanceRenderingInfo{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO,
 			.colorAttachmentCount = static_cast<std::uint32_t>(color_attachment_formats.size()),
@@ -136,6 +134,13 @@ struct renderer_v2{
 		const vk::scoped_recorder recorder{command_seq_draw_[index], VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT, inheritanceRenderingInfo};
 
 		pipeline.bind(recorder, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+		struct constant{
+			std::uint32_t mode_flag;
+		};
+		const constant c{std::to_underlying(mode)};
+
+		vkCmdPushConstants(recorder, pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(constant), &c);
 
 		const VkRect2D region = attachment_manager.get_screen_area();
 
@@ -163,11 +168,23 @@ struct renderer_v2{
 private:
 	void record_cmd(VkCommandBuffer command_buffer){
 		const auto cmd_sz = batch.get_submit_sections_count();
-		if(command_seq_draw_.size() < cmd_sz){
-			command_seq_draw_.reset(cmd_sz, VK_COMMAND_BUFFER_LEVEL_SECONDARY);
-		}
-		for(unsigned i = 0; i < cmd_sz; ++i){
-			create_pipe_binding_cmd(i);
+		{
+			if(command_seq_draw_.size() < cmd_sz){
+				command_seq_draw_.reset(cmd_sz, VK_COMMAND_BUFFER_LEVEL_SECONDARY);
+			}
+
+			gui::draw_mode current_mode{};
+			for(unsigned i = 0; i < cmd_sz; ++i){
+				create_pipe_binding_cmd(i, current_mode);
+				auto& cfg = batch.get_break_config_at(i);
+				for (const auto & entry : cfg.get_entries()){
+					if(entry.flag == gui::draw_state_index_deduce_v<gui::draw_mode_param>){
+						auto param = entry.as<gui::draw_mode_param>();
+						current_mode = param.mode;
+						break;
+					}
+				}
+			}
 		}
 
 		vk::cmd::dependency_gen dependency;
@@ -197,29 +214,32 @@ private:
 
 		dependency.apply(command_buffer);
 
+		auto submit_span = batch.get_valid_submit_groups();
+		if(submit_span.empty()) [[unlikely]] {
+			return;
+		}
+
 		const VkRect2D region = attachment_manager.get_screen_area();
-
-		rendering_config.set_color_attachment_load_op(VK_ATTACHMENT_LOAD_OP_CLEAR);
 		auto ctx = batch.record_command_set_up_non_vertex_buffer(command_buffer);
+		rendering_config.set_color_attachment_load_op(VK_ATTACHMENT_LOAD_OP_CLEAR);
+
+		//TODO optimize empty submit group
 		for(unsigned i = 0; i < cmd_sz; ++i){
-			//TODO check if there are actual dispatch...
-			bool requiresClear = false;
-			if(i + 1 < cmd_sz){
-				auto& cfg = batch.get_break_config_at(i);
-				batch.record_command_advance_non_vertex_buffer(ctx, command_buffer, i);
-
-				requiresClear = cfg.clear_draw_after_break;
-				for (const auto & e : cfg.get_entries()){
-					requiresClear = process_breakpoints(e, command_buffer) || requiresClear;
-				}
-
-			}
-
 			rendering_config.begin_rendering(command_buffer, region, VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT);
 			vkCmdExecuteCommands(command_buffer, 1, std::to_address(command_seq_draw_.begin()) + i);
 			vkCmdEndRendering(command_buffer);
 
-			rendering_config.set_color_attachment_load_op(requiresClear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD);
+			bool requiresClear = false;
+			auto& cfg = batch.get_break_config_at(i);
+			requiresClear = cfg.clear_draw_after_break;
+			for (const auto & e : cfg.get_entries()){
+				requiresClear = process_breakpoints(e, command_buffer) || requiresClear;
+			}
+
+			if(i + 1 != cmd_sz){
+				batch.record_command_advance_non_vertex_buffer(ctx, command_buffer, i);
+				rendering_config.set_color_attachment_load_op(requiresClear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD);
+			}
 		}
 
 	}
@@ -331,7 +351,11 @@ public:
 
 			const auto [set0, set1] = batch.get_descriptor_set_layout();
 
-			pipeline_layout = vk::pipeline_layout{allocator_usage.get_device(), 0, {set0, set1}};
+			pipeline_layout = vk::pipeline_layout{allocator_usage.get_device(), 0, {set0, set1}, {VkPushConstantRange{
+				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+				.offset = 0,
+				.size = 4
+			}}};
 			pipeline = vk::pipeline{
 				allocator_usage.get_device(), pipeline_layout,
 				VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,

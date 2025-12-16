@@ -169,7 +169,6 @@ struct blit_config{
 export
 enum struct draw_mode : std::uint16_t{
 	def,
-	def_msaa,
 	msdf,
 
 	COUNT_or_fallback,
