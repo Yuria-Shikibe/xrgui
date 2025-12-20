@@ -24,7 +24,6 @@ import std;
 namespace mo_yanxi::backend::vulkan{
 using namespace gui;
 
-export
 using user_data_table = graphic::draw::user_data_index_table<>;
 
 struct stage_binding_spec : vk::binding_spec {
@@ -115,7 +114,6 @@ struct create_param{
 };
 
 struct general_config{
-	std::vector<descriptor_use_entry> descriptors{};
 	std::vector<VkPushConstantRange> push_constants{};
 };
 
@@ -168,7 +166,6 @@ struct graphic_pipeline_option{
 	bool enables_multisample{};
 	std::bitset<32> default_target_attachments{};
 	std::variant<std::monostate, std::vector<VkPipelineColorBlendAttachmentState>, dynamic_blending_config> blending{};
-
 	gch::small_vector<descriptor_use_entry, 4, mr::unvs_allocator<descriptor_use_entry>> used_descriptor_sets{};
 
 	bool is_partial_target() const noexcept{
@@ -251,19 +248,6 @@ struct graphic_pipeline_create_config{
 			}
 		}
 	};
-	//
-	// struct compute{
-	// 	general general{};
-	// 	VkPipelineShaderStageCreateInfo shader_module{};
-	//
-	// 	compute_pipeline_option option{};
-	//
-	// 	void create(pipeline_data& data, const create_param& param) const{
-	// 		data.pipeline_layout = {param.device, 0, param.descriptor_set_layouts, general.push_constants};
-	// 		data.pipeline = vk::pipeline{param.device, data.pipeline_layout, VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT, shader_module};
-	// 		data.option = option;
-	// 	}
-	// };
 
 	std::vector<config> configurator{};
 	std::vector<descriptor_create_config> descriptor_create_info;
@@ -348,9 +332,7 @@ export
 struct compute_pipeline_option{
 	compute_pipeline_blit_inout_config inout{};
 	gch::small_vector<descriptor_use_entry, 4, mr::unvs_allocator<descriptor_use_entry>> used_descriptor_sets{};
-
 };
-
 
 export
 struct compute_pipeline_data{
@@ -427,40 +409,58 @@ public:
 		return table;
 	}()), ubo_data_cache_(merged_user_data_table_.required_capacity()), uniform_buffer_(allocator, merged_user_data_table_.required_capacity()){}
 
-	// void (){
-	//
-	// 		{
-	// 			using namespace graphic::draw;
-	// 			for(auto&& [group, chunk] :
-	// 				this->merged_user_data_table_
-	// 				| std::views::chunk_by([](const user_data_identity_entry& l, const user_data_identity_entry& r){
-	// 					return l.entry.group_index == r.entry.group_index;
-	// 				})
-	// 				| std::views::enumerate){
-	// 				auto& slot = custom_descriptors_[group];
-	//
-	// 				auto mapper = slot.get_mapper();
-	// 				for(auto&& [binding, entry] : chunk | std::views::enumerate){
-	// 					(void)mapper.set_element_at(
-	// 						binding, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-	// 						uniform_buffer_.get_address() + entry.entry.global_offset, entry.entry.size);
-	// 				}
-	// 				}
-	// 		}
-	// }
 };
 
 // -------------------------------------------------------------------------
 // 管线管理器 (新封装)
 // -------------------------------------------------------------------------
+
+template <typename PipeTy>
+struct pipeline_manager_base{
+protected:
+	uniform_buffer_manager ubo_manager{};
+	mr::vector<descriptor_slots> custom_descriptors{};
+
+	mr::vector<PipeTy> pipelines{};
+
+	[[nodiscard]] pipeline_manager_base() = default;
+
+	[[nodiscard]] pipeline_manager_base(
+		const vk::allocator_usage& allocator,
+		const std::vector<descriptor_create_config>& descriptor_create_configs) :
+		ubo_manager{
+			allocator, descriptor_create_configs | std::views::transform(&descriptor_create_config::user_data_table)
+		}{
+
+		custom_descriptors.reserve(descriptor_create_configs.size());
+		for(const auto& descriptor_config : descriptor_create_configs){
+			custom_descriptors.push_back(descriptor_slots(
+				allocator, descriptor_config
+			));
+		}
+	}
+
+
+
+public:
+	template <typename S>
+	[[nodiscard]] auto get_pipelines(this S& self) noexcept{
+		return std::span{self.pipelines};
+	}
+
+	template <typename S>
+	[[nodiscard]] auto& get_custom_descriptor(this S& self, std::size_t index){
+		assert(index < self.custom_descriptors.size());
+		return self.custom_descriptors[index];
+	}
+
+	[[nodiscard]] std::size_t get_custom_descriptor_count() const noexcept{
+		return custom_descriptors.size();
+	}
+};
+
 export
-class graphic_pipeline_manager{
-private:
-	uniform_buffer_manager ubo_manager_{};
-
-	mr::vector<graphic_pipeline_data> pipelines_{};
-	mr::vector<descriptor_slots> custom_descriptors_{};
-
+class graphic_pipeline_manager : pipeline_manager_base<graphic_pipeline_data>{
 public:
 	[[nodiscard]] graphic_pipeline_manager() = default;
 
@@ -474,40 +474,25 @@ public:
 		const graphic_pipeline_create_config& create_group,
 		const T& auxiliary_layouts,
 		const draw_attachment_create_info& draw_attachment_config
-	) : ubo_manager_{allocator, create_group.descriptor_create_info | std::views::transform(&descriptor_create_config::user_data_table)}{
-
-		// 1. 初始化自定义的 Descriptor Slots
-		custom_descriptors_.reserve(create_group.descriptor_create_info.size());
-		for(const auto& descriptor_config : create_group.descriptor_create_info){
-			custom_descriptors_.push_back(descriptor_slots(
-				allocator, descriptor_config
-			));
-		}
-
-		// 2. 初始化管线
-		pipelines_.resize(create_group.size());
+	) : pipeline_manager_base{allocator, create_group.descriptor_create_info}{
+		pipelines.resize(create_group.size());
 		mr::vector<VkDescriptorSetLayout> layouts_buffer;
 
-		for(const auto& [idx, pipe, layouts] : std::views::zip(std::views::iota(0uz), pipelines_, auxiliary_layouts)){
-			// 2.2 记录该管线使用的自定义 Descriptor Sets
-			std::ranges::copy(create_group[idx].general.descriptors, std::back_inserter(pipe.option.used_descriptor_sets));
-
-			// 2.3 绑定自定义 Layouts (根据 source 索引从 custom_descriptors_ 获取)
+		for(const auto& [idx, pipe, layouts] : std::views::zip(std::views::iota(0uz), pipelines, auxiliary_layouts)){
 			layouts_buffer.clear();
 			layouts_buffer.append_range(layouts);
 
-			for(const descriptor_use_entry& used_descriptor_set : pipe.option.used_descriptor_sets){
-				layouts_buffer.push_back(custom_descriptors_.at(used_descriptor_set.source).descriptor_set_layout());
+			for(const auto& [src, dst] : create_group[static_cast<std::size_t>(idx)].option.used_descriptor_sets){
+				layouts_buffer.push_back(custom_descriptors.at(src).descriptor_set_layout());
 			}
 
 			create_group.create(idx, pipe, create_param{
 				.device = allocator.get_device(),
 				.descriptor_set_layouts = layouts_buffer
 			}, draw_attachment_config);
-
 		}
-	}
 
+	}
 
 	graphic_pipeline_manager(
 			const vk::allocator_usage& allocator,
@@ -516,42 +501,13 @@ public:
 			const draw_attachment_create_info& draw_attachment_config
 		) : graphic_pipeline_manager(allocator, create_group, std::views::repeat(auxiliary_layouts, create_group.size()), draw_attachment_config){}
 
-	//TODO uniform data update m function
-
-	// --- Getters ---
-
-	[[nodiscard]] std::span<graphic_pipeline_data> get_pipelines() noexcept{
-		return pipelines_;
-	}
-
-	[[nodiscard]] std::span<const graphic_pipeline_data> get_pipelines() const noexcept{
-		return pipelines_;
-	}
-
-	[[nodiscard]] descriptor_slots& get_custom_descriptor(std::size_t index){
-		assert(index < custom_descriptors_.size());
-		return custom_descriptors_[index];
-	}
-
-	[[nodiscard]] const descriptor_slots& get_custom_descriptor(std::size_t index) const{
-		assert(index < custom_descriptors_.size());
-		return custom_descriptors_[index];
-	}
-
-	[[nodiscard]] std::size_t get_custom_descriptor_count() const noexcept{
-		return custom_descriptors_.size();
-	}
 };
 
 export
-class compute_pipeline_manager{
+class compute_pipeline_manager : pipeline_manager_base<compute_pipeline_data>{
 private:
-	uniform_buffer_manager ubo_manager_{};
-
-	std::vector<descriptor_slots> custom_descriptors_{};
-	std::vector<compute_pipeline_data> pipelines_{};
-
 	std::vector<vk::descriptor_layout> blit_inout_layouts_{};
+
 public:
 	[[nodiscard]] compute_pipeline_manager() = default;
 
@@ -559,12 +515,12 @@ public:
 		requires (
 			std::ranges::input_range<std::ranges::range_reference_t<T>> &&
 			std::convertible_to<std::ranges::range_reference_t<std::ranges::range_reference_t<T>>, VkDescriptorSetLayout>
-			)
+		)
 	compute_pipeline_manager(
 		const vk::allocator_usage& allocator,
 		const compute_pipeline_create_config& create_group,
 		const T& auxiliary_layouts
-	) : ubo_manager_{allocator, create_group.descriptor_create_info | std::views::transform(&descriptor_create_config::user_data_table)}{
+	) : pipeline_manager_base{allocator, create_group.descriptor_create_info}{
 
 		blit_inout_layouts_.reserve(create_group.size());
 		for (const auto & configurator : create_group.configurator){
@@ -576,31 +532,22 @@ public:
 			}});
 		}
 
-		// 1. 初始化自定义的 Descriptor Slots
-		custom_descriptors_.reserve(create_group.descriptor_create_info.size());
-		for(const auto& descriptor_config : create_group.descriptor_create_info){
-			custom_descriptors_.push_back(descriptor_slots(
-				allocator, descriptor_config
-			));
-
-		}
-
 		// 2. 初始化管线
-		pipelines_.resize(create_group.size());
+		pipelines.resize(create_group.size());
 		mr::vector<VkDescriptorSetLayout> layouts_buffer;
 
-		for(const auto& [idx, pipe, layouts] : std::views::zip(std::views::iota(0uz), pipelines_, auxiliary_layouts)){
+		for(const auto& [idx, pipe, layouts] : std::views::zip(std::views::iota(0uz), pipelines, auxiliary_layouts)){
 			// 2.2 记录该管线使用的自定义 Descriptor Sets
-			std::ranges::copy(create_group[idx].general.descriptors, std::back_inserter(pipe.option.used_descriptor_sets));
+
 
 			// 2.3 绑定自定义 Layouts (根据 source 索引从 custom_descriptors_ 获取)
-			//TODO sort
 			layouts_buffer.clear();
 			layouts_buffer.append_range(layouts);
 			layouts_buffer.push_back(blit_inout_layouts_[idx]);
 
-			for(const descriptor_use_entry& used_descriptor_set : pipe.option.used_descriptor_sets){
-				layouts_buffer.push_back(custom_descriptors_.at(used_descriptor_set.source).descriptor_set_layout());
+			//TODO sort
+			for(const auto& [src, dst] : create_group[static_cast<std::size_t>(idx)].option.used_descriptor_sets){
+				layouts_buffer.push_back(custom_descriptors.at(src).descriptor_set_layout());
 			}
 
 			create_group.create(idx, pipe, create_param{
@@ -610,37 +557,14 @@ public:
 		}
 	}
 
-
-	[[nodiscard]] std::span<compute_pipeline_data> get_pipelines() noexcept{
-		return pipelines_;
-	}
-
-	[[nodiscard]] std::span<const compute_pipeline_data> get_pipelines() const noexcept{
-		return pipelines_;
-	}
-
 	[[nodiscard]] std::span<const vk::descriptor_layout> get_inout_layouts() const noexcept{
 		return blit_inout_layouts_;
 	}
 
-	[[nodiscard]] descriptor_slots& get_custom_descriptor(std::size_t index){
-		assert(index < custom_descriptors_.size());
-		return custom_descriptors_[index];
-	}
-
-	[[nodiscard]] const descriptor_slots& get_custom_descriptor(std::size_t index) const{
-		assert(index < custom_descriptors_.size());
-		return custom_descriptors_[index];
-	}
-
-	[[nodiscard]] std::size_t get_custom_descriptor_count() const noexcept{
-		return custom_descriptors_.size();
-	}
-
 	void append_descriptor_buffers(graphic::draw::record_context<>& ctx, std::size_t index) const {
-		auto& pipe = pipelines_[index];
+		auto& pipe = pipelines[index];
 		for (const auto & used_descriptor_set : pipe.option.used_descriptor_sets){
-			ctx.push(used_descriptor_set.target, custom_descriptors_[used_descriptor_set.source].dbo());
+			ctx.push(used_descriptor_set.target, custom_descriptors[used_descriptor_set.source].dbo());
 		}
 	}
 };

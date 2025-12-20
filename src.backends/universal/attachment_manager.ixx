@@ -17,8 +17,6 @@ import std;
 namespace mo_yanxi::backend::vulkan{
 using namespace gui;
 
-// --- 配置结构体 (从原文件迁移) ---
-
 export struct attachment_config{
 	VkFormat format;
 	VkImageUsageFlags usage;
@@ -57,10 +55,10 @@ private:
 	draw_attachment_create_info draw_config_;
 	blit_attachment_create_info blit_config_;
 
-	// 存储所有附件（Draw 在前，Blit 在后，与原逻辑保持一致以便索引）
+	/**
+	 * @brief {{draw_attachments...}, {blit_attachments...}, {multi_sample_attachments...}}
+	 */
 	std::vector<vk::combined_image> attachments_{};
-	// 存储 MSAA 多重采样附件（如果启用）
-	std::vector<vk::combined_image> attachments_multisamples_{};
 
 public:
 	[[nodiscard]] attachment_manager() = default;
@@ -73,19 +71,10 @@ public:
 		, draw_config_(std::move(draw_info))
 		, blit_config_(std::move(blit_info)){
 		// 预分配空间
-		const auto total_count = draw_config_.attachments.size() + blit_config_.attachments.size();
+		const auto total_count = draw_config_.attachments.size() * (1 + draw_config_.enables_multisample()) + blit_config_.attachments.size();
 		attachments_.resize(total_count);
 
-		if(draw_config_.enables_multisample()){
-			attachments_multisamples_.resize(draw_config_.attachments.size());
-		}
 	}
-
-	// 禁止拷贝，允许移动
-	attachment_manager(const attachment_manager&) = delete;
-	attachment_manager& operator=(const attachment_manager&) = delete;
-	attachment_manager(attachment_manager&&) noexcept = default;
-	attachment_manager& operator=(attachment_manager&&) noexcept = default;
 
 	/**
 	 * @brief 执行 Resize 操作，重新创建图像资源并转换布局
@@ -110,8 +99,8 @@ public:
 				};
 		};
 
-		const auto draw_count = draw_config_.attachments.size();
-		const auto blit_count = blit_config_.attachments.size();
+		const auto draw_count = get_draw_attachment_count();
+		const auto blit_count = get_blit_attachment_count();
 
 		// 1. 重建 Draw Attachments
 		for(const auto& [idx, cfg] : draw_config_.attachments | std::views::enumerate){
@@ -144,7 +133,7 @@ public:
 		// 3. 重建 MSAA Attachments (如果启用)
 		if(draw_config_.enables_multisample()){
 			for(const auto& [idx, cfg] : draw_config_.attachments | std::views::enumerate){
-				attachments_multisamples_[idx] = vk::combined_image{
+				attachments_[idx + draw_count + blit_count] = vk::combined_image{
 						vk::image{
 							allocator_,
 							{extent.width, extent.height, 1},
@@ -162,6 +151,14 @@ public:
 
 	// --- Getters ---
 
+	[[nodiscard]] std::size_t get_draw_attachment_count() const noexcept{
+		return draw_config_.attachments.size();
+	}
+
+	[[nodiscard]] std::size_t get_blit_attachment_count() const noexcept{
+		return blit_config_.attachments.size();
+	}
+
 	[[nodiscard]] const draw_attachment_create_info& get_draw_config() const noexcept{
 		return draw_config_;
 	}
@@ -172,17 +169,17 @@ public:
 
 	// 获取用于绘制的附件 (非 MSAA 的 Resolve 目标，或单采样的直接渲染目标)
 	[[nodiscard]] std::span<const vk::combined_image> get_draw_attachments() const noexcept{
-		return {attachments_.data(), draw_config_.attachments.size()};
+		return {attachments_.data(), get_draw_attachment_count()};
 	}
 
 	// 获取用于 Blit/Compute 的附件
 	[[nodiscard]] std::span<const vk::combined_image> get_blit_attachments() const noexcept{
-		return {attachments_.data() + draw_config_.attachments.size(), blit_config_.attachments.size()};
+		return {attachments_.data() + get_draw_attachment_count(), get_blit_attachment_count()};
 	}
 
 	// 获取 MSAA 附件
 	[[nodiscard]] std::span<const vk::combined_image> get_multisample_attachments() const noexcept{
-		return attachments_multisamples_;
+		return {attachments_.data() + get_draw_attachment_count() + get_blit_attachment_count(), get_draw_attachment_count()};
 	}
 
 	[[nodiscard]] bool enables_multisample() const noexcept{
@@ -222,8 +219,7 @@ public:
 			}
 
 			if(enables_multisample_){
-				for(const auto& [idx, attac, multi] : std::views::zip(std::views::iota(0uz), get_draw_attachments(),
-					    attachments_multisamples_)){
+				for(const auto& [idx, attac, multi] : std::views::zip(std::views::iota(0uz), get_draw_attachments(), get_multisample_attachments())){
 					if(!use_mask[idx]) continue;
 
 					target.push_color_attachment(
@@ -243,7 +239,7 @@ public:
 			}
 		} else{
 			if(enables_multisample_){
-				for(const auto& [attac, multi] : std::views::zip(get_draw_attachments(), attachments_multisamples_)){
+				for(const auto& [attac, multi] : std::views::zip(get_draw_attachments(), get_multisample_attachments())){
 					target.push_color_attachment(
 						multi.get_image_view(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 						loadOp, storeOp,

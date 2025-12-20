@@ -282,7 +282,7 @@ private:
 			}
 
 			const auto dispatches = (cfg.blit_region.extent.as<unsigned>() + math::usize2{15, 15}) / math::usize2{16, 16};
-			std::byte buf[sizeof(ubo_blit_config) + sizeof(VkDispatchIndirectCommand)];
+			alignas(32) std::byte buf[sizeof(ubo_blit_config) + sizeof(VkDispatchIndirectCommand)];
 			std::construct_at(reinterpret_cast<ubo_blit_config*>(buf), ubo_blit_config{
 				.offset = cfg.blit_region.src.as<unsigned>(),
 			});

@@ -153,7 +153,7 @@ void prepare(){
 			.draw_pipe_config = backend::vulkan::graphic_pipeline_create_config{
 				{
 					backend::vulkan::graphic_pipeline_create_config::config{
-						{{}, {VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
+						{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 						{
 							shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
 							shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")

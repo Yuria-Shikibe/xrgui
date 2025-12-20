@@ -31,6 +31,7 @@ struct scissor{
 	//TODO margin is never used
 	float margin{};
 
+	std::uint32_t cap[3];
 	constexpr friend bool operator==(const scissor& lhs, const scissor& rhs) noexcept = default;
 };
 
@@ -144,7 +145,6 @@ struct alignas(16) ubo_layer_info{
 	vk::padded_mat3 element_to_screen;
 	scissor scissor;
 
-	std::uint32_t cap[3];
 };
 
 export
@@ -199,8 +199,6 @@ enum struct primitive_draw_mode : std::uint32_t{
 	none,
 
 	draw_slide_line = 1 << 0,
-
-	target_background = 1 << 1,
 };
 
 BITMASK_OPS(export , primitive_draw_mode);
@@ -212,7 +210,6 @@ struct draw_state_config_deduce{};
 template <>
 struct draw_state_config_deduce<blit_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::blit)>{
 };
-
 
 template <>
 struct draw_state_config_deduce<draw_mode_param> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::mode)>{
@@ -238,16 +235,20 @@ export
 struct renderer_frontend{
 private:
 	using user_table_type = graphic::draw::user_data_index_table<mr::vector<graphic::draw::user_data_identity_entry>>;
-	user_table_type table_vertex_only{};
-	user_table_type table_general{};
+
+	//TODO change it to a pointer-index look up table
+	user_table_type table_vertex_only_{};
+	user_table_type table_general_{};
 
 	graphic::draw::instruction::batch_backend_interface batch_backend_interface_{};
 	math::frect region_{};
 
 
 	//screen space to uniform space viewport
-	mr::vector<layer_viewport> viewports{};
-	math::mat3 uniform_proj{};
+	mr::vector<layer_viewport> viewports_{};
+	math::mat3 uniform_proj_{};
+
+	mr::vector<std::byte> cache_instr_buffer_{};
 
 public:
 	[[nodiscard]] renderer_frontend() = default;
@@ -257,8 +258,8 @@ public:
 		const graphic::draw::user_data_index_table<A1>& user_data_table_vertex_only,
 		const graphic::draw::user_data_index_table<A2>& user_data_table_general,
 		const graphic::draw::instruction::batch_backend_interface& batch_backend_interface)
-	: table_vertex_only(user_data_table_vertex_only, user_table_type::allocator_type{})
-	, table_general(user_data_table_general, user_table_type::allocator_type{})
+	: table_vertex_only_(user_data_table_vertex_only, user_table_type::allocator_type{})
+	, table_general_(user_data_table_general, user_table_type::allocator_type{})
 	, batch_backend_interface_(batch_backend_interface){
 
 	}
@@ -268,8 +269,8 @@ public:
 	}
 
 	auto& top_viewport(this auto& self) noexcept{
-		assert(!self.viewports.empty());
-		return self.viewports.back();
+		assert(!self.viewports_.empty());
+		return self.viewports_.back();
 	}
 
 	template <typename Instr, typename ...Args>
@@ -277,12 +278,23 @@ public:
 		using namespace graphic::draw;
 		const auto instr_size = instruction::get_instr_size<Instr, Args...>(args...);
 
-		std::byte buffer[512];
-		assert(instr_size <= sizeof(buffer));
+		alignas(16) alignas(Instr) alignas(Args...) std::byte buffer_[sizeof(instruction::instruction_head) + sizeof(Instr) + (sizeof(Args) + ... + 0)];
+		std::byte* pbuffer;
+		if constexpr (sizeof...(args) > 0){
+			if(instr_size > sizeof(buffer_)) [[unlikely]] {
+				if(instr_size > cache_instr_buffer_.size())cache_instr_buffer_.resize(instr_size);
+				pbuffer = cache_instr_buffer_.data();
+			}else{
+				pbuffer = buffer_;
+			}
+		}else{
+			pbuffer = std::assume_aligned<16>(+buffer_);
+		}
+
 
 		if constexpr (instruction::known_instruction<Instr>){
-			instruction::place_instruction_at(buffer, instr, args...);
-			batch_backend_interface_.push(std::span<const std::byte>{+buffer, instr_size});
+			instruction::place_instruction_at(pbuffer, instr, args...);
+			batch_backend_interface_.push(std::span<const std::byte>{pbuffer, instr_size});
 		}else{
 			static_assert(sizeof...(Args) == 0, "User Data with args is prohibited currently");
 			static constexpr type_identity_index tidx = unstable_type_identity_of<Instr>();
@@ -290,18 +302,18 @@ public:
 
 			std::uint32_t idx;
 			if constexpr (vtx_only){
-				const auto* ientry = table_vertex_only[tidx];
-				idx = ientry - table_vertex_only.begin();
+				const auto* ientry = table_vertex_only_[tidx];
+				idx = ientry - table_vertex_only_.begin();
 			}else{
-				const auto* ientry = table_general[tidx];
-				idx = ientry - table_general.begin();
+				const auto* ientry = table_general_[tidx];
+				idx = ientry - table_general_.begin();
 			}
 
-			if(idx >= table_vertex_only.size()){
+			if(idx >= table_vertex_only_.size()){
 				throw std::out_of_range("index out of range");
 			}
-			instruction::place_ubo_update_at(buffer, instr, user_data_indices{static_cast<std::uint32_t>(idx), !vtx_only});
-			batch_backend_interface_.push(std::span<const std::byte>{+buffer, instr_size});
+			instruction::place_ubo_update_at(pbuffer, instr, user_data_indices{idx, !vtx_only});
+			batch_backend_interface_.push(std::span<const std::byte>{pbuffer, instr_size});
 
 		}
 	}
@@ -321,20 +333,6 @@ public:
 		this->update_state(draw_state_index_deduce_v<Instr>, instr);
 	}
 
-private:
-	// [[nodiscard]] bool try_push(const std::byte* instr, const std::size_t instr_size) const{
-	// 	assert(instr_size % graphic::draw::instruction::instr_required_align == 0);
-	// 	auto ptr_to_batch = batch_backend_interface_.acquire(instr_size);
-	// 	if(!ptr_to_batch)return false;
-	// 	std::memcpy(ptr_to_batch, instr, instr_size);
-	// 	return true;
-	// }
-	//
-	// [[nodiscard]] bool try_push(const std::span<const std::byte> raw_instr) const{
-	// 	return try_push(raw_instr.data(), raw_instr.size());
-	// }
-
-public:
 	bool push_same_instr(const std::span<const std::byte> raw_instr, const std::size_t instr_unit_size){
 		auto cur = raw_instr.data();
 		auto end = raw_instr.data() + raw_instr.size();
@@ -345,43 +343,23 @@ public:
 		}
 
 		return true;
-		// assert(raw_instr.size() % instr_unit_size == 0);
-		//
-		// const std::byte* cur = raw_instr.data();
-		// const std::byte* const sentinel = raw_instr.data() + raw_instr.size();
-		// const std::byte* next = sentinel;
-		//
-		// while(cur != sentinel){
-		// 	while(true){
-		// 		if(!try_push(std::span{cur, next})){
-		// 			const auto sub = ((next - cur) / instr_unit_size) / 2 * instr_unit_size;
-		// 			if(!sub)return false;
-		// 			next -= sub;
-		// 		}else{
-		// 			auto dst_to_cur = next - cur;
-		// 			auto dst_to_stl = sentinel - next;
-		// 			cur = next;
-		// 			next += std::min(dst_to_stl, dst_to_cur * 2);
-		// 			break;
-		// 		}
-		// 	}
-		// }
-		//
-		// return true;
+	}
+
+	void push_instr(const std::span<const std::byte> raw_instr) const{
+		batch_backend_interface_.push(raw_instr);
 	}
 
 	void resize(const math::frect region){
 		if(region_ == region)return;
 		region_ = region;
-		// init_projection();
 	}
 
 	void init_projection(){
-		viewports.clear();
-		viewports.push_back(layer_viewport{region_, {{region_}}, nullptr, math::mat3_idt});
-		uniform_proj = math::mat3{}.set_orthogonal(region_.get_src(), region_.extent());
+		viewports_.clear();
+		viewports_.push_back(layer_viewport{region_, {{region_}}, nullptr, math::mat3_idt});
+		uniform_proj_ = math::mat3{}.set_orthogonal(region_.get_src(), region_.extent());
 
-		push(ubo_screen_info{uniform_proj});
+		push(ubo_screen_info{uniform_proj_});
 		notify_viewport_changed();
 	}
 
@@ -399,14 +377,14 @@ public:
 	}
 
 	void push_viewport(const math::frect viewport, scissor_raw scissor_raw){
-		assert(!viewports.empty());
+		assert(!viewports_.empty());
 
-		const auto& last = viewports.back();
+		const auto& last = viewports_.back();
 
 		const auto trs = math::mat3{}.set_rect_transform(viewport.src, viewport.extent(), last.viewport.src, last.viewport.extent());
 		const auto scissor_intersection = scissor_raw.intersection_with(last.top_scissor()).intersection_with({viewport});
 
-		viewports.push_back(layer_viewport{viewport, {scissor_raw}, nullptr, last.get_element_to_root_screen() * trs});
+		viewports_.push_back(layer_viewport{viewport, {scissor_raw}, nullptr, last.get_element_to_root_screen() * trs});
 	}
 
 	void push_viewport(const math::frect viewport){
@@ -414,8 +392,8 @@ public:
 	}
 
 	void pop_viewport() noexcept{
-		assert(viewports.size() > 1);
-		viewports.pop_back();
+		assert(viewports_.size() > 1);
+		viewports_.pop_back();
 	}
 
 	void push_scissor(const scissor_raw& scissor_in_screen_space){

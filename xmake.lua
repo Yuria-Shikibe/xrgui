@@ -58,7 +58,7 @@ end
 
 target("xrgui.core")
     set_kind("static")
-    set_languages("c++latest")
+    set_languages("c++23")
     set_policy("build.c++.modules", true)
 
 
@@ -68,7 +68,7 @@ target_end()
 target("xrgui.example")
     set_extension(".exe")
     set_kind("binary")
-    set_languages("c++latest")
+    set_languages("c++23")
     set_policy("build.c++.modules", true)
 
     set_xrgui_deps()

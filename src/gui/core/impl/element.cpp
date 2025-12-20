@@ -60,7 +60,6 @@ void style::debug_elem_drawer::draw_background(const elem& element, math::frect 
 	using namespace graphic;
 
 	element.get_scene().renderer().push(draw::instruction::rectangle_ortho{
-			.generic = {.mode = {std::to_underlying(primitive_draw_mode::target_background)}},
 			.v00 = region.vert_00(),
 			.v11 = region.vert_11(),
 			.vert_color = {colors::dark_gray.create_lerp({0, 0, 0, 1}, .85f).copy().mul_a(opacityScl)}
