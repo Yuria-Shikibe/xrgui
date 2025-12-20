@@ -36,7 +36,11 @@ struct bloom_uniform_block{
 	float scale;
 	float strength_src;
 	float strength_dst;
-	float c2;
+
+	/**
+	 * @brief 0(Additive) - 1(Screen)
+	 */
+	float mix_factor;
 };
 
 export
@@ -44,30 +48,30 @@ struct bloom_pass final : post_process_stage{
 	using post_process_stage::post_process_stage;
 
 	void set_scale(const float scale){
-		vk::buffer_mapper ubo_mapper{ubo()};
-		for(std::uint32_t i = 0; i < current_mip_level_ * 2; ++i){
-			(void)ubo_mapper.load(
-				scale, sizeof(bloom_uniform_block) * i + std::bit_cast<std::uint32_t>(&bloom_uniform_block::scale));
+		if(current_param.scale != scale){
+			current_param.scale = scale;
+			(void)vk::buffer_mapper{ubo()}.load(current_param);
 		}
+	}
 
-		this->scale = scale;
+	void set_mix_factor(const float factor){
+		if(current_param.mix_factor != factor){
+			current_param.mix_factor = factor;
+			(void)vk::buffer_mapper{ubo()}.load(current_param);
+		}
 	}
 
 	void set_strength(const float strengthSrc = 1.f, const float strengthDst = 1.f){
-		vk::buffer_mapper ubo_mapper{ubo()};
-		for(std::uint32_t i = 0; i < current_mip_level_ * 2; ++i){
-			(void)ubo_mapper.load(strengthSrc, &bloom_uniform_block::strength_src, i);
-			(void)ubo_mapper.load(strengthDst, &bloom_uniform_block::strength_dst, i);
+		if(current_param.strength_dst != strengthSrc || current_param.strength_dst != strengthDst){
+			current_param.strength_src = strengthSrc;
+			current_param.strength_dst = strengthDst;
+			(void)vk::buffer_mapper{ubo()}.load(current_param);
 		}
-
-		strength_src = strengthSrc;
-		strength_dst = strengthDst;
 	}
 
 private:
-	float scale{1};
-	float strength_src{1};
-	float strength_dst{1};
+	bloom_uniform_block current_param{1, 1, 1, 0.5f};
+
 	std::uint32_t current_mip_level_{0};
 	std::vector<vk::image_view> down_mipmap_image_views{};
 	std::vector<vk::image_view> up_mipmap_image_views{};
@@ -95,12 +99,8 @@ private:
 		uniform_buffer_ = {alloc, sizeof(bloom_uniform_block)};
 		reset_descriptor_buffer(alloc, current_mip_level_ * 2);
 		vk::buffer_mapper ubo_mapper{uniform_buffer_};
-		(void)ubo_mapper.load(
-			bloom_uniform_block{
-				.scale = scale,
-				.strength_src = strength_src,
-				.strength_dst = strength_dst,
-			});
+		(void)ubo_mapper.load(current_param);
+
 		{
 			vk::descriptor_mapper info{descriptor_buffer_};
 			for(std::uint32_t i = 0; i < current_mip_level_ * 2; ++i){

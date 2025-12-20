@@ -36,6 +36,8 @@ export struct elem_style_drawer : style_drawer<elem>{
 		return {};
 	}
 
+	virtual void draw_background(const elem& element, math::frect region, float opacityScl) const = 0;
+
 };
 
 export struct debug_elem_drawer final : elem_style_drawer{
@@ -47,12 +49,18 @@ export struct debug_elem_drawer final : elem_style_drawer{
 	}
 
 	void draw(const elem& element, rect region, float opacityScl) const override;
+
+	void draw_background(const elem& element, math::frect region, float opacityScl) const override;
 };
 
 export struct empty_drawer final : elem_style_drawer{
 	[[nodiscard]] constexpr empty_drawer() : elem_style_drawer(tags::persistent){}
 
 	void draw(const elem& element, rect region, float opacityScl) const override{
+	}
+
+	void draw_background(const elem& element, math::frect region, float opacityScl) const override{
+
 	}
 };
 
@@ -321,8 +329,18 @@ public:
 		draw(clipSpace);
 	}
 
+	void try_draw_background(const rect clipSpace) const{
+		if(invisible) return;
+		if(!clipSpace.overlap_inclusive(bound_abs())) return;
+		draw_background(clipSpace);
+	}
+
 	void draw(const rect clipSpace) const{
-		draw_content(clipSpace);
+		draw_content_impl(clipSpace);
+	}
+
+	void draw_background(const rect clipSpace) const{
+		draw_background_impl(clipSpace);
 	}
 
 	void set_style(const style::elem_style_drawer& style) noexcept{
@@ -340,10 +358,15 @@ protected:
 
 	}
 
-	void draw_background() const;
+	void draw_style() const;
+	void draw_style_background() const;
 
-	virtual void draw_content(const rect clipSpace) const{
-		draw_background();
+	virtual void draw_background_impl(const rect clipSpace) const{
+		draw_style_background();
+	}
+
+	virtual void draw_content_impl(const rect clipSpace) const{
+		draw_style();
 	}
 public:
 

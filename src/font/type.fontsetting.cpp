@@ -6,6 +6,24 @@ module;
 module mo_yanxi.font.typesetting;
 
 namespace mo_yanxi::font::typesetting{
+const parser global_parser{
+	[]{
+		parser p;
+		apd_default_modifiers(p);
+		return p;
+	}()
+};
+
+const parser global_empty_parser{
+	[]{
+		parser p;
+		apd_default_modifiers(p);
+		p.reserve_tokens = true;
+		return p;
+	}()
+};
+
+
 namespace func{
 float get_upper_pad(
 	const parse_context& context,

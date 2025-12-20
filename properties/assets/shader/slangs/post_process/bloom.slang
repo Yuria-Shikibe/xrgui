@@ -15,7 +15,7 @@ struct bloom_param {
     float scale;
     float strength_src;
     float strength_dst;
-    float align_cap1;
+    float mix_factor;
 }
 
 [[vk::binding(0, 0)]]
@@ -50,45 +50,44 @@ float4 sample_input(const float2 where, const uint raw_mip_index){
 }
 
 [[ForceInline]]
-float4 down_blur(const float2 where, const float2 size_inv, const float scale, const uint raw_mip_index){
-    var color = float4(0);
-    float weight = 0;
+float4 down_sample_optimized(float2 uv, float2 size_inv, uint mip) {
+    float4 d = size_inv.xyxy * float4(-1, -1, 1, 1) * 0.5f;
+    float4 s1 = sample_input(uv + d.xy, mip);
+    float4 s2 = sample_input(uv + d.zy, mip);
+    float4 s3 = sample_input(uv + d.xw, mip);
+    float4 s4 = sample_input(uv + d.zw, mip);
+    return (s1 + s2 + s3 + s4) * 0.25;  
+}
 
-    [[ForceUnroll]]
-    for (int i = 0; i < 9; ++i) {
-        let ker = tent_kernal[i];
-        let sampled = sample_input(where + ker.xy * scale * size_inv, raw_mip_index);
-        let l = raw_mip_index == 0 ? ker.z / (1 + pp::luma(sampled)) : ker.z;
-        color += sampled * l;
-        weight += l;
+[[ForceInline]]
+float4 down_blur(const float2 where, const float2 size_inv, const float scale, const uint raw_mip_index) {
+    if (raw_mip_index == 0) {
+        var color = float4(0);
+        float weight = 0;
+        [[ForceUnroll]]
+        for (int i = 0; i < 9; ++i) {
+            let ker = tent_kernal[i];
+            let sampled = sample_input(where + ker.xy * scale * size_inv, raw_mip_index);
+            let l = ker.z * rcp(1 + pp::luma(sampled));
+            color += sampled * l;
+            weight += l;
+        }
+        return color / weight;
+    } else {
+        return down_sample_optimized(where, size_inv * scale, raw_mip_index);
     }
-
-    return color /= weight;
 }
 
 [[ForceInline]]
 float4 up_blur(const float2 where, const float2 size_inv, const float scale, const uint raw_mip_index){
-    var color = float4(0);
-    float weight = 0;
-
-    [[ForceUnroll]]
-    for (int i = 0; i < 9; ++i) {
-        let ker = tent_kernal[i];
-        let sampled = sample_input(where + ker.xy * scale * size_inv, raw_mip_index);
-        let l = ker.z;
-        color += sampled * l;
-        weight += l;
-    }
-
-    return color /= weight;
+    return down_sample_optimized(where, size_inv * scale, raw_mip_index);
 }
 
-// TODO
 [[ForceInline]]
 float4 screen(float4 src, float4 dst) {
-    let color = 1.0 - (1.0 - src.rgb) * (1.0 - dst.rgb);
-    let scr = float4(color, (src.a + dst.a) * .65f);
-    return lerp(src + dst, scr, 0.65f);
+    let screen = 1.0 - (1.0 - src.rgb) * (1.0 - dst.rgb);
+    let scr = float4(screen, (src.a + dst.a) * .65f);
+    return lerp(src + dst, scr, param.mix_factor);
 }
 
 [[shader("compute")]]

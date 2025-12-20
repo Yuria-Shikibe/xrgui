@@ -7,7 +7,9 @@
 
   "common_options": [
     "-O2",
-    "-fvk-use-gl-layout"
+    "-fvk-use-gl-layout",
+    "-fvk-use-entrypoint-name",
+    "-emit-spirv-directly"
   ],
 
   "shaders": [

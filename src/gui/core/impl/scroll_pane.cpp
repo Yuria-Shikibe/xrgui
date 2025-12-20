@@ -31,8 +31,26 @@ bool scroll_pane::update(const float delta_in_ticks){
 	return true;
 }
 
-void scroll_pane::draw_content(rect clipSpace) const{
-	draw_background();
+void scroll_pane::draw_background_impl(rect clipSpace) const{
+	elem::draw_background_impl(clipSpace);
+
+	auto& r = get_scene().renderer();
+
+	const bool enableHori = is_hori_scroll_enabled();
+	const bool enableVert = is_vert_scroll_enabled();
+
+	assert(item);
+	if(enableHori || enableVert){
+		scissor_guard guard{r, {get_viewport()}};
+		transform_guard transform_guard{r, math::mat3{}.idt().set_translation(-scroll.temp)};
+		item->draw_background(clipSpace.move(scroll.temp));
+	}else{
+		item->draw_background(clipSpace);
+	}
+}
+
+void scroll_pane::draw_content_impl(rect clipSpace) const{
+	draw_style();
 
 	auto& r = get_scene().renderer();
 

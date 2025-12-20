@@ -35,37 +35,40 @@ void scene::draw(rect clip){
 		gui::mode_guard _m{renderer(), gui::draw_mode_param{gui::draw_mode::msdf}};
 		const auto root_bound = region_.round<int>().max_src({});
 
-		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
-			if(elem.belowScene){
-				elem.element->try_draw(region_);
-				const auto bound = elem.element->bound_abs().round<int>().intersection_with(root_bound).as<unsigned>();
-				renderer().update_state(blit_config{
-					.blit_region = {bound.src, bound.extent()}
-				});
-			}
-		}
-
-		root_->draw(clip);
-		renderer().update_state(blit_config{
-			.blit_region = {root_bound.src.as<unsigned>(), root_bound.extent().as<unsigned>()}
-		});
-
-		for (const auto & draw_sequence : overlay_manager_.get_draw_sequence()){
-			draw_sequence->draw(clip);
-			const auto bound = draw_sequence->bound_abs().round<int>().intersection_with(root_bound).as<unsigned>();
+		auto draw_elem = [&](const elem& e, rect region){
+			e.draw(region);
+			renderer().update_state(draw_mode_param{
+				.mode = draw_mode::msdf,
+				.draw_targets = 0b10
+			});
+			e.draw_background(region);
+			const auto bound = region.round<int>();
 			renderer().update_state(blit_config{
 				.blit_region = {bound.src, bound.extent()}
 			});
+			renderer().update_state(draw_mode_param{
+				.mode = draw_mode::msdf,
+				.draw_targets = 0b01
+			});
+		};
+
+		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
+			if(elem.belowScene){
+				draw_elem(*elem.element, elem.element->bound_abs());
+			}
+		}
+
+		draw_elem(*root_, clip);
+
+
+		for (const auto & draw_sequence : overlay_manager_.get_draw_sequence()){
+			draw_elem(*draw_sequence, draw_sequence->bound_abs());
+
 		}
 
 		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
 			if(!elem.belowScene){
-				elem.element->try_draw(clip);
-				const auto bound = elem.element->bound_abs().round<int>().intersection_with(root_bound).as<unsigned>();
-				renderer().update_state(blit_config{
-					.blit_region = {bound.src, bound.extent()}
-				});
-
+				draw_elem(*elem.element, elem.element->bound_abs());
 			}
 		}
 	}

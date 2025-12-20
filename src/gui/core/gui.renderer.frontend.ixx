@@ -11,6 +11,7 @@ import mo_yanxi.math.vector2;
 import mo_yanxi.math.matrix3;
 
 export import mo_yanxi.graphic.draw.instruction.general;
+export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.gui.alloc;
 import mo_yanxi.type_register;
@@ -162,7 +163,7 @@ enum struct state_type{
 
 export
 struct blit_config{
-	math::rect_ortho_trivial<std::uint32_t> blit_region;
+	math::rect_ortho_trivial<int> blit_region;
 	std::uint32_t blit_index;
 };
 
@@ -183,10 +184,14 @@ enum struct blending_type : std::uint16_t{
 	SIZE,
 };
 
+
 export
 struct draw_mode_param{
-	draw_mode mode;
-	blending_type blending;
+	draw_mode mode{};
+	blending_type blending{};
+	std::bitset<32> draw_targets{};
+	std::uint32_t pipeline_index{std::numeric_limits<std::uint32_t>::max()};
+
 };
 
 export
@@ -226,13 +231,13 @@ export
 using gui_reserved_user_data_tuple = std::tuple<ubo_screen_info, ubo_layer_info>;
 
 template <typename T>
-constexpr inline graphic::draw::instruction::user_data_indices reserved_data_index_of{tuple_index_v<T, gui_reserved_user_data_tuple>, 0};
+constexpr inline graphic::draw::user_data_indices reserved_data_index_of{tuple_index_v<T, gui_reserved_user_data_tuple>, 0};
 
 
 export
 struct renderer_frontend{
 private:
-	using user_table_type = graphic::draw::instruction::user_data_index_table<mr::vector<graphic::draw::instruction::user_data_identity_entry>>;
+	using user_table_type = graphic::draw::user_data_index_table<mr::vector<graphic::draw::user_data_identity_entry>>;
 	user_table_type table_vertex_only{};
 	user_table_type table_general{};
 
@@ -249,8 +254,8 @@ public:
 
 	template <typename A1, typename A2>
 	[[nodiscard]] explicit renderer_frontend(
-		const graphic::draw::instruction::user_data_index_table<A1>& user_data_table_vertex_only,
-		const graphic::draw::instruction::user_data_index_table<A2>& user_data_table_general,
+		const graphic::draw::user_data_index_table<A1>& user_data_table_vertex_only,
+		const graphic::draw::user_data_index_table<A2>& user_data_table_general,
 		const graphic::draw::instruction::batch_backend_interface& batch_backend_interface)
 	: table_vertex_only(user_data_table_vertex_only, user_table_type::allocator_type{})
 	, table_general(user_data_table_general, user_table_type::allocator_type{})
@@ -295,7 +300,7 @@ public:
 			if(idx >= table_vertex_only.size()){
 				throw std::out_of_range("index out of range");
 			}
-			instruction::place_ubo_update_at(buffer, instr, instruction::user_data_indices{static_cast<std::uint32_t>(idx), !vtx_only});
+			instruction::place_ubo_update_at(buffer, instr, user_data_indices{static_cast<std::uint32_t>(idx), !vtx_only});
 			batch_backend_interface_.push(std::span<const std::byte>{+buffer, instr_size});
 
 		}

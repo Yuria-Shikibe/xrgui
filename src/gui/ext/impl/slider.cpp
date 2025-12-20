@@ -24,8 +24,8 @@ void style::default_slider_drawer::draw(const slider& element, math::frect regio
 	});
 }
 
-void slider::draw_content(rect clipSpace) const{
-	draw_background();
+void slider::draw_content_impl(rect clipSpace) const{
+	draw_style();
 	if(drawer_){
 		drawer_->draw(*this, clipSpace, 1);
 	}

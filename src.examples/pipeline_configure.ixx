@@ -8,6 +8,7 @@ import mo_yanxi.vk;
 import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.gui.draw_config;
+import mo_yanxi.gui.renderer.frontend;
 
 import std;
 
@@ -46,7 +47,7 @@ auto make_renderer(
 		const draw_attachment_create_info& attachments){
 			vk::graphic_pipeline_template gtp{};
 			gtp.set_shaders({pconfig.config.shader_modules});
-			gtp.set_blending_dynamic();
+			gtp.set_blending_dynamic(true, false);
 			data.enables_multisample = pconfig.enables_multisample;
 			if(attachments.enables_multisample()){
 				gtp.set_multisample(attachments.multisample, 1, pconfig.enables_multisample);
@@ -63,10 +64,11 @@ auto make_renderer(
 				};
 		};
 
+	using namespace graphic::draw;
 	namespace instr = graphic::draw::instruction;
 	std::array draw_user_data_index_tables{
 			descriptor_create_config{
-				instr::user_data_index_table(std::in_place_type<std::tuple<slide_line_config>>),
+				user_data_index_table(std::in_place_type<std::tuple<slide_line_config>>),
 				[]{
 					vk::descriptor_layout_builder builder{};
 					builder.push_seq(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -109,7 +111,7 @@ auto make_renderer(
 		};
 
 	std::array blit_pipelines{
-			pipeline_config{{ui_blit.get_create_info(VK_SHADER_STAGE_COMPUTE_BIT)}, {}},
+			pipeline_configurator{{ui_blit.get_create_info(VK_SHADER_STAGE_COMPUTE_BIT)}, {}},
 		};
 
 

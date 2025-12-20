@@ -13,6 +13,7 @@ export module instruction_draw.batch.v2;
 export import mo_yanxi.graphic.draw.instruction.general;
 export import mo_yanxi.graphic.draw.instruction.util;
 export import mo_yanxi.graphic.draw.instruction;
+export import mo_yanxi.user_data_entry;
 import mo_yanxi.type_register;
 import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
@@ -231,6 +232,8 @@ public:
 	}
 
 	void reset(submit_extend_params param){
+		//TODO is the memset necessary?
+
 		std::memset(dispatch_config_storage.data(), 0, dispatch_config_storage.size() * sizeof(dispatch_group_info));
 		ptr_to_head = instruction_buffer_.begin();
 		index_to_last_chunk_head_ = 0;
@@ -911,17 +914,17 @@ public:
 				}
 
 				vk::dynamic_descriptor_mapper dbo_mapper{descriptor_buffer_};
-				dbo_mapper.set_element_at(0, 0, buffer_non_vertex_info_uniform_buffer_.get_address(), sizeof(dispatch_config), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+				dbo_mapper.set_element_at(0, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffer_non_vertex_info_uniform_buffer_.get_address(), sizeof(dispatch_config));
 
-				dbo_mapper.set_element_at(1, 0, buffer_dispatch_info_.get_address(), dispatch_unit_size * (1 + totalDispatchCount), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+				dbo_mapper.set_element_at(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_dispatch_info_.get_address(), dispatch_unit_size * (1 + totalDispatchCount));
 
-				dbo_mapper.set_element_at(2, 0, buffer_instruction_.get_address(), instructionSize, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+				dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_.get_address(), instructionSize);
 
 				dbo_mapper.set_images_at(3, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_, dynamic_image_view_history_.get());
 
 				VkDeviceSize cur_offset{};
 				for (const auto& [i, entry] : data_group_vertex_info_.entries | std::views::enumerate){
-					dbo_mapper.set_element_at(4 + i, 0, data_group_vertex_info_.get_buffer_address() + cur_offset, entry.get_required_byte_size(), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+					dbo_mapper.set_element_at(4 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, data_group_vertex_info_.get_buffer_address() + cur_offset, entry.get_required_byte_size());
 					cur_offset += entry.get_required_byte_size();
 				}
 			}
@@ -1030,20 +1033,19 @@ public:
 
 	}
 
-	void record_command_bind_and_draw(VkPipelineLayout pipelineLayout, VkCommandBuffer cmd, std::uint32_t dispatch_group_index){
-		//TODO cache the contexts
-		record_context<> record_context{};
-		record_context.get_bindings().push_back({
+	template <typename T = std::allocator<descriptor_buffer_usage>>
+	void record_load_to_record_context(record_context<T>& record_context){
+		record_context.get_bindings().push_back(descriptor_buffer_usage{
 			.info = descriptor_buffer_,
 			.target_set = 0
 		});
-		record_context.get_bindings().push_back({
+		record_context.get_bindings().push_back(descriptor_buffer_usage{
 			.info = non_vertex_descriptor_buffer_,
 			.target_set = 1
 		});
-		record_context.prepare_bindings();
-		record_context(pipelineLayout, cmd, 0, VK_PIPELINE_BIND_POINT_GRAPHICS);
+	}
 
+	void record_command_draw(VkCommandBuffer cmd, std::uint32_t dispatch_group_index) const {
 		vk::cmd::drawMeshTasksIndirect(cmd, buffer_indirect_, dispatch_group_index * sizeof(VkDrawMeshTasksIndirectCommandEXT), 1);
 	}
 

@@ -3,10 +3,10 @@ module mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
-void text_edit::draw_content(const rect clipSpace) const{
+void text_edit::draw_content_impl(const rect clipSpace) const{
 	using namespace graphic;
 
-	draw_background();
+	draw_style();
 
 	if(caret_ && glyph_layout.contains(caret_->range.src.pos) && glyph_layout.contains(caret_->range.dst.pos)){
 		using namespace graphic::draw::instruction;

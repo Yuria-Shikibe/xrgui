@@ -42,8 +42,6 @@ function set_xrgui_deps()
 
 
     add_includedirs("external/VulkanMemoryAllocator/include", {public = true})
-    add_includedirs("external/plf_hive", {public = true})
-    add_includedirs("external/small_vector/source/include", {public = true})
     add_includedirs("external/stb", {public = true})
     add_includedirs("external/include", {public = true})
 

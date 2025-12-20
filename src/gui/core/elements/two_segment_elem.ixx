@@ -95,13 +95,23 @@ public:
 		return items;
 	}
 
-	void draw_content(const rect clipSpace) const override{
-		draw_background();
+protected:
+	void draw_content_impl(const rect clipSpace) const override{
+		draw_style();
 		const auto space = content_bound_abs().intersection_with(clipSpace);
 
 		items[0]->try_draw(space);
 		items[1]->try_draw(space);
 	}
+
+	void draw_background_impl(const rect clipSpace) const override{
+		draw_style_background();
+		const auto space = content_bound_abs().intersection_with(clipSpace);
+
+		items[0]->try_draw_background(space);
+		items[1]->try_draw_background(space);
+	}
+public:
 
 	bool update(float delta_in_ticks) override{
 		if(!elem::update(delta_in_ticks))return false;

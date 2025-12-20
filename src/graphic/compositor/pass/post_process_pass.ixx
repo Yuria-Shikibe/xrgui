@@ -9,7 +9,7 @@ export module mo_yanxi.graphic.compositor.post_process_pass;
 
 export import mo_yanxi.graphic.compositor.manager;
 export import mo_yanxi.graphic.compositor.resource;
-export import mo_yanxi.graphic.compositor.shader_reflect;
+export import mo_yanxi.graphic.shader_reflect;
 
 export import mo_yanxi.math.vector2;
 export import mo_yanxi.vk;

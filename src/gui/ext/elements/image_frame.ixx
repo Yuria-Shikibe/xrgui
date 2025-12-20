@@ -91,8 +91,8 @@ protected:
 		std::swap(drawables_[ldx], drawables_[rdx]);
 	}
 
-	void draw_content(const rect clipSpace) const override{
-		elem::draw_content(clipSpace);
+	void draw_content_impl(const rect clipSpace) const override{
+		elem::draw_content_impl(clipSpace);
 		auto drawable = get_region();
 		if(!drawable || !drawable->drawable) return;
 		const auto sz = get_expected_size(*drawable->drawable, drawable->style, content_extent());
@@ -205,8 +205,8 @@ public:
 	}
 
 protected:
-	void draw_content(const rect clipSpace) const override{
-		draw_background();
+	void draw_content_impl(const rect clipSpace) const override{
+		draw_style();
 
 		auto sz = gui::get_expected_size(drawable_, style, content_extent());
 		auto off = align::get_offset_of(style.align, sz, content_bound_abs());

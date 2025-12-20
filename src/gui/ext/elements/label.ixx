@@ -259,7 +259,7 @@ protected:
 		return glyph_layout.get_text();
 	}
 
-	void draw_content(rect clipSpace) const override;
+	void draw_content_impl(rect clipSpace) const override;
 
 	bool resize_impl(const math::vec2 size) override{
 		if(elem::resize_impl(size)){
@@ -445,7 +445,7 @@ protected:
 		notify_layout_changed(propagate_mask::local | propagate_mask::force_upper);
 	}
 
-	void draw_content(const rect clipSpace) const override;
+	void draw_content_impl(const rect clipSpace) const override;
 
 public:
 	config_prov_node* set_as_config_prov(){

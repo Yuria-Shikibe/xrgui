@@ -44,7 +44,7 @@ constexpr VkPipelineColorBlendAttachmentState get_blending(blending_type type) n
 #pragma region DescriptorCustomize
 
 export
-using user_data_table = graphic::draw::instruction::user_data_index_table<>;
+using user_data_table = graphic::draw::user_data_index_table<>;
 
 export
 using descriptor_slots = graphic::draw::instruction::batch_descriptor_slots;
@@ -96,7 +96,7 @@ export struct blit_attachment_create_info{
 };
 
 export
-struct descriptor_buffer_use_entry{
+struct descriptor_use_entry{
 	std::uint32_t source;
 	std::uint32_t target;
 };
@@ -106,7 +106,7 @@ struct pipeline_data{
 	vk::pipeline_layout pipeline_layout{};
 	vk::pipeline pipeline{};
 
-	gch::small_vector<descriptor_buffer_use_entry, 4, mr::unvs_allocator<descriptor_buffer_use_entry>> used_descriptor_sets{};
+	gch::small_vector<descriptor_use_entry, 4, mr::unvs_allocator<descriptor_use_entry>> used_descriptor_sets{};
 
 	[[nodiscard]] pipeline_data() = default;
 };
@@ -116,14 +116,14 @@ struct draw_pipeline_data : pipeline_data{
 	bool enables_multisample{};
 };
 
-export struct pipeline_config{
+export struct pipeline_configurator{
 	std::vector<VkPipelineShaderStageCreateInfo> shader_modules;
-	std::vector<descriptor_buffer_use_entry> entries;
+	std::vector<descriptor_use_entry> entries;
 };
 
 
 export struct draw_pipeline_config{
-	pipeline_config config{};
+	pipeline_configurator config{};
 	bool enables_multisample{};
 	void(*creator)(
 		draw_pipeline_data&,
@@ -232,7 +232,7 @@ public:
 		VkCommandPool command_pool,
 		const std::uint32_t chunk_count,
 		const std::uint32_t io_attachments_count,
-		std::span<const pipeline_config> pipeline_creators,
+		std::span<const pipeline_configurator> pipeline_creators,
 		std::span<const descriptor_create_config> create_configs = {}
 		) :
 	blit_command_chunk(allocator.get_device(), command_pool, chunk_count)
@@ -302,6 +302,7 @@ public:
 			}
 		}
 
+		using namespace graphic::draw;
 		using namespace graphic::draw::instruction;
 		for(auto&& [group, chunk] :
 		    user_data_table_.get_entries()
@@ -489,7 +490,7 @@ struct draw_pipeline_create_group{
 
 export
 struct blit_pipeline_create_group{
-	std::span<const pipeline_config> pipeline_create_info;
+	std::span<const pipeline_configurator> pipeline_create_info;
 	std::span<const descriptor_create_config> descriptor_create_info;
 };
 
@@ -897,9 +898,19 @@ private:
 		batch_.consume_all();
 		batch_.wait_all();
 
-		const auto& cfg = *reinterpret_cast<const blit_config*>(data_span.data());
+		auto cfg = *reinterpret_cast<const blit_config*>(data_span.data());
 
-		auto& cmd_unit = blitter_.blit(cfg.blit_region);
+		if(cfg.blit_region.src.x < 0){
+			cfg.blit_region.extent.x += cfg.blit_region.src.x;
+			cfg.blit_region.src.x = 0;
+			if(cfg.blit_region.extent.x < 0)cfg.blit_region.extent.x = 0;
+		}
+		if(cfg.blit_region.src.y < 0){
+			cfg.blit_region.extent.y += cfg.blit_region.src.y;
+			cfg.blit_region.src.y = 0;
+			if(cfg.blit_region.extent.y < 0)cfg.blit_region.extent.y = 0;
+		}
+		auto& cmd_unit = blitter_.blit({cfg.blit_region.src.as<unsigned>(), cfg.blit_region.extent.as<unsigned>()});
 		//
 		auto blit_semaphore_submit_info = cmd_unit.get_next_semaphore_submit_info(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 		auto cmd_submit_info = cmd_unit.get_command_submit_info();
@@ -1074,6 +1085,7 @@ private:
 		}
 
 
+		using namespace graphic::draw;
 		using namespace graphic::draw::instruction;
 		general_descriptors_.bind([&](const std::uint32_t idx, const vk::descriptor_mapper& mapper){
 			for(auto&& [binding, ientry] : batch_.get_ubo_table().get_entries()

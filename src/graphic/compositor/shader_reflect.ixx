@@ -5,7 +5,7 @@ module;
 #include <spirv_reflect.h>;
 #endif
 
-export module mo_yanxi.graphic.compositor.shader_reflect;
+export module mo_yanxi.graphic.shader_reflect;
 
 import mo_yanxi.graphic.compositor.resource;
 import std;
@@ -14,7 +14,7 @@ import std;
 import <spirv_reflect.h>;
 #endif
 
-namespace mo_yanxi::graphic::compositor {
+namespace mo_yanxi::graphic {
 
 export struct shader_reflection {
 private:
@@ -24,13 +24,14 @@ private:
     std::vector<SpvReflectDescriptorBinding*> sampled_images_{};
     std::vector<SpvReflectDescriptorBinding*> uniform_buffers_{};
     std::vector<SpvReflectDescriptorBinding*> storage_buffers_{};
+    // [New]
+    std::vector<VkPushConstantRange> push_constant_ranges_{};
 
 public:
     [[nodiscard]] shader_reflection() = default;
 
-    // 构造函数简化
     [[nodiscard]] shader_reflection(std::span<const std::uint32_t> binary)
-        : module_(binary.size_bytes(), binary.data()) // C++ 包装类构造函数
+        : module_(binary.size_bytes(), binary.data())
     {
         if (module_.GetResult() != SPV_REFLECT_RESULT_SUCCESS) {
             throw std::runtime_error("Failed to create SPIRV-Reflect shader module");
@@ -38,59 +39,106 @@ public:
         enumerate_resources();
     }
 
-    // 析构函数不再需要，module_ 会自动析构
-    // 移动构造和赋值使用默认即可
     shader_reflection(shader_reflection&& other) noexcept = default;
     shader_reflection& operator=(shader_reflection&& other) noexcept = default;
 
-    // 禁用拷贝（因为 spv_reflect::ShaderModule 内部是一大块内存，拷贝代价大且通常不需要）
     shader_reflection(const shader_reflection&) = delete;
     shader_reflection& operator=(const shader_reflection&) = delete;
 
     [[nodiscard]] const SpvReflectShaderModule& raw_module() const noexcept {
-        return module_.GetShaderModule(); // C++ 包装类的 getter
+        return module_.GetShaderModule();
     }
 
-    // 保持原有接口不变，这样 post_process_pass.ixx 不需要修改
     [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& storage_images() const noexcept { return storage_images_; }
     [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& sampled_images() const noexcept { return sampled_images_; }
     [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& uniform_buffers() const noexcept { return uniform_buffers_; }
     [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& storage_buffers() const noexcept { return storage_buffers_; }
 
-    [[nodiscard]] binding_info binding_info_of(const SpvReflectDescriptorBinding* resource) const noexcept {
+    // [New] Getter
+    [[nodiscard]] const std::vector<VkPushConstantRange>& push_constant_ranges() const noexcept {
+        return push_constant_ranges_;
+    }
+
+    [[nodiscard]] compositor::binding_info binding_info_of(const SpvReflectDescriptorBinding* resource) const noexcept {
         return {resource->binding, resource->set};
     }
 
 private:
     void enumerate_resources() {
+        // 1. 处理 Descriptor Sets
         uint32_t count = 0;
-        // 使用 C++ 包装类的成员函数
         SpvReflectResult result = module_.EnumerateDescriptorBindings(&count, nullptr);
 
-        if (result != SPV_REFLECT_RESULT_SUCCESS || count == 0) return;
+        if (result == SPV_REFLECT_RESULT_SUCCESS && count > 0) {
+            std::vector<SpvReflectDescriptorBinding*> bindings(count);
+            module_.EnumerateDescriptorBindings(&count, bindings.data());
 
-        std::vector<SpvReflectDescriptorBinding*> bindings(count);
-        module_.EnumerateDescriptorBindings(&count, bindings.data());
+            for (auto* binding : bindings) {
+                switch (binding->descriptor_type) {
+                    case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+                        storage_images_.push_back(binding);
+                        break;
+                    case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+                    case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+                    case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
+                        sampled_images_.push_back(binding);
+                        break;
+                    case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                        uniform_buffers_.push_back(binding);
+                        break;
+                    case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+                        storage_buffers_.push_back(binding);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
 
-        // 分类逻辑保持不变
-        for (auto* binding : bindings) {
-            switch (binding->descriptor_type) {
-                case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-                    storage_images_.push_back(binding);
-                    break;
-                case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
-                case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-                case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
-                    sampled_images_.push_back(binding);
-                    break;
-                case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-                    uniform_buffers_.push_back(binding);
-                    break;
-                case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-                    storage_buffers_.push_back(binding);
-                    break;
-                default:
-                    break;
+        // 2. [New] 处理 Push Constants
+        std::uint32_t pc_count = 0;
+        result = module_.EnumeratePushConstantBlocks(&pc_count, nullptr);
+
+        if (result == SPV_REFLECT_RESULT_SUCCESS && pc_count > 0) {
+            std::vector<SpvReflectBlockVariable*> blocks(pc_count);
+            module_.EnumeratePushConstantBlocks(&pc_count, blocks.data());
+
+            // 获取底层的 C 结构体，方便访问入口点数组
+            const auto& spv_module = module_.GetShaderModule();
+
+            push_constant_ranges_.reserve(pc_count);
+
+            for (auto* block : blocks) {
+                VkShaderStageFlags calculated_stage_flags = 0;
+
+                // 核心修复逻辑：遍历该 SPIR-V 中所有的入口点
+                for (uint32_t i = 0; i < spv_module.entry_point_count; ++i) {
+                    const auto& entry_point = spv_module.entry_points[i];
+
+                    // 检查该入口点使用了哪些 Push Constant
+                    // used_push_constants 存储的是 push_constant_blocks 数组的【索引】
+                    for (uint32_t j = 0; j < entry_point.used_push_constant_count; ++j) {
+                        uint32_t used_index = entry_point.used_push_constants[j];
+
+                        // 比较地址，判断当前 entry_point 引用的块是不是我们正在处理的 block
+                        if (&spv_module.push_constant_blocks[used_index] == block) {
+                            calculated_stage_flags |= static_cast<VkShaderStageFlags>(entry_point.shader_stage);
+                        }
+                    }
+                }
+
+                // 如果该 Block 被反射出来但没有被任何入口点显式使用（极少见），
+                // 为了安全起见，可以使用 module 全局的 stage 或者跳过。
+                // 这里给一个兜底策略，或者你可以选择 if (calculated_stage_flags != 0) 再 push_back
+                if (calculated_stage_flags == 0) {
+                    calculated_stage_flags = static_cast<VkShaderStageFlags>(spv_module.shader_stage);
+                }
+
+                push_constant_ranges_.push_back({
+                    .stageFlags = calculated_stage_flags,
+                    .offset = block->offset,
+                    .size = block->size
+                });
             }
         }
     }

@@ -1,7 +1,7 @@
 #include <vulkan/vulkan.h>
 import mo_yanxi.vk;
 import mo_yanxi.backend.vulkan.context;
-import mo_yanxi.backend.vulkan.renderer;
+// import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.backend.glfw.window;
 import mo_yanxi.backend.application_timer;
 
@@ -25,7 +25,7 @@ import mo_yanxi.vk.cmd;
 import std;
 
 import mo_yanxi.gui.examples;
-import mo_yanxi.pipeline_configure;
+// import mo_yanxi.pipeline_configure;
 
 import instruction_draw.batch.v2;
 import renderer_v2;
@@ -37,8 +37,8 @@ void app_run(
 	mo_yanxi::graphic::compositor::manager& manager,
 	mo_yanxi::vk::command_buffer& cmdBUf
 	){
-	using namespace mo_yanxi;
 
+	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 	while(!ctx.window().should_close()){
@@ -57,30 +57,30 @@ void app_run(
 
 		auto& r = gui::global::manager.get_current_focus().renderer();
 		r.init_projection();
-		{
-			using namespace graphic::draw::instruction;
-
-			for(int x = 0; x < 5; ++x){
-				for(int y = 0; y < 5; ++y){
-					r.push(rectangle_ortho{
-						.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
-						.v00 = {x * 60.f, y * 60.f},
-						.v11 = {x * 60.f + 40, y * 60.f + 40},
-						.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
-					});
-					if((x + y) & 1){
-
-						r.push(gui::draw_config::slide_line_config{
-							.angle = -45,
-							.spacing = 10,
-							.stroke = 15,
-						});
-					}else{
-						r.push(gui::draw_config::slide_line_config{});
-					}
-				}
-			}
-		}
+		// {
+		// 	using namespace graphic::draw::instruction;
+		//
+		// 	for(int x = 0; x < 5; ++x){
+		// 		for(int y = 0; y < 5; ++y){
+		// 			r.push(rectangle_ortho{
+		// 				.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+		// 				.v00 = {x * 60.f, y * 60.f},
+		// 				.v11 = {x * 60.f + 40, y * 60.f + 40},
+		// 				.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
+		// 			});
+		// 			if((x + y) & 1){
+		//
+		// 				r.push(gui::draw_config::slide_line_config{
+		// 					.angle = -45,
+		// 					.spacing = 10,
+		// 					.stroke = 15,
+		// 				});
+		// 			}else{
+		// 				r.push(gui::draw_config::slide_line_config{});
+		// 			}
+		// 		}
+		// 	}
+		// }
 
 		gui::global::manager.draw();
 		renderer.batch.end_rendering();
@@ -130,9 +130,61 @@ void prepare(){
 
 #pragma region InitUI
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
+	vk::shader_module shader_draw{ctx.get_device(), shader_spv_path / "ui.draw_v2.spv"};
+	vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
 
-	backend::vulkan::renderer_v2 renderer{ctx.get_allocator(), ctx.get_graphic_command_pool(), sampler_ui};
-	// auto renderer = gui::make_renderer(ctx);
+	backend::vulkan::renderer_v2 renderer{
+		backend::vulkan::renderer_v2_create_info{
+			.allocator_usage = ctx.get_allocator(),
+			.command_pool = ctx.get_graphic_command_pool(),
+			.sampler = sampler_ui,
+			.attachment_draw_config = {
+				{
+					backend::vulkan::draw_attachment_config{.attachment = {VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}},
+					backend::vulkan::draw_attachment_config{.attachment = {VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}},
+				}, VK_SAMPLE_COUNT_4_BIT
+			},
+			.attachment_blit_config = {
+					{
+						backend::vulkan::attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
+						backend::vulkan::attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
+					}
+			},
+			.draw_pipe_config = backend::vulkan::graphic_pipeline_create_config{
+				{
+					backend::vulkan::graphic_pipeline_create_config::config{
+						{{}, {VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
+						{
+							shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
+							shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+						},
+						backend::vulkan::graphic_pipeline_option{true, {0b1}}
+					},
+				},
+				{}
+			},
+			.blit_pipe_config = backend::vulkan::compute_pipeline_create_config{
+					{
+						backend::vulkan::compute_pipeline_create_config::config{
+								.general = {},
+								.shader_module = shader_blit.get_create_info(VK_SHADER_STAGE_COMPUTE_BIT),
+								.option = {
+									.inout = backend::vulkan::compute_pipeline_blit_inout_config{
+										{
+											{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+											{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+										},
+										{
+											{2, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+											{3, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+										}
+									},
+								}
+						},
+					}
+			}
+		}};
+
 	auto& ui_root = gui::global::manager;
 	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
 	scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
@@ -192,6 +244,10 @@ void prepare(){
 
 		ui_input.resource = compositor::image_entity{.handle = renderer.get_base()};
 		manager.resize(event.size, true);
+
+		pass_bloom.meta.set_scale(.5f);
+		pass_bloom.meta.set_mix_factor(0.f);
+		pass_bloom.meta.set_strength(.8f, .8f);
 
 		{
 			vk::scoped_recorder r{post_process_cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};

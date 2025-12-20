@@ -37,6 +37,11 @@ protected:
 			element->try_draw(clipSpace);
 		}
 	}
+	void draw_children_background(const rect clipSpace) const{
+		for(const auto& element : children()){
+			element->try_draw_background(clipSpace);
+		}
+	}
 
 	virtual void notify_layout_changed_on_element_change(){
 		notify_layout_changed(propagate_mask::upper | propagate_mask::force_upper);
@@ -151,18 +156,27 @@ public:
 		return true;
 	}
 
-	void draw_content(const rect clipSpace) const override{
-		elem::draw_content(clipSpace);
-		const auto space = content_bound_abs().intersection_with(clipSpace);
-		draw_children(space);
-	}
+
 
 	void layout_elem() override{
 		elem::layout_elem();
 		layout_children();
 	}
 
+
 protected:
+	void draw_background_impl(const rect clipSpace) const override{
+		elem::draw_background_impl(clipSpace);
+		const auto space = content_bound_abs().intersection_with(clipSpace);
+		draw_children_background(space);
+	}
+
+	void draw_content_impl(const rect clipSpace) const override{
+		elem::draw_content_impl(clipSpace);
+		const auto space = content_bound_abs().intersection_with(clipSpace);
+		draw_children(space);
+	}
+
 	bool resize_impl(const math::vec2 size) override{
 		if(elem::resize_impl(size)){
 			const auto newSize = content_extent();

@@ -8,18 +8,20 @@ struct blit_info {
 [[vk::binding(0, 0)]]
 ConstantBuffer<blit_info> ubo;
 
-[[vk::binding(1, 0)]]
+
+
+[[vk::binding(0, 1)]]
 // [[format("rgba16f")]]
 restrict readonly RWTexture2D input_base;
 
-[[vk::binding(2, 0)]]
+[[vk::binding(1, 1)]]
 restrict readonly RWTexture2D input_back;
 
-[[vk::binding(3, 0)]]
+[[vk::binding(2, 1)]]
 // [[format("rgba16f")]]
 restrict RWTexture2D output_base;
 
-[[vk::binding(4, 0)]]
+[[vk::binding(3, 1)]]
 restrict RWTexture2D output_back;
 
 float4 applyShadow(float4 shadowColor, float4 baseColor) {

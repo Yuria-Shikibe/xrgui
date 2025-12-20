@@ -1202,20 +1202,9 @@ void apd_default_modifiers(parser& parser){
 		};
 }
 
-export const parser global_parser{
-		[]{
-			parser p;
-			apd_default_modifiers(p);
-			return p;
-		}()
-	};
+//FUCK MSVC HERE because using inline cause the compiler ice...
 
-export const parser global_empty_parser{
-		[]{
-			parser p;
-			apd_default_modifiers(p);
-			p.reserve_tokens = true;
-			return p;
-		}()
-	};
+export extern const parser global_parser;
+
+export extern const parser global_empty_parser;
 }

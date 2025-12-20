@@ -36,8 +36,19 @@ public:
 	, tempOffsets(alloc)
 	, tempBindInfos(alloc){}
 
+	void clear() noexcept{
+		binding_infos.clear();
+		designators.clear();
+		tempOffsets.clear();
+		tempBindInfos.clear();
+	}
+
 	auto& get_bindings() noexcept{
 		return binding_infos;
+	}
+
+	void push(std::uint32_t target_set, VkDescriptorBufferBindingInfoEXT info, VkDeviceSize chunk_size = 0){
+		binding_infos.emplace_back(info, chunk_size, target_set);
 	}
 
 	void prepare_bindings(){

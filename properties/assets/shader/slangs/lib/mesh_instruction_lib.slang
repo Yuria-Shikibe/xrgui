@@ -916,3 +916,89 @@ public uint resolve_instruction<T>(
 
     return group_head.primitives;
 }
+
+public interface vertex_transformer_2<T> {
+    [ForceInline]
+    T operator()(Vertex v);
+
+    [[ForceInline]]
+    [[mutating]]
+    void operator()(uint march_index);
+
+    uint[2] get_instruction_span();
+    
+}
+
+public struct mesh_dispatch_info_v2<uint n>
+{
+    public uint instruction_offset; // offset in 8 Byte
+    public uint vertex_offset;
+    public uint primit_offset;
+    public uint primitives;
+
+    public uint[n] timeline;
+}
+
+[ForceInline]
+public uint resolve_instruction_v2<T, uint n>(
+    const uint threadId,
+    const in mesh_dispatch_info_v2<n> mesh_subrange,
+    const in ByteAddressBuffer instruction,
+    in vertex_transformer_2<T> transformer,
+
+    OutputVertices<T, VERTEX_PER_MESH> verts: __ref,
+    OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> prims: __ref,
+    OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices: __ref
+) {
+    let instr_span = transformer.get_instruction_span();
+
+    let group_head = mesh_subrange;
+    let patch_til_index = bool(group_head.vertex_offset) * 2;
+    let group_instr_head_ptr = instr_span[0];
+    let group_instr_tail_ptr = instr_span[1];
+
+    uint skipped_vertices = 0;
+    int skipped_primitives = -int(group_head.primit_offset);
+    var ptr_to_head = group_instr_head_ptr;
+
+    [ForceUnroll]
+    for (int i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
+        let target_index = (i == 1 ? (VERTEX_PER_MESH - threadId - 1) : threadId);
+        let thread_vtx_skip = target_index + group_head.vertex_offset;
+
+        while (true) {
+            let head = get_instruction_head(instruction, ptr_to_head);
+            if (head.type == instruction_type::noop) {
+                break;
+            }
+
+            if (head.type == instruction_type::uniform_update) {
+                transformer(head.vertex_count);
+                ptr_to_head += 16;
+                continue;
+            }
+
+            if (skipped_primitives >= int(group_head.primitives)) break;
+            if (head.vertex_count == 0) break;
+
+            let local_skip = thread_vtx_skip - skipped_vertices;
+            if (local_skip < head.vertex_count) {
+
+                let patch_index = patch_til_index > target_index ? patch_til_index - target_index : 0;
+                var vtx = push_vertex(
+                    head, instruction, ptr_to_head + sizeof(instruction_head),
+                    resolve_param(target_index, local_skip, patch_index, skipped_primitives, MAX_IMAGE_CACHE_COUNT),
+                    prims, indices);
+
+                verts[target_index] = transformer(vtx);
+                break;
+            }
+
+            ptr_to_head += head.size;
+            skipped_vertices += head.vertex_count;
+            skipped_primitives += head.primit_count;
+        }
+    }
+
+    return group_head.primitives;
+}

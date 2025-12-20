@@ -10,6 +10,7 @@ import mo_yanxi.vk;
 
 export import mo_yanxi.graphic.draw.instruction;
 export import mo_yanxi.graphic.draw.instruction.util;
+export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.type_register;
 import std;
@@ -70,6 +71,28 @@ struct alignas(16) dispatch_group_info{
 constexpr inline std::uint32_t MaxTaskDispatchPerTime = 32;
 constexpr inline std::uint32_t MaxVerticesPerMesh = 64;
 
+
+
+struct image_set_result{
+	image_handle_t image;
+	bool succeed;
+
+	constexpr explicit operator bool() const noexcept{
+		return succeed;
+	}
+};
+
+
+FORCE_INLINE inline image_set_result set_image_index(void* instruction, image_view_history<>& cache) noexcept{
+	auto& generic = *static_cast<primitive_generic*>(instruction);
+
+	const auto view = generic.image.get_image_view();
+	assert(std::bit_cast<std::uintptr_t>(view) != 0x00000000'ffffffffULL);
+	const auto idx = cache.try_push(view);
+	if(idx == image_view_history<>::max_cache_count) return image_set_result{view, false};
+	generic.image.set_index(idx);
+	return image_set_result{view, true};
+}
 /**
  *
  * @brief parse given instructions between [begin, sentinel), store mesh dispatch info to storage

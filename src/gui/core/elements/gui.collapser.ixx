@@ -127,7 +127,11 @@ protected:
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override;
 
-	void draw_content(const rect clipSpace) const override;
+	void draw_impl(void(elem::* mfptr)(rect) const, rect r) const;
+
+	void draw_content_impl(const rect clipSpace) const override;
+
+	void draw_background_impl(const rect clipSpace) const override;
 
 	bool update(float delta_in_ticks) override{
 		if(!two_segment_elem::update(delta_in_ticks))return false;

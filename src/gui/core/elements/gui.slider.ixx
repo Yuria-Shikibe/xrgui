@@ -248,7 +248,7 @@ protected:
 		set_focused_scroll(is_inbounded);
 	}
 
-	void draw_content(rect clipSpace) const override;
+	void draw_content_impl(rect clipSpace) const override;
 
 public:
 	events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override{

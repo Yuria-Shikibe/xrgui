@@ -44,22 +44,27 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 	auto vcb = vc;
 	vcb *= graphic::color{.1, .1, .1, 1};
 
-	element.get_scene().renderer().push(draw::instruction::rectangle_ortho{
-			.generic = {.mode = {std::to_underlying(primitive_draw_mode::target_background)}},
-			.v00 = region.vert_00(),
-			.v11 = region.vert_11(),
-			.vert_color = vcb
-		});
 
 	region.shrink(1.f);
 	element.get_scene().renderer().push(draw::instruction::rectangle_ortho_outline{
 			.v00 = region.vert_00(),
 			.v11 = region.vert_11(),
-			.stroke = 1,
-			.vert_color = vc
+			.stroke = {2},
+			.vert_color = {vc}
 		});
 
 
+}
+
+void style::debug_elem_drawer::draw_background(const elem& element, math::frect region, float opacityScl) const{
+	using namespace graphic;
+
+	element.get_scene().renderer().push(draw::instruction::rectangle_ortho{
+			.generic = {.mode = {std::to_underlying(primitive_draw_mode::target_background)}},
+			.v00 = region.vert_00(),
+			.v11 = region.vert_11(),
+			.vert_color = {colors::dark_gray.create_lerp({0, 0, 0, 1}, .85f).copy().mul_a(opacityScl)}
+		});
 }
 
 tooltip::align_config elem::tooltip_get_align_config() const{
@@ -88,8 +93,13 @@ bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
 
 }
 
-void elem::draw_background() const{
+void elem::draw_style() const{
 	if(style)style->draw(*this, bound_abs(), get_draw_opacity());
+}
+
+void elem::draw_style_background() const{
+	if(style)style->draw_background(*this, bound_abs(), get_draw_opacity());
+
 }
 
 bool elem::update(float delta_in_ticks){

@@ -180,15 +180,15 @@ void async_label_terminal::on_update(const exclusive_glyph_layout& data){
 	label->update_draw_buffer(*data);
 }
 
-void label::draw_content(const rect clipSpace) const{
-	draw_background();
+void label::draw_content_impl(const rect clipSpace) const{
+	draw_style();
 	draw_text();
 }
 
 
 
-void async_label::draw_content(const rect clipSpace) const{
-	draw_background();
+void async_label::draw_content_impl(const rect clipSpace) const{
+	draw_style();
 	if(!terminal)return;
 	if(extent_state_ != async_label::layout_extent_state::valid)return;
 

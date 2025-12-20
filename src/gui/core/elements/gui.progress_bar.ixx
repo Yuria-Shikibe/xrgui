@@ -146,8 +146,8 @@ public:
 	}
 
 protected:
-	void draw_content(const rect clipSpace) const override{
-		draw_background();
+	void draw_content_impl(const rect clipSpace) const override{
+		draw_style();
 		if(drawer){
 			drawer->draw(*this, content_bound_abs(), get_draw_opacity());
 		}
