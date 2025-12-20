@@ -4,7 +4,6 @@ module;
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
-#include "gch/small_vector.hpp"
 
 export module mo_yanxi.backend.vulkan.pipeline_manager;
 
@@ -13,6 +12,7 @@ export import mo_yanxi.gui.renderer.frontend;
 
 import mo_yanxi.utility;
 import mo_yanxi.graphic.draw.instruction.batch;
+import mo_yanxi.graphic.draw.instruction.util;
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.vk.util.uniform;
 import mo_yanxi.vk.util;
@@ -24,7 +24,7 @@ import std;
 namespace mo_yanxi::backend::vulkan{
 using namespace gui;
 
-using user_data_table = graphic::draw::user_data_index_table<>;
+using user_data_table = graphic::draw::data_layout_table<>;
 
 struct stage_binding_spec : vk::binding_spec {
 	VkShaderStageFlags stage_flags;
@@ -166,7 +166,7 @@ struct graphic_pipeline_option{
 	bool enables_multisample{};
 	std::bitset<32> default_target_attachments{};
 	std::variant<std::monostate, std::vector<VkPipelineColorBlendAttachmentState>, dynamic_blending_config> blending{};
-	gch::small_vector<descriptor_use_entry, 4, mr::unvs_allocator<descriptor_use_entry>> used_descriptor_sets{};
+	std::vector<descriptor_use_entry> used_descriptor_sets{};
 
 	bool is_partial_target() const noexcept{
 		return default_target_attachments.any() && !default_target_attachments.all();
@@ -331,7 +331,7 @@ public:
 export
 struct compute_pipeline_option{
 	compute_pipeline_blit_inout_config inout{};
-	gch::small_vector<descriptor_use_entry, 4, mr::unvs_allocator<descriptor_use_entry>> used_descriptor_sets{};
+	std::vector<descriptor_use_entry> used_descriptor_sets{};
 };
 
 export
@@ -460,7 +460,7 @@ public:
 };
 
 export
-class graphic_pipeline_manager : pipeline_manager_base<graphic_pipeline_data>{
+class graphic_pipeline_manager : public pipeline_manager_base<graphic_pipeline_data>{
 public:
 	[[nodiscard]] graphic_pipeline_manager() = default;
 
@@ -504,7 +504,7 @@ public:
 };
 
 export
-class compute_pipeline_manager : pipeline_manager_base<compute_pipeline_data>{
+class compute_pipeline_manager : public pipeline_manager_base<compute_pipeline_data>{
 private:
 	std::vector<vk::descriptor_layout> blit_inout_layouts_{};
 

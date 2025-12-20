@@ -49,11 +49,11 @@ void app_run(
 		gui::global::manager.update(timer.global_delta_tick());
 		gui::global::manager.layout();
 
-		renderer.batch.begin_rendering();
-		renderer.batch.get_data_group_non_vertex_info().push_default(gui::draw_config::ui_state(
+		renderer.batch_host.begin_rendering();
+		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::draw_config::ui_state(
 			timer.global_time()
 		));
-		renderer.batch.get_data_group_non_vertex_info().push_default(gui::draw_config::slide_line_config{});
+		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::draw_config::slide_line_config{});
 
 		auto& r = gui::global::manager.get_current_focus().renderer();
 		r.init_projection();
@@ -83,10 +83,10 @@ void app_run(
 		// }
 
 		gui::global::manager.draw();
-		renderer.batch.end_rendering();
-		renderer.batch.load_to_gpu();
+		renderer.batch_host.end_rendering();
+		renderer.wait_fence();
+		renderer.batch_device.upload(renderer.batch_host);
 		renderer.create_command();
-
 
 		std::array<VkCommandBuffer, 2> buffers{renderer.get_valid_cmd_buf(), cmdBUf};
 		vk::cmd::submit_command(ctx.graphic_queue(), buffers, renderer.get_fence());

@@ -15,8 +15,9 @@ namespace mo_yanxi::graphic::draw{
 export
 struct descriptor_buffer_usage{
 	VkDescriptorBufferBindingInfoEXT info;
-	VkDeviceSize chunk_size;
 	std::uint32_t target_set;
+	VkDeviceSize chunk_size;
+	VkDeviceSize initial_offset;
 };
 
 export
@@ -47,8 +48,8 @@ public:
 		return binding_infos;
 	}
 
-	void push(std::uint32_t target_set, VkDescriptorBufferBindingInfoEXT info, VkDeviceSize chunk_size = 0){
-		binding_infos.emplace_back(info, chunk_size, target_set);
+	void push(std::uint32_t target_set, VkDescriptorBufferBindingInfoEXT info, VkDeviceSize chunk_size = 0, VkDeviceSize initial_off = 0){
+		binding_infos.emplace_back(info, target_set, chunk_size, initial_off);
 	}
 
 	void prepare_bindings(){
@@ -70,7 +71,7 @@ public:
 			const std::uint32_t chunk_size = std::ranges::size(chunk);
 			designators.assign_range(std::views::iota(current_src, current_src + chunk_size));
 			tempOffsets.assign_range(chunk | std::views::transform([&](const descriptor_buffer_usage& info){
-				return info.chunk_size * index;
+				return info.chunk_size * index + info.initial_offset;
 			}));
 
 			vk::cmd::setDescriptorBufferOffsetsEXT(

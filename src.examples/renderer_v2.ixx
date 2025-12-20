@@ -5,7 +5,11 @@ module;
 
 export module renderer_v2;
 
-export import instruction_draw.batch.v2;
+// export import instruction_draw.batch.v2;
+import mo_yanxi.graphic.draw.instruction.batch.frontend;
+import mo_yanxi.graphic.draw.instruction.batch.backend.vulkan;
+
+
 import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
 import mo_yanxi.vk.util;
@@ -16,11 +20,11 @@ export import mo_yanxi.backend.vulkan.pipeline_manager;
 import std;
 
 namespace mo_yanxi::backend::vulkan{
-const graphic::draw::user_data_index_table table{
+const graphic::draw::data_layout_table table{
 	std::in_place_type<gui::gui_reserved_user_data_tuple>
 };
 
-const graphic::draw::user_data_index_table table_non_vertex{
+const graphic::draw::data_layout_table table_non_vertex{
 	std::in_place_type<std::tuple<gui::draw_config::ui_state, gui::draw_config::slide_line_config>>
 };
 
@@ -53,7 +57,9 @@ struct renderer_v2{
 	vk::allocator_usage allocator_usage_{};
 
 public:
-	graphic::draw::instruction::batch_v2 batch{};
+	// graphic::draw::instruction::batch_v2 batch{};
+	graphic::draw::instruction::batch_host_context batch_host{};
+	graphic::draw::instruction::batch_vulkan_executor batch_device{};
 
 private:
 
@@ -87,11 +93,12 @@ public:
 		renderer_v2_create_info&& create_info
 	)
 		: allocator_usage_(create_info.allocator_usage)
-		, batch(allocator_usage_, {}, table, table_non_vertex, create_info.sampler)
+		, batch_host(table, table_non_vertex)
+		, batch_device(allocator_usage_, batch_host, create_info.sampler)
 		, attachment_manager{
 			allocator_usage_, std::move(create_info.attachment_draw_config), std::move(create_info.attachment_blit_config)
 		}
-		, draw_pipeline_manager_(allocator_usage_, create_info.draw_pipe_config, batch.get_descriptor_set_layout(), attachment_manager.get_draw_config())
+		, draw_pipeline_manager_(allocator_usage_, create_info.draw_pipe_config, batch_device.get_descriptor_set_layout(), attachment_manager.get_draw_config())
 		, blit_descriptor_layout_(allocator_usage_.get_device(),
 			VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT, [&](vk::descriptor_layout_builder& builder){
 				builder.push_seq(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
@@ -162,9 +169,12 @@ public:
 		create_blit_clear_and_init_cmd();
 	}
 
+	void wait_fence() const {
+		fence.wait_and_reset();
+	}
+
 	void create_command(){
 		{
-			fence.wait_and_reset();
 			vk::scoped_recorder recorder{main_command_buffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
 			record_cmd(recorder);
 		}
@@ -196,25 +206,25 @@ private:
 		vk::cmd::set_scissor(cmdbuf, region);
 
 		cache_record_context_.clear();
-		batch.record_load_to_record_context(cache_record_context_);
+		batch_device.load_descriptors(cache_record_context_);
 		cache_record_context_.prepare_bindings();
 		cache_record_context_(pipe_config.pipeline_layout, cmdbuf, 0, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-		batch.record_command_draw(cmdbuf, index);
+		batch_device.cmd_draw(cmdbuf, index);
 	}
 
 	void record_cmd(VkCommandBuffer command_buffer){
-		const auto cmd_sz = batch.get_submit_sections_count();
+		const auto cmd_sz = batch_host.get_submit_sections_count();
 
 		vkCmdExecuteCommands(command_buffer, 1, blit_attachment_clear_and_init_command_buffer.as_data());
 
-		auto submit_span = batch.get_valid_submit_groups();
+		auto submit_span = batch_host.get_valid_submit_groups();
 		if(submit_span.empty()) [[unlikely]] {
 			return;
 		}
 
 		const VkRect2D region = attachment_manager.get_screen_area();
-		auto ctx = batch.record_command_set_up_non_vertex_buffer(command_buffer);
+		auto ctx = batch_device.cmd_set_up_state(command_buffer, batch_host);
 
 		std::ranges::fill(cache_attachment_enter_mark_, false);
 		cache_draw_param_stack_.resize(1, {.pipeline_index = {}});
@@ -238,13 +248,13 @@ private:
 			vkCmdEndRendering(command_buffer);
 
 			bool requiresClear = false;
-			auto& cfg = batch.get_break_config_at(i);
+			auto& cfg = batch_host.get_break_config_at(i);
 			requiresClear = cfg.clear_draw_after_break;
 			for (const auto & e : cfg.get_entries()){
 				requiresClear = process_breakpoints(e, command_buffer) || requiresClear;
 			}
 
-			batch.record_command_advance_non_vertex_buffer(ctx, command_buffer, i);
+			batch_device.cmd_translate_state(command_buffer, batch_host, ctx, i);
 			if(requiresClear){
 				std::ranges::fill(cache_attachment_enter_mark_, 0);
 			}
@@ -266,7 +276,7 @@ private:
 	 *
 	 * @return clear required
 	 */
-	bool process_breakpoints(const graphic::draw::instruction::breakpoint_entry& entry, VkCommandBuffer buffer) {
+	bool process_breakpoints(const graphic::draw::instruction::state_transition_entry& entry, VkCommandBuffer buffer) {
 		switch(entry.flag){
 		case gui::draw_state_index_deduce_v<gui::blit_config> :{
 			auto cfg = entry.as<gui::blit_config>();
@@ -372,12 +382,12 @@ public:
 			table, table_non_vertex, batch_backend_interface{
 				*this,
 				[](renderer_v2& b, std::span<const std::byte> data) static{
-					return b.batch.push_instr(data);
+					return b.batch_host.push_instr(data);
 				},
 				[](renderer_v2& b) static{},
 				[](renderer_v2& b) static{},
 				[](renderer_v2& b, std::uint32_t flag, std::span<const std::byte> payload) static{
-					b.batch.push_state(flag, payload);
+					b.batch_host.push_state(flag, payload);
 				},
 			}
 		};

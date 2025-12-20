@@ -44,6 +44,8 @@ function set_xrgui_deps()
     add_includedirs("external/VulkanMemoryAllocator/include", {public = true})
     add_includedirs("external/stb", {public = true})
     add_includedirs("external/include", {public = true})
+    add_includedirs("external/plf_hive", {public = true})
+    add_includedirs("external/small_vector/source/include", {public = true})
 
     add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2", {public = true})
     add_defines("XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE", {public = true})

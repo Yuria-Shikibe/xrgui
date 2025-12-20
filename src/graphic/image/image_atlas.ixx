@@ -3,7 +3,11 @@ module;
 #include <vulkan/vulkan.h>
 #include <cassert>
 #include <vk_mem_alloc.h>
+
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include "plf_hive.h"
+#endif
+
 
 export module mo_yanxi.graphic.image_atlas;
 
@@ -33,6 +37,12 @@ export import mo_yanxi.graphic.msdf;
 import mo_yanxi.io.image;
 
 import std;
+
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <plf_hive.h>;
+#endif
+
 
 namespace mo_yanxi::graphic{
 constexpr math::usize2 DefaultTexturePageSize = math::vectors::constant2<std::uint32_t>::base_vec2 * (4096);

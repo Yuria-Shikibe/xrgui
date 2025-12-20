@@ -228,13 +228,13 @@ export
 using gui_reserved_user_data_tuple = std::tuple<ubo_screen_info, ubo_layer_info>;
 
 template <typename T>
-constexpr inline graphic::draw::user_data_indices reserved_data_index_of{tuple_index_v<T, gui_reserved_user_data_tuple>, 0};
+constexpr inline graphic::draw::data_layout_table<> reserved_data_index_of{tuple_index_v<T, gui_reserved_user_data_tuple>, 0};
 
 
 export
 struct renderer_frontend{
 private:
-	using user_table_type = graphic::draw::user_data_index_table<mr::vector<graphic::draw::user_data_identity_entry>>;
+	using user_table_type = graphic::draw::data_layout_table<mr::vector<graphic::draw::data_layout_type_aware_entry>>;
 
 	//TODO change it to a pointer-index look up table
 	user_table_type table_vertex_only_{};
@@ -255,8 +255,8 @@ public:
 
 	template <typename A1, typename A2>
 	[[nodiscard]] explicit renderer_frontend(
-		const graphic::draw::user_data_index_table<A1>& user_data_table_vertex_only,
-		const graphic::draw::user_data_index_table<A2>& user_data_table_general,
+		const graphic::draw::data_layout_table<A1>& user_data_table_vertex_only,
+		const graphic::draw::data_layout_table<A2>& user_data_table_general,
 		const graphic::draw::instruction::batch_backend_interface& batch_backend_interface)
 	: table_vertex_only_(user_data_table_vertex_only, user_table_type::allocator_type{})
 	, table_general_(user_data_table_general, user_table_type::allocator_type{})
@@ -312,7 +312,7 @@ public:
 			if(idx >= table_vertex_only_.size()){
 				throw std::out_of_range("index out of range");
 			}
-			instruction::place_ubo_update_at(pbuffer, instr, user_data_indices{idx, !vtx_only});
+			instruction::place_ubo_update_at(pbuffer, instr, instruction::user_data_indices{idx, !vtx_only});
 			batch_backend_interface_.push(std::span<const std::byte>{pbuffer, instr_size});
 
 		}

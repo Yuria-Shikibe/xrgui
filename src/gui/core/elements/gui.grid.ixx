@@ -1,7 +1,10 @@
 module;
 
 #include <cassert>
-#include "gch/small_vector.hpp"
+
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#include <gch/small_vector.hpp>
+#endif
 
 export module mo_yanxi.gui.elem.grid;
 
@@ -9,6 +12,10 @@ import mo_yanxi.gui.elem.celled_group;
 import mo_yanxi.math;
 import std;
 
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <gch/small_vector.hpp>;
+#endif
 
 namespace mo_yanxi::gui{
 

@@ -1,9 +1,13 @@
 module;
 
 #include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
+
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include "plf_hive.h"
 #include "gch/small_vector.hpp"
-#include <vk_mem_alloc.h>
+#endif
+
 
 export module mo_yanxi.graphic.compositor.manager;
 
@@ -16,6 +20,11 @@ import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
 import mo_yanxi.vk.util;
 import std;
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <plf_hive.h>;
+import <gch/small_vector.hpp>;
+#endif
 
 namespace mo_yanxi::graphic::compositor{
 export

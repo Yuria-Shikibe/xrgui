@@ -3,7 +3,7 @@ module;
 #include <cassert>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
-#include "gch/small_vector.hpp"
+
 
 export module mo_yanxi.backend.vulkan.attachment_manager;
 

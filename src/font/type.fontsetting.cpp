@@ -1,7 +1,6 @@
 module;
 
 #include <cassert>
-#include "gch/small_vector.hpp"
 
 module mo_yanxi.font.typesetting;
 

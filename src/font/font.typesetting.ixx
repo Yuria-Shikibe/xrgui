@@ -2,7 +2,12 @@ module;
 
 #include <mo_yanxi/enum_operator_gen.hpp>
 #include <mo_yanxi/adapted_attributes.hpp>
-#include "gch/small_vector.hpp"
+
+
+
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#include <gch/small_vector.hpp>
+#endif
 
 export module mo_yanxi.font.typesetting;
 
@@ -15,6 +20,11 @@ export import align;
 import mo_yanxi.math;
 import mo_yanxi.encode;
 import std;
+
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <gch/small_vector.hpp>;
+#endif
 
 namespace mo_yanxi{
 template <typename T, typename Cont = gch::small_vector<T>>
