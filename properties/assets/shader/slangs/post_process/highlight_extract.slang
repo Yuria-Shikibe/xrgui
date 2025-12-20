@@ -8,9 +8,8 @@ restrict WTexture2D output;
 [[format("rgba16f")]]
 restrict readonly RWTexture2D input;
 
-//TODO
 static const float u_threshold = .0f;
-static const float u_smoothness = .65f;
+static const float u_smoothness = .065f;
 
 [shader("compute")]
 [numthreads(GROUP_SIZE, GROUP_SIZE, 1)]

@@ -1,6 +1,5 @@
 module;
 
-#include <immintrin.h>
 #include <vulkan/vulkan.h>
 #include <mo_yanxi/adapted_attributes.hpp>
 

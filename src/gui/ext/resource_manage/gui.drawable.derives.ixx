@@ -64,7 +64,7 @@ void drawable_image<Components...>::draw(renderer_frontend& renderer, const math
 	graphic::draw::quad_group<graphic::color> vcolor = components;
 	vcolor *= color_scl;
 
-	renderer.push(rectangle_ortho{
+	renderer.push(rect_aabb{
 		.generic = {
 			.image = {.view = image_region->view},
 			.mode = {std::to_underlying(mode)},

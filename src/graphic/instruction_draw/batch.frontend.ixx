@@ -3,6 +3,11 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
+
+
 export module mo_yanxi.graphic.draw.instruction.batch.frontend;
 
 export import mo_yanxi.graphic.draw.instruction.batch.common;
@@ -298,7 +303,16 @@ inline void check_size(std::size_t size) {
 	}
 }
 
-export struct data_entry_group{
+export
+struct hardware_limit_config{
+	std::uint32_t max_group_count{};
+	std::uint32_t max_group_size{};
+	std::uint32_t max_vertices_per_group{};
+	std::uint32_t max_primitives_per_group{};
+};
+
+export
+struct data_entry_group{
 private:
 	template <typename T>
 	unsigned get_index_of() const{
@@ -354,8 +368,10 @@ public:
 
 // (Logic extracted to Host Context)
 export
-struct batch_host_context{
+struct draw_list_context{
 private:
+	hardware_limit_config hardware_limit_{};
+
 	std::vector<contiguous_draw_list> submit_groups_{};
 	std::vector<state_transition> submit_breakpoints_{};
 
@@ -365,19 +381,20 @@ private:
 	image_view_history_dynamic dynamic_image_view_history_{16};
 
 	contiguous_draw_list* current_group{};
-
 	std::uint32_t get_mesh_dispatch_limit() const noexcept{
 		return 32;
 	}
 
 public:
-	[[nodiscard]] batch_host_context() = default;
+	[[nodiscard]] draw_list_context() = default;
 
-	[[nodiscard]] batch_host_context(
+	[[nodiscard]] draw_list_context(
+		const hardware_limit_config& config,
 		const data_layout_table<>& vertex_data_table,
 		const data_layout_table<>& non_vertex_data_table
 	)
-		: data_group_vertex_info_{vertex_data_table}
+		: hardware_limit_(config)
+		, data_group_vertex_info_{vertex_data_table}
 		, data_group_non_vertex_info_{non_vertex_data_table}{
 	}
 
@@ -419,6 +436,10 @@ public:
 				}
 			});
 		}
+	}
+
+	const hardware_limit_config& get_config() const noexcept{
+		return hardware_limit_;
 	}
 
 	std::span<contiguous_draw_list> get_valid_submit_groups() noexcept{

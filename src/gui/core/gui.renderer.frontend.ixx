@@ -164,7 +164,29 @@ enum struct state_type{
 export
 struct blit_config{
 	math::rect_ortho_trivial<int> blit_region;
-	std::uint32_t blit_index;
+	std::uint32_t pipeline_index;
+	std::uint32_t inout_define_index = std::numeric_limits<std::uint32_t>::max();
+
+	bool use_default_inouts() const noexcept{
+		return inout_define_index == std::numeric_limits<std::uint32_t>::max();
+	}
+
+	void get_clamped_to_positive() noexcept{
+		if(blit_region.src.x < 0){
+			blit_region.extent.x += blit_region.src.x;
+			blit_region.src.x = 0;
+			if(blit_region.extent.x < 0)blit_region.extent.x = 0;
+		}
+		if(blit_region.src.y < 0){
+			blit_region.extent.y += blit_region.src.y;
+			blit_region.src.y = 0;
+			if(blit_region.extent.y < 0)blit_region.extent.y = 0;
+		}
+	}
+
+	math::usize2 get_dispatch_groups() const noexcept{
+		return (blit_region.extent.as<unsigned>() + math::usize2{15, 15}) / math::usize2{16, 16};
+	}
 };
 
 export

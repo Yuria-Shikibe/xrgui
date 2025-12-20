@@ -25,15 +25,12 @@ import mo_yanxi.vk.cmd;
 import std;
 
 import mo_yanxi.gui.examples;
-// import mo_yanxi.pipeline_configure;
-
-import instruction_draw.batch.v2;
-import renderer_v2;
+import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.gui.draw_config;
 
 void app_run(
 	mo_yanxi::backend::vulkan::context& ctx,
-	mo_yanxi::backend::vulkan::renderer_v2& renderer,
+	mo_yanxi::backend::vulkan::renderer& renderer,
 	mo_yanxi::graphic::compositor::manager& manager,
 	mo_yanxi::vk::command_buffer& cmdBUf
 	){
@@ -57,31 +54,62 @@ void app_run(
 
 		auto& r = gui::global::manager.get_current_focus().renderer();
 		r.init_projection();
-		// {
-		// 	using namespace graphic::draw::instruction;
-		//
-		// 	for(int x = 0; x < 5; ++x){
-		// 		for(int y = 0; y < 5; ++y){
-		// 			r.push(rectangle_ortho{
-		// 				.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
-		// 				.v00 = {x * 60.f, y * 60.f},
-		// 				.v11 = {x * 60.f + 40, y * 60.f + 40},
-		// 				.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
-		// 			});
-		// 			if((x + y) & 1){
-		//
-		// 				r.push(gui::draw_config::slide_line_config{
-		// 					.angle = -45,
-		// 					.spacing = 10,
-		// 					.stroke = 15,
-		// 				});
-		// 			}else{
-		// 				r.push(gui::draw_config::slide_line_config{});
-		// 			}
-		// 		}
-		// 	}
-		// }
+		{
+			using namespace graphic::draw::instruction;
 
+			for(int x = 0; x < 5; ++x){
+				for(int y = 0; y < 5; ++y){
+					r.push(rect_aabb{
+						.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+						.v00 = {x * 60.f, y * 60.f},
+						.v11 = {x * 60.f + 40, y * 60.f + 40},
+						.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
+					});
+					// if((x + y) & 1){
+					//
+					// 	r.push(gui::draw_config::slide_line_config{
+					// 		.angle = -45,
+					// 		.spacing = 10,
+					// 		.stroke = 15,
+					// 	});
+					// }else{
+					// 	r.push(gui::draw_config::slide_line_config{});
+					// }
+				}
+			}
+			r.push(line{
+				.src = {100, 100},
+				.dst = {800, 400},
+				.color = {graphic::colors::white, graphic::colors::aqua},
+				.stroke = 2,
+			});
+
+			r.update_state(gui::draw_mode_param{
+				.pipeline_index = 1
+			});
+
+			r.update_state(gui::blit_config{
+				.blit_region = {
+					.src = {},
+					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+				},
+				.pipeline_index = 1});
+
+			r.push(line{
+				.src = {200, 200},
+				.dst = {900, 500},
+				.color = {graphic::colors::white, graphic::colors::aqua},
+				.stroke = 2,
+			});
+
+
+			r.update_state(gui::blit_config{
+				.blit_region = {
+					.src = {},
+					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+				},
+				.pipeline_index = 1});
+		}
 		gui::global::manager.draw();
 		renderer.batch_host.end_rendering();
 		renderer.wait_fence();
@@ -132,44 +160,61 @@ void prepare(){
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 	vk::shader_module shader_draw{ctx.get_device(), shader_spv_path / "ui.draw_v2.spv"};
 	vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
+	vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
 
-	backend::vulkan::renderer_v2 renderer{
-		backend::vulkan::renderer_v2_create_info{
-			.allocator_usage = ctx.get_allocator(),
-			.command_pool = ctx.get_graphic_command_pool(),
-			.sampler = sampler_ui,
-			.attachment_draw_config = {
-				{
-					backend::vulkan::draw_attachment_config{.attachment = {VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}},
-					backend::vulkan::draw_attachment_config{.attachment = {VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}},
-				}, VK_SAMPLE_COUNT_4_BIT
-			},
-			.attachment_blit_config = {
-					{
-						backend::vulkan::attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
-						backend::vulkan::attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
-					}
-			},
-			.draw_pipe_config = backend::vulkan::graphic_pipeline_create_config{
-				{
-					backend::vulkan::graphic_pipeline_create_config::config{
-						{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
+
+	auto renderer = [&]() -> backend::vulkan::renderer{
+		using namespace backend::vulkan;
+		return {
+				renderer_create_info{
+					.allocator_usage = ctx.get_allocator(),
+					.command_pool = ctx.get_graphic_command_pool(),
+					.sampler = sampler_ui,
+					.attachment_draw_config = {
 						{
-							shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
-							shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+							draw_attachment_config{
+								.attachment = {VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}
+							},
+							draw_attachment_config{
+								.attachment = {VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}
+							},
 						},
-						backend::vulkan::graphic_pipeline_option{true, {0b1}}
+						VK_SAMPLE_COUNT_4_BIT
 					},
-				},
-				{}
-			},
-			.blit_pipe_config = backend::vulkan::compute_pipeline_create_config{
-					{
-						backend::vulkan::compute_pipeline_create_config::config{
+					.attachment_blit_config = {
+						{
+							attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
+							attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
+						}
+					},
+					.draw_pipe_config = graphic_pipeline_create_config{
+						{
+							graphic_pipeline_create_config::config{
+								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
+								{
+									shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
+									shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+								},
+								graphic_pipeline_option{false, {0b1}}
+							},
+							graphic_pipeline_create_config::config{
+								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
+								{
+									shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
+									shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+								},
+								graphic_pipeline_option{true, {0b1}}
+							},
+						},
+						{}
+					},
+					.blit_pipe_config = compute_pipeline_create_config{
+						{
+							compute_pipeline_create_config::config{
 								.general = {},
-								.shader_module = shader_blit.get_create_info(VK_SHADER_STAGE_COMPUTE_BIT),
+								.shader_module = shader_blit.get_create_info_compute(),
 								.option = {
-									.inout = backend::vulkan::compute_pipeline_blit_inout_config{
+									.inout = compute_pipeline_blit_inout_config{
 										{
 											{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
 											{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
@@ -180,10 +225,31 @@ void prepare(){
 										}
 									},
 								}
+							},
+							compute_pipeline_create_config::config{
+								.general = {},
+								.shader_module = shader_blend.get_create_info_compute(),
+								.option = {
+									.inout = compute_pipeline_blit_inout_config{
+										{
+											{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+										},
+										{
+											{1, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+										}
+									},
+								}
+							},
 						},
+						{
+							compute_pipeline_blit_inout_config{
+
+							}
+						}
 					}
-			}
-		}};
+				}
+			};
+	}();
 
 	auto& ui_root = gui::global::manager;
 	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
@@ -216,10 +282,10 @@ void prepare(){
 	pass_filter_high_light.id()->add_input({{ui_input, 0}});
 
 
-	auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
-	pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
-	pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
-	pass_bloom.pass.add_local({1, compositor::no_slot});
+	// auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
+	// pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
+	// pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
+	// pass_bloom.pass.add_local({1, compositor::no_slot});
 
 
 	compositor::post_process_meta meta{
@@ -231,7 +297,7 @@ void prepare(){
 	meta.sockets.at_out(0).get<compositor::image_requirement>().usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
 	auto pass_h2s = manager.add_pass<compositor::post_process_stage>(meta);
-	pass_h2s.id()->add_dep({pass_bloom.id(), 0, 0});
+	pass_h2s.id()->add_dep({pass_filter_high_light.id(), 0, 0});
 	pass_h2s.id()->add_local({compositor::no_slot, 0});
 
 	manager.sort();
@@ -244,10 +310,10 @@ void prepare(){
 
 		ui_input.resource = compositor::image_entity{.handle = renderer.get_base()};
 		manager.resize(event.size, true);
-
-		pass_bloom.meta.set_scale(.5f);
-		pass_bloom.meta.set_mix_factor(0.f);
-		pass_bloom.meta.set_strength(.8f, .8f);
+		//
+		// pass_bloom.meta.set_scale(.5f);
+		// pass_bloom.meta.set_mix_factor(0.f);
+		// pass_bloom.meta.set_strength(.8f, .8f);
 
 		{
 			vk::scoped_recorder r{post_process_cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
@@ -293,7 +359,6 @@ int main(){
 	backend::glfw::initialize();
 	gui::global::initialize();
 	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
-
 
 	prepare();
 

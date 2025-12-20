@@ -3,9 +3,8 @@ module;
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
-export module renderer_v2;
+export module mo_yanxi.backend.vulkan.renderer;
 
-// export import instruction_draw.batch.v2;
 import mo_yanxi.graphic.draw.instruction.batch.frontend;
 import mo_yanxi.graphic.draw.instruction.batch.backend.vulkan;
 
@@ -34,7 +33,7 @@ struct ubo_blit_config{
 };
 
 export
-struct renderer_v2_create_info{
+struct renderer_create_info{
 	vk::allocator_usage allocator_usage;
 	VkCommandPool command_pool;
 	VkSampler sampler;
@@ -46,26 +45,18 @@ struct renderer_v2_create_info{
 };
 
 export
-struct blit_descriptor{
-	vk::descriptor_buffer buffer;
-
-	[[nodiscard]] blit_descriptor() = default;
-};
-
-export
-struct renderer_v2{
+struct renderer{
 	vk::allocator_usage allocator_usage_{};
 
 public:
-	// graphic::draw::instruction::batch_v2 batch{};
-	graphic::draw::instruction::batch_host_context batch_host{};
+	graphic::draw::instruction::draw_list_context batch_host{};
 	graphic::draw::instruction::batch_vulkan_executor batch_device{};
 
 private:
 
 	attachment_manager attachment_manager{};
 	vk::dynamic_rendering rendering_config{};
-	std::vector<VkFormat> color_attachment_formats{};
+	// std::vector<VkFormat> color_attachment_formats{};
 
 	graphic_pipeline_manager draw_pipeline_manager_{};
 
@@ -73,7 +64,8 @@ private:
 	vk::descriptor_buffer blit_descriptor_buffer_;
 	vk::buffer blit_buffer_;
 	compute_pipeline_manager blit_pipeline_manager_{};
-	std::vector<blit_descriptor> blit_descriptors_{};
+	std::vector<vk::descriptor_buffer> blit_default_inout_descriptors_{};
+	std::vector<vk::descriptor_buffer> blit_specified_inout_descriptors_{};
 
 	vk::command_seq<> command_seq_draw_{};
 	vk::command_seq<> command_seq_blit_{};
@@ -89,11 +81,21 @@ private:
 	graphic::draw::record_context<> cache_record_context_{};
 
 public:
-	[[nodiscard]] explicit(false) renderer_v2(
-		renderer_v2_create_info&& create_info
+	[[nodiscard]] explicit(false) renderer(
+		renderer_create_info&& create_info
 	)
 		: allocator_usage_(create_info.allocator_usage)
-		, batch_host(table, table_non_vertex)
+		, batch_host([&]{
+			VkPhysicalDeviceMeshShaderPropertiesEXT meshProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
+			VkPhysicalDeviceProperties2 prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &meshProperties};
+			vkGetPhysicalDeviceProperties2(allocator_usage_.get_physical_device(), &prop);
+			return graphic::draw::instruction::hardware_limit_config{
+				.max_group_count = meshProperties.maxTaskWorkGroupCount[0],
+				.max_group_size = meshProperties.maxTaskWorkGroupSize[0],
+				.max_vertices_per_group = meshProperties.maxMeshOutputVertices,
+				.max_primitives_per_group = meshProperties.maxMeshOutputPrimitives
+			};
+		}(), table, table_non_vertex)
 		, batch_device(allocator_usage_, batch_host, create_info.sampler)
 		, attachment_manager{
 			allocator_usage_, std::move(create_info.attachment_draw_config), std::move(create_info.attachment_blit_config)
@@ -122,48 +124,70 @@ public:
 		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY};
 		fence = {allocator_usage_.get_device(), true};
 
-		for(const auto& cfg : attachment_manager.get_draw_config().attachments){
-			color_attachment_formats.push_back(cfg.attachment.format);
+		cache_attachment_enter_mark_.resize(attachment_manager.get_draw_attachments().size());
+
+		// for(const auto& cfg : attachment_manager.get_draw_config().attachments){
+		// 	color_attachment_formats.push_back(cfg.attachment.format);
+		// }
+
+		{
+			auto view = std::views::single(blit_descriptor_layout_.get());
+			blit_pipeline_manager_ = compute_pipeline_manager(
+				allocator_usage_,
+				create_info.blit_pipe_config,
+				std::views::repeat(view, create_info.blit_pipe_config.size()));
 		}
 
-		cache_attachment_enter_mark_.resize(attachment_manager.get_draw_attachments().size());
-		auto view = std::views::single(blit_descriptor_layout_.get());
-		blit_pipeline_manager_ = compute_pipeline_manager(
-			allocator_usage_,
-			create_info.blit_pipe_config,
-			std::views::repeat(view, create_info.blit_pipe_config.size()));
 
+		{
+			auto sz = blit_pipeline_manager_.get_pipelines();
+			blit_default_inout_descriptors_.reserve(sz.size());
+			for(std::size_t i = 0; i < sz.size(); ++i){
+				auto& b = blit_default_inout_descriptors_.emplace_back();
+				b = vk::descriptor_buffer{allocator_usage_, blit_pipeline_manager_.get_inout_layouts()[i], blit_pipeline_manager_.get_inout_layouts()[i].binding_count()};
+			}
+		}
 
-		auto sz = blit_pipeline_manager_.get_pipelines();
-		blit_descriptors_.reserve(sz.size());
-		for(std::size_t i = 0; i < sz.size(); ++i){
-			auto& b = blit_descriptors_.emplace_back();
-			b.buffer = vk::descriptor_buffer{allocator_usage_, blit_pipeline_manager_.get_inout_layouts()[i], blit_pipeline_manager_.get_inout_layouts()[i].binding_count()};
+		{
+			const auto inouts = blit_pipeline_manager_.get_inout_defines();
+			blit_specified_inout_descriptors_.reserve(inouts.size());
+			for (const auto & entries : inouts){
+				vk::descriptor_layout layout{allocator_usage_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT, entries.make_layout_builder()};
+				blit_default_inout_descriptors_.push_back({allocator_usage_, layout, layout.binding_count()});
+			}
 		}
 	}
 
 	void resize(VkExtent2D extent){
 		attachment_manager.resize(extent);
 
-		for(auto&& [blit_descriptor, pipe] :
-		    std::views::zip(blit_descriptors_, blit_pipeline_manager_.get_pipelines())){
-			const auto& option = pipe.option;
-			vk::descriptor_mapper mapper{blit_descriptor.buffer};
-			for (const auto & input_entry : option.inout.get_input_entries()){
+		auto make_desciptor_from_inout_def = [this](vk::descriptor_buffer& blit_descriptor, const compute_pipeline_blit_inout_config& cfg){
+			vk::descriptor_mapper mapper{blit_descriptor};
+			for (const auto & input_entry : cfg.get_input_entries()){
 				mapper.set_image(input_entry.binding, {
 					.sampler = nullptr,
-					.imageView = attachment_manager.get_draw_attachments()[input_entry.default_resource_index].get_image_view(),
+					.imageView = attachment_manager.get_draw_attachments()[input_entry.resource_index].get_image_view(),
 					.imageLayout = VK_IMAGE_LAYOUT_GENERAL
 				}, 0, input_entry.type);
 			}
 
-			for (const auto & output_entry : option.inout.get_output_entries()){
+			for (const auto & output_entry : cfg.get_output_entries()){
 				mapper.set_image(output_entry.binding, {
 					.sampler = nullptr,
-					.imageView = attachment_manager.get_blit_attachments()[output_entry.default_resource_index].get_image_view(),
+					.imageView = attachment_manager.get_blit_attachments()[output_entry.resource_index].get_image_view(),
 					.imageLayout = VK_IMAGE_LAYOUT_GENERAL
 				}, 0, output_entry.type);
 			}
+		};
+
+		for(auto&& [blit_descriptor, pipe] :
+		    std::views::zip(blit_default_inout_descriptors_, blit_pipeline_manager_.get_pipelines())){
+			const auto& option = pipe.option;
+			make_desciptor_from_inout_def(blit_descriptor, option.inout);
+		}
+
+		for(auto&& [blit_descriptor, inout] : std::views::zip(blit_specified_inout_descriptors_, blit_pipeline_manager_.get_inout_defines())){
+			make_desciptor_from_inout_def(blit_descriptor, inout);
 		}
 
 		create_blit_clear_and_init_cmd();
@@ -279,19 +303,34 @@ private:
 	bool process_breakpoints(const graphic::draw::instruction::state_transition_entry& entry, VkCommandBuffer buffer) {
 		switch(entry.flag){
 		case gui::draw_state_index_deduce_v<gui::blit_config> :{
-			auto cfg = entry.as<gui::blit_config>();
-			if(cfg.blit_region.src.x < 0){
-				cfg.blit_region.extent.x += cfg.blit_region.src.x;
-				cfg.blit_region.src.x = 0;
-				if(cfg.blit_region.extent.x < 0)cfg.blit_region.extent.x = 0;
-			}
-			if(cfg.blit_region.src.y < 0){
-				cfg.blit_region.extent.y += cfg.blit_region.src.y;
-				cfg.blit_region.src.y = 0;
-				if(cfg.blit_region.extent.y < 0)cfg.blit_region.extent.y = 0;
-			}
+			blit(entry.as<gui::blit_config>(), buffer);
 
-			const auto dispatches = (cfg.blit_region.extent.as<unsigned>() + math::usize2{15, 15}) / math::usize2{16, 16};
+			return true;
+		}
+		case gui::draw_state_index_deduce_v<gui::draw_mode_param> :{
+			auto param = entry.as<gui::draw_mode_param>();
+			if(param.mode == gui::draw_mode::COUNT_or_fallback){
+				cache_draw_param_stack_.pop_back();
+				param = cache_draw_param_stack_.back();
+			}else{
+				if(param.pipeline_index == std::numeric_limits<std::uint32_t>::max()){
+					param.pipeline_index = cache_draw_param_stack_.back().pipeline_index;
+				}
+				cache_draw_param_stack_.push_back(param);
+			}
+			configure_rendering_info(param);
+
+			return false;
+		}
+		default : break;
+		}
+		return false;
+	}
+
+	void blit(gui::blit_config cfg, VkCommandBuffer buffer){
+		cfg.get_clamped_to_positive();
+			const auto dispatches = cfg.get_dispatch_groups();
+
 			alignas(32) std::byte buf[sizeof(ubo_blit_config) + sizeof(VkDispatchIndirectCommand)];
 			std::construct_at(reinterpret_cast<ubo_blit_config*>(buf), ubo_blit_config{
 				.offset = cfg.blit_region.src.as<unsigned>(),
@@ -324,6 +363,7 @@ private:
 					vk::image::default_image_subrange
 				);
 			}
+
 			for (const auto & draw_attachment : attachment_manager.get_blit_attachments()){
 				dependency.push(draw_attachment.get_image(),
 					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -340,39 +380,29 @@ private:
 			dependency.image_memory_barriers.resize(attachment_manager.get_draw_attachments().size());
 			dependency.swap_stages();
 
-			auto& pipe_config = blit_pipeline_manager_.get_pipelines()[0];
+			auto& pipe_config = blit_pipeline_manager_.get_pipelines()[cfg.pipeline_index];
 			pipe_config.pipeline.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+			VkDescriptorBufferBindingInfoEXT info;
+			if(cfg.use_default_inouts()){
+				info = blit_default_inout_descriptors_[cfg.pipeline_index];
+			}else{
+				if(!blit_pipeline_manager_.is_inout_compatible(cfg.pipeline_index, cfg.inout_define_index)){
+					throw std::runtime_error("Incompatible blit pipeline inout spec");
+				}
+
+				info = blit_specified_inout_descriptors_[cfg.inout_define_index];
+			}
 
 			cache_record_context_.clear();
 			cache_record_context_.push(0, blit_descriptor_buffer_);
-			cache_record_context_.push(1, blit_descriptors_[0].buffer);
+			cache_record_context_.push(1, info);
 			blit_pipeline_manager_.append_descriptor_buffers(cache_record_context_, 0);
 			cache_record_context_.prepare_bindings();
 			cache_record_context_(pipe_config.pipeline_layout, buffer, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
 
 			vkCmdDispatchIndirect(buffer, blit_buffer_, sizeof(ubo_blit_config));
 			dependency.apply(buffer);
-
-			return true;
-		}
-		case gui::draw_state_index_deduce_v<gui::draw_mode_param> :{
-			auto param = entry.as<gui::draw_mode_param>();
-			if(param.mode == gui::draw_mode::COUNT_or_fallback){
-				cache_draw_param_stack_.pop_back();
-				param = cache_draw_param_stack_.back();
-			}else{
-				if(param.pipeline_index == std::numeric_limits<std::uint32_t>::max()){
-					param.pipeline_index = cache_draw_param_stack_.back().pipeline_index;
-				}
-				cache_draw_param_stack_.push_back(param);
-			}
-			configure_rendering_info(param);
-
-			return false;
-		}
-		default : break;
-		}
-		return false;
 	}
 public:
 
@@ -381,12 +411,12 @@ public:
 		return gui::renderer_frontend{
 			table, table_non_vertex, batch_backend_interface{
 				*this,
-				[](renderer_v2& b, std::span<const std::byte> data) static{
+				[](renderer& b, std::span<const std::byte> data) static{
 					return b.batch_host.push_instr(data);
 				},
-				[](renderer_v2& b) static{},
-				[](renderer_v2& b) static{},
-				[](renderer_v2& b, std::uint32_t flag, std::span<const std::byte> payload) static{
+				[](renderer& b) static{},
+				[](renderer& b) static{},
+				[](renderer& b, std::uint32_t flag, std::span<const std::byte> payload) static{
 					b.batch_host.push_state(flag, payload);
 				},
 			}

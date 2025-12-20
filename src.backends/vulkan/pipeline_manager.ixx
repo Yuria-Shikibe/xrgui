@@ -11,7 +11,6 @@ export import mo_yanxi.backend.vulkan.attachment_manager;
 export import mo_yanxi.gui.renderer.frontend;
 
 import mo_yanxi.utility;
-import mo_yanxi.graphic.draw.instruction.batch;
 import mo_yanxi.graphic.draw.instruction.util;
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.vk.util.uniform;
@@ -250,13 +249,13 @@ struct graphic_pipeline_create_config{
 	};
 
 	std::vector<config> configurator{};
-	std::vector<descriptor_create_config> descriptor_create_info;
+	std::vector<descriptor_create_config> descriptor_create_info{};
 
 	[[nodiscard]] graphic_pipeline_create_config() = default;
 
 	[[nodiscard]] graphic_pipeline_create_config(
 		std::vector<config> configurator,
-		std::vector<descriptor_create_config> descriptor_create_info)
+		std::vector<descriptor_create_config> descriptor_create_info = {})
 		: configurator(std::move(configurator)),
 		descriptor_create_info(std::move(descriptor_create_info)){
 	}
@@ -267,7 +266,6 @@ struct graphic_pipeline_create_config{
 
 	void create(std::size_t idx, graphic_pipeline_data& data, const create_param& arg, const draw_attachment_create_info& info) const{
 		configurator[idx].create(data, arg, info);
-
 	}
 
 	const config& operator[](std::size_t index) const noexcept{
@@ -283,7 +281,7 @@ export
 struct compute_pipeline_blit_inout_config{
 	struct entry{
 		std::uint32_t binding;
-		std::uint32_t default_resource_index;
+		std::uint32_t resource_index;
 		VkDescriptorType type;
 	};
 
@@ -326,6 +324,42 @@ public:
 	[[nodiscard]] std::span<const entry> get_output_entries() const noexcept{
 		return {entries_.begin() + input_count_, entries_.end()};
 	}
+
+	[[nodiscard]] bool is_compatible_with(
+		this const compute_pipeline_blit_inout_config& lhs,
+		const compute_pipeline_blit_inout_config& rhs) noexcept{
+		if(lhs.get_input_count() != rhs.get_input_count() || lhs.get_output_count() != rhs.get_output_count()){
+			return false;
+		}
+
+		static constexpr auto is_entry_match = [](const entry& a, const entry& b) static{
+			return a.binding == b.binding && a.type == b.type;
+		};
+
+		const bool inputs_compatible = std::ranges::is_permutation(
+			lhs.get_input_entries(),
+			rhs.get_input_entries(),
+			is_entry_match
+		);
+
+		if(!inputs_compatible) return false;
+
+		const bool outputs_compatible = std::ranges::is_permutation(
+			lhs.get_output_entries(),
+			rhs.get_output_entries(),
+			is_entry_match
+		);
+
+		return outputs_compatible;
+	}
+
+	vk::descriptor_layout_builder make_layout_builder() const{
+		vk::descriptor_layout_builder b;
+		for (const auto & value : entries_){
+			b.push(value.binding, value.type, VK_SHADER_STAGE_COMPUTE_BIT);
+		}
+		return b;
+	}
 };
 
 export
@@ -362,14 +396,16 @@ struct compute_pipeline_create_config{
 
 
 	std::vector<config> configurator{};
+	std::vector<compute_pipeline_blit_inout_config> inout_predefines{};
 	std::vector<descriptor_create_config> descriptor_create_info{};
 
 	[[nodiscard]] compute_pipeline_create_config() = default;
 
-	[[nodiscard]] compute_pipeline_create_config(
-		std::vector<config> configurator,
+	[[nodiscard]] explicit(false) compute_pipeline_create_config(std::vector<config> configurator,
+		std::vector<compute_pipeline_blit_inout_config> inout_predefines = {},
 		std::vector<descriptor_create_config> descriptor_create_info = {})
 		: configurator(std::move(configurator)),
+		inout_predefines(std::move(inout_predefines)),
 		descriptor_create_info(std::move(descriptor_create_info)){
 	}
 
@@ -507,6 +543,8 @@ export
 class compute_pipeline_manager : public pipeline_manager_base<compute_pipeline_data>{
 private:
 	std::vector<vk::descriptor_layout> blit_inout_layouts_{};
+	std::vector<compute_pipeline_blit_inout_config> inout_predefines_{};
+
 
 public:
 	[[nodiscard]] compute_pipeline_manager() = default;
@@ -520,16 +558,12 @@ public:
 		const vk::allocator_usage& allocator,
 		const compute_pipeline_create_config& create_group,
 		const T& auxiliary_layouts
-	) : pipeline_manager_base{allocator, create_group.descriptor_create_info}{
+	) : pipeline_manager_base{allocator, create_group.descriptor_create_info}, inout_predefines_(create_group.inout_predefines){
 
 		blit_inout_layouts_.reserve(create_group.size());
 		for (const auto & configurator : create_group.configurator){
 			const auto& cfg = configurator.option.inout;
-			blit_inout_layouts_.push_back(vk::descriptor_layout{allocator.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT, [&](vk::descriptor_layout_builder& b){
-				for (const auto & value : cfg){
-					b.push(value.binding, value.type, VK_SHADER_STAGE_COMPUTE_BIT);
-				}
-			}});
+			blit_inout_layouts_.push_back(vk::descriptor_layout{allocator.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT, cfg.make_layout_builder()});
 		}
 
 		// 2. 初始化管线
@@ -559,6 +593,14 @@ public:
 
 	[[nodiscard]] std::span<const vk::descriptor_layout> get_inout_layouts() const noexcept{
 		return blit_inout_layouts_;
+	}
+
+	[[nodiscard]] std::span<const compute_pipeline_blit_inout_config> get_inout_defines() const noexcept{
+		return inout_predefines_;
+	}
+
+	[[nodiscard]] bool is_inout_compatible(std::uint32_t pipeline_index, std::uint32_t inout_define_index) const noexcept{
+		return get_pipelines()[pipeline_index].option.inout.is_compatible_with(inout_predefines_[inout_define_index]);
 	}
 
 	void append_descriptor_buffers(graphic::draw::record_context<>& ctx, std::size_t index) const {

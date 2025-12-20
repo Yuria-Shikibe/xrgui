@@ -11,14 +11,12 @@ ConstantBuffer<blit_info> ubo;
 
 
 [[vk::binding(0, 1)]]
-// [[format("rgba16f")]]
 restrict readonly RWTexture2D input_base;
 
 [[vk::binding(1, 1)]]
 restrict readonly RWTexture2D input_back;
 
 [[vk::binding(2, 1)]]
-// [[format("rgba16f")]]
 restrict RWTexture2D output_base;
 
 [[vk::binding(3, 1)]]

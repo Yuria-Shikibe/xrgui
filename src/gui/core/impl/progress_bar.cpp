@@ -8,7 +8,7 @@ void style::default_progress_drawer::draw(const progress_bar& element, math::fre
 
 	auto prog = element.progress.get_current();
 
-	element.get_scene().renderer().push(draw::instruction::rectangle_ortho{
+	element.get_scene().renderer().push(draw::instruction::rect_aabb{
 		.v00 = region.vert_00(),
 		.v11 = region.vert_00() + region.extent().mul_x(prog),
 		.vert_color = {

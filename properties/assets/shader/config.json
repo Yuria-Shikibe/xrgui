@@ -22,9 +22,15 @@
     {
       "file": "post_process/volume_pass.slang"
     },
+
     {
       "file": "post_process/highlight_extract.slang"
     },
+    
+    {
+      "file": "ui/blend.slang"
+    },
+
     {
       "file": "post_process/bloom.merge.slang"
     },

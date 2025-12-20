@@ -11,7 +11,7 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 
 	auto cregion = element.clip_to_content_bound(region);
 
-	element.get_scene().renderer().push(graphic::draw::instruction::rectangle_ortho_outline{
+	element.get_scene().renderer().push(graphic::draw::instruction::rect_aabb_outline{
 		.v00 = cregion.vert_00(),
 		.v11 = cregion.vert_11(),
 		.stroke = 1,
@@ -46,7 +46,7 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 
 
 	region.shrink(1.f);
-	element.get_scene().renderer().push(draw::instruction::rectangle_ortho_outline{
+	element.get_scene().renderer().push(draw::instruction::rect_aabb_outline{
 			.v00 = region.vert_00(),
 			.v11 = region.vert_11(),
 			.stroke = {2},
@@ -59,7 +59,7 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 void style::debug_elem_drawer::draw_background(const elem& element, math::frect region, float opacityScl) const{
 	using namespace graphic;
 
-	element.get_scene().renderer().push(draw::instruction::rectangle_ortho{
+	element.get_scene().renderer().push(draw::instruction::rect_aabb{
 			.v00 = region.vert_00(),
 			.v11 = region.vert_11(),
 			.vert_color = {colors::dark_gray.create_lerp({0, 0, 0, 1}, .85f).copy().mul_a(opacityScl)}

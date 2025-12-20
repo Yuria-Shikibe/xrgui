@@ -12,12 +12,12 @@ void style::default_slider_drawer::draw(const slider& element, math::frect regio
 	auto& renderer = element.get_scene().renderer();
 	using namespace graphic;
 	using namespace graphic::draw::instruction;
-	renderer.push(rectangle_ortho{
+	renderer.push(rect_aabb{
 		.v00 = pos1,
 		.v11 = pos1 + extent,
 		.vert_color = {colors::white}
 	});
-	renderer.push(rectangle_ortho{
+	renderer.push(rect_aabb{
 		.v00 = pos2,
 		.v11 = pos2 + extent,
 		.vert_color = {colors::white.copy().mul_a(.5f)}

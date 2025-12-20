@@ -23,15 +23,6 @@ struct alignas(16) dispatch_group_info{
 	std::uint32_t primitive_count;
 };
 
-/**
- * @brief GPU端 Uniform Buffer 用于传递当前 Batch 偏移量的布局
- *
- */
-export
-struct alignas(16) dispatch_config{
-	std::uint32_t group_offset;
-	std::uint32_t _cap[3]; // Padding to maintain alignment if necessary, or reserved
-};
 
 export
 struct state_transition_entry{

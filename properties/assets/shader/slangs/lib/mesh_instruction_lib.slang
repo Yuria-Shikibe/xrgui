@@ -925,8 +925,6 @@ public interface vertex_transformer_2<T> {
     [[mutating]]
     void operator()(uint march_index);
 
-    uint[2] get_instruction_span();
-    
 }
 
 public struct mesh_dispatch_info_v2<uint n>
@@ -950,21 +948,17 @@ public uint resolve_instruction_v2<T, uint n>(
     OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> prims: __ref,
     OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices: __ref
 ) {
-    let instr_span = transformer.get_instruction_span();
-
-    let group_head = mesh_subrange;
-    let patch_til_index = bool(group_head.vertex_offset) * 2;
-    let group_instr_head_ptr = instr_span[0];
-    let group_instr_tail_ptr = instr_span[1];
+    let patch_til_index = bool(mesh_subrange.vertex_offset) * 2;
+    let group_instr_head_ptr = mesh_subrange.instruction_offset;
 
     uint skipped_vertices = 0;
-    int skipped_primitives = -int(group_head.primit_offset);
+    int skipped_primitives = -int(mesh_subrange.primit_offset);
     var ptr_to_head = group_instr_head_ptr;
 
     [ForceUnroll]
     for (int i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
         let target_index = (i == 1 ? (VERTEX_PER_MESH - threadId - 1) : threadId);
-        let thread_vtx_skip = target_index + group_head.vertex_offset;
+        let thread_vtx_skip = target_index + mesh_subrange.vertex_offset;
 
         while (true) {
             let head = get_instruction_head(instruction, ptr_to_head);
@@ -978,7 +972,7 @@ public uint resolve_instruction_v2<T, uint n>(
                 continue;
             }
 
-            if (skipped_primitives >= int(group_head.primitives)) break;
+            if (skipped_primitives >= int(mesh_subrange.primitives)) break;
             if (head.vertex_count == 0) break;
 
             let local_skip = thread_vtx_skip - skipped_vertices;
@@ -1000,5 +994,5 @@ public uint resolve_instruction_v2<T, uint n>(
         }
     }
 
-    return group_head.primitives;
+    return mesh_subrange.primitives;
 }

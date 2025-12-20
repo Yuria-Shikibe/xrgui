@@ -25,7 +25,7 @@ void text_edit::draw_content_impl(const rect clipSpace) const{
 			const auto src = (off2 + row.src).add(glyph.region.get_src_x(), -row.bound.ascender);
 			const math::vec2 ext = {caret::Stroke, height};
 
-			r.push(rectangle_ortho{
+			r.push(rect_aabb{
 				.v00 = src,
 				.v11 = src + ext,
 				.vert_color = {caret_Color}
@@ -51,7 +51,7 @@ void text_edit::draw_content_impl(const rect clipSpace) const{
 			(is_failed() ? colors::red_dusted : colors::gray).copy().mul_a(.35f);
 
 		if(beg.pos.y == end.pos.y){
-			r.push(rectangle_ortho{
+			r.push(rect_aabb{
 				.v00 = beginPos,
 				.v11 = endPos,
 				.vert_color = {lineSelectionColor}
@@ -62,14 +62,14 @@ void text_edit::draw_content_impl(const rect clipSpace) const{
 			const math::vec2 beginLineEnd = beginRow.src.copy().add_y(beginRow.bound.descender).set_x(totalSize.x) + off2;
 			math::vec2 endLineBegin = endRow.src.copy().add_y(-endRow.bound.ascender).set_x(0) + off2;
 
-			r.push(rectangle_ortho{
+			r.push(rect_aabb{
 				.v00 = beginPos,
 				.v11 = beginLineEnd,
 				.vert_color = {lineSelectionColor}
 			});
 
 			if(end.pos.y - beg.pos.y > 1){
-				r.push(rectangle_ortho{
+				r.push(rect_aabb{
 						.v00 = beginLineEnd,
 						.v11 = endLineBegin,
 						.vert_color = {lineSelectionColor}
@@ -78,7 +78,7 @@ void text_edit::draw_content_impl(const rect clipSpace) const{
 				endLineBegin.y = beginPos.y + beginRow.bound.height();
 			}
 
-			r.push(rectangle_ortho{
+			r.push(rect_aabb{
 					.v00 = endLineBegin,
 					.v11 = endPos,
 					.vert_color = {lineSelectionColor}

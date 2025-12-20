@@ -52,8 +52,6 @@ readonly StructuredBuffer<ubo_screen_info> screen_info;
 readonly StructuredBuffer<ubo_layer_info> layer_info;
 
 struct trans : vertex_transformer_2<UI_VTX> {
-    uint instr_begin;
-    uint instr_end;
     uint32_t[2] timeline;
 
     [[ForceInline]]
@@ -64,8 +62,6 @@ struct trans : vertex_transformer_2<UI_VTX> {
     [[ForceInline]]
     __init(uint group_index) {
         this.timeline = dispatch_info[group_index].timeline;
-        this.instr_begin = dispatch_info[group_index].instruction_offset;
-        this.instr_end = dispatch_info[group_index + 1].instruction_offset;
     }
 
     [[ForceInline]]
@@ -94,10 +90,6 @@ struct trans : vertex_transformer_2<UI_VTX> {
         ++timeline[march_index];
     }
 
-    [[ForceInline]]
-    uint[2] get_instruction_span() {
-        return { instr_begin, instr_end };
-    }
 }
 
 [shader("mesh")]
@@ -133,7 +125,6 @@ ConstantBuffer<slide_line::slide_line_style> slide_line_style;
 
 struct FragOut {
     float4 out_base : SV_Target0;
-    // float4 out_back : SV_Target1;
 }
 
 enum draw_mode_type : uint32_t {
@@ -181,11 +172,8 @@ FragOut main_frag(
         out_color_base.a *= scl;
     }
 
-    //let target_back = bool(primit.mode.value & draw_mode_type::target_background);
-
     FragOut out;
-    out.out_base = out_color_base;//select(target_back, float4(0), out_color_base);
-    // out.out_back = select(target_back, out_color_base * float4(0, 0, 0, 1), float4(0));
+    out.out_base = out_color_base;
 
     return out;
 }

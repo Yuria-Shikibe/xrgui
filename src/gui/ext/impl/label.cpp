@@ -15,7 +15,7 @@ void record_glyph_draw_instructions(
 	using namespace mo_yanxi::graphic;
 	color tempColor{};
 
-	static constexpr auto instr_sz = draw::instruction::get_instr_size<draw::instruction::rectangle_ortho>();
+	static constexpr auto instr_sz = draw::instruction::get_instr_size<draw::instruction::rect_aabb>();
 	buffer.resize(std::ranges::distance(layout.all_glyphs()) * instr_sz);
 	if(buffer.capacity() > buffer.size() * 4){
 		buffer.shrink_to_fit();
@@ -34,7 +34,7 @@ void record_glyph_draw_instructions(
 
 			const auto region = glyph.get_draw_bound().move(lineOff);
 
-			draw::instruction::place_instruction_at(cur, draw::instruction::rectangle_ortho{
+			draw::instruction::place_instruction_at(cur, draw::instruction::rect_aabb{
 				.generic = {
 					.image = glyph.glyph->view,
 				},
@@ -74,7 +74,7 @@ void draw_glyph_draw_instructions(
 
 			const auto region = glyph.get_draw_bound().move(lineOff);
 
-			renderer.push(draw::instruction::rectangle_ortho{
+			renderer.push(draw::instruction::rect_aabb{
 				.generic = {
 					.image = glyph.glyph->view,
 				},
@@ -92,7 +92,7 @@ void draw_glyph_draw_instructions(
 
 void text_holder::push_text_draw_buffer() const{
 	using namespace graphic::draw::instruction;
-	get_scene().renderer().push_same_instr(draw_instr_buffer_, get_instr_size<rectangle_ortho>());
+	get_scene().renderer().push_same_instr(draw_instr_buffer_, get_instr_size<rect_aabb>());
 }
 
 void sync_label_terminal::on_update(const std::string& data){

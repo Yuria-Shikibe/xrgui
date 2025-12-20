@@ -18,8 +18,17 @@ namespace mo_yanxi::graphic::draw::instruction{
 
 constexpr inline float CircleVertPrecision{12};
 
+template <typename ...Args>
+struct frist_of_pack;
+
+template <typename T, typename ...Args>
+struct frist_of_pack<T, Args...> : std::type_identity<T>{};
+
+template <typename ...Args>
+using frist_of_pack_t = frist_of_pack<Args...>::type;
+
 export
-using  quad_vert_color = quad_group<float4>;
+using quad_vert_color = quad_group<float4>;
 
 export
 FORCE_INLINE constexpr std::uint32_t get_circle_vertices(const float radius) noexcept{
@@ -58,17 +67,15 @@ export struct rectangle : quad_like{
 	primitive_generic generic;
 	float2 pos;
 	float angle;
-	float scale; //TODO uses other?
+	float scale; //TODO using stroke instead?
 
 	quad_vert_color vert_color;
 	float2 extent;
 	float2 uv00, uv11;
-
-
 };
 
 
-export struct rectangle_ortho : quad_like{
+export struct rect_aabb : quad_like{
 	primitive_generic generic;
 	float2 v00, v11;
 	float2 uv00, uv11;
@@ -76,14 +83,12 @@ export struct rectangle_ortho : quad_like{
 
 };
 
-export struct rectangle_ortho_outline{
+export struct rect_aabb_outline{
 	primitive_generic generic;
 	float2 v00, v11;
 	quad_group<float> stroke;
 
 	quad_vert_color vert_color;
-
-
 
 	[[nodiscard]] FORCE_INLINE CONST_FN static constexpr std::uint32_t get_vertex_count() noexcept{ return 10; }
 
@@ -100,7 +105,6 @@ export struct line : quad_like{
 	std::uint32_t _cap[3];
 };
 
-
 export struct line_node{
 	float2 pos;
 	float stroke;
@@ -109,15 +113,6 @@ export struct line_node{
 
 	//TODO uv?
 };
-
-template <typename ...Args>
-struct frist_of_pack;
-
-template <typename T, typename ...Args>
-struct frist_of_pack<T, Args...> : std::type_identity<T>{};
-
-template <typename ...Args>
-using frist_of_pack_t = frist_of_pack<Args...>::type;
 
 export struct line_segments{
 	primitive_generic generic;
@@ -201,19 +196,20 @@ export struct line_segments_closed : line_segments{
 	}
 };
 
-
 export struct poly{
 	primitive_generic generic;
 	float2 pos;
 	std::uint32_t segments;
 	float initial_angle;
 
-	//TODO native dashline support
-	std::uint32_t cap1;
-	std::uint32_t cap2;
+	//TODO native dashline support?
+	std::uint32_t _cap[2];
 
 	math::range radius;
+
+	//TODO how?
 	float2 uv00, uv11;
+
 	math::section<float4> color;
 
 
@@ -237,6 +233,8 @@ export struct poly_partial{
 	math::range radius;
 	math::based_section<float> range;
 	float2 uv00, uv11;
+
+	//TODO using quad color instead
 	math::section<float4> color;
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_vertex_count(
@@ -252,10 +250,9 @@ export struct poly_partial{
 
 export struct curve_parameter{
 	std::array<math::vec4, 2> constrain_vector;
-	// std::array<math::vec4, 2> constrain_vector_derivative;
 };
 
-export struct constrained_curve{
+export struct parametric_curve{
 	primitive_generic generic;
 	curve_parameter param;
 
@@ -273,12 +270,12 @@ export struct constrained_curve{
 	math::section<float4> color;
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_vertex_count(
-		this const constrained_curve& instruction) noexcept{
+		this const parametric_curve& instruction) noexcept{
 		return instruction.segments * 2 + 2;
 	}
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(
-		this const constrained_curve& instruction) noexcept{
+		this const parametric_curve& instruction) noexcept{
 		return instruction.segments * 2;
 	}
 };
@@ -348,6 +345,7 @@ constexpr inline curve_trait_matrix b_spline{
 	};
 }
 
+//TODO support transpose?
 export struct row_patch{
 	primitive_generic generic;
 
@@ -408,7 +406,7 @@ template <>
 constexpr inline instr_type instruction_type_of<line_segments_closed> = instr_type::line_segments_closed;
 
 template <>
-constexpr inline instr_type instruction_type_of<rectangle_ortho> = instr_type::rect_ortho;
+constexpr inline instr_type instruction_type_of<rect_aabb> = instr_type::rect_ortho;
 
 template <>
 constexpr inline instr_type instruction_type_of<poly> = instr_type::poly;
@@ -417,54 +415,54 @@ template <>
 constexpr inline instr_type instruction_type_of<poly_partial> = instr_type::poly_partial;
 
 template <>
-constexpr inline instr_type instruction_type_of<constrained_curve> = instr_type::constrained_curve;
+constexpr inline instr_type instruction_type_of<parametric_curve> = instr_type::constrained_curve;
 
 template <>
-constexpr inline instr_type instruction_type_of<rectangle_ortho_outline> = instr_type::rect_ortho_outline;
+constexpr inline instr_type instruction_type_of<rect_aabb_outline> = instr_type::rect_ortho_outline;
 
 template <>
 constexpr inline instr_type instruction_type_of<row_patch> = instr_type::row_patch;
 
-export
-[[nodiscard]] FORCE_INLINE CONST_FN std::uint32_t get_vertex_count(
-	instr_type type,
-	const std::byte* ptr_to_instr) noexcept{
-
-	switch(type){
-	case instr_type::triangle : return 3U;
-	case instr_type::quad : return 4U;
-	case instr_type::rectangle : return 4U;
-	case instr_type::rect_ortho : return 4U;
-	case instr_type::line : return 4U;
-	case instr_type::line_segments:{
-		const auto size = get_instr_head(ptr_to_instr).get_instr_byte_size();
-		const auto payloadByteSize = (size - get_instr_size<line_segments>());
-		assert(payloadByteSize % sizeof(line_node) == 0);
-		const auto payloadCount = payloadByteSize / sizeof(line_node);
-		return line_segments::get_vertex_count(payloadCount);
-	}
-	case instr_type::line_segments_closed :{
-		const auto size = get_instr_head(ptr_to_instr).get_instr_byte_size();
-		const auto payloadByteSize = (size - get_instr_size<line_segments_closed>());
-		assert(payloadByteSize % sizeof(line_node) == 0);
-		const auto payloadCount = payloadByteSize / sizeof(line_node);
-		return line_segments_closed::get_vertex_count(payloadCount);
-	}
-	case instr_type::poly : return reinterpret_cast<const poly*>(ptr_to_instr + sizeof(
-			instruction_head))->get_vertex_count();
-	case instr_type::poly_partial : return reinterpret_cast<const poly_partial*>(ptr_to_instr +
-			sizeof(instruction_head))->get_vertex_count();
-	case instr_type::constrained_curve : return reinterpret_cast<const constrained_curve*>(ptr_to_instr +
-			sizeof(instruction_head))->get_vertex_count();
-	case instr_type::rect_ortho_outline: return 10;
-	case instr_type::row_patch: return 8;
-	default : std::unreachable();
-	}
-}
-
-export
-[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(instr_type type, const std::byte* ptr_to_payload, std::uint32_t vtx) noexcept{
-	return vtx < 3 ? 0 : vtx - 2;
-}
+// export
+// [[nodiscard]] FORCE_INLINE CONST_FN std::uint32_t get_vertex_count(
+// 	instr_type type,
+// 	const std::byte* ptr_to_instr) noexcept{
+//
+// 	switch(type){
+// 	case instr_type::triangle : return 3U;
+// 	case instr_type::quad : return 4U;
+// 	case instr_type::rectangle : return 4U;
+// 	case instr_type::rect_ortho : return 4U;
+// 	case instr_type::line : return 4U;
+// 	case instr_type::line_segments:{
+// 		const auto size = get_instr_head(ptr_to_instr).get_instr_byte_size();
+// 		const auto payloadByteSize = (size - get_instr_size<line_segments>());
+// 		assert(payloadByteSize % sizeof(line_node) == 0);
+// 		const auto payloadCount = payloadByteSize / sizeof(line_node);
+// 		return line_segments::get_vertex_count(payloadCount);
+// 	}
+// 	case instr_type::line_segments_closed :{
+// 		const auto size = get_instr_head(ptr_to_instr).get_instr_byte_size();
+// 		const auto payloadByteSize = (size - get_instr_size<line_segments_closed>());
+// 		assert(payloadByteSize % sizeof(line_node) == 0);
+// 		const auto payloadCount = payloadByteSize / sizeof(line_node);
+// 		return line_segments_closed::get_vertex_count(payloadCount);
+// 	}
+// 	case instr_type::poly : return reinterpret_cast<const poly*>(ptr_to_instr + sizeof(
+// 			instruction_head))->get_vertex_count();
+// 	case instr_type::poly_partial : return reinterpret_cast<const poly_partial*>(ptr_to_instr +
+// 			sizeof(instruction_head))->get_vertex_count();
+// 	case instr_type::constrained_curve : return reinterpret_cast<const constrained_curve*>(ptr_to_instr +
+// 			sizeof(instruction_head))->get_vertex_count();
+// 	case instr_type::rect_ortho_outline: return 10;
+// 	case instr_type::row_patch: return 8;
+// 	default : std::unreachable();
+// 	}
+// }
+//
+// export
+// [[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(instr_type type, const std::byte* ptr_to_payload, std::uint32_t vtx) noexcept{
+// 	return vtx < 3 ? 0 : vtx - 2;
+// }
 
 }
