@@ -58,14 +58,12 @@ struct state_transition_config{
 	std::vector<entry> user_defined_flags{};
 	std::vector<std::byte> payload_storage{};
 
-	//
 	[[nodiscard]] auto get_entries() const noexcept{
 		return user_defined_flags | std::views::transform([base = payload_storage.data()](const entry& e){
 			return state_transition_entry{e.flag, e.get_payload(base)};
 		});
 	}
 
-	//
 	void push(std::uint32_t flag, std::span<const std::byte> payload){
 		entry e{flag};
 		if(!payload.empty()){
@@ -75,6 +73,38 @@ struct state_transition_config{
 			std::memcpy(payload_storage.data() + e.offset, payload.data(), e.size);
 		}
 		user_defined_flags.push_back(e);
+	}
+
+	void append(const state_transition_config& other){
+		clear_draw_after_break = clear_draw_after_break || other.clear_draw_after_break;
+		const auto curOff = payload_storage.size();
+		const auto curEntrySz = user_defined_flags.size();
+
+		payload_storage.append_range(other.payload_storage);
+		user_defined_flags.append_range(other.user_defined_flags);
+
+		for(std::size_t i = curEntrySz; i < user_defined_flags.size(); ++i){
+			user_defined_flags[i].offset += curOff;
+		}
+	}
+
+	void append_front(const state_transition_config& other){
+		clear_draw_after_break = clear_draw_after_break || other.clear_draw_after_break;
+		const auto curOff = other.payload_storage.size();
+		const auto curEntrySz = other.user_defined_flags.size();
+
+		payload_storage.insert_range(payload_storage.begin(), other.payload_storage);
+		user_defined_flags.insert_range(user_defined_flags.begin(), other.user_defined_flags);
+
+		for(std::size_t i = curEntrySz; i < user_defined_flags.size(); ++i){
+			user_defined_flags[i].offset += curOff;
+		}
+	}
+
+	void clear() noexcept{
+		clear_draw_after_break = false;
+		user_defined_flags.clear();
+		payload_storage.clear();
 	}
 
 	template <typename T>
@@ -267,11 +297,11 @@ public:
 		vertex_data_entries_(entries){
 	}
 
-	FORCE_INLINE auto get_used_dispatch_groups() const noexcept{
+	FORCE_INLINE std::span<const dispatch_group_info> get_dispatch_infos() const noexcept{
 		return std::span{dispatch_config_storage.data(), currentMeshCount};
 	}
 
-	FORCE_INLINE auto get_used_time_line_datas() const noexcept{
+	FORCE_INLINE std::span<const std::uint32_t> get_timeline_datas() const noexcept{
 		return std::span{
 				group_initial_vertex_data_timestamps_.begin(),
 				group_initial_vertex_data_timestamps_.begin() + currentMeshCount * vertex_data_entries_.size()

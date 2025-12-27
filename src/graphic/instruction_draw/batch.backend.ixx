@@ -181,7 +181,7 @@ public:
 				const auto section_end = submit_breakpoint.break_before_index;
 				std::uint32_t submitCount{};
 				for(auto i = currentSubmitGroupIndex; i < section_end; ++i){
-					submitCount += static_cast<std::uint32_t>(submit_group_subrange[i].get_used_dispatch_groups().
+					submitCount += static_cast<std::uint32_t>(submit_group_subrange[i].get_dispatch_infos().
 						size());
 				}
 				submit_info_[idx] = {submitCount, 1, 1};
@@ -206,7 +206,7 @@ public:
 		{
 			VkDeviceSize deviceSize{};
 			for(const auto& group : submit_group_subrange){
-				deviceSize += group.get_used_dispatch_groups().size_bytes() + group.get_used_time_line_datas().
+				deviceSize += group.get_dispatch_infos().size_bytes() + group.get_timeline_datas().
 					size_bytes();
 			}
 			deviceSize += dispatch_unit_size; // Sentinel
@@ -223,8 +223,8 @@ public:
 			VkDeviceSize pushed_size{};
 			std::uint32_t current_instr_offset{};
 			for(const auto& [idx, group] : submit_group_subrange | std::views::enumerate){
-				const auto dispatch = group.get_used_dispatch_groups();
-				const auto timeline = group.get_used_time_line_datas();
+				const auto dispatch = group.get_dispatch_infos();
+				const auto timeline = group.get_timeline_datas();
 				buffer.resize(dispatch.size_bytes() + timeline.size_bytes());
 
 				for(std::size_t i = 0; i < dispatch.size(); ++i){
@@ -279,7 +279,7 @@ public:
 
 			{
 				// Update Dynamic Descriptor Buffer
-				if(const auto cur_size = host_ctx.get_used_images().size(); bindings_[3].count != cur_size){
+				if(const auto cur_size = host_ctx.get_used_images<void*>().size(); bindings_[3].count != cur_size){
 					bindings_[3].count = static_cast<std::uint32_t>(cur_size);
 					descriptor_buffer_.reconfigure(descriptor_layout_, descriptor_layout_.binding_count(), bindings_);
 					requires_command_record = true;
@@ -293,7 +293,7 @@ public:
 				dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_.get_address(),
 					instructionSize);
 				dbo_mapper.set_images_at(3, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_,
-					host_ctx.get_used_images());
+					host_ctx.get_used_images<VkImageView>());
 
 				VkDeviceSize cur_offset{};
 				for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){

@@ -13,7 +13,6 @@ export module mo_yanxi.graphic.draw.instruction.batch.frontend;
 export import mo_yanxi.graphic.draw.instruction.batch.common;
 export import mo_yanxi.graphic.draw.instruction.general;
 export import mo_yanxi.graphic.draw.instruction.util;
-export import mo_yanxi.graphic.draw.instruction;
 export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.type_register;
@@ -21,6 +20,9 @@ import std;
 
 namespace mo_yanxi::graphic::draw::instruction{
 
+#pragma region Legacy
+
+/*
 //TODO support user defined size?
 export
 template <std::size_t CacheCount = 4>
@@ -50,7 +52,7 @@ public:
 		return {images.data(), count};
 	}
 
-	[[nodiscard]] FORCE_INLINE /*constexpr*/ std::uint32_t try_push(handle_t image) noexcept{
+	[[nodiscard]] FORCE_INLINE /*constexpr#1# std::uint32_t try_push(handle_t image) noexcept{
 		if(!image) return std::numeric_limits<std::uint32_t>::max(); //directly vec4(1)
 		if(image == latest) return latest_index;
 
@@ -81,7 +83,7 @@ public:
 
 			const auto eq_mask = _mm256_cmpeq_epi64(group, target);
 			if(const auto eq_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(eq_mask))){
-				const auto idx = group_idx + /*local offset*/std::countr_zero(eq_bits) / 8;
+				const auto idx = group_idx + /*local offset#1#std::countr_zero(eq_bits) / 8;
 				latest = image;
 				latest_index = idx;
 				return idx;
@@ -89,7 +91,7 @@ public:
 
 			const auto null_mask = _mm256_cmpeq_epi64(group, zero);
 			if(const auto null_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(null_mask))){
-				const auto idx = group_idx + /*local offset*/std::countr_zero(null_bits) / 8;
+				const auto idx = group_idx + /*local offset#1#std::countr_zero(null_bits) / 8;
 				images[idx] = image;
 				latest = image;
 				latest_index = idx;
@@ -102,7 +104,9 @@ public:
 
 		return max_cache_count;
 	}
-};
+};*/
+
+#pragma endregion
 
 template <typename T, std::size_t Alignment = alignof(T)>
 class aligned_allocator {
@@ -147,8 +151,8 @@ public:
 
 export
 struct image_view_history_dynamic{
-	static_assert(sizeof(void*) == sizeof(std::uint64_t));
-	using handle_t = image_handle_t;
+	using handle_t = void*;
+	static_assert(sizeof(handle_t) == sizeof(std::uint64_t));
 
 	struct use_record{
 		handle_t handle;
@@ -165,7 +169,7 @@ private:
 public:
 	[[nodiscard]] image_view_history_dynamic() = default;
 
-	[[nodiscard]] image_view_history_dynamic(std::uint32_t capacity){
+	[[nodiscard]] explicit image_view_history_dynamic(std::uint32_t capacity){
 		set_capacity(capacity);
 	}
 
@@ -223,8 +227,10 @@ public:
 
 	}
 
-	[[nodiscard]] FORCE_INLINE std::span<const handle_t> get() const noexcept{
-		return {images.data(), count_};
+	template <typename T>
+		requires (sizeof(T) == sizeof(void*))
+	[[nodiscard]] FORCE_INLINE std::span<const T> get() const noexcept{
+		return {reinterpret_cast<const T*>(images.data()), count_};
 	}
 
 	[[nodiscard]] FORCE_INLINE /*constexpr*/ std::uint32_t try_push(handle_t image) noexcept{
@@ -366,6 +372,7 @@ public:
 	}
 };
 
+
 // (Logic extracted to Host Context)
 export
 struct draw_list_context{
@@ -373,7 +380,10 @@ private:
 	hardware_limit_config hardware_limit_{};
 
 	std::vector<contiguous_draw_list> submit_groups_{};
-	std::vector<state_transition> submit_breakpoints_{};
+	std::vector<state_transition> submit_transitions_{};
+
+	state_transition_config defer_transition_config_front_{};
+	state_transition_config defer_transition_config_back_{};
 
 	data_entry_group data_group_vertex_info_{};
 	data_entry_group data_group_non_vertex_info_{};
@@ -410,7 +420,7 @@ public:
 
 		submit_groups_.front().reset({});
 		current_group = submit_groups_.data();
-		submit_breakpoints_.clear();
+		submit_transitions_.clear();
 	}
 
 	void end_rendering() noexcept{
@@ -420,7 +430,8 @@ public:
 		if(current_group->empty()){
 		} else{
 			current_group++;
-			submit_breakpoints_.emplace_back(static_cast<unsigned>(get_current_submit_group_index()));
+			auto& trans = submit_transitions_.emplace_back(static_cast<unsigned>(get_current_submit_group_index()));
+			apply_deferred_transition_(trans);
 		}
 
 		const auto submit_group_subrange = get_valid_submit_groups();
@@ -447,26 +458,43 @@ public:
 	}
 
 	std::span<const state_transition> get_state_transitions() const noexcept{
-		return std::span{submit_breakpoints_.data(), submit_breakpoints_.size()};
+		return std::span{submit_transitions_.data(), submit_transitions_.size()};
 	}
 
+	template <typename T>
 	auto get_used_images() const noexcept{
-		return dynamic_image_view_history_.get();
+		return dynamic_image_view_history_.get<T>();
 	}
 
-	void push_state(std::uint32_t flag, std::span<const std::byte> payload){
-		//TODO pending check
-		//TODO lazy check
-		state_transition* breakpoint;
-		if(current_group->get_pushed_instruction_size() != 0 || submit_breakpoints_.empty()){
-			current_group->finalize();
-			advance_current_group();
-			breakpoint = &submit_breakpoints_.emplace_back(static_cast<unsigned>(get_current_submit_group_index()));
-		} else{
-			breakpoint = &submit_breakpoints_.back();
-		}
+	void push_state(state_push_config config, std::uint32_t flag, std::span<const std::byte> payload){
+		switch(config.target){
+		case state_push_target::immediate :{
+			//TODO pending check
+			//TODO lazy check
+			state_transition* breakpoint;
+			if(current_group->get_pushed_instruction_size() != 0 || submit_transitions_.empty()){
+				current_group->finalize();
+				advance_current_group();
+				if(!submit_transitions_.empty()) apply_deferred_transition_(submit_transitions_.back());
 
-		breakpoint->config.push(flag, payload);
+				breakpoint = &submit_transitions_.emplace_back(static_cast<unsigned>(get_current_submit_group_index()));
+			} else{
+				breakpoint = &submit_transitions_.back();
+			}
+
+			breakpoint->config.push(flag, payload);
+			break;
+		}
+		case state_push_target::defer_pre :{
+			defer_transition_config_front_.push(flag, payload);
+			break;
+		}
+		case state_push_target::defer_post :{
+			defer_transition_config_back_.push(flag, payload);
+			break;
+		}
+		default : std::unreachable();
+		}
 	}
 
 	void push_instr(std::span<const std::byte> instr){
@@ -505,7 +533,8 @@ public:
 			if(vertex_data_entry.collapse()){
 				if(!breakpoint){
 					const auto cur_idx = get_current_submit_group_index() + 1;
-					breakpoint = &submit_breakpoints_.emplace_back(static_cast<unsigned>(cur_idx));
+					if(!submit_transitions_.empty())apply_deferred_transition_(submit_transitions_.back());
+					breakpoint = &submit_transitions_.emplace_back(static_cast<unsigned>(cur_idx));
 				}
 
 				breakpoint->uniform_buffer_marching_indices.push_back(static_cast<std::uint32_t>(idx));
@@ -535,11 +564,11 @@ public:
 	}
 
 	std::uint32_t get_submit_sections_count() const noexcept{
-		return static_cast<std::uint32_t>(submit_breakpoints_.size());
+		return static_cast<std::uint32_t>(submit_transitions_.size());
 	}
 
 	const state_transition_config& get_break_config_at(std::size_t index) const noexcept{
-		return submit_breakpoints_[index].config;
+		return submit_transitions_[index].config;
 	}
 
 private:
@@ -566,6 +595,13 @@ private:
 
 	bool try_push_(const instruction_head& instr_head){
 		return try_push_(instr_head, reinterpret_cast<const std::byte*>(std::addressof(instr_head)));
+	}
+
+	void apply_deferred_transition_(state_transition& transition){
+		transition.config.append_front(defer_transition_config_front_);
+		transition.config.append(defer_transition_config_back_);
+		defer_transition_config_front_.clear();
+		defer_transition_config_back_.clear();
 	}
 };
 }
