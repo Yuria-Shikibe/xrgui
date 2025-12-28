@@ -26,6 +26,7 @@ import std;
 
 import mo_yanxi.gui.examples;
 import mo_yanxi.backend.vulkan.renderer;
+import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.gui.draw_config;
 
 void app_run(
@@ -57,10 +58,10 @@ void app_run(
 		{
 			using namespace graphic::draw::instruction;
 
-			for(int x = 0; x < 5; ++x){
+			for(int x = 0; x < 15; ++x){
 				for(int y = 0; y < 5; ++y){
 					r.push(rect_aabb{
-						.generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+						// .generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
 						.v00 = {x * 60.f, y * 60.f},
 						.v11 = {x * 60.f + 40, y * 60.f + 40},
 						.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
@@ -77,38 +78,47 @@ void app_run(
 					// }
 				}
 			}
-			r.push(line{
-				.src = {100, 100},
-				.dst = {800, 400},
-				.color = {graphic::colors::white, graphic::colors::aqua},
-				.stroke = 2,
-			});
+			r.push(rect_aabb{
+								// .generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+								.v00 = {660.f, 560.f},
+								.v11 = {660.f + 40, 560.f + 40},
+								.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
+							});
+			// r.push(line{
+			// 	.src = {100, 100},
+			// 	.dst = {800, 400},
+			// 	.color = {graphic::colors::white, graphic::colors::aqua},
+			// 	.stroke = 2,
+			// });
+			//
+			//
+			// r.update_state(gui::blit_config{
+			// 	.blit_region = {
+			// 		.src = {},
+			// 		.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+			// 	},
+			// 	.pipeline_index = 1});
+			//
+			// r.update_state(gui::draw_mode_param{
+			// 	.pipeline_index = 1
+			// });
 
-			r.update_state(gui::draw_mode_param{
-				.pipeline_index = 1
-			});
-
-			r.update_state(gui::blit_config{
+			r.update_state(state_push_config{
+				state_push_target::defer_pre
+			}, gui::blit_config{
 				.blit_region = {
 					.src = {},
 					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
 				},
 				.pipeline_index = 1});
 
-			r.push(line{
-				.src = {200, 200},
-				.dst = {900, 500},
-				.color = {graphic::colors::white, graphic::colors::aqua},
-				.stroke = 2,
-			});
+			// r.push(line{
+			// 	.src = {200, 200},
+			// 	.dst = {900, 500},
+			// 	.color = {graphic::colors::white, graphic::colors::aqua},
+			// 	.stroke = 2,
+			// });
 
-
-			r.update_state(gui::blit_config{
-				.blit_region = {
-					.src = {},
-					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-				},
-				.pipeline_index = 1});
 		}
 		gui::global::manager.draw();
 		renderer.batch_host.end_rendering();
@@ -158,12 +168,11 @@ void prepare(){
 
 #pragma region InitUI
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
-	vk::shader_module shader_draw{ctx.get_device(), shader_spv_path / "ui.draw_v2.spv"};
-	vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
-	vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
-
-
 	auto renderer = [&]() -> backend::vulkan::renderer{
+		vk::shader_module shader_draw{ctx.get_device(), shader_spv_path / "ui.draw_v2.spv"};
+		vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
+		vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
+
 		using namespace backend::vulkan;
 		return {
 				renderer_create_info{

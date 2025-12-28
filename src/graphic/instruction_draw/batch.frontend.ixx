@@ -108,47 +108,6 @@ public:
 
 #pragma endregion
 
-template <typename T, std::size_t Alignment = alignof(T)>
-class aligned_allocator {
-public:
-	using value_type = T;
-	using size_type = std::size_t;
-	using difference_type = std::ptrdiff_t;
-	using propagate_on_container_move_assignment = std::true_type;
-	using is_always_equal = std::true_type;
-
-	static_assert(std::has_single_bit(Alignment), "Alignment must be a power of 2");
-	static_assert(Alignment >= alignof(T), "Alignment must be at least alignof(T)");
-
-	constexpr aligned_allocator() noexcept = default;
-	constexpr aligned_allocator(const aligned_allocator&) noexcept = default;
-
-	template <typename U>
-	constexpr aligned_allocator(const aligned_allocator<U, Alignment>&) noexcept {}
-
-	template <typename U>
-	struct rebind {
-		using other = aligned_allocator<U, Alignment>;
-	};
-
-	[[nodiscard]] static T* allocate(std::size_t n) {
-		if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
-			throw std::bad_alloc();
-		}
-
-		const std::size_t bytes = n * sizeof(T);
-		void* p = ::operator new(bytes, std::align_val_t{Alignment});
-		return static_cast<T*>(p);
-	}
-
-	static void deallocate(T* p, std::size_t n) noexcept {
-		::operator delete(p, static_cast<std::align_val_t>(Alignment));
-	}
-
-	friend bool operator==(const aligned_allocator&, const aligned_allocator&) { return true; }
-	friend bool operator!=(const aligned_allocator&, const aligned_allocator&) { return false; }
-};
-
 export
 struct image_view_history_dynamic{
 	using handle_t = void*;
@@ -497,15 +456,14 @@ public:
 		}
 	}
 
-	void push_instr(std::span<const std::byte> instr){
+	void push_instr(const instruction_head instr_head, const std::byte* instr){
 		assert(current_group);
 
-		check_size(instr.size());
-		const auto& instr_head = get_instr_head(instr.data());
+		check_size(instr_head.payload_size);
 		assert(std::to_underlying(instr_head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
 		if(instr_head.type == instr_type::uniform_update){
-			const auto payload = get_payload_data_span(instr.data());
+			const auto payload = std::span{instr, instr_head.payload_size};
 			const auto targetIndex = instr_head.payload.ubo.index;
 			//TODO use other name to replace group index
 			if(instr_head.payload.ubo.group_index){
@@ -521,7 +479,6 @@ public:
 			if(vertex_data_entry.collapse()){
 				const instruction_head instruction_head{
 						.type = instr_type::uniform_update,
-						.size = sizeof(instruction::instruction_head),
 						.payload = {.marching_data = {static_cast<std::uint32_t>(idx)}}
 					};
 				try_push_(instruction_head);
@@ -545,7 +502,7 @@ public:
 			advance_current_group();
 		}
 
-		try_push_(instr_head, instr.data());
+		try_push_(instr_head, instr);
 	}
 
 	std::size_t get_current_submit_group_index() const noexcept{
@@ -594,7 +551,7 @@ private:
 	}
 
 	bool try_push_(const instruction_head& instr_head){
-		return try_push_(instr_head, reinterpret_cast<const std::byte*>(std::addressof(instr_head)));
+		return try_push_(instr_head, nullptr);
 	}
 
 	void apply_deferred_transition_(state_transition& transition){

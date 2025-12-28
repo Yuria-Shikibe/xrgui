@@ -7,6 +7,7 @@ export module mo_yanxi.gui.elem.label;
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.font;
 export import mo_yanxi.font.typesetting;
+export import mo_yanxi.graphic.draw.instruction.recorder;
 import mo_yanxi.concurrent.atomic_shared_mutex;
 import std;
 
@@ -14,10 +15,9 @@ import std;
 
 namespace mo_yanxi::gui{
 
-using instr_buffer = std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>>;
 
 export void record_glyph_draw_instructions(
-	instr_buffer& buffer,
+	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
 	const font::typesetting::glyph_layout& glyph_layout,
 	graphic::color color_scl
 );
@@ -56,19 +56,19 @@ public:
 	const font::typesetting::glyph_layout& operator*() const noexcept{
 		return *layout;
 	}
-
 };
+
 export
 struct text_holder : elem{
 	using elem::elem;
 
 private:
 	layout::expand_policy expand_policy_{};
-	instr_buffer draw_instr_buffer_{mr::get_default_heap_allocator()};
+	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>> draw_instr_buffer_{mr::get_default_heap_allocator()};
 	std::optional<graphic::color> text_color_scl_{};
 protected:
 	void set_instr_buffer_allocator(const mr::heap_allocator<std::byte>& alloc){
-		draw_instr_buffer_ = instr_buffer{alloc};
+		draw_instr_buffer_ = {alloc};
 	}
 
 public:

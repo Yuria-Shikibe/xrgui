@@ -83,6 +83,7 @@ private:
 	// GPU Resources
 	std::vector<VkDrawMeshTasksIndirectCommandEXT> submit_info_{};
 	vk::buffer_cpu_to_gpu buffer_dispatch_info_{};
+	vk::buffer_cpu_to_gpu buffer_instruction_heads_{};
 	vk::buffer_cpu_to_gpu buffer_instruction_{};
 	vk::buffer_cpu_to_gpu buffer_indirect_{};
 
@@ -123,9 +124,10 @@ public:
 				{0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER},
 				{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 				{2, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
-				{3, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER}, // Dynamic count
-				{4, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Base for vertex UBOs
-				{5, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+				{3, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+				{4, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER}, // Dynamic count
+				{5, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Base for vertex UBOs
+				{6, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 			})
 		, descriptor_layout_(allocator_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 			[&](vk::descriptor_layout_builder& builder){
@@ -134,6 +136,7 @@ public:
 				// dispatch group info
 				builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 				// instructions
+				builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 				builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 				// Textures (partially bound)
 				builder.push_seq(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1,
@@ -222,6 +225,7 @@ public:
 			std::vector<std::byte> buffer{};
 			VkDeviceSize pushed_size{};
 			std::uint32_t current_instr_offset{};
+			std::uint32_t current_head_offset{};
 			for(const auto& [idx, group] : submit_group_subrange | std::views::enumerate){
 				const auto dispatch = group.get_dispatch_infos();
 				const auto timeline = group.get_timeline_datas();
@@ -229,6 +233,7 @@ public:
 
 				for(std::size_t i = 0; i < dispatch.size(); ++i){
 					auto info = dispatch[i];
+					info.instruction_head_index += current_head_offset;
 					info.instruction_offset += current_instr_offset;
 					std::memcpy(buffer.data() + dispatch_unit_size * i, &info, sizeof(info));
 					std::memcpy(buffer.data() + dispatch_unit_size * i + sizeof(info),
@@ -240,10 +245,11 @@ public:
 				totalDispatchCount += static_cast<std::uint32_t>(dispatch.size());
 
 				current_instr_offset += static_cast<std::uint32_t>(group.get_pushed_instruction_size());
+				current_head_offset += group.get_instruction_heads().size();
 			}
 
 			// Add instruction sentinel
-			mapper.load(dispatch_group_info{current_instr_offset}, pushed_size);
+			mapper.load(dispatch_group_info{.instruction_offset = current_instr_offset}, pushed_size);
 		}
 
 		// 3. Upload User Data Entries
@@ -254,9 +260,21 @@ public:
 
 		// 4. Upload Instructions & Update Descriptors
 		{
-			std::uint32_t instructionSize{};
-			for(const auto& [idx, submit_group] : submit_group_subrange | std::views::enumerate){
-				instructionSize += static_cast<std::uint32_t>(submit_group.get_pushed_instruction_size());
+
+			const auto head_size_view = submit_group_subrange | std::views::transform([](const contiguous_draw_list& list){
+				return list.get_instruction_heads().size_bytes();
+			});
+			const auto payload_size_view = submit_group_subrange | std::views::transform([](const contiguous_draw_list& list){
+				return list.get_pushed_instruction_size();
+			});
+			const std::uint32_t instructionHeadSize{std::reduce(head_size_view.begin(), head_size_view.end(), 0u, std::plus<>{})};
+			const std::uint32_t instructionSize{std::reduce(payload_size_view.begin(), payload_size_view.end(), 0u, std::plus<>{})};
+
+			if(buffer_instruction_heads_.get_size() < instructionHeadSize){
+				buffer_instruction_heads_ = vk::buffer_cpu_to_gpu{
+						allocator_, instructionHeadSize,
+						VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+					};
 			}
 
 			if(buffer_instruction_.get_size() < instructionSize){
@@ -278,9 +296,19 @@ public:
 			}
 
 			{
+				vk::buffer_mapper mapper{buffer_instruction_heads_};
+				std::size_t current_offset{};
+				for(const auto& [idx, submit_group] : submit_group_subrange | std::views::enumerate){
+					const auto spn = submit_group.get_instruction_heads();
+  					(void)mapper.load_range(spn, current_offset);
+					current_offset += spn.size_bytes();
+				}
+			}
+
+			{
 				// Update Dynamic Descriptor Buffer
-				if(const auto cur_size = host_ctx.get_used_images<void*>().size(); bindings_[3].count != cur_size){
-					bindings_[3].count = static_cast<std::uint32_t>(cur_size);
+				if(const auto cur_size = host_ctx.get_used_images<void*>().size(); bindings_[4].count != cur_size){
+					bindings_[4].count = static_cast<std::uint32_t>(cur_size);
 					descriptor_buffer_.reconfigure(descriptor_layout_, descriptor_layout_.binding_count(), bindings_);
 					requires_command_record = true;
 				}
@@ -290,14 +318,16 @@ public:
 					buffer_non_vertex_info_uniform_buffer_.get_address(), sizeof(dispatch_config));
 				dbo_mapper.set_element_at(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_dispatch_info_.get_address(),
 					dispatch_unit_size * (1 + totalDispatchCount));
-				dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_.get_address(),
+				dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_heads_.get_address(),
+					instructionHeadSize);
+				dbo_mapper.set_element_at(3, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_.get_address(),
 					instructionSize);
-				dbo_mapper.set_images_at(3, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_,
+				dbo_mapper.set_images_at(4, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_,
 					host_ctx.get_used_images<VkImageView>());
 
 				VkDeviceSize cur_offset{};
 				for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
-					dbo_mapper.set_element_at(4 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					dbo_mapper.set_element_at(5 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 						buffer_vertex_info_.get_address() + cur_offset, entry.get_required_byte_size());
 					cur_offset += entry.get_required_byte_size();
 				}

@@ -1,6 +1,9 @@
 module;
 
+#if defined(__has_include) && __has_include(<vulkan/vulkan.h>)
 #include <vulkan/vulkan.h>
+#endif
+
 #include <mo_yanxi/adapted_attributes.hpp>
 
 export module mo_yanxi.graphic.draw.instruction.general;
@@ -32,6 +35,49 @@ export FORCE_INLINE std::byte* find_aligned_on(std::byte* where) noexcept{
 export FORCE_INLINE const std::byte* find_aligned_on(const std::byte* where) noexcept{
 	return find_aligned_on(const_cast<std::byte*>(where));
 }
+
+export
+template <typename T, std::size_t Alignment = alignof(T)>
+class aligned_allocator {
+public:
+	using value_type = T;
+	using size_type = std::size_t;
+	using difference_type = std::ptrdiff_t;
+	using propagate_on_container_move_assignment = std::true_type;
+	using is_always_equal = std::true_type;
+
+	static_assert(std::has_single_bit(Alignment), "Alignment must be a power of 2");
+	static_assert(Alignment >= alignof(T), "Alignment must be at least alignof(T)");
+
+	constexpr aligned_allocator() noexcept = default;
+	constexpr aligned_allocator(const aligned_allocator&) noexcept = default;
+
+	template <typename U>
+	constexpr aligned_allocator(const aligned_allocator<U, Alignment>&) noexcept {}
+
+	template <typename U>
+	struct rebind {
+		using other = aligned_allocator<U, Alignment>;
+	};
+
+	[[nodiscard]] static T* allocate(std::size_t n) {
+		if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+			throw std::bad_alloc();
+		}
+
+		const std::size_t bytes = n * sizeof(T);
+		void* p = ::operator new(bytes, std::align_val_t{Alignment});
+		return static_cast<T*>(p);
+	}
+
+	static void deallocate(T* p, std::size_t n) noexcept {
+		::operator delete(p, static_cast<std::align_val_t>(Alignment));
+	}
+
+	friend bool operator==(const aligned_allocator&, const aligned_allocator&) { return true; }
+	friend bool operator!=(const aligned_allocator&, const aligned_allocator&) { return false; }
+};
+
 
 export struct instruction_buffer{
  	static constexpr std::size_t align = 32;
@@ -159,12 +205,6 @@ template <typename T>
 	return ptr;
 }
 
-
-export
-struct state_change_config{
-	std::uint32_t index;
-};
-
 export
 struct gpu_vertex_data_advance_data{
 	std::uint32_t index;
@@ -193,99 +233,22 @@ template <typename EnumTy, typename DrawInfoTy>
 	requires (std::is_enum_v<EnumTy>)
 struct alignas(instr_required_align) generic_instruction_head{
 	EnumTy type;
-	std::uint32_t size; //size include head
+	std::uint32_t payload_size;
 	dispatch_info_payload<DrawInfoTy> payload;
+};
 
-	[[nodiscard]] constexpr std::ptrdiff_t get_instr_byte_size() const noexcept{
-		return size;
-	}
 
-	[[nodiscard]] constexpr std::ptrdiff_t get_payload_byte_size() const noexcept{
-		return size - sizeof(generic_instruction_head);
-	}
+export
+enum struct state_push_target{
+	immediate,
+	defer_pre,
+	defer_post,
 };
 
 export
-struct batch_backend_interface{
-	using host_impl_ptr = void*;
-
-	using function_signature_buffer_acquire = void(host_impl_ptr, std::span<const std::byte> payload);
-	using function_signature_consume_all = void(host_impl_ptr);
-	using function_signature_wait_idle = void(host_impl_ptr);
-	using function_signature_update_state_entry = void(host_impl_ptr, std::uint32_t flag, std::span<const std::byte> payload);
-
-private:
-	host_impl_ptr host;
-	std::add_pointer_t<function_signature_buffer_acquire> fptr_push;
-	std::add_pointer_t<function_signature_consume_all> fptr_consume;
-	std::add_pointer_t<function_signature_wait_idle> fptr_wait_idle;
-	std::add_pointer_t<function_signature_update_state_entry> state_handle;
-
-
-public:
-	[[nodiscard]] constexpr batch_backend_interface() = default;
-
-	template <typename HostT,
-	std::invocable<HostT&, std::span<const std::byte>> AcqFn,
-	std::invocable<HostT&> ConsumeFn,
-	std::invocable<HostT&> WaitIdleFn,
-	std::invocable<HostT&, std::uint32_t, std::span<const std::byte>> StateHandleFn
-	>
-	[[nodiscard]] constexpr batch_backend_interface(
-		HostT& host,
-		AcqFn,
-		ConsumeFn,
-		WaitIdleFn,
-		StateHandleFn
-	) noexcept : host(std::addressof(host)), fptr_push(+[](host_impl_ptr host, std::span<const std::byte> instr){
-		return AcqFn::operator()(*static_cast<HostT*>(host), instr);
-	}), fptr_consume(+[](host_impl_ptr host) static {
-		ConsumeFn::operator()(*static_cast<HostT*>(host));
-	}), fptr_wait_idle(+[](host_impl_ptr host) static {
-		WaitIdleFn::operator()(*static_cast<HostT*>(host));
-	}), state_handle(+[](host_impl_ptr host, std::uint32_t flag, std::span<const std::byte> payload) static {
-		StateHandleFn::operator()(*static_cast<HostT*>(host), flag, payload);
-	}){
-
-	}
-
-	explicit operator bool() const noexcept{
-		return host;
-	}
-
-	template <typename HostTy>
-	HostTy& get_host() const noexcept{
-		CHECKED_ASSUME(host != nullptr);
-		return *static_cast<HostTy*>(host);
-	}
-
-	void push(std::span<const std::byte> instr) const {
-		CHECKED_ASSUME(fptr_push != nullptr);
-		fptr_push(host, instr);
-	}
-
-	void consume_all() const{
-		CHECKED_ASSUME(fptr_consume != nullptr);
-		fptr_consume(host);
-	}
-
-	void wait_idle() const{
-		CHECKED_ASSUME(fptr_wait_idle != nullptr);
-		fptr_wait_idle(host);
-	}
-
-	void flush() const{
-		consume_all();
-		wait_idle();
-	}
-
-
-	void update_state(std::uint32_t index, std::span<const std::byte> payload) const{
-		state_handle(host, index, payload);
-	}
-
+struct state_push_config{
+	state_push_target target{};
 };
-
 
 }
 
@@ -295,7 +258,12 @@ namespace mo_yanxi::graphic::draw{
 namespace instruction{
 
 #ifndef MO_YANXI_GRAPHIC_DRAW_INSTRUCTION_IMAGE_HANDLE_TYPE
-export using image_handle_t = VkImageView;
+#if defined(__has_include) && __has_include(<vulkan/vulkan.h>)
+	export using image_handle_t = VkImageView;
+#else
+	export using image_handle_t = void*;
+#endif
+
 #else
 export using image_handle_t = MO_YANXI_GRAPHIC_DRAW_INSTRUCTION_IMAGE_HANDLE_TYPE;
 static_assert(sizeof(image_handle_t) == 8)
@@ -359,15 +327,11 @@ export struct draw_payload{
 };
 
 export using instruction_head = generic_instruction_head<instr_type, draw_payload>;
-
-
 static_assert(std::is_standard_layout_v<instruction_head>);
 
 export
 template <typename Instr, typename Arg>
-struct is_valid_consequent_argument : std::false_type{
-
-};
+struct is_valid_consequent_argument : std::false_type{};
 
 template <typename Instr, typename Arg>
 constexpr inline bool is_valid_consequent_argument_v = is_valid_consequent_argument<Instr, Arg>::value;
@@ -387,8 +351,8 @@ concept known_instruction = instruction_type_of<T> != instr_type::SIZE;
 export
 template <typename T, typename... Args>
 	requires (std::is_trivially_copyable_v<T> && valid_consequent_argument<T, Args...>)
-constexpr std::size_t get_instr_size(const Args& ...args) noexcept{
-	return sizeof(instruction_head)  + sizeof(T) + instruction::get_type_size_sum<Args...>(args...);
+constexpr std::size_t get_payload_size(const Args& ...args) noexcept{
+	return sizeof(T) + instruction::get_type_size_sum<Args...>(args...);
 }
 
 export
@@ -399,7 +363,7 @@ template <typename T, typename... Args>
 		};
 	}
 constexpr instruction_head make_instruction_head(const T& instr, const Args&... args) noexcept{
-	const auto required = instruction::get_instr_size<T, Args...>(args...);
+	const auto required = instruction::get_payload_size<T, Args...>(args...);
 	assert(required % instr_required_align == 0);
 
 	const auto vtx = [&] -> std::uint32_t{
@@ -418,39 +382,29 @@ constexpr instruction_head make_instruction_head(const T& instr, const Args&... 
 		}
 	}();
 
-
 	return instruction_head{
 		.type = instruction_type_of<T>,
-		.size = static_cast<std::uint32_t>(required),
+		.payload_size = static_cast<std::uint32_t>(required),
 		.payload = {.draw = {.vertex_count = vtx, .primitive_count = pmt}}
 	};
 }
-
-
-export
-[[nodiscard]] FORCE_INLINE const instruction_head& get_instr_head(const void* p) noexcept{
-	return *start_lifetime_as<instruction_head>(std::assume_aligned<instr_required_align>(p));
-}
-
 
 template <typename T, typename... Args>
 	requires (std::is_trivially_copyable_v<T> && valid_consequent_argument<T, Args...>)
 FORCE_INLINE void place_instr_at_impl(
 	std::byte* const where,
-	const instruction_head& head,
 	const T& payload,
 	const Args&... args
-){
-	const auto total_size = instruction::get_instr_size<T, Args...>(args...);
+) noexcept {
+	const auto total_size = instruction::get_payload_size<T, Args...>(args...);
 
 	assert(std::bit_cast<std::uintptr_t>(where) % instr_required_align == 0);
 	auto pwhere = std::assume_aligned<instr_required_align>(where);
-
-	std::memcpy(pwhere, &head, sizeof(instruction_head));
-	pwhere += sizeof(instruction_head);
 	std::memcpy(pwhere, &payload, sizeof(payload));
 
 	if constexpr(sizeof...(args) > 0){
+		pwhere += sizeof(payload);
+
 		static constexpr auto place_at = []<typename Ty>(std::byte*& w, const Ty& arg){
 			if constexpr (std::ranges::contiguous_range<Ty>){
 				static_assert(std::is_trivially_copyable_v<std::ranges::range_value_t<Ty>> && !std::ranges::range<std::ranges::range_value_t<Ty>>);
@@ -463,8 +417,6 @@ FORCE_INLINE void place_instr_at_impl(
 			}
 		};
 
-		pwhere += sizeof(instruction_head);
-
 		[&]<std::size_t ... Idx>(std::index_sequence<Idx...>) FORCE_INLINE{
 			(place_at.template operator()<Args>(pwhere, args), ...);
 		}(std::make_index_sequence<sizeof...(Args)>{});
@@ -474,58 +426,130 @@ FORCE_INLINE void place_instr_at_impl(
 export
 template <known_instruction T, typename... Args>
 	requires (std::is_trivially_copyable_v<T> && valid_consequent_argument<T, Args...>)
-FORCE_INLINE void place_instruction_at(
+FORCE_INLINE [[nodiscard]] instruction_head place_instruction_at(
 	std::byte* const where,
 	const T& payload,
 	const Args&... args
 ) noexcept{
-	instruction::place_instr_at_impl(
-		where, instruction::make_instruction_head(payload, args...), payload, args...);
+	instruction::place_instr_at_impl(where, payload, args...);
+	return instruction::make_instruction_head(payload, args...);
 }
 
 export
 template <typename T>
 	requires (std::is_trivially_copyable_v<T>)
-FORCE_INLINE void place_ubo_update_at(
+FORCE_INLINE [[nodiscard]] instruction_head place_ubo_update_at(
 	std::byte* const where,
 	const T& payload,
 	const user_data_indices info
 ) noexcept{
-	instruction::place_instr_at_impl(
-		where, instruction_head{
-			.type = instr_type::uniform_update,
-			.size = get_instr_size<T>(),
-			.payload = {.ubo = info}
-		}, payload);
+	instruction::place_instr_at_impl(where, payload);
+	return instruction_head{
+		.type = instr_type::uniform_update,
+		.payload_size = get_payload_size<T>(),
+		.payload = {.ubo = info}
+	};
 }
 
 export
-FORCE_INLINE void place_ubo_update_at(
+FORCE_INLINE [[nodiscard]] instruction_head place_ubo_update_at(
 	std::byte* const where,
 	const std::byte* payload,
 	const std::uint32_t payload_size,
 	const user_data_indices info
 ) noexcept{
-	const auto total_size = payload_size + static_cast<std::uint32_t>(sizeof(instruction_head));
 	assert(std::bit_cast<std::uintptr_t>(where) % instr_required_align == 0);
 	const auto pwhere = std::assume_aligned<instr_required_align>(where);
+	std::memcpy(pwhere, payload, payload_size);
 
-	const instruction_head head{
+	return instruction_head{
 		.type = instr_type::uniform_update,
-		.size = total_size,
+		.payload_size = payload_size,
 		.payload = {.ubo = info}
 	};
-	std::memcpy(pwhere, &head, sizeof(instruction_head));
-	std::memcpy(pwhere + sizeof(instruction_head), payload, payload_size);
+
 }
 
 export
-[[nodiscard]] FORCE_INLINE inline std::span<const std::byte> get_payload_data_span(const std::byte* ptr_to_instr) noexcept{
-	const auto head = get_instr_head(ptr_to_instr);
-	const std::size_t ubo_size = head.get_payload_byte_size();
-	return std::span{ptr_to_instr + sizeof(instruction_head), ubo_size};
-}
+struct batch_backend_interface{
+	using host_impl_ptr = void*;
 
+	using function_signature_buffer_acquire = void(host_impl_ptr, instruction_head, const std::byte* payload);
+	using function_signature_consume_all = void(host_impl_ptr);
+	using function_signature_wait_idle = void(host_impl_ptr);
+	using function_signature_update_state_entry = void(host_impl_ptr, state_push_config config, std::uint32_t flag, std::span<const std::byte> payload);
+
+private:
+	host_impl_ptr host;
+	std::add_pointer_t<function_signature_buffer_acquire> fptr_push;
+	std::add_pointer_t<function_signature_consume_all> fptr_consume;
+	std::add_pointer_t<function_signature_wait_idle> fptr_wait_idle;
+	std::add_pointer_t<function_signature_update_state_entry> state_handle;
+
+
+public:
+	[[nodiscard]] constexpr batch_backend_interface() = default;
+
+	template <typename HostT,
+	std::invocable<HostT&, instruction_head, const std::byte*> AcqFn,
+	std::invocable<HostT&> ConsumeFn,
+	std::invocable<HostT&> WaitIdleFn,
+	std::invocable<HostT&, state_push_config, std::uint32_t, std::span<const std::byte>> StateHandleFn
+	>
+	[[nodiscard]] constexpr batch_backend_interface(
+		HostT& host,
+		AcqFn,
+		ConsumeFn,
+		WaitIdleFn,
+		StateHandleFn
+	) noexcept : host(std::addressof(host)), fptr_push(+[](host_impl_ptr host, instruction_head head, const std::byte* instr){
+		return AcqFn::operator()(*static_cast<HostT*>(host), head, instr);
+	}), fptr_consume(+[](host_impl_ptr host) static {
+		ConsumeFn::operator()(*static_cast<HostT*>(host));
+	}), fptr_wait_idle(+[](host_impl_ptr host) static {
+		WaitIdleFn::operator()(*static_cast<HostT*>(host));
+	}), state_handle(+[](host_impl_ptr host, state_push_config config, std::uint32_t flag, std::span<const std::byte> payload) static {
+		StateHandleFn::operator()(*static_cast<HostT*>(host), config, flag, payload);
+	}){
+
+	}
+
+	explicit operator bool() const noexcept{
+		return host;
+	}
+
+	template <typename HostTy>
+	HostTy& get_host() const noexcept{
+		CHECKED_ASSUME(host != nullptr);
+		return *static_cast<HostTy*>(host);
+	}
+
+	void push(instruction_head head, const std::byte* instr) const {
+		CHECKED_ASSUME(fptr_push != nullptr);
+		fptr_push(host, head, instr);
+	}
+
+	void consume_all() const{
+		CHECKED_ASSUME(fptr_consume != nullptr);
+		fptr_consume(host);
+	}
+
+	void wait_idle() const{
+		CHECKED_ASSUME(fptr_wait_idle != nullptr);
+		fptr_wait_idle(host);
+	}
+
+	void flush() const{
+		consume_all();
+		wait_idle();
+	}
+
+
+	void update_state(state_push_config defer, std::uint32_t index, std::span<const std::byte> payload) const{
+		state_handle(host, defer, index, payload);
+	}
+
+};
 }
 
 export

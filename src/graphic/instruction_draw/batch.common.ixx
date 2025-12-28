@@ -16,7 +16,8 @@ namespace mo_yanxi::graphic::draw::instruction{
  *
  */
 export
-struct alignas(16) dispatch_group_info{
+struct dispatch_group_info{
+	std::uint32_t instruction_head_index;
 	std::uint32_t instruction_offset;
 	std::uint32_t vertex_offset;
 	std::uint32_t primitive_offset;
@@ -257,12 +258,15 @@ struct contiguous_draw_list{
 
 private:
 	instruction_buffer instruction_buffer_{};
+	std::vector<instruction_head> instruction_heads_{};
+
 	std::vector<dispatch_group_info> dispatch_config_storage{};
 	std::vector<std::uint32_t> group_initial_vertex_data_timestamps_{};
 
 	std::span<draw_uniform_data_entry> vertex_data_entries_{};
 	std::byte* ptr_to_head{};
 	std::uint32_t index_to_last_chunk_head_{};
+	std::uint32_t offset_to_last_chunk_head_{};
 
 	std::uint32_t verticesBreakpoint{};
 	std::uint32_t nextPrimitiveOffset{};
@@ -297,6 +301,10 @@ public:
 		vertex_data_entries_(entries){
 	}
 
+	FORCE_INLINE std::span<const instruction_head> get_instruction_heads() const noexcept{
+		return instruction_heads_;
+	}
+
 	FORCE_INLINE std::span<const dispatch_group_info> get_dispatch_infos() const noexcept{
 		return std::span{dispatch_config_storage.data(), currentMeshCount};
 	}
@@ -323,19 +331,21 @@ public:
 	FORCE_INLINE void reset(draw_list_inheritance_param param){
 		std::memset(dispatch_config_storage.data(), 0, dispatch_config_storage.size() * sizeof(dispatch_group_info));
 		ptr_to_head = instruction_buffer_.data(); // Fix: use .data()
+		offset_to_last_chunk_head_ = 0;
 		index_to_last_chunk_head_ = 0;
 		verticesBreakpoint = param.verticesBreakpoint;
 		nextPrimitiveOffset = param.nextPrimitiveOffset;
 		currentMeshCount = 0;
 		pushedVertices = 0;
 		pushedPrimitives = 0;
+		instruction_heads_.clear();
 
 		setup_current_dispatch_group_info();
 	}
 
 	FORCE_INLINE void finalize(){
 		if(pushedPrimitives){
-			save_current_dispatch(static_cast<std::uint32_t>(-1));
+			save_current_dispatch(static_cast<std::uint32_t>(-1), -1);
 		}
 	}
 
@@ -352,14 +362,21 @@ public:
 		){
 		assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
-		auto instruction_index = ptr_to_head - instruction_buffer_.data();
-		if(instruction_buffer_.size() < instruction_index + head.size){
-			instruction_buffer_.resize((instruction_buffer_.size() + head.size) * 2);
-			ptr_to_head = instruction_buffer_.data() + instruction_index;
+		auto instruction_offset = ptr_to_head - instruction_buffer_.data();
+		if(head.payload_size){
+			assert(data != nullptr);
+			if(instruction_buffer_.size() < instruction_offset + head.payload_size){
+				instruction_buffer_.resize((instruction_buffer_.size() + head.payload_size) * 2);
+				ptr_to_head = instruction_buffer_.data() + instruction_offset;
+			}
+
+			std::memcpy(ptr_to_head, data, head.payload_size);
+			ptr_to_head += head.payload_size;
+		}else{
+			assert(data == nullptr);
 		}
 
-		std::memcpy(ptr_to_head, data, head.size);
-		ptr_to_head += head.size;
+		instruction_heads_.push_back(head);
 
 		switch(head.type){
 		case instr_type::noop :
@@ -389,8 +406,8 @@ public:
 				nextPrimitiveOffset = 0;
 
 				if(pushedVertices == max_vertices_per_mesh_group){
-					instruction_index += head.size;
-					save_current_dispatch(static_cast<std::uint32_t>(instruction_index));
+					instruction_offset += head.payload_size;
+					save_current_dispatch(static_cast<std::uint32_t>(instruction_offset), instruction_heads_.size());
 					pushedPrimitives = 0;
 					pushedVertices = 0;
 				}
@@ -405,7 +422,7 @@ public:
 
 			verticesBreakpoint += remains;
 
-			save_current_dispatch(static_cast<std::uint32_t>(instruction_index));
+			save_current_dispatch(static_cast<std::uint32_t>(instruction_offset), instruction_heads_.size() - 1);
 			pushedPrimitives = 0;
 			pushedVertices = 0;
 		}
@@ -420,11 +437,9 @@ public:
 	template <std::invocable<const instruction_head&, std::byte*> Fn>
 	FORCE_INLINE void for_each_instruction(Fn fn) const noexcept(std::is_nothrow_invocable_v<Fn, const instruction_head&, std::byte*>){
 		auto cur = instruction_buffer_.data();
-		while(cur != ptr_to_head){
-			assert(cur < ptr_to_head);
-			const instruction_head& head = get_instr_head(cur);
-			fn(head, cur + sizeof(instruction_head));
-			cur += head.size;
+		for (const auto & generic_instruction_head : instruction_heads_){
+			fn(generic_instruction_head, cur);
+			cur += generic_instruction_head.payload_size;
 		}
 	}
 
@@ -433,15 +448,17 @@ public:
 	}
 
 private:
-	FORCE_INLINE void save_current_dispatch(std::uint32_t next_instr_begin){
+	FORCE_INLINE void save_current_dispatch(std::uint32_t next_instr_begin, std::uint32_t next_head_begin){
 		assert(pushedPrimitives != 0);
-		assert(index_to_last_chunk_head_ % 16 == 0);
-		dispatch_config_storage[currentMeshCount].instruction_offset = index_to_last_chunk_head_;
+		assert(offset_to_last_chunk_head_ % 16 == 0);
+		dispatch_config_storage[currentMeshCount].instruction_offset = offset_to_last_chunk_head_;
+		dispatch_config_storage[currentMeshCount].instruction_head_index = index_to_last_chunk_head_;
 		dispatch_config_storage[currentMeshCount].primitive_count = pushedPrimitives;
 
 
 		++currentMeshCount;
-		index_to_last_chunk_head_ = next_instr_begin;
+		offset_to_last_chunk_head_ = next_instr_begin;
+		index_to_last_chunk_head_ = next_head_begin;
 		if(currentMeshCount != dispatch_config_storage.size()){
 			setup_current_dispatch_group_info();
 		}

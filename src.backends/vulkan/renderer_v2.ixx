@@ -411,13 +411,13 @@ public:
 		return gui::renderer_frontend{
 			table, table_non_vertex, batch_backend_interface{
 				*this,
-				[](renderer& b, std::span<const std::byte> data) static{
-					return b.batch_host.push_instr(data);
+				[](renderer& b, instruction_head head, const std::byte* data) static{
+					return b.batch_host.push_instr(head, data);
 				},
 				[](renderer& b) static{},
 				[](renderer& b) static{},
-				[](renderer& b, std::uint32_t flag, std::span<const std::byte> payload) static{
-					b.batch_host.push_state(flag, payload);
+				[](renderer& b, state_push_config config, std::uint32_t flag, std::span<const std::byte> payload) static{
+					b.batch_host.push_state(config, flag, payload);
 				},
 			}
 		};

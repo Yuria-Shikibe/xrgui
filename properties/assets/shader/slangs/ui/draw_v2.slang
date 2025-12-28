@@ -8,7 +8,6 @@ struct dispatch_config {
     uint[3] _cap;
 }
 
-
 struct ubo_screen_info {
     float3x3 screen_to_uniform;
 };
@@ -40,15 +39,18 @@ ConstantBuffer<dispatch_config> dispatch_config_ubo;
 readonly StructuredBuffer<mesh_dispatch_info_v2<2>> dispatch_info;
 
 [[vk::binding(2, 0)]]
-ByteAddressBuffer instruction;
+StructuredBuffer<instruction_head> instruction_heads;
 
 [[vk::binding(3, 0)]]
-uniform Sampler2D textures[];
+ByteAddressBuffer instruction;
 
 [[vk::binding(4, 0)]]
-readonly StructuredBuffer<ubo_screen_info> screen_info;
+uniform Sampler2D textures[];
 
 [[vk::binding(5, 0)]]
+readonly StructuredBuffer<ubo_screen_info> screen_info;
+
+[[vk::binding(6, 0)]]
 readonly StructuredBuffer<ubo_layer_info> layer_info;
 
 struct trans : vertex_transformer_2<UI_VTX> {
@@ -106,7 +108,7 @@ void main_mesh(
     let gid = groupId + dispatch_config_ubo.group_offset;
 
     let pmt = resolve_instruction_v2(
-        threadId, dispatch_info[gid], instruction, trans(gid), verts, prims, indices
+        threadId, dispatch_info[gid], instruction_heads, instruction, trans(gid), verts, prims, indices
     );
 
     if (threadId == 0) SetMeshOutputCounts(VERTEX_PER_MESH, pmt);
@@ -148,7 +150,7 @@ pipeline_flags constant_flags;
 
 [shader("fragment")]
 FragOut main_frag(
-    in UI_VTX vtx,
+    in Vertex vtx,
     nointerpolation in Primitive primit
 ) {
 
@@ -157,18 +159,18 @@ FragOut main_frag(
 
     switch (global_draw_mode_type(constant_flags.mode_sdf)) {
     case global_draw_mode_type::def:
-        let tex_color = (no_tex ? float4(1) : textures[primit.texture_index].Sample(vtx.vtx.uv)) * vtx.vtx.color;
+        let tex_color = (no_tex ? float4(1) : textures[primit.texture_index].Sample(vtx.uv)) * vtx.color;
         out_color_base = tex_color;
         break;
     case global_draw_mode_type::sdf:
-        var alpha = no_tex ? 1 : sdf::msdf(textures[primit.texture_index], vtx.vtx.uv);
-        out_color_base = float4(1, 1, 1, smoothstep(-0.015, 0.045, alpha)) * vtx.vtx.color;
+        var alpha = no_tex ? 1 : sdf::msdf(textures[primit.texture_index], vtx.uv);
+        out_color_base = float4(1, 1, 1, smoothstep(-0.015, 0.045, alpha)) * vtx.color;
         break;
-    default: out_color_base = vtx.vtx.color;
+    default: out_color_base = vtx.color;
     }
     
     if (bool(primit.mode.value & draw_mode_type::slide_line)) {
-        float scl = slide_line::is_in_slide_line_smooth(vtx.vtx.position.xy, slide_line_style, ui_state.time);
+        float scl = slide_line::is_in_slide_line_smooth(vtx.position.xy, slide_line_style, ui_state.time);
         out_color_base.a *= scl;
     }
 

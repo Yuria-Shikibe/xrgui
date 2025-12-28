@@ -292,8 +292,10 @@ private:
 public:
 	[[nodiscard]] compute_pipeline_blit_inout_config() = default;
 
-	template <std::ranges::input_range InRng = std::initializer_list<entry>, std::ranges::input_range OutRng = std::initializer_list<entry>>
-	[[nodiscard]] compute_pipeline_blit_inout_config(const InRng& in, const OutRng& outRng) :
+	template <
+		std::ranges::input_range DrawAttachments = std::initializer_list<entry>,
+		std::ranges::input_range BlitAttachments = std::initializer_list<entry>>
+	[[nodiscard]] compute_pipeline_blit_inout_config(const DrawAttachments& in, const BlitAttachments& outRng) :
 		entries_([&]{
 			std::vector<entry> rng{std::from_range, in};
 			input_count_ = rng.size();

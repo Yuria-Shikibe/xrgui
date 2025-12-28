@@ -295,30 +295,14 @@ public:
 		return self.viewports_.back();
 	}
 
-	template <typename Instr, typename ...Args>
-	void push(const Instr& instr, const Args& ...args) {
+	template <typename Instr>
+		requires std::is_trivially_copyable_v<Instr>
+	void push(const Instr& instr){
 		using namespace graphic::draw;
-		const auto instr_size = instruction::get_instr_size<Instr, Args...>(args...);
-
-		alignas(16) alignas(Instr) alignas(Args...) std::byte buffer_[sizeof(instruction::instruction_head) + sizeof(Instr) + (sizeof(Args) + ... + 0)];
-		std::byte* pbuffer;
-		if constexpr (sizeof...(args) > 0){
-			if(instr_size > sizeof(buffer_)) [[unlikely]] {
-				if(instr_size > cache_instr_buffer_.size())cache_instr_buffer_.resize(instr_size);
-				pbuffer = cache_instr_buffer_.data();
-			}else{
-				pbuffer = buffer_;
-			}
-		}else{
-			pbuffer = std::assume_aligned<16>(+buffer_);
-		}
-
 
 		if constexpr (instruction::known_instruction<Instr>){
-			instruction::place_instruction_at(pbuffer, instr, args...);
-			batch_backend_interface_.push(std::span<const std::byte>{pbuffer, instr_size});
+			batch_backend_interface_.push(instruction::make_instruction_head(instr), reinterpret_cast<const std::byte*>(&instr));
 		}else{
-			static_assert(sizeof...(Args) == 0, "User Data with args is prohibited currently");
 			static constexpr type_identity_index tidx = unstable_type_identity_of<Instr>();
 			static constexpr bool vtx_only = is_vertex_stage_only<Instr>;
 
@@ -326,49 +310,83 @@ public:
 			if constexpr (vtx_only){
 				const auto* ientry = table_vertex_only_[tidx];
 				idx = ientry - table_vertex_only_.begin();
+
+				if(idx >= table_vertex_only_.size()){
+					throw std::out_of_range("index out of range");
+				}
 			}else{
 				const auto* ientry = table_general_[tidx];
 				idx = ientry - table_general_.begin();
+
+				if(idx >= table_general_.size()){
+					throw std::out_of_range("index out of range");
+				}
 			}
 
-			if(idx >= table_vertex_only_.size()){
-				throw std::out_of_range("index out of range");
-			}
-			instruction::place_ubo_update_at(pbuffer, instr, instruction::user_data_indices{idx, !vtx_only});
-			batch_backend_interface_.push(std::span<const std::byte>{pbuffer, instr_size});
-
+			const auto head = instruction::instruction_head{
+				.type = instruction::instr_type::uniform_update,
+				.payload_size = instruction::get_payload_size<Instr>(),
+				.payload = {.ubo = instruction::user_data_indices{idx, !vtx_only}}
+			};
+			batch_backend_interface_.push(head, reinterpret_cast<const std::byte*>(&instr));
 		}
 	}
 
+	template <graphic::draw::instruction::known_instruction Instr, typename ...Args>
+	void push(const Instr& instr, const Args& ...args) {
+		static_assert (sizeof...(args) > 0);
+		using namespace graphic::draw;
+		const auto instr_size = instruction::get_payload_size<Instr, Args...>(args...);
+
+		alignas(16) alignas(Instr) alignas(Args...) std::byte buffer_[sizeof(Instr) + (sizeof(Args) + ... + 32)];
+		std::byte* pbuffer;
+		if(instr_size > sizeof(buffer_)) [[unlikely]] {
+			if(instr_size > cache_instr_buffer_.size())cache_instr_buffer_.resize(instr_size);
+			pbuffer = cache_instr_buffer_.data();
+		}else{
+			pbuffer = buffer_;
+		}
+
+		const auto head = instruction::place_instruction_at(pbuffer, instr, args...);
+		batch_backend_interface_.push(head, pbuffer);
+	}
+
 	template <typename Instr>
-	void update_state(std::uint32_t flag, const Instr& instr) {
+	void update_state(const graphic::draw::instruction::state_push_config& config, std::uint32_t flag,
+		const Instr& instr){
 		using namespace graphic::draw;
 		static_assert(!instruction::known_instruction<Instr>);
 
-		batch_backend_interface_.update_state(
+		batch_backend_interface_.update_state(config,
 			flag,
-			std::span{reinterpret_cast<const std::byte*>(std::addressof(instr)), sizeof(Instr)});
+			std::span{
+				reinterpret_cast<const std::byte*>(std::addressof(instr)),
+				sizeof(Instr)
+			});
 	}
 
 	template <draw_state_config_deduceable Instr>
-	void update_state(const Instr& instr) {
-		this->update_state(draw_state_index_deduce_v<Instr>, instr);
+	void update_state(const graphic::draw::instruction::state_push_config& config, const Instr& instr){
+		this->update_state(config, draw_state_index_deduce_v<Instr>, instr);
 	}
 
-	bool push_same_instr(const std::span<const std::byte> raw_instr, const std::size_t instr_unit_size){
-		auto cur = raw_instr.data();
-		auto end = raw_instr.data() + raw_instr.size();
+	template <draw_state_config_deduceable Instr>
+	void update_state(const Instr& instr){
+		this->update_state(graphic::draw::instruction::state_push_config{}, draw_state_index_deduce_v<Instr>, instr);
+	}
 
-		while(cur < end){
-			batch_backend_interface_.push(std::span{cur, instr_unit_size});
-			cur += instr_unit_size;
+	bool push(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
+		auto cur = payload;
+		for (const auto & head : heads){
+			batch_backend_interface_.push(head, cur);
+			cur += head.payload_size;
 		}
 
 		return true;
 	}
 
 	void push_instr(const std::span<const std::byte> raw_instr) const{
-		batch_backend_interface_.push(raw_instr);
+		// batch_backend_interface_.push(raw_instr);
 	}
 
 	void resize(const math::frect region){

@@ -95,8 +95,6 @@ public struct resolve_param
 
     public int prm_skip;
 
-    public uint override_prm_tex_id;
-
     [ForceInline]
     public uint get_primitive_index() {
         return prm_skip + vtx_skip - 2;
@@ -123,7 +121,7 @@ public struct primitive_generic
 public struct Vertex
 {
     public float4 position : SV_Position;
-    centroid public float4 color : VtxSclColor;
+    public float4 color : VtxSclColor;
     centroid public float2 uv : VtxUV;
 
     public __init(float3 p_, float4 c_, float2 uv_) {
@@ -133,9 +131,9 @@ public struct Vertex
     }
 
     public __init() {
-        position = 0;
-        color = 0;
-        uv = 0;
+        position = {};
+        color = {};
+        uv = {};
     }
 };
 
@@ -146,7 +144,7 @@ public struct Primitive
 
     [ForceInline]
     __init(primitive_generic generic, resolve_param param) {
-        this.texture_index = (param.override_prm_tex_id == MAX_IMAGE_CACHE_COUNT ? uint(generic.image.index) : param.override_prm_tex_id);
+        this.texture_index = uint(generic.image.index);
         this.mode = generic.mode;
     }
 };
@@ -165,7 +163,7 @@ public struct instruction_head
 {
     public instruction_type type;
     public uint32_t size;
-    public uint32_t vertex_count;
+    public uint32_t vertex_count; //Or timeline index
     public uint32_t primit_count;
 };
 
@@ -413,7 +411,7 @@ struct line_draw
         const in ByteAddressBuffer instruction,
         const in uint payload_begin,
     ) {
-        let node_length = (head.size - sizeof(line_draw) - sizeof(instruction_head)) / sizeof(line_node);
+        let node_length = (head.size - sizeof(line_draw)) / sizeof(line_node);
         let i = param.vtx_skip / 2 + 1;
 
         let nodeL = line_node_at(i - 1, instruction, payload_begin);
@@ -458,7 +456,7 @@ struct line_draw
         const in ByteAddressBuffer instruction,
         const in uint payload_begin,
     ) {
-        let node_length = (head.size - sizeof(line_draw) - sizeof(instruction_head)) / sizeof(line_node);
+        let node_length = (head.size - sizeof(line_draw)) / sizeof(line_node);
         let mod = node_length;
         let i = param.vtx_skip / 2;
 
@@ -792,6 +790,7 @@ static const uint instruction_align = 16;
 // static const uint instruction_shift = 4;
 
 [ForceInline]
+[[deprecated("")]]
 public instruction_head get_instruction_head(const in ByteAddressBuffer instruction, uint location){
     return instruction.LoadAligned<instruction_head>(location, instruction_align);
 }
@@ -899,7 +898,7 @@ public uint resolve_instruction<T>(
                 let patch_index = patch_til_index > target_index ? patch_til_index - target_index : 0;
                 var vtx = push_vertex(
                     head, instruction, ptr_to_head + sizeof(instruction_head),
-                    resolve_param(target_index, local_skip, patch_index, skipped_primitives, ptr_to_head == 0 ? mesh_subrange.override_index : MAX_IMAGE_CACHE_COUNT),
+                    resolve_param(target_index, local_skip, patch_index, skipped_primitives),
                     prims, indices);
 
                 verts[target_index] = transformer(vtx);
@@ -929,7 +928,8 @@ public interface vertex_transformer_2<T> {
 
 public struct mesh_dispatch_info_v2<uint n>
 {
-    public uint instruction_offset; // offset in 8 Byte
+    public uint instruction_head_index;
+    public uint instruction_offset;
     public uint vertex_offset;
     public uint primit_offset;
     public uint primitives;
@@ -941,6 +941,8 @@ public struct mesh_dispatch_info_v2<uint n>
 public uint resolve_instruction_v2<T, uint n>(
     const uint threadId,
     const in mesh_dispatch_info_v2<n> mesh_subrange,
+
+    const in StructuredBuffer<instruction_head> instruction_heads,
     const in ByteAddressBuffer instruction,
     in vertex_transformer_2<T> transformer,
 
@@ -949,26 +951,29 @@ public uint resolve_instruction_v2<T, uint n>(
     OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices: __ref
 ) {
     let patch_til_index = bool(mesh_subrange.vertex_offset) * 2;
-    let group_instr_head_ptr = mesh_subrange.instruction_offset;
 
     uint skipped_vertices = 0;
     int skipped_primitives = -int(mesh_subrange.primit_offset);
-    var ptr_to_head = group_instr_head_ptr;
+    var ptr_to_payload = mesh_subrange.instruction_offset;
+    var idx_to_head = mesh_subrange.instruction_head_index;
+
 
     [ForceUnroll]
     for (int i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
-        let target_index = (i == 1 ? (VERTEX_PER_MESH - threadId - 1) : threadId);
+        let target_index = select(i == 1, (VERTEX_PER_MESH - threadId - 1), threadId);
+        // let target_index = select(i == 1, threadId + GROUP_COUNT, threadId);
         let thread_vtx_skip = target_index + mesh_subrange.vertex_offset;
 
         while (true) {
-            let head = get_instruction_head(instruction, ptr_to_head);
+            let head = instruction_heads[idx_to_head];
+            
             if (head.type == instruction_type::noop) {
                 break;
             }
 
             if (head.type == instruction_type::uniform_update) {
                 transformer(head.vertex_count);
-                ptr_to_head += 16;
+                ++idx_to_head;
                 continue;
             }
 
@@ -980,17 +985,18 @@ public uint resolve_instruction_v2<T, uint n>(
 
                 let patch_index = patch_til_index > target_index ? patch_til_index - target_index : 0;
                 var vtx = push_vertex(
-                    head, instruction, ptr_to_head + sizeof(instruction_head),
-                    resolve_param(target_index, local_skip, patch_index, skipped_primitives, MAX_IMAGE_CACHE_COUNT),
+                    head, instruction, ptr_to_payload,
+                    resolve_param(target_index, local_skip, patch_index, skipped_primitives),
                     prims, indices);
 
                 verts[target_index] = transformer(vtx);
                 break;
             }
 
-            ptr_to_head += head.size;
+            ptr_to_payload += head.size;
             skipped_vertices += head.vertex_count;
             skipped_primitives += head.primit_count;
+            ++idx_to_head;
         }
     }
 
