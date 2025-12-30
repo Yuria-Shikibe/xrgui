@@ -80,6 +80,11 @@ public:
 		return os << obj.to_string();
 	}
 
+	auto make_transparent(this auto self) noexcept {
+		self.a = 0;
+		return self;
+	}
+
 	constexpr friend bool operator==(const color& lhs, const color& rhs) noexcept = default;
 
 	static auto string_to_rgba(const std::string_view hexStr) noexcept{

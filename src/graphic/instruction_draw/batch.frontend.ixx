@@ -367,6 +367,16 @@ public:
 		, data_group_non_vertex_info_{non_vertex_data_table}{
 	}
 
+	void clear() noexcept{
+		submit_groups_.clear();
+		submit_transitions_.clear();
+		current_group = nullptr;
+		defer_transition_config_front_ = {};
+		defer_transition_config_back_ = {};
+		data_group_vertex_info_.reset();
+		data_group_non_vertex_info_.reset();
+	}
+
 	void begin_rendering() noexcept{
 		if(submit_groups_.empty()){
 			submit_groups_.push_back({

@@ -179,7 +179,7 @@ public:
 
 	// 获取 MSAA 附件
 	[[nodiscard]] std::span<const vk::combined_image> get_multisample_attachments() const noexcept{
-		return {attachments_.data() + get_draw_attachment_count() + get_blit_attachment_count(), get_draw_attachment_count()};
+		return {attachments_.begin() + get_draw_attachment_count() + get_blit_attachment_count(), attachments_.end()};
 	}
 
 	[[nodiscard]] bool enables_multisample() const noexcept{

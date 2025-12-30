@@ -149,7 +149,6 @@ public struct Primitive
     }
 };
 
-
 interface instr_resolver
 {
     [ForceInline]
@@ -388,12 +387,46 @@ struct line_node {
     float2 pos;
     float stroke;
     float offset; // TODO ?
-    float4 color;
+    section<float4> color;
+    
 };
 
 struct line_draw
 {
     primitive_generic generic;
+
+    [ForceInline]
+    static float2 safe_normalize(float2 v, float2 fallback) {
+        float lenSq = dot(v, v);
+        return (lenSq > 0.000001f) ? v * rsqrt(lenSq) : fallback;
+    }
+
+    [ForceInline]
+    float2 calculate_vert_nor(float2 posL, float2 posC, float2 posR) {
+        // 1. 获取方向向量
+        let dirL = posC - posL;
+        let dirR = posR - posC;
+
+        // 2. 计算垂直法向 (旋转 90 度)
+        // 如果是端点，dirL 或 dirR 至少有一个为 0
+        let nL = float2(-dirL.y, dirL.x);
+        let nR = float2(-dirR.y, dirR.x);
+
+        // 3. 归一化 (加上极小值防止除以 0)
+        // 即使在端点，只要线段长度不为 0，n_sum 归一化后就是正确的端点法向
+        let nL_u = nL * rsqrt(max(dot(nL, nL), 0.00001f));
+        let nR_u = nR * rsqrt(max(dot(nR, nR), 0.00001f));
+
+        // 4. Miter Join 核心逻辑
+        let miter_dir = nL_u + nR_u;
+
+        // 计算投影长度的倒数: 1 / cos(theta)
+        // 使用 max 防止夹角为 180 度时除以 0
+        let k = dot(miter_dir, nL_u);
+        var inv_k = rcp(max(k, 0.0001f));
+
+        return miter_dir * inv_k;
+    }
 
     [ForceInline]
     static line_node line_node_at(uint index, const in ByteAddressBuffer instruction, const in uint payload_begin) {
@@ -412,27 +445,14 @@ struct line_draw
         const in uint payload_begin,
     ) {
         let node_length = (head.size - sizeof(line_draw)) / sizeof(line_node);
+        
         let i = param.vtx_skip / 2 + 1;
 
         let nodeL = line_node_at(i - 1, instruction, payload_begin);
         let nodeC = line_node_at(i, instruction, payload_begin);
         let nodeR = line_node_at(i + 1, instruction, payload_begin);
-        let normal_L_raw = (nodeC.pos - nodeL.pos).rotate_rt_counter_clockwise();
-        let normal_R = normalize(nodeR.pos - nodeC.pos).rotate_rt_counter_clockwise();
 
-        let lengthL = length(normal_L_raw);
-        float2 normal_L;
-        float2 sel_nor;
-        if (lengthL > 0) {
-            sel_nor = normal_L = normal_L_raw / lengthL;
-        } else {
-            normal_L = {};
-            sel_nor = normal_R;
-        }
-
-        let vert_dir = normalize(normal_L + normal_R);
-        let cos_v = dot(vert_dir, sel_nor);
-        let vert_nor = (cos_v > 0.00001f) ? (vert_dir / cos_v) : sel_nor;
+        let vert_nor = calculate_vert_nor(nodeL.pos, nodeC.pos, nodeR.pos);
 
         if (param.vtx_skip > 1) {
             let idc_idx = param.get_primitive_index();
@@ -442,7 +462,7 @@ struct line_draw
 
         let offset = fma(bool(param.vtx_skip & 1U) ? .5f : -.5f, nodeC.stroke, nodeC.offset);
 
-        return Vertex(float3(fma(vert_nor, offset, nodeC.pos), generic.depth), nodeC.color, 0);
+        return Vertex(float3(fma(vert_nor, offset, nodeC.pos), generic.depth), nodeC.color[param.vtx_skip], 0);
     }
 
     [ForceInline]
@@ -463,12 +483,7 @@ struct line_draw
         let nodeL = line_node_at((i + mod - 1) % mod, instruction, payload_begin);
         let nodeC = line_node_at(i % mod, instruction, payload_begin);
         let nodeR = line_node_at((i + 1) % mod, instruction, payload_begin);
-        let normal_L = normalize(nodeC.pos - nodeL.pos).rotate_rt_counter_clockwise();
-        let normal_R = normalize(nodeR.pos - nodeC.pos).rotate_rt_counter_clockwise();
-
-        let vert_dir = normal_L + normal_R;
-        let cos_v = dot(vert_dir, normal_L);
-        let vert_nor = (cos_v > 0.00001f) ? (vert_dir / cos_v) : normal_L;
+        let vert_nor = calculate_vert_nor(nodeL.pos, nodeC.pos, nodeR.pos);
 
         if (param.vtx_skip > 1) {
             let idc_idx = param.get_primitive_index();
@@ -478,7 +493,7 @@ struct line_draw
 
         let offset = fma(bool(param.vtx_skip & 1U) ? .5f : -.5f, nodeC.stroke, nodeC.offset);
 
-        return Vertex(float3(fma(vert_nor, offset, nodeC.pos), generic.depth), nodeC.color, 0);
+        return Vertex(float3(fma(vert_nor, offset, nodeC.pos), generic.depth), nodeC.color[param.vtx_skip], 0);
     }
 };
 
@@ -555,12 +570,14 @@ struct circle_fill_draw : instr_resolver
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
     {
-        [branch]
-        if (radius.from > 0) {
-            return draw_ring(param, primits, indices);
-        } else {
-            return draw_full(param, primits, indices);
-        }
+        return draw_ring(param, primits, indices);
+
+        // [branch]
+        // if (radius.from > 0) {
+        //     return draw_ring(param, primits, indices);
+        // } else {
+        //     return draw_full(param, primits, indices);
+        // }
         
     }
 };
@@ -578,36 +595,37 @@ struct partial_circle_fill_draw : instr_resolver
     float ratio_ext;
 
     float2 uv00, uv11;
-    float4 inner, outer;
+    section<float4> color_src;
+    section<float4> color_dst;
 
     [ForceInline]
     private float angle_at(uint index) {
         return fma(float(index) / float(segments), ratio_ext, ratio_src) * float.getPi() * 2;
     }
 
-    [ForceInline]
-    private Vertex draw_full(
-        resolve_param param,
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, ) {
-        let isPatch = param.isPatch();
-        let idx = param.vtx_skip + (isPatch ? param.vtx_patch_idx : 0);
+    // [ForceInline]
+    // private Vertex draw_full(
+    //     resolve_param param,
+    //     OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
+    //     OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, ) {
+    //     let isPatch = param.isPatch();
+    //     let idx = param.vtx_skip + (isPatch ? param.vtx_patch_idx : 0);
 
-        if (param.vtx_skip == 0 || param.vtx_patch_idx == 2) {
-            return Vertex(float3(pos, generic.depth), inner, 0);
-        } else {
-            const float angle = angle_at(param.vtx_skip);
-            let direction = get_dir_vec2(angle);
+    //     if (param.vtx_skip == 0 || param.vtx_patch_idx == 2) {
+    //         return Vertex(float3(pos, generic.depth), inner, 0);
+    //     } else {
+    //         const float angle = angle_at(param.vtx_skip);
+    //         let direction = get_dir_vec2(angle);
 
-            if (!isPatch && param.vtx_skip > 1) {
-                let idc_idx = param.get_primitive_index();
-                primits[idc_idx] = Primitive(generic, param);
-                indices[idc_idx] = uint3(param.vtx_idx - param.vtx_skip - min(param.prm_skip, 0), param.vtx_idx - 1, param.vtx_idx);
-            }
+    //         if (!isPatch && param.vtx_skip > 1) {
+    //             let idc_idx = param.get_primitive_index();
+    //             primits[idc_idx] = Primitive(generic, param);
+    //             indices[idc_idx] = uint3(param.vtx_idx - param.vtx_skip - min(param.prm_skip, 0), param.vtx_idx - 1, param.vtx_idx);
+    //         }
 
-            return Vertex(float3(fma(direction, radius.to, pos), generic.depth), outer, 0);
-        }
-    }
+    //         return Vertex(float3(fma(direction, radius.to, pos), generic.depth), outer, 0);
+    //     }
+    // }
 
     [ForceInline]
     private Vertex draw_ring(
@@ -620,13 +638,17 @@ struct partial_circle_fill_draw : instr_resolver
         let direction = get_dir_vec2(angle);
         let r = radius[param.vtx_skip];
 
+        let colorSrc = color_src[param.vtx_skip];
+        let colorDst = color_dst[param.vtx_skip];
+        let color = lerp(colorSrc, colorDst, float(i) / float(segments));
+
         if (param.vtx_skip > 1) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
         }
 
-        return Vertex(float3(fma(direction, r, pos), generic.depth), bool(param.vtx_skip & 1u) ? outer : inner, 0);
+        return Vertex(float3(fma(direction, r, pos), generic.depth), color, 0);
     }
 
     [ForceInline]
@@ -636,12 +658,13 @@ struct partial_circle_fill_draw : instr_resolver
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
     {
-        [branch]
-        if (radius.from > 0) {
-            return draw_ring(param, primits, indices);
-        } else {
-            return draw_full(param, primits, indices);
-        }
+        return draw_ring(param, primits, indices);
+        // [branch]
+        // if (radius.from > 0) {
+        //     return draw_ring(param, primits, indices);
+        // } else {
+        //     return draw_full(param, primits, indices);
+        // }
     }
 };
 
@@ -653,14 +676,14 @@ struct constrained_curve : instr_resolver{
 
     range margin;
     range stroke;
+    range offset_on_normal;
 
     uint32_t segments;
-    uint32_t cap;
     uint32_t cap1;
-    uint32_t cap2;
 
     float2 uv00, uv11;
-    float4 srcColor, dstColor;
+    section<float4> color_src;
+    section<float4> color_dst;
 
     [ForceInline]
     static float4 get_factor(float factor) {
@@ -677,7 +700,12 @@ struct constrained_curve : instr_resolver{
         let i = param.vtx_skip / 2;
         let scl = float(i) / float(segments);
         let fac = fma(scl, 1 - margin.from - margin.to,  margin.from);
-        let col = lerp(srcColor, dstColor, scl);
+
+        let is_odd = param.vtx_skip & 1u;
+
+        let colorSrc = color_src[param.vtx_skip];
+        let colorDst = color_dst[param.vtx_skip];
+        let col = lerp(colorSrc, colorDst, scl);
 
         let facVec = get_factor(fac);
         let velFacVec = float4(0, 1, 2 * fac, 3 * facVec[2]);
@@ -694,8 +722,9 @@ struct constrained_curve : instr_resolver{
         }
 
         let s = lerp(stroke.from, stroke.to, scl);
+        let off = lerp(offset_on_normal.from, offset_on_normal.to, scl);
 
-        return Vertex(float3(fma(normal, s * (bool(param.vtx_skip & 1u) ? -.5 : .5f), pos), generic.depth), col, 0);
+        return Vertex(float3(fma(normal, s * (bool(is_odd) ? -.5 : .5f) + off, pos), generic.depth), col, 0);
     }
 }
 
@@ -938,11 +967,11 @@ public struct mesh_dispatch_info_v2<uint n>
 }
 
 [ForceInline]
-public uint resolve_instruction_v2<T, uint n>(
+public uint resolve_instruction_v2<T, uint n, L:IBufferDataLayout>(
     const uint threadId,
     const in mesh_dispatch_info_v2<n> mesh_subrange,
 
-    const in StructuredBuffer<instruction_head> instruction_heads,
+    const in StructuredBuffer<instruction_head, L> instruction_heads,
     const in ByteAddressBuffer instruction,
     in vertex_transformer_2<T> transformer,
 
@@ -959,16 +988,15 @@ public uint resolve_instruction_v2<T, uint n>(
 
 
     [ForceUnroll]
-    for (int i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
+    outer: for (int i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
         let target_index = select(i == 1, (VERTEX_PER_MESH - threadId - 1), threadId);
-        // let target_index = select(i == 1, threadId + GROUP_COUNT, threadId);
         let thread_vtx_skip = target_index + mesh_subrange.vertex_offset;
 
         while (true) {
             let head = instruction_heads[idx_to_head];
-            
+
             if (head.type == instruction_type::noop) {
-                break;
+                break outer;
             }
 
             if (head.type == instruction_type::uniform_update) {
@@ -977,8 +1005,7 @@ public uint resolve_instruction_v2<T, uint n>(
                 continue;
             }
 
-            if (skipped_primitives >= int(mesh_subrange.primitives)) break;
-            if (head.vertex_count == 0) break;
+            if (skipped_primitives >= int(mesh_subrange.primitives)) break outer;
 
             let local_skip = thread_vtx_skip - skipped_vertices;
             if (local_skip < head.vertex_count) {

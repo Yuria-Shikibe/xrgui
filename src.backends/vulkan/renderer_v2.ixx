@@ -427,6 +427,10 @@ public:
 		return attachment_manager.get_blit_attachments()[0];
 	}
 
+	vk::image_handle get_draw_base() const noexcept{
+		return attachment_manager.get_blit_attachments()[0];
+	}
+
 private:
 	void create_blit_clear_and_init_cmd() const{
 		vk::scoped_recorder recorder{blit_attachment_clear_and_init_command_buffer, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT, true};

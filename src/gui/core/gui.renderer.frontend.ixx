@@ -270,7 +270,8 @@ private:
 	mr::vector<layer_viewport> viewports_{};
 	math::mat3 uniform_proj_{};
 
-	mr::vector<std::byte> cache_instr_buffer_{};
+	std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>> cache_instr_buffer_inner_usage_{};
+	std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>> cache_instr_buffer_external_usage_{};
 
 public:
 	[[nodiscard]] renderer_frontend() = default;
@@ -341,8 +342,8 @@ public:
 		alignas(16) alignas(Instr) alignas(Args...) std::byte buffer_[sizeof(Instr) + (sizeof(Args) + ... + 32)];
 		std::byte* pbuffer;
 		if(instr_size > sizeof(buffer_)) [[unlikely]] {
-			if(instr_size > cache_instr_buffer_.size())cache_instr_buffer_.resize(instr_size);
-			pbuffer = cache_instr_buffer_.data();
+			if(instr_size > cache_instr_buffer_inner_usage_.size())cache_instr_buffer_inner_usage_.resize(instr_size);
+			pbuffer = cache_instr_buffer_inner_usage_.data();
 		}else{
 			pbuffer = buffer_;
 		}
@@ -444,6 +445,12 @@ public:
 		top_viewport().pop_scissor();
 	}
 
+	template <typename T = std::byte>
+	T* acquire_buffer(std::size_t size, bool clear = false){
+		if(clear) [[unlikely]] cache_instr_buffer_external_usage_.clear();
+		cache_instr_buffer_external_usage_.resize(size * sizeof(T));
+		return reinterpret_cast<T*>(cache_instr_buffer_external_usage_.data());
+	}
 };
 
 template <typename D>

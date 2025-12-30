@@ -129,34 +129,23 @@ std::optional<mo_yanxi::font::typesetting::layout_pos_t> label::get_layout_pos(
 }
 
 void label::draw_text() const{
-	// if(glyph_layout.glyph_size() < 128){
-	// 	math::vec2 scale;
-	// 	math::vec2 off = get_glyph_src_abs();
-	// 	if(fit_){
-	// 		scale = align::embed_to(align::scale::fit_smaller, glyph_layout.extent(), content_extent().min(max_fit_scale_bound)) / glyph_layout.extent();
-	// 	}else{
-	// 		scale = {1, 1};
-	// 	}
-	// 	draw_glyph_draw_instructions(get_scene().renderer(), glyph_layout, get_text_color_scl().value_or(graphic::colors::white), scale, off);
-	// }else{
-		math::mat3 mat;
-		math::vec2 reg_ext;
-		if(fit_){
-			reg_ext = align::embed_to(align::scale::fit_smaller, glyph_layout.extent(), content_extent().min(max_fit_scale_bound));
-			mat.set_rect_transform({}, glyph_layout.extent(), get_glyph_src_abs(), reg_ext);
-		}else{
-			reg_ext = glyph_layout.extent();
-			mat = math::mat3_idt;
-			mat.set_translation(get_glyph_src_abs());
-		}
+	math::mat3 mat;
+	math::vec2 reg_ext;
+	if(fit_){
+		reg_ext = align::embed_to(align::scale::fit_smaller, glyph_layout.extent(),
+			content_extent().min(max_fit_scale_bound));
+		mat.set_rect_transform({}, glyph_layout.extent(), get_glyph_src_abs(), reg_ext);
+	} else{
+		reg_ext = glyph_layout.extent();
+		mat = math::mat3_idt;
+		mat.set_translation(get_glyph_src_abs());
+	}
 
-		auto& renderer = get_scene().renderer();
-		{
-			transform_guard _t{renderer, mat};
-			push_text_draw_buffer();
-		}
-	// }
-
+	auto& renderer = get_scene().renderer();
+	{
+		transform_guard _t{renderer, mat};
+		push_text_draw_buffer();
+	}
 }
 
 void async_label_terminal::on_update(const exclusive_glyph_layout& data){

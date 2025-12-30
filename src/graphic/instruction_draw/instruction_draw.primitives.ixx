@@ -108,14 +108,31 @@ export struct line : quad_like{
 export struct line_node{
 	float2 pos;
 	float stroke;
-	float offset; //TODO ?
-	float4 color;
+	float offset;
 
-	//TODO uv?
+	math::section<float4> color;
+
 };
 
 export struct line_segments{
 	primitive_generic generic;
+
+protected:
+	template <typename ...Args>
+	static std::size_t get_nodes_count(const Args& ...args) noexcept {
+		static constexpr auto counter = []<typename T>(const T& arg) -> std::size_t {
+			if constexpr (std::same_as<T, line_node>){
+				return 1;
+			}else if constexpr (contiguous_range_of<T, line_node>){
+				return std::ranges::distance(arg);
+			}else{
+				static_assert(false, "unknown type");
+			}
+		};
+
+		return ((counter(args)) + ...);
+	}
+public:
 
 	[[nodiscard]] FORCE_INLINE CONST_FN static constexpr std::uint32_t get_vertex_count(
 		std::size_t node_payload_size
@@ -136,23 +153,61 @@ export struct line_segments{
 	[[nodiscard]] FORCE_INLINE CONST_FN static constexpr std::uint32_t get_vertex_count(
 		const Args&... args
 	) noexcept{
-		if constexpr (sizeof...(Args) == 1 && contiguous_range_of<frist_of_pack_t<Args...>, line_node>){
-			return line_segments::get_vertex_count(std::ranges::size(args...));
-		}else{
-			return line_segments::get_vertex_count(sizeof...(Args));
-		}
-
+		return line_segments::get_vertex_count(line_segments::get_nodes_count(args...));
 	}
 
 	template <typename... Args>
 	[[nodiscard]] FORCE_INLINE CONST_FN static constexpr std::uint32_t get_primitive_count(
 		const Args&... args
 	) noexcept{
-		if constexpr (sizeof...(Args) == 1 && contiguous_range_of<frist_of_pack_t<Args...>, line_node>){
-			return line_segments::get_primitive_count(std::ranges::size(args...));
-		}else{
-			return line_segments::get_primitive_count(sizeof...(Args));
+		return line_segments::get_primitive_count(line_segments::get_nodes_count(args...));
+
+	}
+
+	// 辅助函数：安全归一化
+	FORCE_INLINE CONST_FN static math::vec2 safe_normalize(math::vec2 v, math::vec2 fallback = {}) noexcept{
+		float lenSq = v.dot(v);
+		if (lenSq > 1e-6f) {
+			return v / std::sqrt(lenSq);
 		}
+		return fallback;
+	}
+
+	// 核心逻辑：计算 Miter 向量（等同于 GPU 的 calculate_vert_nor）
+	// 返回的向量长度包含了 1/cos(theta) 的补偿
+	FORCE_INLINE CONST_FN static math::vec2 calculate_miter_vector(math::vec2 posL, math::vec2 posC, math::vec2 posR) noexcept {
+		const auto dirL = posC - posL;
+		const auto dirR = posR - posC;
+
+		// 获取法向 (旋转 90 度: (-y, x))
+		const auto nL_u = safe_normalize({-dirL.y, dirL.x});
+		const auto nR_u = safe_normalize({-dirR.y, dirR.x});
+
+		// 处理端点：如果是在起点或终点，法向直接使用该段的法线
+		if (math::zero(dirL.dot(dirL))) return nR_u;
+		if (math::zero(dirR.dot(dirR))) return nL_u;
+
+		// Miter 方向：两个法向的平分线方向
+		const auto miter_dir = nL_u + nR_u;
+
+		// 计算投影长度的倒数: 1 / cos(theta)
+		// k 是 miter_dir 在单位法向上的投影长度
+		const auto k = miter_dir.dot(nL_u);
+
+		return miter_dir / std::max(k, 0.0001f);
+	}
+
+	static math::vec2 cal_pos(std::span<const line_node> nodes, std::size_t where) noexcept {
+		const auto i = where / 2 + 1;
+
+		const auto nodeL = nodes[i - 1];
+		const auto nodeC = nodes[i];
+		const auto nodeR = nodes[i + 1];
+
+		const auto vert_nor = calculate_miter_vector(nodeL.pos, nodeC.pos, nodeR.pos);
+		const auto offset = math::fma(bool(where & 1U) ? .5f : -.5f, nodeC.stroke, nodeC.offset);
+
+		return fma(vert_nor, offset, nodeC.pos);
 	}
 };
 
@@ -177,22 +232,15 @@ export struct line_segments_closed : line_segments{
 	[[nodiscard]] FORCE_INLINE CONST_FN static constexpr std::uint32_t get_vertex_count(
 		const Args&... args
 	) noexcept{
-		if constexpr (sizeof...(Args) == 1 && contiguous_range_of<frist_of_pack_t<Args...>, line_node>){
-			return line_segments_closed::get_vertex_count(std::ranges::size(args...));
-		}else{
-			return line_segments_closed::get_vertex_count(sizeof...(Args));
-		}
+		return line_segments_closed::get_vertex_count(line_segments::get_nodes_count(args...));
+
 	}
 
 	template <typename... Args>
 	[[nodiscard]] FORCE_INLINE CONST_FN static constexpr std::uint32_t get_primitive_count(
 		const Args&... args
 	) noexcept{
-		if constexpr (sizeof...(Args) == 1 && contiguous_range_of<frist_of_pack_t<Args...>, line_node>){
-			return line_segments_closed::get_primitive_count(std::ranges::size(args...));
-		}else{
-			return line_segments_closed::get_primitive_count(sizeof...(Args));
-		}
+		return line_segments_closed::get_primitive_count(line_segments::get_nodes_count(args...));
 	}
 };
 
@@ -215,12 +263,12 @@ export struct poly{
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_vertex_count(
 		this const poly& instruction) noexcept{
-		return instruction.radius.from == 0 ? instruction.segments + 2 : (instruction.segments + 1) * 2;
+		return (instruction.segments + 1) * 2;
 	}
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(
 		this const poly& instruction) noexcept{
-		return instruction.segments << unsigned(instruction.radius.from != 0);
+		return instruction.segments * 2;
 	}
 };
 
@@ -235,21 +283,47 @@ export struct poly_partial{
 	float2 uv00, uv11;
 
 	//TODO using quad color instead
-	math::section<float4> color;
+	/**
+	 * @brief src inner, src outer, dst inner, dst outer
+	 *
+	 */
+	quad_group<float4> color;
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_vertex_count(
 		this const poly_partial& instruction) noexcept{
-		return instruction.radius.from == 0 ? instruction.segments + 2 : (instruction.segments + 1) * 2;
+		return (instruction.segments + 1) * 2;
 	}
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(
 		this const poly_partial& instruction) noexcept{
-		return instruction.segments << unsigned(instruction.radius.from != 0);
+		return instruction.segments * 2;
 	}
 };
 
 export struct curve_parameter{
 	std::array<math::vec4, 2> constrain_vector;
+
+// 辅助函数：计算三次曲线在 t 处的导数 (速度向量)
+// 假设 curve_parameter[0] 是 x 分量的系数 (t^3, t^2, t, 1)
+// 假设 curve_parameter[1] 是 y 分量的系数 (t^3, t^2, t, 1)
+	FORCE_INLINE math::vec2 calculate_derivative(float t) const noexcept{
+		float t2 = t * t;
+		// x(t) = a*t^3 + b*t^2 + c*t + d
+		// x'(t) = 3a*t^2 + 2b*t + c
+		float dx = 3.0f * constrain_vector[0].b * t2 + 2.0f * constrain_vector[0].g * t + constrain_vector[0].r;
+		float dy = 3.0f * constrain_vector[1].b * t2 + 2.0f * constrain_vector[1].g * t + constrain_vector[1].r;
+		return {dx, dy};
+	}
+
+	FORCE_INLINE math::vec2 calculate(float t) const noexcept{
+		const auto t2 = t * t;
+		const auto t3 = t2 * t;
+		// x(t) = a*t^3 + b*t^2 + c*t + d
+		// x'(t) = 3a*t^2 + 2b*t + c
+		float dx = constrain_vector[0].a * t3 * constrain_vector[0].b * t2 + constrain_vector[0].g * t + constrain_vector[0].r;
+		float dy = constrain_vector[1].a * t3 * constrain_vector[1].b * t2 + constrain_vector[1].g * t + constrain_vector[1].r;
+		return {dx, dy};
+	}
 };
 
 export struct parametric_curve{
@@ -259,15 +333,16 @@ export struct parametric_curve{
 	math::range margin;
 	math::range stroke;
 
+	/**
+	 * @brief offset on normal direction
+	 */
+	math::range offset;
+
 	std::uint32_t segments;
-
-
-	std::uint32_t _cap1;
-	std::uint32_t _cap2;
 	std::uint32_t _cap3;
 
 	float2 uv00, uv11;
-	math::section<float4> color;
+	quad_vert_color color;
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_vertex_count(
 		this const parametric_curve& instruction) noexcept{

@@ -39,7 +39,7 @@ ConstantBuffer<dispatch_config> dispatch_config_ubo;
 readonly StructuredBuffer<mesh_dispatch_info_v2<2>> dispatch_info;
 
 [[vk::binding(2, 0)]]
-StructuredBuffer<instruction_head> instruction_heads;
+StructuredBuffer<instruction_head, Std140DataLayout> instruction_heads;
 
 [[vk::binding(3, 0)]]
 ByteAddressBuffer instruction;
@@ -48,10 +48,10 @@ ByteAddressBuffer instruction;
 uniform Sampler2D textures[];
 
 [[vk::binding(5, 0)]]
-readonly StructuredBuffer<ubo_screen_info> screen_info;
+readonly StructuredBuffer<ubo_screen_info, Std140DataLayout> screen_info;
 
 [[vk::binding(6, 0)]]
-readonly StructuredBuffer<ubo_layer_info> layer_info;
+readonly StructuredBuffer<ubo_layer_info, Std140DataLayout> layer_info;
 
 struct trans : vertex_transformer_2<UI_VTX> {
     uint32_t[2] timeline;

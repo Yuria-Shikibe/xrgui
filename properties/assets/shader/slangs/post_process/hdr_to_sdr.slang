@@ -39,5 +39,5 @@ void main(
 
     let mapped = pp::hdr_to_sdr(hdrColor.rgb, exposure, gamma);
     // output.Store(pos, float4(pp::hdr_to_sdr(hdrColor.rgb, exposure, gamma), 1));
-    output.Store(pos, float4(lerp(hdrColor.rgb, mapped, .5f), 1));
+    output.Store(pos, float4(lerp(hdrColor.rgb, mapped, .5f), hdrColor.a));
 }

@@ -418,7 +418,7 @@ FORCE_INLINE void place_instr_at_impl(
 		};
 
 		[&]<std::size_t ... Idx>(std::index_sequence<Idx...>) FORCE_INLINE{
-			(place_at.template operator()<Args>(pwhere, args), ...);
+			((pwhere = place_at.template operator()<Args>(pwhere, args)), ...);
 		}(std::make_index_sequence<sizeof...(Args)>{});
 	}
 }
