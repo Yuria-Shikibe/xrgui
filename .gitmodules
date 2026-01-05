@@ -6,7 +6,7 @@
 	url = https://github.com/mattreecebentley/plf_hive.git
 [submodule "external/small_vector"]
 	path = external/small_vector
-	url = https://github.com/gharveymn/small_vector.git
+	url = https://github.com/Yuria-Shikibe/small_vector.git
 [submodule "external/stb"]
 	path = external/stb
 	url = https://github.com/nothings/stb.git
