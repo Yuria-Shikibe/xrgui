@@ -109,13 +109,16 @@ task("gen_slang")
         import("core.base.option")
 
         local path_builder = path.join(current_dir, "./properties/build_util/slang_builder.py");
-        os.exec("py " .. path_builder .. " ./slang/bin/slangc.exe " .. option.get("output") .. " ./properties/assets/shader/config.json -j 30")
+        local path_config = path.join(current_dir, option.get("config"));
+
+        os.exec("py " .. path_builder .. " ./slang/bin/slangc.exe " .. option.get("output") .. " " .. path_config .. " -j 30")
     end)
 
     set_menu({
         usage = "compile slang to spirv",
         options = {
-            {'o', "output", "kv", "./properties/assets/shader/spv", "Spirv Output Dir Relative To Directory Root"}
+            {'o', "output", "kv", "./properties/assets/shader/spv", "Spirv Output Dir Relative To Directory Root"},
+            {'f', "config", "kv", "./properties/assets/shader/config.json", "Shader Build Config"},
         }
     })
 task_end()
