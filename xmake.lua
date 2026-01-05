@@ -1,5 +1,7 @@
 includes("external/**/xmake.lua");
 
+local current_dir = os.scriptdir()
+
 add_rules("mode.debug", "mode.release")
 set_arch("x64")
 set_encodings("utf-8")
@@ -102,11 +104,20 @@ target("xrgui.example")
 target_end()
 
 task("gen_slang")
+
     on_run(function ()
-        os.exec("py ./properties/build_util/slang_builder.py ./slang/bin/slangc.exe ./properties/assets/shader/spv ./properties/assets/shader/config.json -j 30")
+        import("core.base.option")
+
+        local path_builder = path.join(current_dir, "./properties/build_util/slang_builder.py");
+        os.exec("py " .. path_builder .. " ./slang/bin/slangc.exe " .. option.get("output") .. " ./properties/assets/shader/config.json -j 30")
     end)
 
-    set_menu{usage = "compile slang to spirv"}
+    set_menu({
+        usage = "compile slang to spirv",
+        options = {
+            {'o', "output", "kv", "./properties/assets/shader/spv", "Spirv Output Dir Relative To Directory Root"}
+        }
+    })
 task_end()
 
 task("set_mode")
