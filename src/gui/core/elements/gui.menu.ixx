@@ -22,9 +22,8 @@ struct menu_create_result{
 
 
 export
-struct menu : two_segment_elem{
+struct menu : head_body{
 private:
-	layout::expand_policy expand_policy_{};
 
 	/**
 	 * @brief Current Entry Index, or the index of the end of the entries when use default element.
@@ -56,7 +55,7 @@ public:
 		layout::layout_policy layout_policy,
 		Args&&... args
 	)
-	: two_segment_elem(scene, parent, layout_policy){
+	: head_body(scene, parent, layout_policy){
 		init(elem_ptr{scene, this, std::forward<Args>(args)...});
 	}
 
@@ -101,43 +100,6 @@ public:
 		);
 	}
 
-	void set_expand_policy(layout::expand_policy policy){
-		if(util::try_modify(expand_policy_, policy)){
-			notify_isolated_layout_changed();
-
-			if(expand_policy_ == layout::expand_policy::passive){
-				layout_state.inherent_accept_mask -= propagate_mask::child;
-				layout_state.intercept_lower_to_isolated = true;
-			} else{
-				layout_state.inherent_accept_mask |= propagate_mask::child;
-				layout_state.intercept_lower_to_isolated = false;
-			}
-		}
-	}
-
-	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
-		return expand_policy_;
-	}
-
-	void set_layout_policy(const layout::layout_policy layout_policy){
-		//TODO ban none
-		if(util::try_modify(layout_policy_, layout_policy)){
-			notify_isolated_layout_changed();
-			auto trsp = layout::transpose_layout(layout_policy);
-			elem_cast<scroll_pane, true>(*items[0]).set_layout_policy(trsp);
-			get_button_sequence().set_layout_policy(trsp);
-		}
-	}
-
-	void layout_elem() override{
-		elem::layout_elem();
-		layout_children(expand_policy_);
-
-		for(auto& item : items){
-			item->try_layout();
-		}
-	}
-
 	void switch_to(std::size_t index){
 		if(index == current_showing_)return;
 		if(index > entries.size()){
@@ -164,6 +126,15 @@ public:
 		current_showing_ = index;
 	}
 
+protected:
+	void on_layout_policy_changed(const layout::layout_policy layout_policy) override{
+		head_body::on_layout_policy_changed(layout_policy);
+
+		const auto trsp = layout::transpose_layout(layout_policy);
+		elem_cast<scroll_pane, true>(*items[0]).set_layout_policy(trsp);
+		get_button_sequence().set_layout_policy(trsp);
+	}
+
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		if(aboves.size() < 3)return events::op_afterwards::fall_through;
 		//this -> scroll[0] -> sequence[1] -> actual button[2]
@@ -183,7 +154,6 @@ public:
 		return events::op_afterwards::intercepted;
 	}
 
-protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
 		switch(layout_policy_){
 		case layout::layout_policy::hori_major :{
@@ -209,14 +179,14 @@ protected:
 		if(dep.*minorTargetDep){
 			auto [majorTarget, minorTarget] = layout::get_vec_ptr(layout_policy_);
 
-			if(expand_policy_ == layout::expand_policy::passive){
+			if(get_expand_policy() == layout::expand_policy::passive){
 				potential.*minorTarget = this->content_extent().*minorTarget;
 			} else{
 				potential.*minorTarget = get_layout_minor_dim_config(potential.*majorTarget).masterings;
 			}
 		}
 
-		if(auto pref = get_prefer_content_extent(); pref && expand_policy_ == layout::expand_policy::prefer){
+		if(auto pref = get_prefer_content_extent(); pref && get_expand_policy() == layout::expand_policy::prefer){
 			potential.max(pref.value());
 		}
 

@@ -16,7 +16,7 @@ scene& scene::operator=(scene&& other) noexcept{
 	return *this;
 }
 
-void scene::update(float delta_in_tick){
+void scene::update(double delta_in_tick){
 	react_flow_->update();
 	tooltip_manager_.update(delta_in_tick, get_cursor_pos(), is_mouse_pressed());
 	overlay_manager_.update(delta_in_tick);
@@ -24,7 +24,10 @@ void scene::update(float delta_in_tick){
 	if(request_cursor_update_){
 		update_cursor();
 	}
+
 	root().update(delta_in_tick);
+	current_time_ += delta_in_tick;
+	current_frame_++;
 }
 
 void scene::draw(rect clip){

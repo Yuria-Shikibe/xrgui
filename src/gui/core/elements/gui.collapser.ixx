@@ -68,7 +68,7 @@ public:
 	using two_segment_elem::emplace_head;
 	using two_segment_elem::emplace_content;
 	using two_segment_elem::create_head;
-	using two_segment_elem::create_content;
+	using two_segment_elem::create_body;
 
 	[[nodiscard]] collapser_expand_cond get_expand_cond() const noexcept{
 		return expand_cond_;

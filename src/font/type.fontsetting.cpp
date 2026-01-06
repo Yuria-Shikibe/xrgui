@@ -13,10 +13,19 @@ const parser global_parser{
 	}()
 };
 
-const parser global_empty_parser{
+const parser global_parser_reserve_token{
 	[]{
 		parser p;
 		apd_default_modifiers(p);
+		p.reserve_tokens = true;
+		return p;
+	}()
+};
+
+
+const parser global_parser_noop{
+	[]{
+		parser p;
 		p.reserve_tokens = true;
 		return p;
 	}()

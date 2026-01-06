@@ -605,7 +605,7 @@ struct text_edit : label{
 	: label(scene, parent){
 		interactivity = interactivity_flag::enabled;
 		extend_focus_until_mouse_drop = true;
-		parser = &font::typesetting::global_empty_parser;
+		parser = &font::typesetting::global_parser_reserve_token;
 	}
 
 protected:

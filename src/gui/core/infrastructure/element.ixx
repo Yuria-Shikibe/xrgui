@@ -325,6 +325,7 @@ public:
 public:
 	void try_draw(const rect clipSpace) const{
 		if(invisible) return;
+		//TODO fix this
 		if(!clipSpace.overlap_inclusive(bound_abs())) return;
 		draw(clipSpace);
 	}

@@ -48,7 +48,7 @@ void text_edit::draw_content_impl(const rect clipSpace) const{
 		const math::vec2 endPos = (endRow.src + off2).add(endGlyph.region.get_src_x(), endRow.bound.descender);
 
 		const color lineSelectionColor =
-			(is_failed() ? colors::red_dusted : colors::gray).copy().mul_a(.35f);
+			(is_failed() ? colors::red_dusted : colors::gray).copy().mul_a(.65f);
 
 		if(beg.pos.y == end.pos.y){
 			r.push(rect_aabb{

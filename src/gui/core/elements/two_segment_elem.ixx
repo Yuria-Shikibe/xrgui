@@ -67,7 +67,7 @@ public:
 	void set_layout_policy(const layout::layout_policy layout_policy){
 		//TODO ban none
 		if(util::try_modify(layout_policy_, layout_policy)){
-			notify_isolated_layout_changed();
+			on_layout_policy_changed(layout_policy);
 		}
 	}
 
@@ -160,7 +160,7 @@ protected:
 	}
 
 	template <invocable_elem_init_func Fn, typename... Args>
-	auto& create_content(Fn&& init, Args&&... args){
+	auto& create_body(Fn&& init, Args&&... args){
 		return this->create(true, std::forward<Fn>(init), std::forward<Args>(args)...);
 	}
 
@@ -295,5 +295,55 @@ protected:
 
 		set_children_src();
 	}
+
+
+	virtual void on_layout_policy_changed(const layout::layout_policy layout_policy){
+		notify_isolated_layout_changed();
+	}
+};
+
+export struct head_body : two_segment_elem{
+	using two_segment_elem::two_segment_elem;
+
+private:
+	layout::expand_policy expand_policy_{};
+
+public:
+	void set_expand_policy(layout::expand_policy policy){
+		if(util::try_modify(expand_policy_, policy)){
+			notify_isolated_layout_changed();
+
+			if(expand_policy_ == layout::expand_policy::passive){
+				layout_state.inherent_accept_mask -= propagate_mask::child;
+				layout_state.intercept_lower_to_isolated = true;
+			} else{
+				layout_state.inherent_accept_mask |= propagate_mask::child;
+				layout_state.intercept_lower_to_isolated = false;
+			}
+		}
+	}
+
+	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
+		return expand_policy_;
+	}
+
+	void layout_elem() override{
+		elem::layout_elem();
+		layout_children(expand_policy_);
+
+		for(auto& item : items){
+			item->try_layout();
+		}
+	}
+};
+
+export struct head_body_no_invariant : head_body{
+	using head_body::head_body;
+
+	using head_body::create_body;
+	using head_body::create_head;
+
+	using head_body::emplace_content;
+	using head_body::emplace_head;
 };
 }

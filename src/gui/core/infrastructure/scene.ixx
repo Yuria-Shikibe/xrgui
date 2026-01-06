@@ -111,6 +111,9 @@ protected:
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 
+	unsigned long long current_frame_{};
+	double current_time_{};
+
 	[[nodiscard]] scene_base() = default;
 
 	template <std::derived_from<elem> T, typename ...Args>
@@ -127,6 +130,19 @@ public:
 		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
 			mr::heap_allocator<native_communicator>{get_heap()}, std::forward<Args>(args)...);
 	}
+
+	[[nodiscard]] unsigned long long get_current_frame() const noexcept{
+		return current_frame_;
+	}
+
+	[[nodiscard]] double get_current_time() const{
+		return current_time_;
+	}
+
+	void set_current_time(const float current_time){
+		current_time_ = current_time;
+	}
+
 
 	[[nodiscard]] input_handle::input_manager<scene&>& get_inputs() noexcept{
 		return inputs_;
@@ -268,7 +284,7 @@ public:
 
 
 private:
-	void update(float delta_in_tick);
+	void update(double delta_in_tick);
 
 	void draw(rect clip);
 

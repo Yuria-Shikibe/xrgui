@@ -130,13 +130,10 @@ std::optional<mo_yanxi::font::typesetting::layout_pos_t> label::get_layout_pos(
 
 void label::draw_text() const{
 	math::mat3 mat;
-	math::vec2 reg_ext;
+	math::vec2 reg_ext = get_glyph_draw_extent();
 	if(fit_){
-		reg_ext = align::embed_to(align::scale::fit_smaller, glyph_layout.extent(),
-			content_extent().min(max_fit_scale_bound));
 		mat.set_rect_transform({}, glyph_layout.extent(), get_glyph_src_abs(), reg_ext);
 	} else{
-		reg_ext = glyph_layout.extent();
 		mat = math::mat3_idt;
 		mat.set_translation(get_glyph_src_abs());
 	}

@@ -42,19 +42,21 @@ function set_xrgui_deps()
     add_packages("clipper2", {public = true})
     add_packages("spirv-reflect", {public = true})
 
-    add_includedirs("external/VulkanMemoryAllocator/include", {public = true})
-    add_includedirs("external/stb", {public = true})
-    add_includedirs("external/include", {public = true})
-    add_includedirs("external/plf_hive", {public = true})
-    add_includedirs("external/small_vector/source/include", {public = true})
+
+    add_includedirs(current_dir .. "./external/VulkanMemoryAllocator/include", {public = true})
+    add_includedirs(current_dir .. "./external/stb", {public = true})
+    add_includedirs(current_dir .. "./external/include", {public = true})
+    add_includedirs(current_dir .. "./external/plf_hive", {public = true})
+    add_includedirs(current_dir .. "./external/small_vector/source/include", {public = true})
 
     add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2", {public = true})
-    add_files("external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
+    add_files(current_dir .. "./external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
+
 
 
     add_defines("XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE", {public = true})
-    add_files("src/**.cpp")
-    add_files("src/**.ixx", {public = true})
+    add_files(current_dir .. "./src/**.cpp")
+    add_files(current_dir .. "./src/**.ixx", {public = true})
 end
 
 
@@ -65,6 +67,7 @@ target("xrgui.core")
 
     set_xrgui_deps()
 target_end()
+
 
 target("xrgui.example")
     set_extension(".exe")
@@ -110,7 +113,7 @@ task("gen_slang")
 
         local path_builder = path.join(current_dir, "./properties/build_util/slang_builder.py");
         local path_config = path.join(current_dir, option.get("config"));
-        local path_slangc = path.join(current_dir, option.get("complier"));
+        local path_slangc = option.get("complier");
 
         os.exec("py " .. path_builder .. " " .. path_slangc .. " " .. option.get("output") .. " " .. path_config .. " -j 30")
     end)

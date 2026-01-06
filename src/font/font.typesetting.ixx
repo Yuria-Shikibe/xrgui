@@ -250,7 +250,7 @@ math::vec2 get_glyph_std_size_at(const double fontSize) noexcept{
 	return get_glyph_std_size_at(fontSize, screen_ppi);
 }
 
-constexpr float get_glyph_scale_at(const float fontSize) noexcept{
+export constexpr float get_glyph_scale_at(const float fontSize) noexcept{
 	return fontSize / standard_size;
 }
 
@@ -1216,5 +1216,7 @@ void apd_default_modifiers(parser& parser){
 
 export extern const parser global_parser;
 
-export extern const parser global_empty_parser;
+export extern const parser global_parser_reserve_token;
+
+export extern const parser global_parser_noop;
 }

@@ -52,10 +52,10 @@ namespace mo_yanxi::gui::example{
 
 export
 void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
-	auto e = scene.create<scaling_stack>();
 
 	scene.set_native_communicator<backend::glfw::communicator>(ctx.window().get_handle());
 
+	auto e = scene.create<scaling_stack>();
 	e->set_fill_parent({true, true});
 	auto& mroot = static_cast<scaling_stack&>(root.insert(0, std::move(e)));
 
@@ -124,7 +124,7 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 
 								c.emplace_head<elem>();
 								c.set_head_size(50);
-								c.create_content([](table& e){
+								c.create_body([](table& e){
 									e.set_tooltip_state(
 										{
 											.layout_info = tooltip::align_meta{

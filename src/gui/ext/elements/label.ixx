@@ -245,6 +245,14 @@ public:
 		return node;
 	}
 
+	[[nodiscard]] const font::typesetting::parser* get_parser() const noexcept{
+		return parser;
+	}
+
+	void set_parser(const font::typesetting::parser* const parser){
+		this->parser = parser;
+	}
+
 protected:
 	exclusive_glyph_layout get_glyph_layout() const noexcept final{
 		return &glyph_layout;
@@ -296,46 +304,31 @@ protected:
 		return false;
 	}
 
-	[[nodiscard]] math::vec2 get_glyph_src_abs() const noexcept{
+	[[nodiscard]] math::vec2 get_glyph_draw_extent() const noexcept{
 		if(fit_){
-			const auto sz = content_extent().min(max_fit_scale_bound);
-			const auto rst = align::get_offset_of(text_entire_align, sz, content_bound_abs());
-
-			return rst;
+			return align::embed_to(align::scale::fit_smaller, glyph_layout.extent(), content_extent().min(max_fit_scale_bound));
 		}else{
-			const auto sz = glyph_layout.extent();
-			const auto rst = align::get_offset_of(text_entire_align, sz, content_bound_abs());
-
-			return rst;
+			return glyph_layout.extent();
 		}
+
+	}
+
+	[[nodiscard]] math::vec2 get_glyph_src_abs() const noexcept{
+		const auto sz = get_glyph_draw_extent();
+		const auto rst = align::get_offset_of(text_entire_align, sz, content_bound_abs());
+		return rst;
 	}
 
 	[[nodiscard]] math::vec2 get_glyph_src_rel() const noexcept{
-		if(fit_){
-			const auto sz = content_extent().min(max_fit_scale_bound);
-			const auto rst = align::get_offset_of(text_entire_align, sz, content_bound_rel());
-
-			return rst;
-		}else{
-			const auto sz = glyph_layout.extent();
-			const auto rst = align::get_offset_of(text_entire_align, sz, content_bound_rel());
-
-			return rst;
-		}
+		const auto sz = get_glyph_draw_extent();
+		const auto rst = align::get_offset_of(text_entire_align, sz, content_bound_rel());
+		return rst;
 	}
 
 	[[nodiscard]] math::vec2 get_glyph_src_local() const noexcept{
-		if(fit_){
-			const auto sz = content_extent().min(max_fit_scale_bound);
-
-			const auto rst = align::get_offset_of(text_entire_align, sz, rect{content_extent()});
-			return rst;
-		}else{
-			const auto sz = glyph_layout.extent();
-			const auto rst = align::get_offset_of(text_entire_align, sz, rect{content_extent()});
-
-			return rst;
-		}
+		const auto sz = get_glyph_draw_extent();
+		const auto rst = align::get_offset_of(text_entire_align, sz, rect{content_extent()});
+		return rst;
 	}
 
 

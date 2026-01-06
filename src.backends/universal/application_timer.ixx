@@ -95,12 +95,14 @@ public:
 	[[nodiscard]] constexpr Sec global_time() const noexcept{ return Sec{static_cast<T>(globalTime)}; }
 	[[nodiscard]] constexpr Sec update_time() const noexcept{ return Sec{static_cast<T>(updateTime)}; }
 
+	template <typename Ty = T>
 	[[nodiscard]] constexpr Tick global_delta_tick() const noexcept{
-		return Tick{static_cast<T>(globalDelta * tick_ratio::den)};
+		return direct_access_time_unit<Ty, tick_ratio>{static_cast<Ty>(globalDelta * tick_ratio::den)};
 	}
 
+	template <typename Ty = T>
 	[[nodiscard]] constexpr Tick update_delta_tick() const noexcept{
-		return Tick{static_cast<T>(updateDelta * tick_ratio::den)};
+		return direct_access_time_unit<Ty, tick_ratio>{static_cast<Ty>(updateDelta * tick_ratio::den)};
 	}
 };
 }

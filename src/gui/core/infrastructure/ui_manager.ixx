@@ -109,7 +109,7 @@ public:
 		if(focus) focus->draw();
 	}
 
-	void update(const float delta_in_ticks) const{
+	void update(const double delta_in_ticks) const{
 		if(focus) focus->update(delta_in_ticks);
 	}
 
