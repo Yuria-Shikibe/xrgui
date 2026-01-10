@@ -44,10 +44,10 @@ std::vector<const char*> get_required_extensions();
 
 constexpr inline std::array device_extensions{
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-	VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME,
+	// VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME,
 	VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
 	VK_EXT_MESH_SHADER_EXTENSION_NAME,
-	VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
+	// VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
 };
 
 
@@ -92,7 +92,6 @@ constexpr VkPhysicalDeviceVulkan12Features PhysicalDeviceVulkan12Features{
 
 			features.bufferDeviceAddress = true;
 			features.timelineSemaphore = true;
-			features.shaderFloat16 = true;
 			features.descriptorBindingPartiallyBound = true;
 			features.runtimeDescriptorArray = true;
 
@@ -119,8 +118,6 @@ constexpr VkPhysicalDeviceFeatures RequiredFeatures{
 			features.independentBlend = true;
 			features.sampleRateShading = true;
 			features.fragmentStoresAndAtomics = true;
-			features.shaderInt64 = true;
-			features.shaderFloat64 = true;
 			features.shaderClipDistance = true;
 
 			return features;
@@ -147,8 +144,8 @@ const extension_chain extChain{
 		PhysicalDeviceVulkan12Features,
 		PhysicalDeviceVulkan13Features,
 
-		PhysicalDeviceExtendedDynamicState3Features,
-		PhysicalDeviceComputeShaderDerivativesFeaturesKHR,
+		// PhysicalDeviceExtendedDynamicState3Features,
+		// PhysicalDeviceComputeShaderDerivativesFeaturesKHR,
 
 		DescriptorBufferFeatures,
 		MeshShaderFeatures,

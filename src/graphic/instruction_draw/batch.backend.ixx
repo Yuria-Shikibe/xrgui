@@ -103,6 +103,10 @@ private:
 
 	VkSampler sampler_{};
 
+	VkDeviceSize offset_ceil(std::size_t size) const noexcept{
+		//TODO check device real limit
+		return  (size + 63) / 64 * 64;
+	}
 public:
 	[[nodiscard]] batch_vulkan_executor() = default;
 
@@ -116,7 +120,7 @@ public:
 			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)
 		, buffer_non_vertex_info_uniform_buffer_(allocator_, {
 				.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-				.size = sizeof(dispatch_config) + batch_host.get_data_group_non_vertex_info().table.required_capacity(),
+				.size = offset_ceil(sizeof(dispatch_config)) + batch_host.get_data_group_non_vertex_info().table.required_capacity(),
 				.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 			}, {.usage = VMA_MEMORY_USAGE_GPU_ONLY})
@@ -164,8 +168,7 @@ public:
 			assert(entry.entry.group_index == 0);
 			(void)mapper.set_uniform_buffer(
 				binding,
-				buffer_non_vertex_info_uniform_buffer_.get_address() + sizeof(dispatch_config) + entry.entry.
-				global_offset, entry.entry.size
+				buffer_non_vertex_info_uniform_buffer_.get_address() + offset_ceil(sizeof(dispatch_config)) + entry.entry.global_offset, entry.entry.size
 			);
 		}
 	}
@@ -381,7 +384,7 @@ public:
 			VK_ACCESS_2_TRANSFER_WRITE_BIT,
 			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 			VK_ACCESS_2_UNIFORM_READ_BIT,
-			VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, sizeof(dispatch_config)
+			VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, offset_ceil(sizeof(dispatch_config))
 		);
 		ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
 			VK_PIPELINE_STAGE_2_COPY_BIT,
@@ -431,7 +434,7 @@ public:
 				VK_ACCESS_2_TRANSFER_WRITE_BIT,
 				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 				VK_ACCESS_2_UNIFORM_READ_BIT,
-				VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, sizeof(dispatch_config)
+				VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, offset_ceil(sizeof(dispatch_config))
 			);
 		}
 

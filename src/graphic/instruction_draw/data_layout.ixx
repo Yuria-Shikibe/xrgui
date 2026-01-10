@@ -47,7 +47,7 @@ struct data_layout_type_aware_entry{
 };
 
 export
-template <typename Container = std::vector<data_layout_type_aware_entry>, std::size_t Align = 16>
+template <typename Container = std::vector<data_layout_type_aware_entry>, std::size_t Align = 64>
 struct data_layout_table{
 	static_assert(std::has_single_bit(Align));
 	static_assert(std::same_as<std::ranges::range_value_t<Container>, data_layout_type_aware_entry>, "Container must have user_data_identity_entry as value_type");
@@ -159,21 +159,6 @@ public:
 		return std::ranges::data(entries) + std::ranges::size(entries);
 	}
 
-	// [[nodiscard]] std::uint32_t group_size_at(const user_data_identity_entry* where) const noexcept{
-	// 	const auto end_ = end();
-	// 	assert(where < end_ && where > std::ranges::data(entries));
-	//
-	// 	const std::uint32_t base_offset{where->entry.group_index - where->entry.local_offset};
-	// 	for(auto p = where; p != end_; p++){
-	// 		if(p->entry.group_index != where->entry.group_index){
-	// 			return (p->entry.group_index - p->entry.local_offset) - base_offset;
-	// 		}
-	// 	}
-	//
-	// 	return required_capacity_ - base_offset;
-	// }
-
-
 	[[nodiscard]] std::size_t size() const noexcept{
 		return std::ranges::size(entries);
 	}
@@ -187,13 +172,6 @@ public:
 		const auto end = beg + size();
 		return std::ranges::find(beg, end, id, &data_layout_type_aware_entry::id);
 	}
-	//
-	// template <typename T>
-	// [[nodiscard]] const user_data_identity_entry& at() const noexcept{
-	// 	auto ptr = (*this)[unstable_type_identity_of<T>()];
-	// 	assert(ptr != std::ranges::data(entries) + std::ranges::size(entries));
-	// 	return *ptr;
-	// }
 
 	[[nodiscard]] const data_layout_entry& operator[](std::uint32_t idx) const noexcept{
 		assert(idx < size());

@@ -197,7 +197,8 @@ public typealias range = section<float>;
 
 public struct image_index
 {
-    public uint64_t index;
+    public uint32_t index;
+    public uint32_t _cap;
 };
 
 struct triangle_draw : instr_resolver
