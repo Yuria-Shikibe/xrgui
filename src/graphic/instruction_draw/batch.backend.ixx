@@ -125,18 +125,15 @@ public:
 				VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 			}, {.usage = VMA_MEMORY_USAGE_GPU_ONLY})
 		, bindings_({
-				{0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER},
+				{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 				{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 				{2, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
-				{3, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
-				{4, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER}, // Dynamic count
-				{5, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Base for vertex UBOs
-				{6, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+				{3, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER}, // Dynamic count
+				{4, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Base for vertex UBOs
+				{5, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 			})
 		, descriptor_layout_(allocator_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 			[&](vk::descriptor_layout_builder& builder){
-				// dispatch uniform info
-				builder.push_seq(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 				// dispatch group info
 				builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 				// instructions
@@ -155,6 +152,7 @@ public:
 			a.get_device(),
 			VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 			[&](vk::descriptor_layout_builder& builder){
+				builder.push_seq(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 				for(std::size_t i = 0; i < batch_host.get_data_group_non_vertex_info().size(); ++i){
 					builder.push_seq(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
 				}
@@ -164,10 +162,13 @@ public:
 		, sampler_(sampler){
 		// Setup static descriptors for non-vertex buffers
 		const vk::descriptor_mapper mapper{non_vertex_descriptor_buffer_};
+
+		(void)mapper.set_uniform_buffer(0, buffer_non_vertex_info_uniform_buffer_.get_address(), sizeof(dispatch_config));
+
 		for(auto&& [binding, entry] : batch_host.get_data_group_non_vertex_info().table | std::views::enumerate){
 			assert(entry.entry.group_index == 0);
 			(void)mapper.set_uniform_buffer(
-				binding,
+				binding + 1,
 				buffer_non_vertex_info_uniform_buffer_.get_address() + offset_ceil(sizeof(dispatch_config)) + entry.entry.global_offset, entry.entry.size
 			);
 		}
@@ -310,27 +311,25 @@ public:
 
 			{
 				// Update Dynamic Descriptor Buffer
-				if(const auto cur_size = host_ctx.get_used_images<void*>().size(); bindings_[4].count != cur_size){
-					bindings_[4].count = static_cast<std::uint32_t>(cur_size);
+				if(const auto cur_size = host_ctx.get_used_images<void*>().size(); bindings_[3].count != cur_size){
+					bindings_[3].count = static_cast<std::uint32_t>(cur_size);
 					descriptor_buffer_.reconfigure(descriptor_layout_, descriptor_layout_.binding_count(), bindings_);
 					requires_command_record = true;
 				}
 
 				vk::dynamic_descriptor_mapper dbo_mapper{descriptor_buffer_};
-				dbo_mapper.set_element_at(0, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-					buffer_non_vertex_info_uniform_buffer_.get_address(), sizeof(dispatch_config));
-				dbo_mapper.set_element_at(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_dispatch_info_.get_address(),
+				dbo_mapper.set_element_at(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_dispatch_info_.get_address(),
 					dispatch_unit_size * (1 + totalDispatchCount));
-				dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_heads_.get_address(),
+				dbo_mapper.set_element_at(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_heads_.get_address(),
 					instructionHeadSize);
-				dbo_mapper.set_element_at(3, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_.get_address(),
+				dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_.get_address(),
 					instructionSize);
-				dbo_mapper.set_images_at(4, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_,
+				dbo_mapper.set_images_at(3, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_,
 					host_ctx.get_used_images<VkImageView>());
 
 				VkDeviceSize cur_offset{};
 				for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
-					dbo_mapper.set_element_at(5 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					dbo_mapper.set_element_at(4 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 						buffer_vertex_info_.get_address() + cur_offset, entry.get_required_byte_size());
 					cur_offset += entry.get_required_byte_size();
 				}

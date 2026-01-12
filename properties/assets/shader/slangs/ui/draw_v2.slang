@@ -32,25 +32,25 @@ struct VertexUI {
 typealias UI_VTX = VertexUI;
 
 
-[[vk::binding(0, 0)]]
+[[vk::binding(0, 1)]]
 ConstantBuffer<dispatch_config> dispatch_config_ubo;
 
-[[vk::binding(1, 0)]]
+[[vk::binding(0, 0)]]
 readonly StructuredBuffer<mesh_dispatch_info_v2<2>> dispatch_info;
 
-[[vk::binding(2, 0)]]
+[[vk::binding(1, 0)]]
 StructuredBuffer<instruction_head, Std140DataLayout> instruction_heads;
 
-[[vk::binding(3, 0)]]
+[[vk::binding(2, 0)]]
 ByteAddressBuffer instruction;
 
-[[vk::binding(4, 0)]]
+[[vk::binding(3, 0)]]
 uniform Sampler2D textures[];
 
-[[vk::binding(5, 0)]]
+[[vk::binding(4, 0)]]
 readonly StructuredBuffer<ubo_screen_info, Std140DataLayout> screen_info;
 
-[[vk::binding(6, 0)]]
+[[vk::binding(5, 0)]]
 readonly StructuredBuffer<ubo_layer_info, Std140DataLayout> layer_info;
 
 struct trans : vertex_transformer_2<UI_VTX> {
@@ -119,10 +119,10 @@ struct ubo_ui_state {
     uint32_t[3] _cap;
 };
 
-[[vk::binding(0, 1)]]
+[[vk::binding(1, 1)]]
 ConstantBuffer<ubo_ui_state> ui_state;
 
-[[vk::binding(1, 1)]]
+[[vk::binding(2, 1)]]
 ConstantBuffer<slide_line::slide_line_style> slide_line_style;
 
 struct FragOut {
