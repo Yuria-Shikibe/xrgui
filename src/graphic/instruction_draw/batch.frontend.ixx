@@ -16,6 +16,7 @@ export import mo_yanxi.graphic.draw.instruction.util;
 export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.type_register;
+import mo_yanxi.aligned_allocator;
 import std;
 
 namespace mo_yanxi::graphic::draw::instruction{

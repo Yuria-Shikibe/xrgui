@@ -95,9 +95,9 @@ FORCE_INLINE void curve(renderer_frontend& r, const instruction::parametric_curv
 	instr_outer.color.v10 = instr_inner.color.v00.make_transparent();
 	instr_outer.color.v11 = instr_inner.color.v01.make_transparent();
 
+	r.push(instr);
 
 	r.push(instr_outer);
-	r.push(instr);
 	r.push(instr_inner);
 }
 

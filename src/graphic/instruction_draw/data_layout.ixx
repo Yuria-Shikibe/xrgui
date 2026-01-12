@@ -15,7 +15,6 @@ namespace mo_yanxi::graphic::draw{
 export
 struct data_layout_entry{
 	std::uint32_t size;
-	// std::uint32_t local_offset;
 	std::uint32_t global_offset;
 	std::uint32_t group_index;
 
@@ -28,17 +27,6 @@ struct data_layout_entry{
 	}
 };
 
-/*
-export
-struct user_data_entries{
-	const std::byte* base_address;
-	std::span<const data_layout_entry> entries;
-
-	explicit operator bool() const noexcept{
-		return !entries.empty();
-	}
-};
-*/
 
 export
 struct data_layout_type_aware_entry{
@@ -61,7 +49,7 @@ struct data_layout_table{
 	};
 
 	static constexpr bool is_reservable = requires(Container& cont, std::size_t sz){
-		cont.reserve();
+		cont.reserve(sz);
 	};
 
 	using allocator_type = decltype([]{

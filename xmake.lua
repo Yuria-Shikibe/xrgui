@@ -25,14 +25,19 @@ add_requires("msdfgen", {
         extensions = true,
     }
 })
+
 add_requires("freetype")
 add_requires("nanosvg")
 add_requires("spirv-reflect")
 add_requires("clipper2")
 add_requires("mimalloc v2.2.4")
 add_requires("glfw")
+add_requires("benchmark")
 
 function set_xrgui_deps()
+    function join_path(p)
+       return path.join(current_dir, p)
+    end
     mo_yanxi_vulkan_wrapper_use_vulkan()
 
     add_packages("msdfgen", {public = true})
@@ -43,20 +48,20 @@ function set_xrgui_deps()
     add_packages("spirv-reflect", {public = true})
 
 
-    add_includedirs(current_dir .. "./external/VulkanMemoryAllocator/include", {public = true})
-    add_includedirs(current_dir .. "./external/stb", {public = true})
-    add_includedirs(current_dir .. "./external/include", {public = true})
-    add_includedirs(current_dir .. "./external/plf_hive", {public = true})
-    add_includedirs(current_dir .. "./external/small_vector/source/include", {public = true})
+    add_includedirs(join_path("./external/VulkanMemoryAllocator/include"), {public = true})
+    add_includedirs(join_path("./external/stb"), {public = true})
+    add_includedirs(join_path("./external/include"), {public = true})
+    add_includedirs(join_path("./external/plf_hive"), {public = true})
+    add_includedirs(join_path("./external/small_vector/source/include"), {public = true})
 
     add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2", {public = true})
-    add_files(current_dir .. "./external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
+    add_files(join_path("./external/allocator2d/include/mo_yanxi/allocator2d.ixx"), {public = true})
 
 
 
     add_defines("XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE", {public = true})
-    add_files(current_dir .. "./src/**.cpp")
-    add_files(current_dir .. "./src/**.ixx", {public = true})
+    add_files(join_path("./src/**.cpp"))
+    add_files(join_path("./src/**.ixx"), {public = true})
 end
 
 
@@ -104,6 +109,33 @@ target("xrgui.example")
         os.cp(src_dir, dst_dir)
         print("资源已复制到: " .. dst_dir)
     end)
+target_end()
+
+target("xrgui.test")
+    set_extension(".exe")
+    set_kind("binary")
+    set_languages("c++23")
+    set_policy("build.c++.modules", true)
+
+    set_xrgui_deps()
+
+    set_warnings("all")
+    set_warnings("pedantic")
+
+    add_packages("benchmark")
+    add_packages("glfw")
+
+    add_files("./test/main.cpp")
+
+    add_files("src.backends/universal/**.ixx", {public = true})
+    add_files("src.backends/universal/**.cpp")
+    add_files("src.backends/vulkan/**.ixx", {public = true})
+    add_files("src.backends/vulkan/**.cpp")
+    add_files("src.backends/vulkan_glfw/**.ixx", {public = true})
+    add_files("src.backends/vulkan_glfw/**.cpp")
+    add_files("src.examples/**.ixx", {public = true})
+    add_files("src.examples/**.cpp")
+
 target_end()
 
 task("gen_slang")

@@ -1,4 +1,6 @@
 #include <vulkan/vulkan.h>
+
+#include "magic_enum/magic_enum.hpp"
 import mo_yanxi.vk;
 import mo_yanxi.backend.vulkan.context;
 // import mo_yanxi.backend.vulkan.renderer;
@@ -133,11 +135,11 @@ void app_run(
 			line_ctx.push({math::vec2{250, 450}, 12, 0, {graphic::colors::white, graphic::colors::white}});
 			line_ctx.push({math::vec2{1200, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
 
-			line_ctx.add_cap();
-			line_ctx.add_fringe_cap(2, 2);
-			line_ctx.dump_mid(line_segments{});
-			line_ctx.dump_fringe_inner(line_segments{}, 1.75f);
-			line_ctx.dump_fringe_outer(line_segments{}, 1.75f);
+			// line_ctx.add_cap();
+			// line_ctx.add_fringe_cap(2, 2);
+			// line_ctx.dump_mid(line_segments{});
+			// line_ctx.dump_fringe_inner(line_segments{}, 1.75f);
+			// line_ctx.dump_fringe_outer(line_segments{}, 1.75f);
 
 			// line_ctx.dump_fringe_cap_src(line_segments{}, 3.f, 4.f);
 			// line_ctx.dump_fringe_cap_dst(line_segments{}, 12.f, 4.f);
@@ -193,24 +195,25 @@ void app_run(
 					// }
 				}
 			}
-			// r.push(line{
-			// 	.src = {100, 100},
-			// 	.dst = {800, 400},
-			// 	.color = {graphic::colors::white, graphic::colors::aqua},
-			// 	.stroke = 2,
-			// });
-			//
-			//
-			// r.update_state(gui::blit_config{
-			// 	.blit_region = {
-			// 		.src = {},
-			// 		.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-			// 	},
-			// 	.pipeline_index = 1});
-			//
-			// r.update_state(gui::draw_mode_param{
-			// 	.pipeline_index = 1
-			// });
+
+			r.push(line{
+				.src = {100, 100},
+				.dst = {800, 400},
+				.color = {graphic::colors::white, graphic::colors::aqua},
+				.stroke = 2,
+			});
+
+
+			r.update_state(gui::blit_config{
+				.blit_region = {
+					.src = {},
+					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+				},
+				.pipeline_index = 1});
+
+			r.update_state(gui::draw_mode_param{
+				.pipeline_index = 1
+			});
 
 			r.update_state(state_push_config{
 				state_push_target::defer_pre
@@ -221,15 +224,16 @@ void app_run(
 				},
 				.pipeline_index = 1});
 
-			// r.push(line{
-			// 	.src = {200, 200},
-			// 	.dst = {900, 500},
-			// 	.color = {graphic::colors::white, graphic::colors::aqua},
-			// 	.stroke = 2,
-			// });
+			r.push(line{
+				.src = {200, 200},
+				.dst = {900, 500},
+				.color = {graphic::colors::white, graphic::colors::aqua},
+				.stroke = 2,
+			});
 
 		}
-		// gui::global::manager.draw();
+
+		gui::global::manager.draw();
 		renderer.batch_host.end_rendering();
 		renderer.wait_fence();
 		renderer.batch_device.upload(renderer.batch_host);
@@ -254,6 +258,9 @@ void prepare(){
 
 	using namespace mo_yanxi;
 	using namespace graphic;
+
+	gui::global::initialize();
+	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
 
 	backend::vulkan::context ctx{ApplicationInfo};
 	vk::load_ext(ctx.get_instance());
@@ -458,6 +465,10 @@ void prepare(){
 
 	app_run(ctx, renderer, manager, post_process_cmd);
 
+	gui::global::terminate_assets_manager();
+	gui::global::terminate();
+
+	image_atlas.wait_load();
 	ctx.wait_on_device();
 }
 
@@ -475,13 +486,9 @@ int main(){
 
 	font::initialize();
 	backend::glfw::initialize();
-	gui::global::initialize();
-	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
 
 	prepare();
 
-	gui::global::terminate_assets_manager();
-	gui::global::terminate();
 	backend::glfw::terminate();
 	font::terminate();
 }

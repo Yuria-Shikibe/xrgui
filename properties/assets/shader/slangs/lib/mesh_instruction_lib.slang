@@ -996,10 +996,6 @@ public uint resolve_instruction_v2<T, uint n, L:IBufferDataLayout>(
         while (true) {
             let head = instruction_heads[idx_to_head];
 
-            if (head.type == instruction_type::noop) {
-                break outer;
-            }
-
             if (head.type == instruction_type::uniform_update) {
                 transformer(head.vertex_count);
                 ++idx_to_head;

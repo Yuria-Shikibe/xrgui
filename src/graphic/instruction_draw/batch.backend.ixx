@@ -95,11 +95,18 @@ private:
 
 	// Descriptors
 	std::vector<vk::binding_spec> bindings_{};
+
+	/**
+	 * @brief Descriptor maintain the same during all the mesh dispatch.
+	 */
 	vk::descriptor_layout descriptor_layout_{};
 	vk::dynamic_descriptor_buffer descriptor_buffer_{};
 
-	vk::descriptor_layout non_vertex_descriptor_layout_{};
-	vk::descriptor_buffer non_vertex_descriptor_buffer_{};
+	/**
+	 * @brief Descriptor varies during each draw dispatch, used for uniform buffer update mainly.
+	 */
+	vk::descriptor_layout volatile_descriptor_layout_{};
+	vk::descriptor_buffer volatile_descriptor_buffer_{};
 
 	VkSampler sampler_{};
 
@@ -148,7 +155,7 @@ public:
 				}
 			})
 		, descriptor_buffer_(allocator_, descriptor_layout_, descriptor_layout_.binding_count(), {})
-		, non_vertex_descriptor_layout_{
+		, volatile_descriptor_layout_{
 			a.get_device(),
 			VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 			[&](vk::descriptor_layout_builder& builder){
@@ -158,10 +165,10 @@ public:
 				}
 			}
 		}
-		, non_vertex_descriptor_buffer_(a, non_vertex_descriptor_layout_, non_vertex_descriptor_layout_.binding_count())
+		, volatile_descriptor_buffer_(a, volatile_descriptor_layout_, volatile_descriptor_layout_.binding_count())
 		, sampler_(sampler){
 		// Setup static descriptors for non-vertex buffers
-		const vk::descriptor_mapper mapper{non_vertex_descriptor_buffer_};
+		const vk::descriptor_mapper mapper{volatile_descriptor_buffer_};
 
 		(void)mapper.set_uniform_buffer(0, buffer_non_vertex_info_uniform_buffer_.get_address(), sizeof(dispatch_config));
 
@@ -340,13 +347,13 @@ public:
 	}
 
 	std::array<VkDescriptorSetLayout, 2> get_descriptor_set_layout() const noexcept{
-		return {descriptor_layout_, non_vertex_descriptor_layout_};
+		return {descriptor_layout_, volatile_descriptor_layout_};
 	}
 
 	template <typename T = std::allocator<descriptor_buffer_usage>>
 	void load_descriptors(record_context<T>& record_context){
 		record_context.push(0, descriptor_buffer_);
-		record_context.push(1, non_vertex_descriptor_buffer_);
+		record_context.push(1, volatile_descriptor_buffer_);
 	}
 
 	void cmd_draw(VkCommandBuffer cmd, std::uint32_t dispatch_group_index) const{
