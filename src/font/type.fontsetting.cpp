@@ -366,7 +366,7 @@ void parser::operator()(glyph_layout& layout, parse_context context, const token
 	const bool block_line_feed = (layout.policy() & layout_policy::block_line_feed) != layout_policy{} && (layout.
 		policy() & layout_policy::auto_feed_line) == layout_policy{};
 
-	hb_buffer_t* hb_buf = hb_buffer_create();
+	hb_buffer_wrapper hb_buf{};
 
 	while(itr != stl) {
 		auto [layout_index_start, code_start] = *itr;
@@ -443,8 +443,6 @@ void parser::operator()(glyph_layout& layout, parse_context context, const token
 		hb_buffer_clear_contents(hb_buf);
 		itr = run_itr;
 	}
-
-	hb_buffer_destroy(hb_buf);
 
 	// [重要补充]：循环结束后，检查 buffer 是否还有残留字符。
 	if(block_line_feed && !unit.buffer.empty()){
