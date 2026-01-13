@@ -23,6 +23,7 @@ import mo_yanxi.math.vector2;
 import mo_yanxi.graphic.msdf;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.concurrent.guard;
+export import mo_yanxi.font.hb_wrapper;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 import <msdfgen/msdfgen-ext.h>;
@@ -100,11 +101,27 @@ export using char_code = char32_t;
 export using glyph_size_type = math::vector2<std::uint16_t>;
 export using glyph_raw_metrics = FT_Glyph_Metrics;
 
+export constexpr char_code glyph_index_flag = 0x80000000;
+
+export constexpr bool is_glyph_index_code(char_code c) noexcept{
+    return (c & glyph_index_flag) != 0;
+}
+
+export constexpr char_code make_glyph_index_code(std::uint32_t idx) noexcept{
+    return idx | glyph_index_flag;
+}
+
+export constexpr std::uint32_t get_glyph_index_from_code(char_code c) noexcept{
+    return c & ~glyph_index_flag;
+}
+
 export inline bool is_space(char_code code) noexcept{
+	if (is_glyph_index_code(code)) return false; // Indices are not "space" chars in the ASCII sense usually
 	return code == U'\0' || code <= std::numeric_limits<signed char>::max() && std::isspace(code);
 }
 
 export inline bool is_unicode_separator(char_code c) noexcept{
+    if (is_glyph_index_code(c)) return false;
 	// ASCII控制字符（换行/回车/制表符等）
 	if(c < 0x80 && std::iscntrl(static_cast<unsigned char>(c))){
 		return true;
@@ -289,7 +306,16 @@ private:
 	[[nodiscard]] std::expected<FT_GlyphSlot, FT_Error> load_and_get(
 		const char_code index,
 		const FT_Int32 loadFlags = FT_LOAD_DEFAULT) const{
-		auto glyph_index = index_of(index);
+
+        if (is_glyph_index_code(index)) {
+            // Already an index
+            if(auto error = load_glyph(get_glyph_index_from_code(index), loadFlags)){
+			    return std::expected<FT_GlyphSlot, FT_Error>{std::unexpect, error};
+		    }
+             return std::expected<FT_GlyphSlot, FT_Error>{std::in_place, handle->glyph};
+        }
+
+        auto glyph_index = index_of(index);
 		// Check if glyph index is zero, which means the character is not in the font
 		if(index != 0 && glyph_index == 0){
 			return std::expected<FT_GlyphSlot, FT_Error>{std::unexpect, FT_Err_Invalid_Character_Code};
@@ -303,9 +329,15 @@ private:
 	}
 
 	[[nodiscard]] FT_GlyphSlot load_and_get_guaranteed(const char_code index, const FT_Int32 loadFlags) const{
-		if(const auto error = load_char(index, loadFlags)){
-			check(error);
-		}
+        if (is_glyph_index_code(index)) {
+             if(const auto error = load_glyph(get_glyph_index_from_code(index), loadFlags)){
+			    check(error);
+		    }
+        } else {
+		    if(const auto error = load_char(index, loadFlags)){
+			    check(error);
+		    }
+        }
 
 		return handle->glyph;
 	}
@@ -344,6 +376,8 @@ export struct acquire_result{
 struct font_face{
 private:
 	font_face_handle face_{};
+    mutable hb_font_handle hb_font_{};
+
 	mutable std::binary_semaphore mutex_{1};
 	mutable std::binary_semaphore msdf_mutex_{1};
 public:
@@ -365,6 +399,10 @@ public:
 		return ccur::semaphore_acq_guard{msdf_mutex_};
 	}
 
+    // HarfBuzz support
+    [[nodiscard]] hb_font_t* get_hb_font() const;
+    void shape(hb_buffer_t* buf, const glyph_size_type size) const;
+
 	[[nodiscard]] acquire_result obtain(const char_code code, const glyph_size_type size);
 
 	[[nodiscard]] float get_line_spacing(const math::usize2 sz) const;
@@ -378,6 +416,11 @@ public:
 	[[nodiscard]] acquire_result obtain_snapped(const char_code code, const glyph_size_type::value_type size) noexcept{
 		return obtain(code, get_snapped_size(size));
 	}
+
+    [[nodiscard]] std::uint32_t get_glyph_index(char_code c) const noexcept {
+        if (is_glyph_index_code(c)) return get_glyph_index_from_code(c);
+        return face_.index_of(c);
+    }
 
 	[[nodiscard]] std::string format(const char_code code, const glyph_size_type size) const{
 		return std::format("{}.{}.{:#0X}|{},{}", face_.get_family_name(), face_.get_style_name(),

@@ -164,15 +164,41 @@ export namespace mo_yanxi::font{
 	public:
 
 		[[nodiscard]] glyph get_glyph_exact(font_face& ff, const glyph_identity key){
+            // Normalize to glyph index to ensure consistent caching
+            char_code effective_code = key.code;
+            if (!is_glyph_index_code(effective_code) && !is_space(effective_code)) {
+                // If it's a regular char (and not special space), convert to index
+                // Note: is_space might return true for ' ' (32).
+                // If we want to use HarfBuzz indices everywhere, we should convert everything.
+                // But for 'space' specifically, we might want to keep it as space?
+                // No, HarfBuzz will give us an index for space too.
+                // But this function is called by 'parser' which might pass raw chars if not using HB?
+                // If we switch parser to HB, it will always pass indices.
 
-			const auto [ptr, mtx, gen, ext] = ff.obtain(key.code, key.size);
+                // If legacy code passes char 'A', we convert to index.
+                uint32_t idx = ff.get_glyph_index(effective_code);
+                if (idx != 0) {
+                     effective_code = make_glyph_index_code(idx);
+                }
+            }
 
-			if(!gen.face ||is_space(key.code)){
+			const auto [ptr, mtx, gen, ext] = ff.obtain(effective_code, key.size);
+
+            // Check if empty (space or similar).
+            // ext is {bitmap.width + border, bitmap.rows + border}.
+            // If bitmap is empty, ext is just border.
+            // But checking metrics size is safer?
+            // If bitmap is empty, usually we don't want to render it.
+            // mtx.size.x is advance? No, mtx.size is visual size (width/height).
+            // mtx.size comes from FT_Glyph_Metrics width/height.
+            // If width/height is 0, then we shouldn't create atlas region.
+
+			if(!gen.face ||is_space(key.code) || (mtx.size.x == 0 && mtx.size.y == 0)){
 				return glyph{mtx};
 			}
 
 			auto id = get_face_id(ff);
-			auto name = format(id, key.code, key.size);
+			auto name = format(id, effective_code, key.size);
 			if(const auto prev = page().find(name)){
 				return glyph{mtx, *prev};
 			}
@@ -181,7 +207,7 @@ export namespace mo_yanxi::font{
 			{
 				auto _ = ptr->get_msdf_lock();
 				load = graphic::sdf_load{
-					gen.crop(key.code), ext
+					gen.crop(effective_code), ext
 				};
 			}
 
