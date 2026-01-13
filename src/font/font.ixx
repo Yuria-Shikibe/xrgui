@@ -45,21 +45,6 @@ export struct library : exclusive_handle<FT_Library>{
 	library& operator=(library&& other) noexcept = default;
 };
 
-export struct hb_buffer_wrapper : exclusive_handle<hb_buffer_t*>{
-	[[nodiscard]] hb_buffer_wrapper(){
-		handle = hb_buffer_create();
-	}
-
-	~hb_buffer_wrapper(){
-		if(handle) hb_buffer_destroy(handle);
-	}
-
-	hb_buffer_wrapper(const hb_buffer_wrapper& other) = delete;
-	hb_buffer_wrapper(hb_buffer_wrapper&& other) noexcept = default;
-	hb_buffer_wrapper& operator=(const hb_buffer_wrapper& other) = delete;
-	hb_buffer_wrapper& operator=(hb_buffer_wrapper&& other) noexcept = default;
-};
-
 inline FT_Library global_free_type_lib_handle;
 
 union U{
