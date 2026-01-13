@@ -39,6 +39,12 @@ struct renderer_create_info{
 	compute_pipeline_create_config blit_pipe_config;
 };
 
+struct attachment_state {
+	VkPipelineStageFlags2 stage_mask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+	VkAccessFlags2 access_mask = VK_ACCESS_2_NONE;
+	VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+};
+
 export
 struct renderer{
 	vk::allocator_usage allocator_usage_{};
@@ -71,6 +77,10 @@ private:
 	std::vector<gui::draw_mode_param> cache_draw_param_stack_{};
 	std::vector<std::uint8_t> cache_attachment_enter_mark_{};
 	graphic::draw::record_context<> cache_record_context_{};
+
+	std::vector<attachment_state> draw_attachment_states_{};
+	std::vector<attachment_state> blit_attachment_states_{};
+	vk::cmd::dependency_gen barrier_gen_cache_{};
 
 public:
 	[[nodiscard]] explicit(false) renderer(
@@ -136,10 +146,15 @@ public:
 				blit_default_inout_descriptors_.push_back({allocator_usage_, layout, layout.binding_count()});
 			}
 		}
+
+		draw_attachment_states_.resize(attachment_manager.get_draw_attachments().size());
+		blit_attachment_states_.resize(attachment_manager.get_blit_attachments().size());
 	}
 
 	void resize(VkExtent2D extent){
 		attachment_manager.resize(extent);
+		draw_attachment_states_.resize(attachment_manager.get_draw_attachments().size());
+		blit_attachment_states_.resize(attachment_manager.get_blit_attachments().size());
 
 		auto make_desciptor_from_inout_def = [this](vk::descriptor_buffer& blit_descriptor, const compute_pipeline_blit_inout_config& cfg){
 			vk::descriptor_mapper mapper{blit_descriptor};
@@ -217,10 +232,52 @@ private:
 		batch_device.cmd_draw(cmdbuf, index);
 	}
 
+	void reset_barrier_context(){
+		for(auto& state : draw_attachment_states_){
+			state = {
+				.stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+				.access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+				.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+			};
+		}
+		for(auto& state : blit_attachment_states_){
+			state = {
+				.stage_mask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				.access_mask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				.layout = VK_IMAGE_LAYOUT_GENERAL
+			};
+		}
+	}
+
+	void ensure_attachment_state(
+		vk::cmd::dependency_gen& dep,
+		attachment_state& state,
+		VkImage image,
+		VkPipelineStageFlags2 new_stage,
+		VkAccessFlags2 new_access,
+		VkImageLayout new_layout)
+	{
+		bool layout_change = state.layout != new_layout;
+		bool is_read_only = (new_access & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) == 0;
+		bool was_read_only = (state.access_mask & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) == 0;
+
+		if (!layout_change && is_read_only && was_read_only) {
+			return;
+		}
+
+		dep.push(image, state.stage_mask, state.access_mask, new_stage, new_access, state.layout, new_layout, vk::image::default_image_subrange);
+
+		state.stage_mask = new_stage;
+		state.access_mask = new_access;
+		state.layout = new_layout;
+	}
+
 	void record_cmd(VkCommandBuffer command_buffer){
 		const auto cmd_sz = batch_host.get_submit_sections_count();
 
 		vkCmdExecuteCommands(command_buffer, 1, blit_attachment_clear_and_init_command_buffer.as_data());
+
+		reset_barrier_context();
 
 		auto submit_span = batch_host.get_valid_submit_groups();
 		if(submit_span.empty()) [[unlikely]] {
@@ -242,8 +299,28 @@ private:
 			}
 		}
 
+		barrier_gen_cache_.clear();
+
 		//TODO optimize empty submit group
 		for(unsigned i = 0; i < cmd_sz; ++i){
+
+			// Ensure draw attachments are in correct state
+			{
+				const auto mask = get_current_target(cache_draw_param_stack_.back());
+				for(std::size_t aIdx = 0; aIdx < std::min(mask.size(), attachment_manager.get_draw_attachments().size()); ++aIdx){
+					if(!mask[aIdx]) continue;
+					ensure_attachment_state(
+						barrier_gen_cache_,
+						draw_attachment_states_[aIdx],
+						attachment_manager.get_draw_attachments()[aIdx].get_image(),
+						VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+						VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+						VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+					);
+				}
+				barrier_gen_cache_.apply(command_buffer);
+			}
+
 			rendering_config.begin_rendering(command_buffer, region/*, VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT*/);
 
 			create_pipe_binding_cmd(command_buffer, i, cache_draw_param_stack_.back());
@@ -305,39 +382,47 @@ private:
 		return false;
 	}
 
+	const compute_pipeline_blit_inout_config& get_blit_inout_config(const gui::blit_config& cfg) {
+		if (cfg.use_default_inouts()) {
+			return blit_pipeline_manager_.get_pipelines()[cfg.pipeline_index].option.inout;
+		} else {
+			return blit_pipeline_manager_.get_inout_defines()[cfg.inout_define_index];
+		}
+	}
+
 	void blit(gui::blit_config cfg, VkCommandBuffer buffer){
 		cfg.get_clamped_to_positive();
 			const auto dispatches = cfg.get_dispatch_groups();
 
-			vk::cmd::dependency_gen dependency;
+			// Reuse barrier_gen_cache_ which is a member variable
+			// Note: record_cmd clears it before loop and after apply.
+			// When blit is called from process_breakpoints, cache should be empty.
 
-			for (const auto & draw_attachment : attachment_manager.get_draw_attachments()){
-				dependency.push(draw_attachment.get_image(),
-					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+			const auto& inout_cfg = get_blit_inout_config(cfg);
+
+			for (const auto& entry : inout_cfg.get_input_entries()) {
+				ensure_attachment_state(
+					barrier_gen_cache_,
+					draw_attachment_states_[entry.resource_index],
+					attachment_manager.get_draw_attachments()[entry.resource_index].get_image(),
 					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 					VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
-					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-					VK_IMAGE_LAYOUT_GENERAL,
-					vk::image::default_image_subrange
+					VK_IMAGE_LAYOUT_GENERAL
 				);
 			}
 
-			for (const auto & draw_attachment : attachment_manager.get_blit_attachments()){
-				dependency.push(draw_attachment.get_image(),
+			for (const auto& entry : inout_cfg.get_output_entries()) {
+				ensure_attachment_state(
+					barrier_gen_cache_,
+					blit_attachment_states_[entry.resource_index],
+					attachment_manager.get_blit_attachments()[entry.resource_index].get_image(),
 					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 					VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
-					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-					VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
-					VK_IMAGE_LAYOUT_GENERAL,
-					VK_IMAGE_LAYOUT_GENERAL,
-					vk::image::default_image_subrange
+					VK_IMAGE_LAYOUT_GENERAL
 				);
 			}
 
-			dependency.apply(buffer, true);
-			dependency.image_memory_barriers.resize(attachment_manager.get_draw_attachments().size());
-			dependency.swap_stages();
+			barrier_gen_cache_.apply(buffer);
 
 			auto& pipe_config = blit_pipeline_manager_.get_pipelines()[cfg.pipeline_index];
 			pipe_config.pipeline.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -363,7 +448,9 @@ private:
 			cache_record_context_(pipe_config.pipeline_layout, buffer, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
 
 			vkCmdDispatch(buffer, dispatches.x, dispatches.y, 1);
-			dependency.apply(buffer);
+
+			// We apply pending barriers if any (though typically dispatch doesn't add any new ones unless we want to, but previous apply handled them)
+			barrier_gen_cache_.apply(buffer);
 	}
 public:
 
