@@ -7,7 +7,11 @@ module;
 #include <cassert>
 #include <ft2build.h>
 #include <freetype/freetype.h>
+
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <msdfgen/msdfgen-ext.h>
+#endif
+
 
 export module mo_yanxi.font;
 import std;
@@ -18,6 +22,10 @@ import mo_yanxi.math.vector2;
 import mo_yanxi.graphic.msdf;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.concurrent.guard;
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <msdfgen/msdfgen-ext.h>;
+#endif
 
 namespace mo_yanxi::font{
 export constexpr inline math::vec2 font_draw_expand{graphic::msdf::sdf_image_boarder, graphic::msdf::sdf_image_boarder};
