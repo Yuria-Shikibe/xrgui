@@ -9,6 +9,9 @@ module;
 #include <freetype/freetype.h>
 #include <msdfgen/msdfgen-ext.h>
 
+#include <hb.h>
+#include <hb-ft.h>
+
 export module mo_yanxi.font;
 import std;
 
@@ -43,6 +46,21 @@ export struct library : exclusive_handle<FT_Library>{
 	library(library&& other) noexcept = default;
 	library& operator=(const library& other) = delete;
 	library& operator=(library&& other) noexcept = default;
+};
+
+export struct hb_buffer_wrapper : exclusive_handle<hb_buffer_t*>{
+	[[nodiscard]] hb_buffer_wrapper(){
+		handle = hb_buffer_create();
+	}
+
+	~hb_buffer_wrapper(){
+		if(handle) hb_buffer_destroy(handle);
+	}
+
+	hb_buffer_wrapper(const hb_buffer_wrapper& other) = delete;
+	hb_buffer_wrapper(hb_buffer_wrapper&& other) noexcept = default;
+	hb_buffer_wrapper& operator=(const hb_buffer_wrapper& other) = delete;
+	hb_buffer_wrapper& operator=(hb_buffer_wrapper&& other) noexcept = default;
 };
 
 inline FT_Library global_free_type_lib_handle;
@@ -134,7 +152,7 @@ constexpr T get_snapped_size(const T len) noexcept{
 }
 
 export struct glyph_identity{
-	char_code code{};
+	std::uint32_t index{};
 	glyph_size_type size{};
 
 	constexpr friend bool operator==(const glyph_identity&, const glyph_identity&) noexcept = default;
@@ -213,10 +231,12 @@ export struct font_face;
 
 struct font_face_handle : exclusive_handle<FT_Face>{
 	exclusive_handle_member<msdfgen::FontHandle*> msdfHdl{};
+	exclusive_handle_member<hb_font_t*> hbFont{};
 
 	[[nodiscard]] font_face_handle() = default;
 
 	~font_face_handle(){
+		if(hbFont) hb_font_destroy(hbFont);
 		if(handle) check(FT_Done_Face(handle));
 		if(msdfHdl) msdfgen::destroyFont(msdfHdl);
 	}
@@ -230,6 +250,7 @@ struct font_face_handle : exclusive_handle<FT_Face>{
 		auto lib = get_ft_lib();
 		check(FT_New_Face(lib, path, index, &handle));
 		msdfHdl = msdfgen::loadFont(graphic::msdf::HACK_get_ft_library_from(&lib), path);
+		hbFont = hb_ft_font_create_referenced(handle);
 	}
 
 	friend font_face;
@@ -253,6 +274,10 @@ struct font_face_handle : exclusive_handle<FT_Face>{
 
 	[[nodiscard]] FT_UInt index_of(const char_code code) const noexcept{
 		return FT_Get_Char_Index(handle, code);
+	}
+
+	[[nodiscard]] hb_font_t* get_hb_font() const noexcept{
+		return hbFont;
 	}
 
 private:
@@ -358,6 +383,8 @@ public:
 
 	[[nodiscard]] acquire_result obtain(const char_code code, const glyph_size_type size);
 
+	[[nodiscard]] acquire_result obtain_glyph(const std::uint32_t index, const glyph_size_type size);
+
 	[[nodiscard]] float get_line_spacing(const math::usize2 sz) const;
 
 	[[nodiscard]] math::usize2 get_font_pixel_spacing(const math::usize2 sz) const;
@@ -375,6 +402,12 @@ public:
 			std::bit_cast<int>(code), size.x, size.y);
 	}
 
+	void shape(hb_buffer_t* buf, glyph_size_type size) const {
+		ccur::semaphore_acq_guard _{mutex_};
+		check(face_.set_size(size.x, size.y));
+		hb_ft_font_changed(face_.get_hb_font());
+		hb_shape(face_.get_hb_font(), buf, nullptr, 0);
+	}
 
 	[[nodiscard]] const font_face_handle& face() const noexcept{
 		return face_;

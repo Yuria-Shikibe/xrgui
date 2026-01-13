@@ -1,6 +1,7 @@
 module;
 
 #include <cassert>
+#include <hb.h>
 
 module mo_yanxi.font.typesetting;
 
@@ -94,6 +95,52 @@ void layout_unit::push_back(
 		});
 	bound.width = std::max(bound.width, current.region.get_end_x());
 	pen_advance += advance;
+}
+
+void layout_unit::push_glyph(
+	const parse_context& context,
+	std::uint32_t glyph_index,
+	math::vec2 advance,
+	math::vec2 offset,
+	const unsigned layout_global_index,
+	const code_point_index unit_index,
+	char_code original_char_code,
+	bool termination
+) {
+	const layout_index_t column_index = buffer.size();
+	auto glyph_obj = context.get_glyph_by_index(glyph_index);
+
+	auto& current = buffer.emplace_back(
+		code_point{original_char_code, unit_index},
+		layout_abs_pos{{column_index, 0}, layout_global_index},
+		std::move(glyph_obj)
+	);
+
+	const auto font_region_scale = context.get_current_correction_scale();
+
+	const auto placementPos = context.get_current_offset().add_x(pen_advance) + offset * font_region_scale;
+
+	current.region = current.glyph.metrics().place_to(placementPos, font_region_scale);
+
+	const bool emptyChar = (original_char_code == U'\0' || original_char_code == U'\n');
+	float final_advance_x = advance.x * font_region_scale.x;
+
+	if(emptyChar){
+		final_advance_x = 0;
+		current.region.set_width(current.region.width() / 4);
+	}
+
+	current.correct_scale = font_region_scale;
+	current.color = context.get_color();
+
+	bound.max_height({
+			.width = 0,
+			.ascender = placementPos.y - current.region.get_src_y(),
+			.descender = current.region.get_end_y() - placementPos.y
+		});
+	bound.width = std::max(bound.width, current.region.get_end_x());
+
+	pen_advance += final_advance_x;
 }
 
 void layout_unit::push_front(
@@ -319,31 +366,85 @@ void parser::operator()(glyph_layout& layout, parse_context context, const token
 	const bool block_line_feed = (layout.policy() & layout_policy::block_line_feed) != layout_policy{} && (layout.
 		policy() & layout_policy::auto_feed_line) == layout_policy{};
 
-	for(; itr != stl; ++itr){
-		auto [layout_index, code] = *itr;
-		lastTokenItr = func::exec_tokens(layout, context, *this, lastTokenItr, formatted_text, layout_index);
-		unit.push_back(context, code, layout_index);
+	hb_buffer_wrapper hb_buf{};
 
-		if(block_line_feed
-			&& code.code <= std::numeric_limits<signed char>::max()
-			&& std::isalnum(static_cast<unsigned char>(code.code))){
+	while(itr != stl) {
+		auto [layout_index_start, code_start] = *itr;
+		lastTokenItr = func::exec_tokens(layout, context, *this, lastTokenItr, formatted_text, layout_index_start);
+
+		std::size_t next_token_pos = (lastTokenItr != formatted_text.tokens.end()) ? lastTokenItr->pos : std::numeric_limits<std::size_t>::max();
+
+		std::vector<char_code> run_codes;
+		std::vector<std::pair<std::size_t, code_point>> run_infos;
+
+		// Collect run
+		auto run_itr = itr;
+		while(run_itr != stl) {
+			auto [idx, code] = *run_itr;
+			if (idx >= next_token_pos) break;
+			if (code.code == U'\n') {
+				// We stop at newline to handle it explicitly
+				break;
+			}
+			run_codes.push_back(code.code);
+			run_infos.push_back(*run_itr);
+			++run_itr;
+		}
+
+		if (run_codes.empty()) {
+			// Handle newline or empty run (just token change)
+			if (run_itr != stl && run_itr->second.code == U'\n') {
+				auto [idx, code] = *run_itr;
+				lastTokenItr = func::exec_tokens(layout, context, *this, lastTokenItr, formatted_text, idx);
+				unit.push_back(context, code, idx);
+				flush(context, layout, unit, true);
+				itr = ++run_itr;
+			} else {
+				itr = run_itr;
+			}
 			continue;
 		}
 
-		if(!flush(context, layout, unit, code.code == U'\n' || code.code == U'\0')){
-			if((layout.policy() & layout_policy::truncate) != layout_policy{}){
-				do{
-					++itr;
-				} while(itr != stl && itr.base()->code != U'\n');
-			} else{
-				break;
+		// Shape run
+		hb_buffer_add_codepoints(hb_buf, run_codes.data(), run_codes.size(), 0, run_codes.size());
+		hb_buffer_guess_segment_properties(hb_buf);
+
+		// Shape with current font
+		context.get_face().shape(hb_buf, context.get_current_snapped_size());
+
+		unsigned int len;
+		hb_glyph_info_t* info = hb_buffer_get_glyph_infos(hb_buf, &len);
+		hb_glyph_position_t* pos = hb_buffer_get_glyph_positions(hb_buf, &len);
+
+		// Process shaped glyphs
+		for(unsigned int i = 0; i < len; ++i) {
+			unsigned int cluster = info[i].cluster;
+			if (cluster >= run_infos.size()) cluster = run_infos.size() - 1;
+			auto [original_idx, original_cp] = run_infos[cluster];
+
+			math::vec2 advance = { static_cast<float>(pos[i].x_advance) / 64.0f, static_cast<float>(pos[i].y_advance) / 64.0f };
+			math::vec2 offset = { static_cast<float>(pos[i].x_offset) / 64.0f, static_cast<float>(pos[i].y_offset) / 64.0f };
+
+			unit.push_glyph(context, info[i].codepoint, advance, offset, original_idx, original_cp.unit_index, original_cp.code);
+
+			if(block_line_feed
+				&& original_cp.code <= std::numeric_limits<signed char>::max()
+				&& std::isalnum(static_cast<unsigned char>(original_cp.code))){
+				// Continue accumulating word
+			} else {
+				if(!flush(context, layout, unit, false)){
+					// Flush failed (overflow and not truncated/handled)?
+					// In word wrapping, flush returns false if it wrapped.
+					// If wrapped, we continue.
+				}
 			}
 		}
+
+		hb_buffer_clear_contents(hb_buf);
+		itr = run_itr;
 	}
 
 	// [重要补充]：循环结束后，检查 buffer 是否还有残留字符。
-	// 如果文本以字母/数字结尾（例如 "Hello"），循环内的逻辑会跳过最后一次 flush，
-	// 因此必须在这里强制提交剩余的 buffer。
 	if(block_line_feed && !unit.buffer.empty()){
 		flush(context, layout, unit, false); // 非换行，非终止（终止由 end_parse 处理）
 	}
