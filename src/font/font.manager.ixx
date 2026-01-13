@@ -127,8 +127,8 @@ export namespace mo_yanxi::font{
 
 		std::mutex mutex_{};
 
-		[[nodiscard]] static std::string format(const unsigned idx, const std::uint32_t index, const glyph_size_type size){
-			return std::format("{}.I{:#X}|{},{}", idx, index, size.x, size.y);
+		[[nodiscard]] static std::string format(const unsigned idx, const char_code code, const glyph_size_type size){
+			return std::format("{}.{:#X}|{},{}", idx, std::bit_cast<int>(code), size.x, size.y);
 		}
 
 	public:
@@ -165,18 +165,14 @@ export namespace mo_yanxi::font{
 
 		[[nodiscard]] glyph get_glyph_exact(font_face& ff, const glyph_identity key){
 
-			const auto [ptr, mtx, gen, ext] = ff.obtain_glyph(key.index, key.size);
+			const auto [ptr, mtx, gen, ext] = ff.obtain(key.code, key.size);
 
-			if(!ptr /*|| !gen.face*/){
-				return glyph{};
-			}
-
-			if(gen.face == nullptr){
-				 return glyph{mtx};
+			if(!gen.face ||is_space(key.code)){
+				return glyph{mtx};
 			}
 
 			auto id = get_face_id(ff);
-			auto name = format(id, key.index, key.size);
+			auto name = format(id, key.code, key.size);
 			if(const auto prev = page().find(name)){
 				return glyph{mtx, *prev};
 			}
@@ -185,12 +181,8 @@ export namespace mo_yanxi::font{
 			{
 				auto _ = ptr->get_msdf_lock();
 				load = graphic::sdf_load{
-					gen.crop(key.index), ext
+					gen.crop(key.code), ext
 				};
-			}
-
-			if(load.image.width() == 0 || load.image.height() == 0){
-				return glyph{mtx};
 			}
 
 			const auto aloc = page().register_named_region(

@@ -492,12 +492,7 @@ public:
 	}
 
 	[[nodiscard]] glyph get_glyph(const char_code code) const{
-		const auto index = get_face().face().index_of(code);
-		return get_manager().get_glyph_exact(get_face(), glyph_identity{index, get_current_snapped_size()});
-	}
-
-	[[nodiscard]] glyph get_glyph_by_index(const std::uint32_t index) const{
-		return get_manager().get_glyph_exact(get_face(), glyph_identity{index, get_current_snapped_size()});
+		return get_manager().get_glyph_exact(get_face(), glyph_identity{code, get_current_snapped_size()});
 	}
 };
 
@@ -1052,17 +1047,6 @@ struct layout_unit{
 		const code_point code,
 		const unsigned layout_global_index,
 		const std::optional<char_code> real_code = std::nullopt,
-		bool termination = false
-	);
-
-	void push_glyph(
-		const parse_context& context,
-		std::uint32_t glyph_index,
-        math::vec2 advance,
-        math::vec2 offset,
-		const unsigned layout_global_index,
-        const code_point_index unit_index,
-        char_code original_char_code, // for is_alnum check etc
 		bool termination = false
 	);
 
