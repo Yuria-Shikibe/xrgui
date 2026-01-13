@@ -70,8 +70,16 @@ private:
 	vk::command_seq<> command_seq_blit_{};
 
 	//TODO optimize the fence
-	std::vector<vk::fence> fences_{};
-	std::vector<vk::command_buffer> main_command_buffers_{};
+	struct frame_data {
+		vk::fence fence{};
+		vk::command_buffer main_command_buffer{};
+
+		frame_data(VkDevice device, VkCommandPool pool)
+			: fence(device, true)
+			, main_command_buffer(device, pool)
+		{}
+	};
+	std::vector<frame_data> frames_{};
 	std::uint32_t current_frame_index_{frames_in_flight - 1};
 
 	vk::command_buffer blit_attachment_clear_and_init_command_buffer{};
@@ -114,11 +122,9 @@ public:
 			VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 		, sampler_(create_info.sampler){
 
-		fences_.reserve(frames_in_flight);
-		main_command_buffers_.reserve(frames_in_flight);
+		frames_.reserve(frames_in_flight);
 		for(std::size_t i = 0; i < frames_in_flight; ++i){
-			fences_.emplace_back(allocator_usage_.get_device(), true);
-			main_command_buffers_.emplace_back(allocator_usage_.get_device(), create_info.command_pool);
+			frames_.emplace_back(allocator_usage_.get_device(), create_info.command_pool);
 		}
 
 		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY};
@@ -190,12 +196,12 @@ public:
 
 	void wait_fence() {
 		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
-		fences_[current_frame_index_].wait_and_reset();
+		frames_[current_frame_index_].fence.wait_and_reset();
 	}
 
 	void create_command(){
 		{
-			vk::scoped_recorder recorder{main_command_buffers_[current_frame_index_], VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+			vk::scoped_recorder recorder{frames_[current_frame_index_].main_command_buffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
 			record_cmd(recorder);
 		}
 	}
@@ -206,11 +212,11 @@ public:
 	}
 
 	VkCommandBuffer get_valid_cmd_buf() const noexcept{
-		return main_command_buffers_[current_frame_index_];
+		return frames_[current_frame_index_].main_command_buffer;
 	}
 
 	VkFence get_fence() const noexcept{
-		return fences_[current_frame_index_];
+		return frames_[current_frame_index_].fence;
 	}
 
 private:
