@@ -49,6 +49,18 @@ export
 	double range = sdf_image_range
 );
 
+export
+[[nodiscard]] bitmap load_glyph_by_index(
+	msdfgen::FontHandle* face,
+	unsigned index,
+	unsigned target_w,
+	unsigned target_h,
+	int boarder,
+	double font_w,
+	double font_h,
+	double range = sdf_image_range
+);
+
 enum struct msdf_generator_state{
 	done,
 	path,
@@ -100,10 +112,10 @@ struct msdf_glyph_generator_base{
 
 export
 struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
-	char32_t code{};
+	std::uint32_t index{};
 
-	[[nodiscard]] msdf_glyph_generator_crop(const msdf_glyph_generator_base& base, msdfgen::unicode_t code)
-	: msdf_glyph_generator_base{base}, code(code){
+	[[nodiscard]] msdf_glyph_generator_crop(const msdf_glyph_generator_base& base, std::uint32_t index)
+	: msdf_glyph_generator_base{base}, index(index){
 	}
 
 	bitmap operator()(const unsigned w, const unsigned h, const unsigned mip_lv) const{
@@ -112,7 +124,7 @@ struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
 		if(b * 2 >= w || b * 2 >= h){
 			b = 0;
 		}
-		return load_glyph(face, code, w - b * 2, h - b * 2, b,
+		return load_glyph_by_index(face, index, w - b * 2, h - b * 2, b,
 			static_cast<double>(font_w) / static_cast<double>(scl),
 			static_cast<double>(font_h) / static_cast<double>(scl), range);
 	};
@@ -120,8 +132,8 @@ struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
 
 export
 struct msdf_glyph_generator : msdf_glyph_generator_base{
-	[[nodiscard]] msdf_glyph_generator_crop crop(msdfgen::unicode_t code) const noexcept{
-		return {*this, code};
+	[[nodiscard]] msdf_glyph_generator_crop crop(std::uint32_t index) const noexcept{
+		return {*this, index};
 	}
 };
 

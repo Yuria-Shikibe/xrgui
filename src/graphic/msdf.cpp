@@ -495,6 +495,59 @@ bitmap msdf::load_glyph(
 	return {target_w + boarder * 2, target_h + boarder * 2};
 }
 
+bitmap msdf::load_glyph_by_index(
+	msdfgen::FontHandle* face_handle,
+	unsigned index,
+	unsigned target_w,
+	unsigned target_h,
+	int boarder,
+	double font_w,
+	double font_h,
+	double range) {
+
+	FT_Face face = reinterpret_cast<FT_Face>(face_handle);
+	if (FT_Load_Glyph(face, index, FT_LOAD_NO_SCALE)) {
+		return { target_w + boarder * 2, target_h + boarder * 2 };
+	}
+
+	msdfgen::Shape shape;
+	static constexpr FT_Outline_Funcs funcs{
+		msdf_decompose_impl::move_to,
+		msdf_decompose_impl::line_to,
+		msdf_decompose_impl::conic_to,
+		msdf_decompose_impl::cubic_to
+	};
+
+	msdf_decompose_impl::msdf_context ctx{ &shape };
+	FT_Outline_Decompose(&face->glyph->outline, &funcs, &ctx);
+
+	bitmap bitmap = { target_w + boarder * 2, target_h + boarder * 2 };
+
+	shape.orientContours();
+	shape.normalize();
+
+	const auto bound = shape.getBounds();
+	const math::vector2 scale{ font_w, font_h };
+
+	msdfgen::edgeColoringSimple(shape, 2.5);
+	msdfgen::Bitmap<float, 3> msdf(bitmap.width(), bitmap.height());
+
+	const auto offx = -bound.l + static_cast<double>(boarder) / scale.x;
+	const auto offy = -bound.t - static_cast<double>(boarder) / scale.y;
+
+	const msdfgen::SDFTransformation t(
+		msdfgen::Projection(
+			msdfgen::Vector2{ scale.x, -scale.y },
+			msdfgen::Vector2(offx, offy)
+		), msdfgen::Range(range));
+
+	msdfgen::generateMSDF(msdf, shape, t);
+	msdfgen::simulate8bit(msdf);
+
+	write_to_bitmap(bitmap, msdf);
+	return bitmap;
+}
+
 svg_info handle_nanosvg(NSVGimage* svg_image){
 	if(!svg_image) return {};
 
