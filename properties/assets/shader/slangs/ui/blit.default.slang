@@ -3,26 +3,16 @@ import post_process_lib;
 [[vk::push_constant]]
 uint2 offset;
 
-struct blit_info {
-    uint2 offset;
-    uint2 _cap;
-}
-
 [[vk::binding(0, 0)]]
-ConstantBuffer<blit_info> ubo;
-
-
-
-[[vk::binding(0, 1)]]
 restrict readonly RWTexture2D input_base;
 
-[[vk::binding(1, 1)]]
+[[vk::binding(1, 0)]]
 restrict readonly RWTexture2D input_back;
 
-[[vk::binding(2, 1)]]
+[[vk::binding(2, 0)]]
 restrict RWTexture2D output_base;
 
-[[vk::binding(3, 1)]]
+[[vk::binding(3, 0)]]
 restrict RWTexture2D output_back;
 
 float4 applyShadow(float4 shadowColor, float4 baseColor) {
@@ -38,7 +28,7 @@ float4 applyShadow(float4 shadowColor, float4 baseColor) {
 void main(
     uint3 dispatchThreadID: SV_DispatchThreadID
 ) {
-    let pos = dispatchThreadID.xy + ubo.offset;
+    let pos = dispatchThreadID.xy + offset;
 
     // TODO make alpha ctrlable by using blend and clear color?
 

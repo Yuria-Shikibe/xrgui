@@ -27,11 +27,6 @@ const graphic::draw::data_layout_table table_non_vertex{
 	std::in_place_type<std::tuple<gui::draw_config::ui_state, gui::draw_config::slide_line_config>>
 };
 
-struct ubo_blit_config{
-	math::upoint2 offset;
-	math::upoint2 _cap;
-};
-
 export
 struct renderer_create_info{
 	vk::allocator_usage allocator_usage;
@@ -60,9 +55,6 @@ private:
 
 	graphic_pipeline_manager draw_pipeline_manager_{};
 
-	vk::descriptor_layout blit_descriptor_layout_;
-	vk::descriptor_buffer blit_descriptor_buffer_;
-	vk::buffer blit_buffer_;
 	compute_pipeline_manager blit_pipeline_manager_{};
 	std::vector<vk::descriptor_buffer> blit_default_inout_descriptors_{};
 	std::vector<vk::descriptor_buffer> blit_specified_inout_descriptors_{};
@@ -101,25 +93,10 @@ public:
 			allocator_usage_, std::move(create_info.attachment_draw_config), std::move(create_info.attachment_blit_config)
 		}
 		, draw_pipeline_manager_(allocator_usage_, create_info.draw_pipe_config, batch_device.get_descriptor_set_layout(), attachment_manager.get_draw_config())
-		, blit_descriptor_layout_(allocator_usage_.get_device(),
-			VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT, [&](vk::descriptor_layout_builder& builder){
-				builder.push_seq(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
-			})
-		, blit_descriptor_buffer_(allocator_usage_, blit_descriptor_layout_, blit_descriptor_layout_.binding_count())
-		, blit_buffer_(allocator_usage_, {
-				.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-				.size = sizeof(ubo_blit_config) + sizeof(VkDispatchIndirectCommand),
-				.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-			}, {.usage = VMA_MEMORY_USAGE_GPU_ONLY})
 		, command_seq_draw_(allocator_usage_.get_device(), create_info.command_pool, 4,
 			VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 		, command_seq_blit_(allocator_usage_.get_device(), create_info.command_pool, 4,
 			VK_COMMAND_BUFFER_LEVEL_SECONDARY){
-		{
-			(void)vk::descriptor_mapper{blit_descriptor_buffer_}.set_uniform_buffer(0, blit_buffer_.get_address(),
-				sizeof(ubo_blit_config));
-		}
 		main_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool};
 		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY};
 		fence = {allocator_usage_.get_device(), true};
@@ -130,12 +107,15 @@ public:
 		// 	color_attachment_formats.push_back(cfg.attachment.format);
 		// }
 
+		for(auto& cfg : create_info.blit_pipe_config.configurator){
+			cfg.general.push_constants = make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {sizeof(math::upoint2)});
+		}
+
 		{
-			auto view = std::views::single(blit_descriptor_layout_.get());
 			blit_pipeline_manager_ = compute_pipeline_manager(
 				allocator_usage_,
 				create_info.blit_pipe_config,
-				std::views::repeat(view, create_info.blit_pipe_config.size()));
+				std::views::repeat(std::span<const VkDescriptorSetLayout>{}, create_info.blit_pipe_config.size()));
 		}
 
 
@@ -329,26 +309,7 @@ private:
 		cfg.get_clamped_to_positive();
 			const auto dispatches = cfg.get_dispatch_groups();
 
-			alignas(32) std::byte buf[sizeof(ubo_blit_config) + sizeof(VkDispatchIndirectCommand)];
-			std::construct_at(reinterpret_cast<ubo_blit_config*>(buf), ubo_blit_config{
-				.offset = cfg.blit_region.src.as<unsigned>(),
-			});
-			std::construct_at(reinterpret_cast<VkDispatchIndirectCommand*>(buf + sizeof(ubo_blit_config)), VkDispatchIndirectCommand{
-				dispatches.x, dispatches.y, 1
-			});
-
 			vk::cmd::dependency_gen dependency;
-			dependency.push(blit_buffer_,
-				VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
-				VK_PIPELINE_STAGE_2_COPY_BIT,
-				VK_ACCESS_2_TRANSFER_WRITE_BIT
-				);
-
-			dependency.apply(buffer, true);
-			vkCmdUpdateBuffer(buffer, blit_buffer_, 0, sizeof(buf), buf);
-			dependency.swap_stages();
-			dependency.apply(buffer);
 
 			for (const auto & draw_attachment : attachment_manager.get_draw_attachments()){
 				dependency.push(draw_attachment.get_image(),
@@ -381,6 +342,9 @@ private:
 			auto& pipe_config = blit_pipeline_manager_.get_pipelines()[cfg.pipeline_index];
 			pipe_config.pipeline.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
 
+			const math::upoint2 offset = cfg.blit_region.src.as<unsigned>();
+			vkCmdPushConstants(buffer, pipe_config.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(offset), &offset);
+
 			VkDescriptorBufferBindingInfoEXT info;
 			if(cfg.use_default_inouts()){
 				info = blit_default_inout_descriptors_[cfg.pipeline_index];
@@ -393,13 +357,12 @@ private:
 			}
 
 			cache_record_context_.clear();
-			cache_record_context_.push(0, blit_descriptor_buffer_);
-			cache_record_context_.push(1, info);
+			cache_record_context_.push(0, info);
 			blit_pipeline_manager_.append_descriptor_buffers(cache_record_context_, 0);
 			cache_record_context_.prepare_bindings();
 			cache_record_context_(pipe_config.pipeline_layout, buffer, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
 
-			vkCmdDispatchIndirect(buffer, blit_buffer_, sizeof(ubo_blit_config));
+			vkCmdDispatch(buffer, dispatches.x, dispatches.y, 1);
 			dependency.apply(buffer);
 	}
 public:
