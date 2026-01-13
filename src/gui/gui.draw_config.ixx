@@ -17,6 +17,22 @@ struct render_target_mask{
 
 	static constexpr unsigned total_bits = sizeof(underlying_type) * 8;
 
+	constexpr operator std::bitset<total_bits>() const noexcept{
+		return {mask};
+	}
+
+	constexpr bool none() const noexcept{
+		return mask == underlying_type{};
+	}
+
+	constexpr bool all() const noexcept{
+		return mask == ~underlying_type{};
+	}
+
+	constexpr bool any() const noexcept{
+		return mask != 0;
+	}
+
 	constexpr unsigned popcount() const noexcept{
 		return std::popcount(mask);
 	}
@@ -41,7 +57,7 @@ struct render_target_mask{
 	constexpr bool operator==(const render_target_mask&) const noexcept = default;
 
 	template <std::invocable<unsigned> Fn>
-	constexpr void for_each_popbit(this const render_target_mask self, Fn&& fn) noexcept(std::is_nothrow_invocable_v<Fn, unsigned>){
+	constexpr void for_each_popbit(this render_target_mask self, Fn&& fn) noexcept(std::is_nothrow_invocable_v<Fn, unsigned>){
 		for(unsigned i = self.get_lowest_bit_index(); i < self.get_highest_bit_size(); ++i){
 			if(self[i]){
 				fn(i);

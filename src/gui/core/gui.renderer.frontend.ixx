@@ -14,6 +14,7 @@ export import mo_yanxi.graphic.draw.instruction.general;
 export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.gui.alloc;
+export import mo_yanxi.gui.draw_config;
 import mo_yanxi.type_register;
 //TODO move this to other namespace
 import mo_yanxi.vk.util.uniform;
@@ -211,7 +212,7 @@ export
 struct draw_mode_param{
 	draw_mode mode{};
 	blending_type blending{};
-	std::bitset<32> draw_targets{};
+	draw_config::render_target_mask draw_targets{};
 	std::uint32_t pipeline_index{std::numeric_limits<std::uint32_t>::max()};
 
 };

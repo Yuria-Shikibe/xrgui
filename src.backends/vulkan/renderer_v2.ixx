@@ -231,10 +231,9 @@ private:
 
 		{
 			const auto mask = get_current_target(cache_draw_param_stack_.back());
-			for(std::size_t i = 0; i < std::min(mask.size(), attachment_manager.get_draw_attachments().size()); ++i){
-				if(!mask[i])continue;
+			mask.for_each_popbit([&](unsigned i){
 				cache_attachment_enter_mark_[i] = true;
-			}
+			});
 		}
 
 		//TODO optimize empty submit group
@@ -258,12 +257,11 @@ private:
 
 			const auto mask = get_current_target(cache_draw_param_stack_.back());
 			std::size_t curIdx{};
-			for(std::size_t aIdx = 0; aIdx < std::min(mask.size(), attachment_manager.get_draw_attachments().size()); ++aIdx){
-				if(!mask[aIdx])continue;
+			mask.for_each_popbit([&](unsigned aIdx){
 				const bool first_enter = !std::exchange(cache_attachment_enter_mark_[aIdx], true);
 				rendering_config.get_color_attachment_infos()[curIdx].loadOp = first_enter ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 				++curIdx;
-			}
+			});
 
 		}
 
@@ -451,20 +449,22 @@ private:
 		dependency.apply(recorder);
 	}
 
-	std::bitset<32> get_current_target(const gui::draw_mode_param& param) const noexcept{
+	gui::draw_config::render_target_mask get_current_target(const gui::draw_mode_param& param) const noexcept{
 		const auto& pipes = draw_pipeline_manager_.get_pipelines()[param.pipeline_index].option;
 
 		return param.draw_targets.any()
 				   ? param.draw_targets
 				   : pipes.is_partial_target()
 				   ? pipes.default_target_attachments
-				   : std::bitset<32>{~0U};
+				   : gui::draw_config::render_target_mask{~0U};
 	}
 
 	void configure_rendering_info(const gui::draw_mode_param& param){
 		const auto& pipes = draw_pipeline_manager_.get_pipelines()[param.pipeline_index].option;
-		attachment_manager.configure_dynamic_rendering(rendering_config,
-			param.draw_targets.none() ? pipes.default_target_attachments : param.draw_targets, pipes.enables_multisample && attachment_manager.enables_multisample());
+		attachment_manager.configure_dynamic_rendering<32>(
+			rendering_config,
+			param.draw_targets.none() ? pipes.default_target_attachments : param.draw_targets,
+			pipes.enables_multisample && attachment_manager.enables_multisample());
 
 
 	}
