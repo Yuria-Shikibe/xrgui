@@ -16,12 +16,62 @@ import mo_yanxi.math.rect_ortho;
 import mo_yanxi.gui.util;
 export import mo_yanxi.input_handle;
 export import mo_yanxi.gui.alloc;
+export import mo_yanxi.gui.draw_config;
 
 export import mo_yanxi.react_flow;
 import mo_yanxi.allocator_aware_unique_ptr;
 
 
 namespace mo_yanxi::gui{
+
+namespace draw_config{
+export
+struct scene_render_pass_config{
+	static constexpr std::size_t max_pass_capacity = 8;
+
+private:
+	std::array<render_target_mask, max_pass_capacity> masks{};
+	unsigned pass_count{};
+
+public:
+	constexpr scene_render_pass_config() = default;
+
+	constexpr explicit scene_render_pass_config(std::initializer_list<render_target_mask> masks){
+		std::ranges::copy(masks, this->masks.begin());
+	}
+
+	constexpr unsigned size() const noexcept{
+		return pass_count;
+	}
+
+	constexpr void resize(unsigned sz){
+		if(sz >= masks.max_size()){
+			throw std::bad_array_new_length();
+		}
+
+		pass_count = sz;
+	}
+
+	constexpr void push_back(render_target_mask mask){
+		if(pass_count >= masks.max_size()){
+			throw std::bad_array_new_length();
+		}
+
+		masks[pass_count] = mask;
+		pass_count++;
+	}
+
+	constexpr auto begin(this auto& self) noexcept{
+		return self.masks.begin();
+	}
+
+	constexpr auto end(this auto& self) noexcept{
+		return self.masks.begin() + self.size();
+	}
+};
+
+}
+
 
 export
 struct native_communicator{
@@ -111,6 +161,9 @@ protected:
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 
+
+
+	//Frame things
 	unsigned long long current_frame_{};
 	double current_time_{};
 
@@ -125,6 +178,9 @@ protected:
 		);
 
 public:
+	draw_config::scene_render_pass_config render_pass_config{};
+
+
 	template <std::derived_from<native_communicator> Ty, typename ...Args>
 	void set_native_communicator(Args&& ...args){
 		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
@@ -222,7 +278,6 @@ protected:
 	}
 
 };
-
 
 export
 struct scene : scene_base{

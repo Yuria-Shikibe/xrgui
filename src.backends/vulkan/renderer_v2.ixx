@@ -195,11 +195,6 @@ public:
 		create_blit_clear_and_init_cmd();
 	}
 
-	void wait_fence() {
-		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
-		frames_[current_frame_index_].fence.wait_and_reset();
-	}
-
 	void create_command(){
 		{
 			vk::scoped_recorder recorder{frames_[current_frame_index_].main_command_buffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
@@ -208,7 +203,8 @@ public:
 	}
 
 	void upload(){
-		wait_fence();
+		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
+		frames_[current_frame_index_].fence.wait_and_reset();
 		batch_device.upload(batch_host, sampler_, current_frame_index_);
 	}
 
