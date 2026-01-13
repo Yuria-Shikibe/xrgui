@@ -116,8 +116,20 @@ public:
 
 
 		const auto p = ::operator new(new_size, std::align_val_t{align});
-		auto* next = new(p) std::byte[new_size]{};
+		auto* next = new(p) std::byte[new_size];
 		std::memcpy(next, src, size());
+		::operator delete(src, size(), std::align_val_t{align});
+		src = next;
+		dst = src + new_size;
+	}
+
+	void set_size(const std::size_t new_size){
+		if(size() == new_size){
+			return;
+		}
+
+		const auto p = ::operator new(new_size, std::align_val_t{align});
+		auto* next = new(p) std::byte[new_size];
 		::operator delete(src, size(), std::align_val_t{align});
 		src = next;
 		dst = src + new_size;

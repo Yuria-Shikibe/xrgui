@@ -145,22 +145,22 @@ struct draw_uniform_data_entry{
 	std::vector<std::byte> data_{};
 	bool pending{};
 
-	std::span<const std::byte> operator[](const std::size_t idx) const noexcept{
+	FORCE_INLINE inline std::span<const std::byte> operator[](const std::size_t idx) const noexcept{
 		const auto off = idx * unit_size;
 		return {data_.begin() + off, data_.begin() + (off + unit_size)};
 	}
 
-	void reset() noexcept{
+	FORCE_INLINE inline void reset() noexcept{
 		data_.clear();
 		pending = false;
 	}
 
-	std::uint32_t get_current_index() const noexcept{
+	FORCE_INLINE inline std::uint32_t get_current_index() const noexcept{
 		if(data_.empty()) return 0;
 		return get_count() - pending;
 	}
 
-	void push_default(const void* data){
+	FORCE_INLINE inline void push_default(const void* data){
 		assert(data_.empty());
 		data_.resize(unit_size);
 		std::memcpy(data_.data(), data, unit_size);
@@ -168,7 +168,7 @@ struct draw_uniform_data_entry{
 
 	template <typename T>
 		requires (std::is_trivially_copyable_v<T> && !std::is_pointer_v<T> && std::is_class_v<T>)
-	void push_default(const T& v){
+	FORCE_INLINE void push_default(const T& v){
 		assert(unit_size == sizeof(T));
 		push_default(static_cast<const void*>(std::addressof(v)));
 	}
@@ -178,7 +178,7 @@ struct draw_uniform_data_entry{
 	 * @return true if accepted(acquires timeline marching)
 	 *
 	 */
-	[[nodiscard]] bool collapse() noexcept{
+	[[nodiscard]] FORCE_INLINE inline bool collapse() noexcept{
 		if(!pending) return false;
 		auto count = get_count();
 		auto p = (count - 1) * unit_size + data_.begin();
@@ -198,7 +198,7 @@ struct draw_uniform_data_entry{
 		}
 	}
 
-	void push(const void* data){
+	FORCE_INLINE inline void push(const void* data){
 		if(pending){
 			auto last = get_count();
 			assert(last > 0);
@@ -213,32 +213,36 @@ struct draw_uniform_data_entry{
 		}
 	}
 
-	void push(std::span<const std::byte> data){
+	FORCE_INLINE inline void push(std::span<const std::byte> data){
 		assert(unit_size == data.size());
 		push(data.data());
 	}
 
 	template <typename T>
 		requires (std::is_trivially_copyable_v<T> && !std::is_pointer_v<T> && std::is_class_v<T>)
-	void push(const T& v){
+	FORCE_INLINE void push(const T& v){
 		assert(unit_size == sizeof(T));
 		push(static_cast<const void*>(std::addressof(v)));
 	}
 
-	bool empty() const noexcept{
+	FORCE_INLINE inline bool empty() const noexcept{
 		return data_.empty();
 	}
 
-	std::uint32_t get_count() const noexcept{
+	FORCE_INLINE inline std::uint32_t get_count() const noexcept{
 		return static_cast<std::uint32_t>(data_.size() / unit_size);
 	}
 
-	std::size_t get_required_byte_size() const noexcept{
+	FORCE_INLINE inline std::size_t get_required_byte_size() const noexcept{
 		return data_.size() - pending * unit_size;
 	}
 
-	std::span<const std::byte> get_data_span() const noexcept{
+	FORCE_INLINE inline std::span<const std::byte> get_data_span() const noexcept{
 		return {data_.data(), get_required_byte_size()};
+	}
+
+	FORCE_INLINE inline const std::byte* data() const noexcept{
+		return data_.data();
 	}
 };
 

@@ -31,10 +31,6 @@ struct VertexUI {
 
 typealias UI_VTX = VertexUI;
 
-
-[[vk::binding(0, 1)]]
-ConstantBuffer<dispatch_config> dispatch_config_ubo;
-
 [[vk::binding(0, 0)]]
 readonly StructuredBuffer<mesh_dispatch_info_v2<2>> dispatch_info;
 
@@ -52,6 +48,9 @@ readonly StructuredBuffer<ubo_screen_info, Std140DataLayout> screen_info;
 
 [[vk::binding(5, 0)]]
 readonly StructuredBuffer<ubo_layer_info, Std140DataLayout> layer_info;
+
+[[vk::binding(0, 1)]]
+ConstantBuffer<dispatch_config> dispatch_config_ubo;
 
 struct trans : vertex_transformer_2<UI_VTX> {
     uint32_t[2] timeline;

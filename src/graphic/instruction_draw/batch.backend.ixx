@@ -53,7 +53,9 @@ struct state_transition_command_context{
 };
 
 //
-VkDeviceSize load_data_group_to_buffer(const data_entry_group& group, const vk::allocator_usage& allocator,
+VkDeviceSize load_data_group_to_buffer(
+	const data_entry_group& group,
+	const vk::allocator_usage& allocator,
 	vk::buffer_cpu_to_gpu& gpu_buffer, VkBufferUsageFlags flags){
 	VkDeviceSize required_size{};
 	for(const auto& entry : group.entries){
@@ -75,6 +77,66 @@ VkDeviceSize load_data_group_to_buffer(const data_entry_group& group, const vk::
 
 	return cur_offset;
 }
+
+struct data_layout_spec{
+	struct entry{
+		unsigned offset;
+		unsigned unit_size;
+	};
+
+	instruction_buffer data{};
+	std::vector<entry> entries{};
+
+	void begin_push(){
+		entries.assign(1, {});
+	}
+
+	void push(unsigned size, unsigned count){
+		//TODO get required align from device
+		auto& cur = entries.back();
+		cur.unit_size = size;
+
+		const auto aligned = vk::align_up(size, 64U);
+		const auto total_req = aligned * count;
+
+		entries.push_back({cur.offset + total_req});
+	}
+
+	unsigned offset_at(unsigned index, unsigned local_index) const noexcept{
+		return entries[index].offset + local_index * vk::align_up(entries[index].unit_size, 64U);
+	}
+
+	unsigned finalize() noexcept{
+		auto sz = entries.back().offset;
+		data.set_size(sz);
+		return sz;
+	}
+
+	void load(unsigned index, const std::byte* src, unsigned count) const noexcept{
+		const auto entry = entries[index];
+		const auto dst = data.data() + entry.offset;
+		for(unsigned i = 0; i < count; ++i){
+			std::memcpy(dst + i * vk::align_up(entry.unit_size, 64U), src + i * entry.unit_size, entry.unit_size);
+		}
+	}
+
+	template <std::ranges::input_range Rng>
+		requires (std::is_trivially_copyable_v<std::remove_cvref_t<std::ranges::range_const_reference_t<Rng>>>)
+	void load(unsigned index, Rng&& rng) const noexcept{
+		const auto entry = entries[index];
+		constexpr static unsigned sz = sizeof(std::remove_cvref_t<std::ranges::range_const_reference_t<Rng>>);
+		assert(entry.unit_size == sz);
+		const auto dst = data.data() + entry.offset;
+		for(unsigned i = {}; const auto& val : rng){
+			std::memcpy(dst + i * vk::align_up(sz, 64U), std::addressof(val), sz);
+			++i;
+		}
+	}
+
+	std::span<const std::byte> get_payload() const noexcept{
+		return {data};
+	}
+};
 
 export class batch_vulkan_executor{
 private:
@@ -113,13 +175,20 @@ private:
 	 */
 	vk::descriptor_layout volatile_descriptor_layout_{};
 	vk::descriptor_buffer volatile_descriptor_buffer_{};
+	vk::descriptor_buffer volatile_descriptor_buffer_v2_{};
 
 	VkSampler sampler_{};
 
+	data_layout_spec volatile_data_layout_{};
+	vk::buffer_cpu_to_gpu buffer_volatile_data_v2_{};
+
+
 	VkDeviceSize offset_ceil(std::size_t size) const noexcept{
 		//TODO check device real limit
-		return  vk::align_up(size, 64);
+		return  vk::align_up(size, 64uz);
 	}
+
+	static constexpr unsigned image_index = 3;
 public:
 	[[nodiscard]] batch_vulkan_executor() = default;
 
@@ -141,7 +210,7 @@ public:
 				{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 				{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 				{2, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
-				{3, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER}, // Dynamic count
+				{image_index, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER}, // Dynamic count
 				{4, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Base for vertex UBOs
 				{5, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 			})
@@ -172,6 +241,7 @@ public:
 			}
 		}
 		, volatile_descriptor_buffer_(a, volatile_descriptor_layout_, volatile_descriptor_layout_.binding_count())
+		, volatile_descriptor_buffer_v2_(a, volatile_descriptor_layout_, volatile_descriptor_layout_.binding_count())
 		, sampler_(sampler){
 		// Setup static descriptors for non-vertex buffers
 		const vk::descriptor_mapper mapper{volatile_descriptor_buffer_};
@@ -275,6 +345,43 @@ public:
 		load_data_group_to_buffer(host_ctx.get_data_group_non_vertex_info(), allocator_, buffer_volatile_info_,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 
+		{
+			volatile_data_layout_.begin_push();
+			volatile_data_layout_.push(sizeof(dispatch_config), submit_info_.size());
+
+			for (const auto & entry : host_ctx.get_data_group_non_vertex_info().entries){
+				auto total = entry.get_count();
+				volatile_data_layout_.push(entry.unit_size, total);
+			}
+			volatile_data_layout_.finalize();
+
+			volatile_data_layout_.load(0, submit_info_ | std::views::transform([cur = 0u](const VkDrawMeshTasksIndirectCommandEXT& info) mutable{
+				const dispatch_config rst{cur};
+				cur += info.groupCountX;
+				return rst;
+			}));
+
+			for (const auto & [idx, entry] : host_ctx.get_data_group_non_vertex_info().entries | std::views::enumerate){
+				const auto total = entry.get_count();
+				volatile_data_layout_.load(1 + idx, entry.data(), total);
+			}
+
+			const auto payload = volatile_data_layout_.get_payload();
+			if(buffer_volatile_data_v2_.get_size() < payload.size()){
+				buffer_volatile_data_v2_ = vk::buffer_cpu_to_gpu{
+					allocator_, payload.size(),
+					VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+				};
+			}
+			vk::buffer_mapper{buffer_volatile_data_v2_}.load_range(payload);
+
+			if(volatile_descriptor_buffer_v2_.get_chunk_count() < submit_info_.size()){
+				volatile_descriptor_buffer_v2_.set_chunk_count(submit_info_.size());
+			}
+
+
+		}
+
 		// 4. Upload Instructions & Update Descriptors
 		{
 
@@ -324,8 +431,8 @@ public:
 
 			{
 				// Update Dynamic Descriptor Buffer
-				if(const auto cur_size = host_ctx.get_used_images<void*>().size(); bindings_[3].count != cur_size){
-					bindings_[3].count = static_cast<std::uint32_t>(cur_size);
+				if(const auto cur_size = host_ctx.get_used_images<void*>().size(); bindings_[image_index].count != cur_size){
+					bindings_[image_index].count = static_cast<std::uint32_t>(cur_size);
 					descriptor_buffer_.reconfigure(descriptor_layout_, descriptor_layout_.binding_count(), bindings_);
 					requires_command_record = true;
 				}
@@ -337,7 +444,7 @@ public:
 					instructionHeadSize);
 				dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_.get_address(),
 					instructionSize);
-				dbo_mapper.set_images_at(3, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_,
+				dbo_mapper.set_images_at(image_index, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_,
 					host_ctx.get_used_images<VkImageView>());
 
 				VkDeviceSize cur_offset{};
