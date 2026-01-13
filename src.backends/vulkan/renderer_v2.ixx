@@ -74,12 +74,14 @@ private:
 		vk::fence fence{};
 		vk::command_buffer main_command_buffer{};
 
+		frame_data() = default;
+
 		frame_data(VkDevice device, VkCommandPool pool)
 			: fence(device, true)
 			, main_command_buffer(device, pool)
 		{}
 	};
-	std::vector<frame_data> frames_{};
+	std::array<frame_data, frames_in_flight> frames_{};
 	std::uint32_t current_frame_index_{frames_in_flight - 1};
 
 	vk::command_buffer blit_attachment_clear_and_init_command_buffer{};
@@ -122,9 +124,8 @@ public:
 			VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 		, sampler_(create_info.sampler){
 
-		frames_.reserve(frames_in_flight);
 		for(std::size_t i = 0; i < frames_in_flight; ++i){
-			frames_.emplace_back(allocator_usage_.get_device(), create_info.command_pool);
+			frames_[i] = frame_data(allocator_usage_.get_device(), create_info.command_pool);
 		}
 
 		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY};

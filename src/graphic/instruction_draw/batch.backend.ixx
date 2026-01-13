@@ -184,6 +184,229 @@ private:
 			, descriptor_buffer(allocator, layout, layout.binding_count(), std::vector<vk::binding_spec>{})
 			, volatile_descriptor_buffer(allocator, volatile_layout, volatile_layout.binding_count())
 		{}
+
+		void upload_indirect(
+			const vk::allocator_usage& allocator,
+			const std::span<const VkDrawMeshTasksIndirectCommandEXT> submit_info) {
+
+			if(const auto reqSize = submit_info.size_bytes(); buffer_indirect.get_size() < reqSize){
+				buffer_indirect = vk::buffer_cpu_to_gpu(allocator, reqSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+			}
+			vk::buffer_mapper{buffer_indirect}.load_range(submit_info);
+		}
+
+		std::uint32_t upload_dispatch(
+			const vk::allocator_usage& allocator,
+			const draw_list_context& host_ctx,
+			const std::span<const contiguous_draw_list> submit_group_subrange) {
+
+			std::uint32_t totalDispatchCount{};
+			const auto dispatch_timeline_size = host_ctx.get_data_group_vertex_info().size() * sizeof(std::uint32_t);
+			const auto dispatch_unit_size = sizeof(dispatch_group_info) + dispatch_timeline_size;
+
+			VkDeviceSize deviceSize{};
+			for(const auto& group : submit_group_subrange){
+				deviceSize += group.get_dispatch_infos().size_bytes() + group.get_timeline_datas().size_bytes();
+			}
+			deviceSize += dispatch_unit_size; // Sentinel
+
+			if(buffer_dispatch_info.get_size() < deviceSize){
+				buffer_dispatch_info = vk::buffer_cpu_to_gpu{
+						allocator, deviceSize,
+						VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+					};
+			}
+
+			vk::buffer_mapper mapper{buffer_dispatch_info};
+			std::vector<std::byte> buffer{};
+			VkDeviceSize pushed_size{};
+			std::uint32_t current_instr_offset{};
+			std::uint32_t current_head_offset{};
+			for(const auto& [idx, group] : submit_group_subrange | std::views::enumerate){
+				const auto dispatch = group.get_dispatch_infos();
+				const auto timeline = group.get_timeline_datas();
+				buffer.resize(dispatch.size_bytes() + timeline.size_bytes());
+
+				for(std::size_t i = 0; i < dispatch.size(); ++i){
+					auto info = dispatch[i];
+					info.instruction_head_index += current_head_offset;
+					info.instruction_offset += current_instr_offset;
+					std::memcpy(buffer.data() + dispatch_unit_size * i, &info, sizeof(info));
+					std::memcpy(buffer.data() + dispatch_unit_size * i + sizeof(info),
+						timeline.data() + i * host_ctx.get_data_group_vertex_info().size(), dispatch_timeline_size);
+				}
+
+				mapper.load_range(buffer, pushed_size);
+				pushed_size += buffer.size();
+				totalDispatchCount += static_cast<std::uint32_t>(dispatch.size());
+
+				current_instr_offset += static_cast<std::uint32_t>(group.get_pushed_instruction_size());
+				current_head_offset += group.get_instruction_heads().size();
+			}
+
+			// Add instruction sentinel
+			mapper.load(dispatch_group_info{.instruction_offset = current_instr_offset}, pushed_size);
+
+			return totalDispatchCount;
+		}
+
+		void upload_user_data(
+			const vk::allocator_usage& allocator,
+			const draw_list_context& host_ctx,
+			const std::span<const VkDrawMeshTasksIndirectCommandEXT> submit_info,
+			data_layout_spec& volatile_data_layout,
+			std::vector<std::uint32_t>& cached_volatile_timelines) {
+
+			// Sustained
+			load_data_group_to_buffer(host_ctx.get_data_group_vertex_info(), allocator, buffer_sustained_info,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+
+			// Volatile
+			volatile_data_layout.begin_push();
+			volatile_data_layout.push(sizeof(dispatch_config), submit_info.size());
+
+			for (const auto & entry : host_ctx.get_data_group_non_vertex_info().entries){
+				auto total = entry.get_count();
+				volatile_data_layout.push(entry.unit_size, total);
+			}
+			volatile_data_layout.finalize();
+
+			volatile_data_layout.load(0, submit_info | std::views::transform([cur = 0u](const VkDrawMeshTasksIndirectCommandEXT& info) mutable{
+				const dispatch_config rst{cur};
+				cur += info.groupCountX;
+				return rst;
+			}));
+
+			const auto& vtx_info = host_ctx.get_data_group_non_vertex_info();
+
+			for (const auto & [idx, entry] : vtx_info.entries | std::views::enumerate){
+				const auto total = entry.get_count();
+				volatile_data_layout.load(1 + idx, entry.data(), total);
+			}
+
+			const auto payload = volatile_data_layout.get_payload();
+			if(buffer_volatile_data.get_size() < payload.size()){
+				buffer_volatile_data = vk::buffer_cpu_to_gpu{
+					allocator, payload.size(),
+					VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+				};
+			}
+			vk::buffer_mapper{buffer_volatile_data}.load_range(payload);
+
+			if(volatile_descriptor_buffer.get_chunk_count() < submit_info.size() + 1){
+				volatile_descriptor_buffer.set_chunk_count(submit_info.size() + 1);
+			}
+
+			cached_volatile_timelines.resize(vtx_info.size(), 0);
+
+			vk::descriptor_mapper mapper{volatile_descriptor_buffer};
+
+			auto load_timelines = [&](std::size_t current_chunk){
+				mapper.set_uniform_buffer(0, buffer_volatile_data.get_address() + volatile_data_layout.offset_at(0, current_chunk), sizeof(dispatch_config), current_chunk);
+				for (auto [idx, timeline] : cached_volatile_timelines | std::views::enumerate){
+					auto [off, sz] = volatile_data_layout[idx + 1, timeline];
+					mapper.set_uniform_buffer(idx + 1, buffer_volatile_data.get_address() + off, sz, current_chunk);
+				}
+			};
+
+			load_timelines(0);
+			auto breakpoints = host_ctx.get_state_transitions();
+			for (const auto & [chunk_idx, breakpoint] : breakpoints | std::views::enumerate){
+				for(const auto i : breakpoint.uniform_buffer_marching_indices){
+					++cached_volatile_timelines[i];
+				}
+				load_timelines(chunk_idx + 1);
+			}
+		}
+
+		void upload_instructions(
+			const vk::allocator_usage& allocator,
+			const std::span<const contiguous_draw_list> submit_group_subrange,
+			std::uint32_t& instructionHeadSize,
+			std::uint32_t& instructionSize) {
+
+			const auto head_size_view = submit_group_subrange | std::views::transform([](const contiguous_draw_list& list){
+				return list.get_instruction_heads().size_bytes();
+			});
+			const auto payload_size_view = submit_group_subrange | std::views::transform([](const contiguous_draw_list& list){
+				return list.get_pushed_instruction_size();
+			});
+			instructionHeadSize = std::reduce(head_size_view.begin(), head_size_view.end(), 0u, std::plus<>{});
+			instructionSize = std::reduce(payload_size_view.begin(), payload_size_view.end(), 0u, std::plus<>{});
+
+			if(buffer_instruction_heads.get_size() < instructionHeadSize){
+				buffer_instruction_heads = vk::buffer_cpu_to_gpu{
+						allocator, instructionHeadSize,
+						VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+					};
+			}
+
+			if(buffer_instruction.get_size() < instructionSize){
+				buffer_instruction = vk::buffer_cpu_to_gpu{
+						allocator, instructionSize,
+						VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+					};
+			}
+
+			{
+				vk::buffer_mapper mapper{buffer_instruction};
+				std::size_t current_offset{};
+				for(const auto& [idx, submit_group] : submit_group_subrange | std::views::enumerate){
+					(void)mapper.load_range(std::span{
+							submit_group.get_buffer_data(), submit_group.get_pushed_instruction_size()
+						}, current_offset);
+					current_offset += submit_group.get_pushed_instruction_size();
+				}
+			}
+
+			{
+				vk::buffer_mapper mapper{buffer_instruction_heads};
+				std::size_t current_offset{};
+				for(const auto& [idx, submit_group] : submit_group_subrange | std::views::enumerate){
+					const auto spn = submit_group.get_instruction_heads();
+  					(void)mapper.load_range(spn, current_offset);
+					current_offset += spn.size_bytes();
+				}
+			}
+		}
+
+		bool update_descriptors(
+			const draw_list_context& host_ctx,
+			const vk::descriptor_layout& descriptor_layout,
+			VkSampler sampler,
+			std::uint32_t totalDispatchCount,
+			std::uint32_t instructionHeadSize,
+			std::uint32_t instructionSize) {
+
+			bool requires_command_record = false;
+			// Update Dynamic Descriptor Buffer
+			if(const auto cur_size = host_ctx.get_used_images<void*>().size(); bindings[image_index].count != cur_size){
+				bindings[image_index].count = static_cast<std::uint32_t>(cur_size);
+				descriptor_buffer.reconfigure(descriptor_layout, descriptor_layout.binding_count(), bindings);
+				requires_command_record = true;
+			}
+
+			const auto dispatch_timeline_size = host_ctx.get_data_group_vertex_info().size() * sizeof(std::uint32_t);
+			const auto dispatch_unit_size = sizeof(dispatch_group_info) + dispatch_timeline_size;
+
+			vk::dynamic_descriptor_mapper dbo_mapper{descriptor_buffer};
+			dbo_mapper.set_element_at(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_dispatch_info.get_address(),
+				dispatch_unit_size * (1 + totalDispatchCount));
+			dbo_mapper.set_element_at(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_heads.get_address(),
+				instructionHeadSize);
+			dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction.get_address(),
+				instructionSize);
+			dbo_mapper.set_images_at(image_index, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler,
+				host_ctx.get_used_images<VkImageView>());
+
+			VkDeviceSize cur_offset{};
+			for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
+				dbo_mapper.set_element_at(4 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					buffer_sustained_info.get_address() + cur_offset, entry.get_required_byte_size());
+				cur_offset += entry.get_required_byte_size();
+			}
+			return requires_command_record;
+		}
 	};
 
 	std::vector<VkDrawMeshTasksIndirectCommandEXT> submit_info_{};
@@ -273,202 +496,17 @@ public:
 			return std::span{std::as_const(submit_info_)};
 		}();
 
-		bool requires_command_record = false;
+		frame.upload_indirect(allocator_, dispatchCountGroups);
 
-		if(const auto reqSize = dispatchCountGroups.size() * sizeof(VkDrawMeshTasksIndirectCommandEXT); frame.buffer_indirect
-			.get_size() < reqSize){
-			frame.buffer_indirect = vk::buffer_cpu_to_gpu(allocator_, reqSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
-		}
-		vk::buffer_mapper{frame.buffer_indirect}.load_range(dispatchCountGroups);
+		std::uint32_t totalDispatchCount = frame.upload_dispatch(allocator_, host_ctx, submit_group_subrange);
 
-		// 2. Prepare Dispatch Info & Timeline
-		std::uint32_t totalDispatchCount{};
-		const auto dispatch_timeline_size = host_ctx.get_data_group_vertex_info().size() * sizeof(std::uint32_t);
-		const auto dispatch_unit_size = sizeof(dispatch_group_info) + dispatch_timeline_size;
+		frame.upload_user_data(allocator_, host_ctx, dispatchCountGroups, volatile_data_layout_, cached_volatile_timelines_);
 
-		{
-			VkDeviceSize deviceSize{};
-			for(const auto& group : submit_group_subrange){
-				deviceSize += group.get_dispatch_infos().size_bytes() + group.get_timeline_datas().
-					size_bytes();
-			}
-			deviceSize += dispatch_unit_size; // Sentinel
+		std::uint32_t instructionHeadSize = 0;
+		std::uint32_t instructionSize = 0;
+		frame.upload_instructions(allocator_, submit_group_subrange, instructionHeadSize, instructionSize);
 
-			if(frame.buffer_dispatch_info.get_size() < deviceSize){
-				frame.buffer_dispatch_info = vk::buffer_cpu_to_gpu{
-						allocator_, deviceSize,
-						VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-					};
-			}
-
-			vk::buffer_mapper mapper{frame.buffer_dispatch_info};
-			std::vector<std::byte> buffer{};
-			VkDeviceSize pushed_size{};
-			std::uint32_t current_instr_offset{};
-			std::uint32_t current_head_offset{};
-			for(const auto& [idx, group] : submit_group_subrange | std::views::enumerate){
-				const auto dispatch = group.get_dispatch_infos();
-				const auto timeline = group.get_timeline_datas();
-				buffer.resize(dispatch.size_bytes() + timeline.size_bytes());
-
-				for(std::size_t i = 0; i < dispatch.size(); ++i){
-					auto info = dispatch[i];
-					info.instruction_head_index += current_head_offset;
-					info.instruction_offset += current_instr_offset;
-					std::memcpy(buffer.data() + dispatch_unit_size * i, &info, sizeof(info));
-					std::memcpy(buffer.data() + dispatch_unit_size * i + sizeof(info),
-						timeline.data() + i * host_ctx.get_data_group_vertex_info().size(), dispatch_timeline_size);
-				}
-
-				mapper.load_range(buffer, pushed_size);
-				pushed_size += buffer.size();
-				totalDispatchCount += static_cast<std::uint32_t>(dispatch.size());
-
-				current_instr_offset += static_cast<std::uint32_t>(group.get_pushed_instruction_size());
-				current_head_offset += group.get_instruction_heads().size();
-			}
-
-			// Add instruction sentinel
-			mapper.load(dispatch_group_info{.instruction_offset = current_instr_offset}, pushed_size);
-		}
-
-		// 3. Upload User Data Entries
-		load_data_group_to_buffer(host_ctx.get_data_group_vertex_info(), allocator_, frame.buffer_sustained_info,
-			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-
-		{
-			volatile_data_layout_.begin_push();
-			volatile_data_layout_.push(sizeof(dispatch_config), submit_info_.size());
-
-			for (const auto & entry : host_ctx.get_data_group_non_vertex_info().entries){
-				auto total = entry.get_count();
-				volatile_data_layout_.push(entry.unit_size, total);
-			}
-			volatile_data_layout_.finalize();
-
-			volatile_data_layout_.load(0, submit_info_ | std::views::transform([cur = 0u](const VkDrawMeshTasksIndirectCommandEXT& info) mutable{
-				const dispatch_config rst{cur};
-				cur += info.groupCountX;
-				return rst;
-			}));
-
-			const auto& vtx_info = host_ctx.get_data_group_non_vertex_info();
-
-			for (const auto & [idx, entry] : vtx_info.entries | std::views::enumerate){
-				const auto total = entry.get_count();
-				volatile_data_layout_.load(1 + idx, entry.data(), total);
-			}
-
-			const auto payload = volatile_data_layout_.get_payload();
-			if(frame.buffer_volatile_data.get_size() < payload.size()){
-				frame.buffer_volatile_data = vk::buffer_cpu_to_gpu{
-					allocator_, payload.size(),
-					VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-				};
-			}
-			vk::buffer_mapper{frame.buffer_volatile_data}.load_range(payload);
-
-			if(frame.volatile_descriptor_buffer.get_chunk_count() < submit_info_.size() + 1){
-				frame.volatile_descriptor_buffer.set_chunk_count(submit_info_.size() + 1);
-			}
-
-			cached_volatile_timelines_.resize(vtx_info.size(), 0);
-
-			vk::descriptor_mapper mapper{frame.volatile_descriptor_buffer};
-
-			auto load_timelines = [&](std::size_t current_chunk){
-				mapper.set_uniform_buffer(0, frame.buffer_volatile_data.get_address() + volatile_data_layout_.offset_at(0, current_chunk), sizeof(dispatch_config), current_chunk);
-				for (auto [idx, timeline] : cached_volatile_timelines_ | std::views::enumerate){
-					auto [off, sz] = volatile_data_layout_[idx + 1, timeline];
-					mapper.set_uniform_buffer(idx + 1, frame.buffer_volatile_data.get_address() + off, sz, current_chunk);
-				}
-			};
-
-			load_timelines(0);
-			auto breakpoints = host_ctx.get_state_transitions();
-			for (const auto & [chunk_idx, breakpoint] : breakpoints | std::views::enumerate){
-				for(const auto i : breakpoint.uniform_buffer_marching_indices){
-					++cached_volatile_timelines_[i];
-				}
-				load_timelines(chunk_idx + 1);
-			}
-		}
-
-		// 4. Upload Instructions & Update Descriptors
-		{
-
-			const auto head_size_view = submit_group_subrange | std::views::transform([](const contiguous_draw_list& list){
-				return list.get_instruction_heads().size_bytes();
-			});
-			const auto payload_size_view = submit_group_subrange | std::views::transform([](const contiguous_draw_list& list){
-				return list.get_pushed_instruction_size();
-			});
-			const std::uint32_t instructionHeadSize{std::reduce(head_size_view.begin(), head_size_view.end(), 0u, std::plus<>{})};
-			const std::uint32_t instructionSize{std::reduce(payload_size_view.begin(), payload_size_view.end(), 0u, std::plus<>{})};
-
-			if(frame.buffer_instruction_heads.get_size() < instructionHeadSize){
-				frame.buffer_instruction_heads = vk::buffer_cpu_to_gpu{
-						allocator_, instructionHeadSize,
-						VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-					};
-			}
-
-			if(frame.buffer_instruction.get_size() < instructionSize){
-				frame.buffer_instruction = vk::buffer_cpu_to_gpu{
-						allocator_, instructionSize,
-						VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-					};
-			}
-
-			{
-				vk::buffer_mapper mapper{frame.buffer_instruction};
-				std::size_t current_offset{};
-				for(const auto& [idx, submit_group] : submit_group_subrange | std::views::enumerate){
-					(void)mapper.load_range(std::span{
-							submit_group.get_buffer_data(), submit_group.get_pushed_instruction_size()
-						}, current_offset);
-					current_offset += submit_group.get_pushed_instruction_size();
-				}
-			}
-
-			{
-				vk::buffer_mapper mapper{frame.buffer_instruction_heads};
-				std::size_t current_offset{};
-				for(const auto& [idx, submit_group] : submit_group_subrange | std::views::enumerate){
-					const auto spn = submit_group.get_instruction_heads();
-  					(void)mapper.load_range(spn, current_offset);
-					current_offset += spn.size_bytes();
-				}
-			}
-
-			{
-				// Update Dynamic Descriptor Buffer
-				if(const auto cur_size = host_ctx.get_used_images<void*>().size(); frame.bindings[image_index].count != cur_size){
-					frame.bindings[image_index].count = static_cast<std::uint32_t>(cur_size);
-					frame.descriptor_buffer.reconfigure(descriptor_layout_, descriptor_layout_.binding_count(), frame.bindings);
-					requires_command_record = true;
-				}
-
-				vk::dynamic_descriptor_mapper dbo_mapper{frame.descriptor_buffer};
-				dbo_mapper.set_element_at(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.buffer_dispatch_info.get_address(),
-					dispatch_unit_size * (1 + totalDispatchCount));
-				dbo_mapper.set_element_at(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.buffer_instruction_heads.get_address(),
-					instructionHeadSize);
-				dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.buffer_instruction.get_address(),
-					instructionSize);
-				dbo_mapper.set_images_at(image_index, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler,
-					host_ctx.get_used_images<VkImageView>());
-
-				VkDeviceSize cur_offset{};
-				for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
-					dbo_mapper.set_element_at(4 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-						frame.buffer_sustained_info.get_address() + cur_offset, entry.get_required_byte_size());
-					cur_offset += entry.get_required_byte_size();
-				}
-			}
-		}
-
-		return requires_command_record;
+		return frame.update_descriptors(host_ctx, descriptor_layout_, sampler, totalDispatchCount, instructionHeadSize, instructionSize);
 	}
 
 	std::array<VkDescriptorSetLayout, 2> get_descriptor_set_layout() const noexcept{
