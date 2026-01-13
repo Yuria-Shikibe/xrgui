@@ -1,4 +1,8 @@
 import post_process_lib;
+
+[[vk::push_constant]]
+uint2 offset;
+
 struct blit_info {
     uint2 offset;
     uint2 _cap;

@@ -232,7 +232,7 @@ private:
 		cache_record_context_.clear();
 		batch_device.load_descriptors(cache_record_context_);
 		cache_record_context_.prepare_bindings();
-		cache_record_context_(pipe_config.pipeline_layout, cmdbuf, 0, VK_PIPELINE_BIND_POINT_GRAPHICS);
+		cache_record_context_(pipe_config.pipeline_layout, cmdbuf, index, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 		batch_device.cmd_draw(cmdbuf, index);
 	}
@@ -248,7 +248,6 @@ private:
 		}
 
 		const VkRect2D region = attachment_manager.get_screen_area();
-		auto ctx = batch_device.cmd_set_up_state(command_buffer, batch_host);
 
 		std::ranges::fill(cache_attachment_enter_mark_, false);
 		cache_draw_param_stack_.resize(1, {.pipeline_index = {}});
@@ -278,7 +277,6 @@ private:
 				requiresClear = process_breakpoints(e, command_buffer) || requiresClear;
 			}
 
-			batch_device.cmd_translate_state(command_buffer, batch_host, ctx, i);
 			if(requiresClear){
 				std::ranges::fill(cache_attachment_enter_mark_, 0);
 			}

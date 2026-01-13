@@ -112,6 +112,19 @@ struct create_param{
 	std::span<const VkDescriptorSetLayout> descriptor_set_layouts{};
 };
 
+export
+std::vector<VkPushConstantRange> make_push_constants(VkShaderStageFlagBits stage, std::initializer_list<std::uint32_t> size){
+	std::vector<VkPushConstantRange> rst;
+	rst.reserve(size.size());
+	std::uint32_t cur_offset = 0;
+	for (auto s : size){
+		auto aligned = vk::align_up<std::uint32_t>(s, 4);
+		rst.emplace_back(stage, cur_offset, aligned);
+		cur_offset += aligned;
+	}
+	return rst;
+}
+
 struct general_config{
 	std::vector<VkPushConstantRange> push_constants{};
 };

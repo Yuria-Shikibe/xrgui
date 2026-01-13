@@ -345,8 +345,8 @@ private:
 	state_transition_config defer_transition_config_front_{};
 	state_transition_config defer_transition_config_back_{};
 
-	data_entry_group data_group_vertex_info_{};
-	data_entry_group data_group_non_vertex_info_{};
+	data_entry_group data_group_sustained_info_{};
+	data_entry_group data_group_volatile_info_{};
 
 	image_view_history_dynamic dynamic_image_view_history_{16};
 
@@ -364,8 +364,8 @@ public:
 		const data_layout_table<>& non_vertex_data_table
 	)
 		: hardware_limit_(config)
-		, data_group_vertex_info_{vertex_data_table}
-		, data_group_non_vertex_info_{non_vertex_data_table}{
+		, data_group_sustained_info_{vertex_data_table}
+		, data_group_volatile_info_{non_vertex_data_table}{
 	}
 
 	void clear() noexcept{
@@ -374,19 +374,19 @@ public:
 		current_group = nullptr;
 		defer_transition_config_front_ = {};
 		defer_transition_config_back_ = {};
-		data_group_vertex_info_.reset();
-		data_group_non_vertex_info_.reset();
+		data_group_sustained_info_.reset();
+		data_group_volatile_info_.reset();
 	}
 
 	void begin_rendering() noexcept{
 		if(submit_groups_.empty()){
 			submit_groups_.push_back({
-					data_group_vertex_info_.size(), get_mesh_dispatch_limit(), data_group_vertex_info_.entries
+					data_group_sustained_info_.size(), get_mesh_dispatch_limit(), data_group_sustained_info_.entries
 				});
 		}
 
-		data_group_non_vertex_info_.reset();
-		data_group_vertex_info_.reset();
+		data_group_volatile_info_.reset();
+		data_group_sustained_info_.reset();
 
 		submit_groups_.front().reset({});
 		current_group = submit_groups_.data();
@@ -478,15 +478,15 @@ public:
 			const auto targetIndex = instr_head.payload.ubo.index;
 			//TODO use other name to replace group index
 			if(instr_head.payload.ubo.group_index){
-				data_group_non_vertex_info_.push(targetIndex, payload);
+				data_group_volatile_info_.push(targetIndex, payload);
 			} else{
-				data_group_vertex_info_.push(targetIndex, payload);
+				data_group_sustained_info_.push(targetIndex, payload);
 			}
 
 			return;
 		}
 
-		for(auto&& [idx, vertex_data_entry] : data_group_vertex_info_.entries | std::views::enumerate){
+		for(auto&& [idx, vertex_data_entry] : data_group_sustained_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				const instruction_head instruction_head{
 						.type = instr_type::uniform_update,
@@ -497,7 +497,7 @@ public:
 		}
 
 		state_transition* breakpoint{};
-		for(auto&& [idx, vertex_data_entry] : data_group_non_vertex_info_.entries | std::views::enumerate){
+		for(auto&& [idx, vertex_data_entry] : data_group_volatile_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				if(!breakpoint){
 					const auto cur_idx = get_current_submit_group_index() + 1;
@@ -523,12 +523,12 @@ public:
 
 	template <typename S>
 	[[nodiscard]] auto& get_data_group_vertex_info(this S& self) noexcept{
-		return self.data_group_vertex_info_;
+		return self.data_group_sustained_info_;
 	}
 
 	template <typename S>
 	[[nodiscard]] auto& get_data_group_non_vertex_info(this S& self) noexcept{
-		return self.data_group_non_vertex_info_;
+		return self.data_group_volatile_info_;
 	}
 
 	std::uint32_t get_submit_sections_count() const noexcept{
@@ -544,8 +544,8 @@ private:
 	void advance_current_group(){
 		auto last_param = current_group->get_extend_able_params();
 		if(current_group == std::to_address(submit_groups_.rbegin())){
-			current_group = &submit_groups_.emplace_back(data_group_vertex_info_.size(), get_mesh_dispatch_limit(),
-				data_group_vertex_info_.entries);
+			current_group = &submit_groups_.emplace_back(data_group_sustained_info_.size(), get_mesh_dispatch_limit(),
+				data_group_sustained_info_.entries);
 		} else{
 			++current_group;
 		}

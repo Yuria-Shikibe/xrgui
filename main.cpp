@@ -336,7 +336,7 @@ void prepare(){
 					.blit_pipe_config = compute_pipeline_create_config{
 						{
 							compute_pipeline_create_config::config{
-								.general = {},
+								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
 								.shader_module = shader_blit.get_create_info_compute(),
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
@@ -352,7 +352,7 @@ void prepare(){
 								}
 							},
 							compute_pipeline_create_config::config{
-								.general = {},
+								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
 								.shader_module = shader_blend.get_create_info_compute(),
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
