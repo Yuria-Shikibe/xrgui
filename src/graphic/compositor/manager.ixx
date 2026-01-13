@@ -826,6 +826,12 @@ public:
 					           vkDestroyImage(device, img, nullptr); // 获取完需求即可销毁
 				           },
 				           [&](const buffer_requirement& r){
+					           const VkBufferCreateInfo info = r.get_buffer_create_info(extent_);
+
+					           VkBuffer buf;
+					           vkCreateBuffer(device, &info, nullptr, &buf);
+					           vkGetBufferMemoryRequirements(device, buf, &interval.requirements);
+					           vkDestroyBuffer(device, buf, nullptr);
 				           }
 			           }, req.req);
 
@@ -961,6 +967,16 @@ public:
 
 					                  const resource_entity ent{req, image_entity{image}};
 					                  this->allocated_images_.push_back(std::move(image));
+					                  return ent;
+				                  },
+				                  [&](const buffer_requirement& r){
+					                  const auto info = r.get_buffer_create_info(extent_);
+					                  vk::aliased_buffer buffer{
+						                  gpu_mem_.get_allocator(), gpu_mem_.get_allocation(), offset, info
+					                  };
+
+					                  const resource_entity ent{req, buffer_entity{buffer.borrow()}};
+					                  this->allocated_buffers_.push_back(std::move(buffer));
 					                  return ent;
 				                  }
 			                  }, req.req);
@@ -1117,8 +1133,37 @@ public:
 							}
 						},
 						[&](const buffer_requirement& r, const buffer_entity& entity){
-							// Buffer Barrier Logic (通常 Buffer 不需要 Layout Transition，但需要 Memory Barrier)
-							// 这里应该根据 access flags 插入 barrier
+							VkPipelineStageFlags2 old_stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+							VkAccessFlags2 old_access = VK_ACCESS_2_NONE;
+
+							if(const auto itr = res_states.find(rentity.get_identity()); itr != res_states.end()){
+								old_stage = itr->second.last_stage;
+								old_access = itr->second.last_access;
+							}
+
+							const auto next_stage = value_or(cur_req.last_used_stage, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+							                                 VK_PIPELINE_STAGE_2_NONE);
+							const auto next_access = cur_req.get_access_flags(next_stage);
+
+							dependency_gen.push(
+								entity.handle.buffer,
+								old_stage, old_access,
+								next_stage, next_access,
+								VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+								entity.handle.offset, entity.handle.size
+							);
+
+							auto& mark = already_modified_mark[rentity.get_identity()];
+							auto& state = res_states[rentity.get_identity()];
+
+							if(mark){
+								state.last_stage |= next_stage;
+								state.last_access |= next_access;
+							} else{
+								state.last_stage = next_stage;
+								state.last_access = next_access;
+								mark = true;
+							}
 						}
 					};
 
@@ -1181,6 +1226,37 @@ public:
 							}
 						},
 						[&](const buffer_requirement& r, const buffer_entity& entity){
+							VkPipelineStageFlags2 old_stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+							VkAccessFlags2 old_access = VK_ACCESS_2_NONE;
+
+							if(const auto itr = res_states.find(rentity.get_identity()); itr != res_states.end()){
+								old_stage = itr->second.last_stage;
+								old_access = itr->second.last_access;
+							}
+
+							const auto next_stage = value_or(cur_req.last_used_stage, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+							                                 VK_PIPELINE_STAGE_2_NONE);
+							const auto next_access = cur_req.get_access_flags(next_stage);
+
+							dependency_gen.push(
+								entity.handle.buffer,
+								old_stage, old_access,
+								next_stage, next_access,
+								VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+								entity.handle.offset, entity.handle.size
+							);
+
+							auto& mark = already_modified_mark[rentity.get_identity()];
+							auto& state = res_states[rentity.get_identity()];
+
+							if(mark){
+								state.last_stage |= next_stage;
+								state.last_access |= next_access;
+							} else{
+								state.last_stage = next_stage;
+								state.last_access = next_access;
+								mark = true;
+							}
 						}
 					};
 				std::visit(overloader, cur_req.req, rentity.resource);
@@ -1204,6 +1280,9 @@ public:
 						state.last_access = cur_req.get_access_flags(state.last_stage);
 					},
 					[&](const buffer_requirement&, const buffer_entity&){
+						auto& state = res_states.at(rentity.get_identity());
+						state.last_stage = cur_req.last_used_stage;
+						state.last_access = cur_req.get_access_flags(state.last_stage);
 					}
 				};
 
@@ -1225,6 +1304,9 @@ public:
 						state.last_access = cur_req.get_access_flags(state.last_stage);
 					},
 					[&](const buffer_requirement&, const buffer_entity&){
+						auto& state = res_states.at(rentity.get_identity());
+						state.last_stage = cur_req.last_used_stage;
+						state.last_access = cur_req.get_access_flags(state.last_stage);
 					}
 				};
 
@@ -1276,6 +1358,31 @@ public:
 								);
 							},
 							[&](const buffer_requirement& r, const buffer_entity& entity){
+								VkPipelineStageFlags2 old_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+								VkAccessFlags2 old_access = VK_ACCESS_2_NONE;
+
+								if(const auto itr = res_states.find(rentity.get_identity()); itr != res_states.end()){
+									old_stage = itr->second.last_stage;
+									old_access = itr->second.last_access;
+								}
+
+								const auto next_stage = value_or(res.resource->dependency.dst_stage,
+																 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+																 VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT);
+								const auto next_access = value_or(res.resource->dependency.dst_access,
+																  VK_ACCESS_2_SHADER_READ_BIT |
+																  VK_ACCESS_2_SHADER_WRITE_BIT,
+																  VK_ACCESS_2_NONE);
+
+								dependency_gen.push(
+									entity.handle.buffer,
+									old_stage,
+									old_access,
+									next_stage,
+									next_access,
+									VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+									entity.handle.offset, entity.handle.size
+								);
 							}
 						}, rentity.overall_requirement.req, rentity.resource);
 				}

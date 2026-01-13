@@ -340,6 +340,19 @@ struct buffer_requirement{
 	VkDeviceSize get_required_memory_size(const VkExtent2D context_extent) const noexcept{
 		return size.get_size(context_extent);
 	}
+
+	VkBufferCreateInfo get_buffer_create_info(VkExtent2D context_extent) const noexcept{
+		return {
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.size = get_required_memory_size(context_extent),
+			.usage = usage,
+			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+			.queueFamilyIndexCount = 0,
+			.pQueueFamilyIndices = nullptr
+		};
+	}
 };
 
 export
