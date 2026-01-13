@@ -7,6 +7,7 @@ module;
 #include <cassert>
 #include <ft2build.h>
 #include <freetype/freetype.h>
+#include <hb-ft.h>
 
 #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <msdfgen/msdfgen-ext.h>
