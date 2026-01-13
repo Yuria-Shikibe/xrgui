@@ -106,17 +106,12 @@ public:
 		// for(const auto& cfg : attachment_manager.get_draw_config().attachments){
 		// 	color_attachment_formats.push_back(cfg.attachment.format);
 		// }
+		//
+		// for(auto& cfg : create_info.blit_pipe_config.configurator){
+		// 	cfg.general.push_constants = make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {sizeof(math::upoint2)});
+		// }
 
-		for(auto& cfg : create_info.blit_pipe_config.configurator){
-			cfg.general.push_constants = make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {sizeof(math::upoint2)});
-		}
-
-		{
-			blit_pipeline_manager_ = compute_pipeline_manager(
-				allocator_usage_,
-				create_info.blit_pipe_config,
-				std::views::repeat(std::span<const VkDescriptorSetLayout>{}, create_info.blit_pipe_config.size()));
-		}
+		blit_pipeline_manager_ = compute_pipeline_manager( allocator_usage_, create_info.blit_pipe_config);
 
 
 		{

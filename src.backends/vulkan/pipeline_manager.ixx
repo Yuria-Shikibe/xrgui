@@ -515,7 +515,7 @@ class graphic_pipeline_manager : public pipeline_manager_base<graphic_pipeline_d
 public:
 	[[nodiscard]] graphic_pipeline_manager() = default;
 
-	template <std::ranges::input_range T = std::initializer_list<const std::span<const VkDescriptorSetLayout>>>
+	template <std::ranges::input_range T = std::initializer_list<std::span<const VkDescriptorSetLayout>>>
 		requires (
 			std::ranges::input_range<std::ranges::range_reference_t<T>> &&
 			std::convertible_to<std::ranges::range_reference_t<std::ranges::range_reference_t<T>>, VkDescriptorSetLayout>
@@ -542,7 +542,6 @@ public:
 				.descriptor_set_layouts = layouts_buffer
 			}, draw_attachment_config);
 		}
-
 	}
 
 	graphic_pipeline_manager(
@@ -604,7 +603,17 @@ public:
 				.descriptor_set_layouts = layouts_buffer
 			});
 		}
+
 	}
+	template <std::ranges::input_range T = std::initializer_list<const std::span<const VkDescriptorSetLayout>>>
+		requires (
+			std::ranges::input_range<std::ranges::range_reference_t<T>> &&
+			std::convertible_to<std::ranges::range_reference_t<std::ranges::range_reference_t<T>>, VkDescriptorSetLayout>
+		)
+	compute_pipeline_manager(
+		const vk::allocator_usage& allocator,
+		const compute_pipeline_create_config& create_group
+	) : compute_pipeline_manager{allocator, create_group, std::views::repeat(std::span<const VkDescriptorSetLayout>{})}{}
 
 	[[nodiscard]] std::span<const vk::descriptor_layout> get_inout_layouts() const noexcept{
 		return blit_inout_layouts_;
