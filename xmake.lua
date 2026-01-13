@@ -27,6 +27,7 @@ add_requires("msdfgen", {
 })
 
 add_requires("freetype")
+add_requires("harfbuzz")
 add_requires("nanosvg")
 add_requires("spirv-reflect")
 add_requires("clipper2")
@@ -42,6 +43,7 @@ function set_xrgui_deps()
 
     add_packages("msdfgen", {public = true})
     add_packages("freetype", {public = true})
+    add_packages("harfbuzz", {public = true})
     add_packages("mimalloc", {public = true})
     add_packages("nanosvg", {public = true})
     add_packages("clipper2", {public = true})
