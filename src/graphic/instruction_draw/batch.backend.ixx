@@ -189,8 +189,6 @@ private:
 	vk::descriptor_layout volatile_descriptor_layout_{};
 	vk::descriptor_buffer volatile_descriptor_buffer_{};
 
-	VkSampler sampler_{};
-
 	VkDeviceSize offset_ceil(std::size_t size) const noexcept{
 		//TODO check device real limit
 		return  vk::align_up(size, 64uz);
@@ -202,8 +200,7 @@ public:
 
 	[[nodiscard]] explicit batch_vulkan_executor(
 		const vk::allocator_usage& a,
-		const draw_list_context& batch_host,
-		VkSampler sampler
+		const draw_list_context& batch_host
 	)
 		: allocator_{a}
 		, buffer_indirect_(allocator_, sizeof(VkDrawMeshTasksIndirectCommandEXT) * 32,
@@ -242,11 +239,12 @@ public:
 				}
 			}
 		}
-		, volatile_descriptor_buffer_(a, volatile_descriptor_layout_, volatile_descriptor_layout_.binding_count())
-		, sampler_(sampler){
+		, volatile_descriptor_buffer_(a, volatile_descriptor_layout_, volatile_descriptor_layout_.binding_count()){
 	}
 
-	bool upload(draw_list_context& host_ctx){
+	bool upload(draw_list_context& host_ctx,
+		VkSampler sampler
+	){
 		const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
 		if(submit_group_subrange.empty()){
 			return false;
@@ -452,7 +450,7 @@ public:
 					instructionHeadSize);
 				dbo_mapper.set_element_at(2, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction_.get_address(),
 					instructionSize);
-				dbo_mapper.set_images_at(image_index, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler_,
+				dbo_mapper.set_images_at(image_index, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler,
 					host_ctx.get_used_images<VkImageView>());
 
 				VkDeviceSize cur_offset{};

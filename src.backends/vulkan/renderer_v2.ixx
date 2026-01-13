@@ -80,7 +80,9 @@ private:
 
 	std::vector<attachment_state> draw_attachment_states_{};
 	std::vector<attachment_state> blit_attachment_states_{};
-	vk::cmd::dependency_gen barrier_gen_cache_{};
+	vk::cmd::dependency_gen cache_barrier_gen_{};
+
+	VkSampler sampler_{};
 
 public:
 	[[nodiscard]] explicit(false) renderer(
@@ -92,13 +94,13 @@ public:
 			VkPhysicalDeviceProperties2 prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &meshProperties};
 			vkGetPhysicalDeviceProperties2(allocator_usage_.get_physical_device(), &prop);
 			return graphic::draw::instruction::hardware_limit_config{
-				.max_group_count = meshProperties.maxTaskWorkGroupCount[0],
-				.max_group_size = meshProperties.maxTaskWorkGroupSize[0],
-				.max_vertices_per_group = meshProperties.maxMeshOutputVertices,
-				.max_primitives_per_group = meshProperties.maxMeshOutputPrimitives
-			};
+					.max_group_count = meshProperties.maxTaskWorkGroupCount[0],
+					.max_group_size = meshProperties.maxTaskWorkGroupSize[0],
+					.max_vertices_per_group = meshProperties.maxMeshOutputVertices,
+					.max_primitives_per_group = meshProperties.maxMeshOutputPrimitives
+				};
 		}(), table, table_non_vertex)
-		, batch_device(allocator_usage_, batch_host, create_info.sampler)
+		, batch_device(allocator_usage_, batch_host)
 		, attachment_manager{
 			allocator_usage_, std::move(create_info.attachment_draw_config), std::move(create_info.attachment_blit_config)
 		}
@@ -106,20 +108,14 @@ public:
 		, command_seq_draw_(allocator_usage_.get_device(), create_info.command_pool, 4,
 			VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 		, command_seq_blit_(allocator_usage_.get_device(), create_info.command_pool, 4,
-			VK_COMMAND_BUFFER_LEVEL_SECONDARY){
+			VK_COMMAND_BUFFER_LEVEL_SECONDARY)
+		, sampler_(create_info.sampler){
 		main_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool};
 		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY};
 		fence = {allocator_usage_.get_device(), true};
 
 		cache_attachment_enter_mark_.resize(attachment_manager.get_draw_attachments().size());
 
-		// for(const auto& cfg : attachment_manager.get_draw_config().attachments){
-		// 	color_attachment_formats.push_back(cfg.attachment.format);
-		// }
-		//
-		// for(auto& cfg : create_info.blit_pipe_config.configurator){
-		// 	cfg.general.push_constants = make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {sizeof(math::upoint2)});
-		// }
 
 		blit_pipeline_manager_ = compute_pipeline_manager( allocator_usage_, create_info.blit_pipe_config);
 
@@ -194,6 +190,11 @@ public:
 		}
 	}
 
+	void upload(){
+		wait_fence();
+		batch_device.upload(batch_host, sampler_);
+	}
+
 	VkCommandBuffer get_valid_cmd_buf() const noexcept{
 		return main_command_buffer;
 	}
@@ -244,7 +245,7 @@ private:
 		}
 	}
 
-	void ensure_attachment_state(
+	static void ensure_attachment_state(
 		vk::cmd::dependency_gen& dep,
 		attachment_state& state,
 		VkImage image,
@@ -252,9 +253,9 @@ private:
 		VkAccessFlags2 new_access,
 		VkImageLayout new_layout)
 	{
-		bool layout_change = state.layout != new_layout;
-		bool is_read_only = (new_access & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) == 0;
-		bool was_read_only = (state.access_mask & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) == 0;
+		const bool layout_change = state.layout != new_layout;
+		const bool is_read_only = (new_access & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) == 0;
+		const bool was_read_only = (state.access_mask & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) == 0;
 
 		if (!layout_change && is_read_only && was_read_only) {
 			return;
@@ -293,7 +294,7 @@ private:
 			});
 		}
 
-		barrier_gen_cache_.clear();
+		cache_barrier_gen_.clear();
 
 		//TODO optimize empty submit group
 		for(unsigned i = 0; i < cmd_sz; ++i){
@@ -301,18 +302,17 @@ private:
 			// Ensure draw attachments are in correct state
 			{
 				const auto mask = get_current_target(cache_draw_param_stack_.back());
-				for(std::size_t aIdx = 0; aIdx < std::min(mask.size(), attachment_manager.get_draw_attachments().size()); ++aIdx){
-					if(!mask[aIdx]) continue;
+				mask.for_each_popbit([&](unsigned aIdx){
 					ensure_attachment_state(
-						barrier_gen_cache_,
+						cache_barrier_gen_,
 						draw_attachment_states_[aIdx],
 						attachment_manager.get_draw_attachments()[aIdx].get_image(),
 						VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 						VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
 						VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 					);
-				}
-				barrier_gen_cache_.apply(command_buffer);
+				});
+				cache_barrier_gen_.apply(command_buffer);
 			}
 
 			rendering_config.begin_rendering(command_buffer, region/*, VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT*/);
@@ -395,7 +395,7 @@ private:
 
 			for (const auto& entry : inout_cfg.get_input_entries()) {
 				ensure_attachment_state(
-					barrier_gen_cache_,
+					cache_barrier_gen_,
 					draw_attachment_states_[entry.resource_index],
 					attachment_manager.get_draw_attachments()[entry.resource_index].get_image(),
 					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -406,7 +406,7 @@ private:
 
 			for (const auto& entry : inout_cfg.get_output_entries()) {
 				ensure_attachment_state(
-					barrier_gen_cache_,
+					cache_barrier_gen_,
 					blit_attachment_states_[entry.resource_index],
 					attachment_manager.get_blit_attachments()[entry.resource_index].get_image(),
 					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -415,7 +415,7 @@ private:
 				);
 			}
 
-			barrier_gen_cache_.apply(buffer);
+			cache_barrier_gen_.apply(buffer);
 
 			auto& pipe_config = blit_pipeline_manager_.get_pipelines()[cfg.pipeline_index];
 			pipe_config.pipeline.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -443,7 +443,7 @@ private:
 			vkCmdDispatch(buffer, dispatches.x, dispatches.y, 1);
 
 			// We apply pending barriers if any (though typically dispatch doesn't add any new ones unless we want to, but previous apply handled them)
-			barrier_gen_cache_.apply(buffer);
+			cache_barrier_gen_.apply(buffer);
 	}
 public:
 

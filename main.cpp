@@ -235,8 +235,7 @@ void app_run(
 
 		gui::global::manager.draw();
 		renderer.batch_host.end_rendering();
-		renderer.wait_fence();
-		renderer.batch_device.upload(renderer.batch_host);
+		renderer.upload();
 		renderer.create_command();
 
 		std::array<VkCommandBuffer, 2> buffers{renderer.get_valid_cmd_buf(), cmdBUf};
