@@ -47,6 +47,7 @@ struct attachment_state {
 
 export
 struct renderer{
+	static constexpr std::size_t frames_in_flight = 3;
 	vk::allocator_usage allocator_usage_{};
 
 public:
@@ -69,8 +70,10 @@ private:
 	vk::command_seq<> command_seq_blit_{};
 
 	//TODO optimize the fence
-	vk::fence fence{};
-	vk::command_buffer main_command_buffer{};
+	std::vector<vk::fence> fences_{};
+	std::vector<vk::command_buffer> main_command_buffers_{};
+	std::uint32_t current_frame_index_{frames_in_flight - 1};
+
 	vk::command_buffer blit_attachment_clear_and_init_command_buffer{};
 
 
@@ -100,7 +103,7 @@ public:
 					.max_primitives_per_group = meshProperties.maxMeshOutputPrimitives
 				};
 		}(), table, table_non_vertex)
-		, batch_device(allocator_usage_, batch_host)
+		, batch_device(allocator_usage_, batch_host, frames_in_flight)
 		, attachment_manager{
 			allocator_usage_, std::move(create_info.attachment_draw_config), std::move(create_info.attachment_blit_config)
 		}
@@ -110,9 +113,15 @@ public:
 		, command_seq_blit_(allocator_usage_.get_device(), create_info.command_pool, 4,
 			VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 		, sampler_(create_info.sampler){
-		main_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool};
+
+		fences_.reserve(frames_in_flight);
+		main_command_buffers_.reserve(frames_in_flight);
+		for(std::size_t i = 0; i < frames_in_flight; ++i){
+			fences_.emplace_back(allocator_usage_.get_device(), true);
+			main_command_buffers_.emplace_back(allocator_usage_.get_device(), create_info.command_pool);
+		}
+
 		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY};
-		fence = {allocator_usage_.get_device(), true};
 
 		cache_attachment_enter_mark_.resize(attachment_manager.get_draw_attachments().size());
 
@@ -179,28 +188,29 @@ public:
 		create_blit_clear_and_init_cmd();
 	}
 
-	void wait_fence() const {
-		fence.wait_and_reset();
+	void wait_fence() {
+		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
+		fences_[current_frame_index_].wait_and_reset();
 	}
 
 	void create_command(){
 		{
-			vk::scoped_recorder recorder{main_command_buffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+			vk::scoped_recorder recorder{main_command_buffers_[current_frame_index_], VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
 			record_cmd(recorder);
 		}
 	}
 
 	void upload(){
 		wait_fence();
-		batch_device.upload(batch_host, sampler_);
+		batch_device.upload(batch_host, sampler_, current_frame_index_);
 	}
 
 	VkCommandBuffer get_valid_cmd_buf() const noexcept{
-		return main_command_buffer;
+		return main_command_buffers_[current_frame_index_];
 	}
 
 	VkFence get_fence() const noexcept{
-		return fence;
+		return fences_[current_frame_index_];
 	}
 
 private:
@@ -221,11 +231,11 @@ private:
 		vk::cmd::set_scissor(cmdbuf, region);
 
 		cache_record_context_.clear();
-		batch_device.load_descriptors(cache_record_context_);
+		batch_device.load_descriptors(cache_record_context_, current_frame_index_);
 		cache_record_context_.prepare_bindings();
 		cache_record_context_(pipe_config.pipeline_layout, cmdbuf, index, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-		batch_device.cmd_draw(cmdbuf, index);
+		batch_device.cmd_draw(cmdbuf, index, current_frame_index_);
 	}
 
 	void reset_barrier_context(){
