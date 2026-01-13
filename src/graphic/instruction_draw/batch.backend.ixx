@@ -87,15 +87,21 @@ private:
 	vk::buffer_cpu_to_gpu buffer_instruction_{};
 	vk::buffer_cpu_to_gpu buffer_indirect_{};
 
-	vk::buffer_cpu_to_gpu buffer_vertex_info_{};
-	vk::buffer_cpu_to_gpu buffer_non_vertex_info_{};
+	/**
+	 * @brief Contains data does not change during a frame draw.
+	 */
+	vk::buffer_cpu_to_gpu buffer_immutable_info_{};
+
+	/**
+	 * @brief Contains data mutable during each draw dispatch command
+	 */
+	vk::buffer_cpu_to_gpu buffer_volatile_info_{};
 
 	// Uniform buffer for non-vertex updates (GPU only, transfer dest)
-	vk::buffer buffer_non_vertex_info_uniform_buffer_{};
+	vk::buffer buffer_volatile_info_uniform_buffer_{};
 
 	// Descriptors
 	std::vector<vk::binding_spec> bindings_{};
-
 	/**
 	 * @brief Descriptor maintain the same during all the mesh dispatch.
 	 */
@@ -112,7 +118,7 @@ private:
 
 	VkDeviceSize offset_ceil(std::size_t size) const noexcept{
 		//TODO check device real limit
-		return  (size + 63) / 64 * 64;
+		return  vk::align_up(size, 64);
 	}
 public:
 	[[nodiscard]] batch_vulkan_executor() = default;
@@ -125,7 +131,7 @@ public:
 		: allocator_{a}
 		, buffer_indirect_(allocator_, sizeof(VkDrawMeshTasksIndirectCommandEXT) * 32,
 			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)
-		, buffer_non_vertex_info_uniform_buffer_(allocator_, {
+		, buffer_volatile_info_uniform_buffer_(allocator_, {
 				.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 				.size = offset_ceil(sizeof(dispatch_config)) + batch_host.get_data_group_non_vertex_info().table.required_capacity(),
 				.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
@@ -170,13 +176,13 @@ public:
 		// Setup static descriptors for non-vertex buffers
 		const vk::descriptor_mapper mapper{volatile_descriptor_buffer_};
 
-		(void)mapper.set_uniform_buffer(0, buffer_non_vertex_info_uniform_buffer_.get_address(), sizeof(dispatch_config));
+		(void)mapper.set_uniform_buffer(0, buffer_volatile_info_uniform_buffer_.get_address(), sizeof(dispatch_config));
 
 		for(auto&& [binding, entry] : batch_host.get_data_group_non_vertex_info().table | std::views::enumerate){
 			assert(entry.entry.group_index == 0);
 			(void)mapper.set_uniform_buffer(
 				binding + 1,
-				buffer_non_vertex_info_uniform_buffer_.get_address() + offset_ceil(sizeof(dispatch_config)) + entry.entry.global_offset, entry.entry.size
+				buffer_volatile_info_uniform_buffer_.get_address() + offset_ceil(sizeof(dispatch_config)) + entry.entry.global_offset, entry.entry.size
 			);
 		}
 	}
@@ -264,9 +270,9 @@ public:
 		}
 
 		// 3. Upload User Data Entries
-		load_data_group_to_buffer(host_ctx.get_data_group_vertex_info(), allocator_, buffer_vertex_info_,
+		load_data_group_to_buffer(host_ctx.get_data_group_vertex_info(), allocator_, buffer_immutable_info_,
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-		load_data_group_to_buffer(host_ctx.get_data_group_non_vertex_info(), allocator_, buffer_non_vertex_info_,
+		load_data_group_to_buffer(host_ctx.get_data_group_non_vertex_info(), allocator_, buffer_volatile_info_,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 
 		// 4. Upload Instructions & Update Descriptors
@@ -337,7 +343,7 @@ public:
 				VkDeviceSize cur_offset{};
 				for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
 					dbo_mapper.set_element_at(4 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-						buffer_vertex_info_.get_address() + cur_offset, entry.get_required_byte_size());
+						buffer_immutable_info_.get_address() + cur_offset, entry.get_required_byte_size());
 					cur_offset += entry.get_required_byte_size();
 				}
 			}
@@ -381,18 +387,18 @@ public:
 		}
 
 		constexpr dispatch_config cfg{};
-		vkCmdUpdateBuffer(cmd, buffer_non_vertex_info_uniform_buffer_, 0, sizeof(dispatch_config), &cfg);
+		vkCmdUpdateBuffer(cmd, buffer_volatile_info_uniform_buffer_, 0, sizeof(dispatch_config), &cfg);
 
-		ctx.submit_copy(cmd, buffer_non_vertex_info_, buffer_non_vertex_info_uniform_buffer_);
+		ctx.submit_copy(cmd, buffer_volatile_info_, buffer_volatile_info_uniform_buffer_);
 
-		ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+		ctx.dependency.push(buffer_volatile_info_uniform_buffer_,
 			VK_PIPELINE_STAGE_2_COPY_BIT,
 			VK_ACCESS_2_TRANSFER_WRITE_BIT,
 			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 			VK_ACCESS_2_UNIFORM_READ_BIT,
 			VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, offset_ceil(sizeof(dispatch_config))
 		);
-		ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+		ctx.dependency.push(buffer_volatile_info_uniform_buffer_,
 			VK_PIPELINE_STAGE_2_COPY_BIT,
 			VK_ACCESS_2_TRANSFER_WRITE_BIT,
 			VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
@@ -424,7 +430,7 @@ public:
 				});
 
 			if(!insertFullBuffer){
-				ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+				ctx.dependency.push(buffer_volatile_info_uniform_buffer_,
 					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 					VK_ACCESS_2_UNIFORM_READ_BIT,
 					VK_PIPELINE_STAGE_2_COPY_BIT,
@@ -435,7 +441,7 @@ public:
 		}
 
 		if(insertFullBuffer){
-			ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+			ctx.dependency.push(buffer_volatile_info_uniform_buffer_,
 				VK_PIPELINE_STAGE_2_COPY_BIT,
 				VK_ACCESS_2_TRANSFER_WRITE_BIT,
 				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
@@ -444,7 +450,7 @@ public:
 			);
 		}
 
-		ctx.dependency.push(buffer_non_vertex_info_uniform_buffer_,
+		ctx.dependency.push(buffer_volatile_info_uniform_buffer_,
 			VK_PIPELINE_STAGE_2_COPY_BIT,
 			VK_ACCESS_2_TRANSFER_WRITE_BIT,
 			VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
@@ -456,8 +462,8 @@ public:
 		const dispatch_config cfg{ctx.current_submit_group_index};
 
 		ctx.dependency.apply(cmd, true); // true = insert barriers before update
-		vkCmdUpdateBuffer(cmd, buffer_non_vertex_info_uniform_buffer_, 0, sizeof(dispatch_config), &cfg);
-		ctx.submit_copy(cmd, buffer_non_vertex_info_, buffer_non_vertex_info_uniform_buffer_);
+		vkCmdUpdateBuffer(cmd, buffer_volatile_info_uniform_buffer_, 0, sizeof(dispatch_config), &cfg);
+		ctx.submit_copy(cmd, buffer_volatile_info_, buffer_volatile_info_uniform_buffer_);
 		ctx.dependency.swap_stages();
 		ctx.dependency.apply(cmd);
 	}
