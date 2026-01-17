@@ -53,9 +53,6 @@ void scene::draw(rect clip){
 	{
 		gui::viewport_guard _{renderer(), region_};
 
-		gui::mode_guard _m{renderer(), gui::draw_config{gui::draw_mode::msdf}};
-		const auto root_bound = region_.round<int>().max_src({});
-
 		auto draw_elem = [&](const elem& e, rect region){
 			draw_at(e);
 		};
