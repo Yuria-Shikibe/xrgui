@@ -30,7 +30,7 @@ import std;
 import mo_yanxi.gui.examples;
 import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.gui.draw_config;
+import mo_yanxi.gui.gfx_config;
 
 import mo_yanxi.gui.fringe;
 
@@ -53,10 +53,10 @@ void app_run(
 		gui::global::manager.layout();
 
 		renderer.batch_host.begin_rendering();
-		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::draw_config::ui_state(
+		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::gfx_config::ui_state(
 			timer.global_time()
 		));
-		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::draw_config::slide_line_config{});
+		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::gfx_config::slide_line_config{});
 
 		auto& r = gui::global::manager.get_current_focus().renderer();
 		r.init_projection();
@@ -204,25 +204,25 @@ void app_run(
 			});
 
 
-			r.update_state(gui::blit_config{
-				.blit_region = {
+			r.update_state(gui::gfx_config::blit_config{
+				{
 					.src = {},
 					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
 				},
-				.pipeline_index = 1});
+				{.pipeline_index = 1}});
 
-			r.update_state(gui::draw_mode_param{
+			r.update_state(gui::draw_config{
 				.pipeline_index = 1
 			});
 
 			r.update_state(state_push_config{
 				state_push_target::defer_pre
-			}, gui::blit_config{
-				.blit_region = {
+			}, gui::gfx_config::blit_config{
+				{
 					.src = {},
 					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
 				},
-				.pipeline_index = 1});
+				{.pipeline_index = 1}});
 
 			r.push(line{
 				.src = {200, 200},

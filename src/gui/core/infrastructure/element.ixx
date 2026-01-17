@@ -1,6 +1,7 @@
 module;
 
 #include <cassert>
+#include <mo_yanxi/adapted_attributes.hpp>
 
 export module mo_yanxi.gui.infrastructure:element;
 
@@ -35,31 +36,31 @@ export struct elem_style_drawer : style_drawer<elem>{
 	[[nodiscard]] virtual boarder get_boarder() const noexcept{
 		return {};
 	}
-
-	virtual void draw_background(const elem& element, math::frect region, float opacityScl) const = 0;
-
 };
 
 export struct debug_elem_drawer final : elem_style_drawer{
-	[[nodiscard]] constexpr debug_elem_drawer() : elem_style_drawer(tags::persistent){
+	[[nodiscard]] constexpr debug_elem_drawer() : elem_style_drawer(tags::persistent, layer_draw_until<2>){
 	}
 
 	boarder get_boarder() const noexcept override{
 		return default_boarder;
 	}
 
-	void draw(const elem& element, rect region, float opacityScl) const override;
+	void draw_layer_impl(const elem& element, math::frect region, float opacityScl, gfx_config::layer_param layer_param) const override;
 
-	void draw_background(const elem& element, math::frect region, float opacityScl) const override;
+	void draw(const elem& element, rect region, float opacityScl) const;
+
+	void draw_background(const elem& element, math::frect region, float opacityScl) const;
 };
 
 export struct empty_drawer final : elem_style_drawer{
-	[[nodiscard]] constexpr empty_drawer() : elem_style_drawer(tags::persistent){}
+	[[nodiscard]] constexpr empty_drawer() : elem_style_drawer(tags::persistent, layer_top_only){}
 
-	void draw(const elem& element, rect region, float opacityScl) const override{
-	}
-
-	void draw_background(const elem& element, math::frect region, float opacityScl) const override{
+	void draw_layer_impl(
+		const elem& element,
+		math::frect region,
+		float opacityScl,
+		gfx_config::layer_param layer_param) const override{
 
 	}
 };
@@ -323,26 +324,26 @@ public:
 
 #pragma region Draw
 public:
-	void try_draw(const rect clipSpace) const{
-		if(invisible) return;
-		//TODO fix this
-		if(!clipSpace.overlap_inclusive(bound_abs())) return;
-		draw(clipSpace);
-	}
+	// void try_draw(const rect clipSpace) const{
+	// 	if(invisible) return;
+	// 	//TODO fix this
+	// 	if(!clipSpace.overlap_inclusive(bound_abs())) return;
+	// 	draw(clipSpace);
+	// }
+	//
+	// void try_draw_background(const rect clipSpace) const{
+	// 	if(invisible) return;
+	// 	if(!clipSpace.overlap_inclusive(bound_abs())) return;
+	// 	draw_background(clipSpace);
+	// }
 
-	void try_draw_background(const rect clipSpace) const{
-		if(invisible) return;
-		if(!clipSpace.overlap_inclusive(bound_abs())) return;
-		draw_background(clipSpace);
-	}
-
-	void draw(const rect clipSpace) const{
-		draw_content_impl(clipSpace);
-	}
-
-	void draw_background(const rect clipSpace) const{
-		draw_background_impl(clipSpace);
-	}
+	// void draw(const rect clipSpace) const{
+	// 	draw_content_impl(clipSpace);
+	// }
+	//
+	// void draw_background(const rect clipSpace) const{
+	// 	draw_background_impl(clipSpace);
+	// }
 
 	void set_style(const style::elem_style_drawer& style) noexcept{
 		this->style = std::addressof(style);
@@ -354,21 +355,32 @@ public:
 		style_boarder_cache_ = {};
 	}
 
+	virtual void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const;
+
+
+	FORCE_INLINE void try_draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+		if(invisible) return;
+		if(!clipSpace.overlap_inclusive(bound_abs())) return;
+		draw_layer(clipSpace, param);
+	}
+
 protected:
 	virtual void on_opacity_changed(float previous){
-
 	}
 
-	void draw_style() const;
-	void draw_style_background() const;
-
-	virtual void draw_background_impl(const rect clipSpace) const{
-		draw_style_background();
+	FORCE_INLINE void draw_style(gfx_config::layer_param param) const{
+		if(style)style->draw_layer(*this, bound_abs(), get_draw_opacity(), param);
 	}
+	// void draw_style_background() const;
 
-	virtual void draw_content_impl(const rect clipSpace) const{
-		draw_style();
-	}
+	// virtual void draw_background_impl(const rect clipSpace) const{
+	// 	draw_style_background();
+	// }
+	//
+	// virtual void draw_content_impl(const rect clipSpace) const{
+	// 	draw_style();
+	// }
+
 public:
 
 #pragma endregion

@@ -30,29 +30,34 @@ void scene::update(double delta_in_tick){
 	current_frame_++;
 }
 
+void scene::draw_at(const elem& elem){
+	auto c = get_region().intersection_with(elem.bound_abs());
+	const auto bound = c.round<int>();
+
+	for(unsigned i = 0; i < pass_config.size(); ++i){
+		renderer().update_state(pass_config[i].begin_config);
+
+		elem.draw_layer(c, {i});
+
+		renderer().update_state(gfx_config::blit_config{
+				.blit_region = {bound.src, bound.extent()},
+				.pipe_info = pass_config[i].end_config
+			});
+	}
+}
+
 void scene::draw(rect clip){
 	renderer().init_projection();
+
+
 	{
 		gui::viewport_guard _{renderer(), region_};
 
-		gui::mode_guard _m{renderer(), gui::draw_mode_param{gui::draw_mode::msdf}};
+		gui::mode_guard _m{renderer(), gui::draw_config{gui::draw_mode::msdf}};
 		const auto root_bound = region_.round<int>().max_src({});
 
 		auto draw_elem = [&](const elem& e, rect region){
-			e.draw(region);
-			renderer().update_state(draw_mode_param{
-				.mode = draw_mode::msdf,
-				.draw_targets = 0b10
-			});
-			e.draw_background(region);
-			const auto bound = region.round<int>();
-			renderer().update_state(blit_config{
-				.blit_region = {bound.src, bound.extent()}
-			});
-			renderer().update_state(draw_mode_param{
-				.mode = draw_mode::msdf,
-				.draw_targets = 0b01
-			});
+			draw_at(e);
 		};
 
 		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
@@ -62,7 +67,6 @@ void scene::draw(rect clip){
 		}
 
 		draw_elem(*root_, clip);
-
 
 		for (const auto & draw_sequence : overlay_manager_.get_draw_sequence()){
 			draw_elem(*draw_sequence, draw_sequence->bound_abs());

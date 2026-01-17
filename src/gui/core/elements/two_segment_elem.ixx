@@ -96,20 +96,12 @@ public:
 	}
 
 protected:
-	void draw_content_impl(const rect clipSpace) const override{
-		draw_style();
+	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override{
+		draw_style(param);
 		const auto space = content_bound_abs().intersection_with(clipSpace);
 
-		items[0]->try_draw(space);
-		items[1]->try_draw(space);
-	}
-
-	void draw_background_impl(const rect clipSpace) const override{
-		draw_style_background();
-		const auto space = content_bound_abs().intersection_with(clipSpace);
-
-		items[0]->try_draw_background(space);
-		items[1]->try_draw_background(space);
+		items[0]->try_draw_layer(space, param);
+		items[1]->try_draw_layer(space, param);
 	}
 public:
 

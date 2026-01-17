@@ -2,12 +2,46 @@ module;
 
 #include <cassert>
 
-export module mo_yanxi.gui.draw_config;
+export module mo_yanxi.gui.gfx_config;
 
 import std;
 
-namespace mo_yanxi::gui::draw_config{
+import mo_yanxi.math.rect_ortho;
 
+namespace mo_yanxi::gui::gfx_config{
+
+export
+struct blit_pipeline_config{
+	std::uint32_t pipeline_index;
+	std::uint32_t inout_define_index = std::numeric_limits<std::uint32_t>::max();
+};
+
+export
+struct blit_config{
+	math::rect_ortho_trivial<int> blit_region;
+	blit_pipeline_config pipe_info;
+
+	bool use_default_inouts() const noexcept{
+		return pipe_info.inout_define_index == std::numeric_limits<std::uint32_t>::max();
+	}
+
+	void get_clamped_to_positive() noexcept{
+		if(blit_region.src.x < 0){
+			blit_region.extent.x += blit_region.src.x;
+			blit_region.src.x = 0;
+			if(blit_region.extent.x < 0)blit_region.extent.x = 0;
+		}
+		if(blit_region.src.y < 0){
+			blit_region.extent.y += blit_region.src.y;
+			blit_region.src.y = 0;
+			if(blit_region.extent.y < 0)blit_region.extent.y = 0;
+		}
+	}
+
+	math::usize2 get_dispatch_groups() const noexcept{
+		return (blit_region.extent.as<unsigned>() + math::usize2{15, 15}) / math::usize2{16, 16};
+	}
+};
 
 export
 struct render_target_mask{
@@ -66,6 +100,17 @@ struct render_target_mask{
 	}
 };
 
+export
+struct layer_param{
+	std::uint32_t layer_index;
+
+	constexpr bool operator==(std::uint32_t idx) const noexcept{
+		return layer_index == idx;
+	}
+};
+
+export
+using layer_param_pass_t = const layer_param;
 
 export
 struct ui_state{

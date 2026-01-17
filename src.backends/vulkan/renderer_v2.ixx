@@ -13,7 +13,7 @@ import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
 import mo_yanxi.vk.util;
 export import mo_yanxi.gui.renderer.frontend;
-export import mo_yanxi.gui.draw_config;
+export import mo_yanxi.gui.gfx_config;
 export import mo_yanxi.backend.vulkan.attachment_manager;
 export import mo_yanxi.backend.vulkan.pipeline_manager;
 import std;
@@ -24,7 +24,7 @@ const graphic::draw::data_layout_table table{
 };
 
 const graphic::draw::data_layout_table table_non_vertex{
-	std::in_place_type<std::tuple<gui::draw_config::ui_state, gui::draw_config::slide_line_config>>
+	std::in_place_type<std::tuple<gui::gfx_config::ui_state, gui::gfx_config::slide_line_config>>
 };
 
 export
@@ -87,7 +87,7 @@ private:
 	vk::command_buffer blit_attachment_clear_and_init_command_buffer{};
 
 
-	std::vector<gui::draw_mode_param> cache_draw_param_stack_{};
+	std::vector<gui::draw_config> cache_draw_param_stack_{};
 	std::vector<std::uint8_t> cache_attachment_enter_mark_{};
 	graphic::draw::record_context<> cache_record_context_{};
 
@@ -217,7 +217,7 @@ public:
 	}
 
 private:
-	void create_pipe_binding_cmd(VkCommandBuffer cmdbuf, std::uint32_t index, const gui::draw_mode_param& arg){
+	void create_pipe_binding_cmd(VkCommandBuffer cmdbuf, std::uint32_t index, const gui::draw_config& arg){
 		auto& pipe_config = draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
 
 		pipe_config.pipeline.bind(cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS);
@@ -363,13 +363,13 @@ private:
 	 */
 	bool process_breakpoints(const graphic::draw::instruction::state_transition_entry& entry, VkCommandBuffer buffer) {
 		switch(entry.flag){
-		case gui::draw_state_index_deduce_v<gui::blit_config> :{
-			blit(entry.as<gui::blit_config>(), buffer);
+		case gui::draw_state_index_deduce_v<gui::gfx_config::blit_config> :{
+			blit(entry.as<gui::gfx_config::blit_config>(), buffer);
 
 			return true;
 		}
-		case gui::draw_state_index_deduce_v<gui::draw_mode_param> :{
-			auto param = entry.as<gui::draw_mode_param>();
+		case gui::draw_state_index_deduce_v<gui::draw_config> :{
+			auto param = entry.as<gui::draw_config>();
 			if(param.mode == gui::draw_mode::COUNT_or_fallback){
 				cache_draw_param_stack_.pop_back();
 				param = cache_draw_param_stack_.back();
@@ -388,15 +388,15 @@ private:
 		return false;
 	}
 
-	const compute_pipeline_blit_inout_config& get_blit_inout_config(const gui::blit_config& cfg) {
+	const compute_pipeline_blit_inout_config& get_blit_inout_config(const gui::gfx_config::blit_config& cfg) {
 		if (cfg.use_default_inouts()) {
-			return blit_pipeline_manager_.get_pipelines()[cfg.pipeline_index].option.inout;
+			return blit_pipeline_manager_.get_pipelines()[cfg.pipe_info.pipeline_index].option.inout;
 		} else {
-			return blit_pipeline_manager_.get_inout_defines()[cfg.inout_define_index];
+			return blit_pipeline_manager_.get_inout_defines()[cfg.pipe_info.inout_define_index];
 		}
 	}
 
-	void blit(gui::blit_config cfg, VkCommandBuffer buffer){
+	void blit(gui::gfx_config::blit_config cfg, VkCommandBuffer buffer){
 		cfg.get_clamped_to_positive();
 			const auto dispatches = cfg.get_dispatch_groups();
 
@@ -430,7 +430,7 @@ private:
 
 			cache_barrier_gen_.apply(buffer);
 
-			auto& pipe_config = blit_pipeline_manager_.get_pipelines()[cfg.pipeline_index];
+			auto& pipe_config = blit_pipeline_manager_.get_pipelines()[cfg.pipe_info.pipeline_index];
 			pipe_config.pipeline.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
 
 			const math::upoint2 offset = cfg.blit_region.src.as<unsigned>();
@@ -438,13 +438,13 @@ private:
 
 			VkDescriptorBufferBindingInfoEXT info;
 			if(cfg.use_default_inouts()){
-				info = blit_default_inout_descriptors_[cfg.pipeline_index];
+				info = blit_default_inout_descriptors_[cfg.pipe_info.pipeline_index];
 			}else{
-				if(!blit_pipeline_manager_.is_inout_compatible(cfg.pipeline_index, cfg.inout_define_index)){
+				if(!blit_pipeline_manager_.is_inout_compatible(cfg.pipe_info.pipeline_index, cfg.pipe_info.inout_define_index)){
 					throw std::runtime_error("Incompatible blit pipeline inout spec");
 				}
 
-				info = blit_specified_inout_descriptors_[cfg.inout_define_index];
+				info = blit_specified_inout_descriptors_[cfg.pipe_info.inout_define_index];
 			}
 
 			cache_record_context_.clear();
@@ -549,17 +549,17 @@ private:
 		dependency.apply(recorder);
 	}
 
-	gui::draw_config::render_target_mask get_current_target(const gui::draw_mode_param& param) const noexcept{
+	gui::gfx_config::render_target_mask get_current_target(const gui::draw_config& param) const noexcept{
 		const auto& pipes = draw_pipeline_manager_.get_pipelines()[param.pipeline_index].option;
 
 		return param.draw_targets.any()
 				   ? param.draw_targets
 				   : pipes.is_partial_target()
 				   ? pipes.default_target_attachments
-				   : gui::draw_config::render_target_mask{~0U};
+				   : gui::gfx_config::render_target_mask{~0U};
 	}
 
-	void configure_rendering_info(const gui::draw_mode_param& param){
+	void configure_rendering_info(const gui::draw_config& param){
 		const auto& pipes = draw_pipeline_manager_.get_pipelines()[param.pipeline_index].option;
 		attachment_manager.configure_dynamic_rendering<32>(
 			rendering_config,

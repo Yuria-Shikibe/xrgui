@@ -16,7 +16,7 @@ import mo_yanxi.math.rect_ortho;
 import mo_yanxi.gui.util;
 export import mo_yanxi.input_handle;
 export import mo_yanxi.gui.alloc;
-export import mo_yanxi.gui.draw_config;
+export import mo_yanxi.gui.gfx_config;
 
 export import mo_yanxi.react_flow;
 import mo_yanxi.allocator_aware_unique_ptr;
@@ -24,27 +24,43 @@ import mo_yanxi.allocator_aware_unique_ptr;
 
 namespace mo_yanxi::gui{
 
-namespace draw_config{
+namespace gfx_config{
+export
+struct layer_config{
+	draw_config begin_config;
+	blit_pipeline_config end_config;
+};
+/**
+ * @brief Note that the render pass has nothing to do with VkRenderPass,
+ * it's only an abstraction name for layer pass draw.
+ */
 export
 struct scene_render_pass_config{
+
 	static constexpr std::size_t max_pass_capacity = 8;
+	using value_type = layer_config;
 
 private:
-	std::array<render_target_mask, max_pass_capacity> masks{};
+	std::array<value_type, max_pass_capacity> masks{};
 	unsigned pass_count{};
 
 public:
 	constexpr scene_render_pass_config() = default;
 
-	constexpr explicit scene_render_pass_config(std::initializer_list<render_target_mask> masks){
+	constexpr explicit scene_render_pass_config(std::initializer_list<value_type> masks) : pass_count(masks.size()){
 		std::ranges::copy(masks, this->masks.begin());
 	}
 
-	constexpr unsigned size() const noexcept{
+	inline constexpr const value_type& operator[](unsigned idx) const noexcept{
+		assert(idx < max_pass_capacity);
+		return masks[idx];
+	}
+
+	inline constexpr unsigned size() const noexcept{
 		return pass_count;
 	}
 
-	constexpr void resize(unsigned sz){
+	inline constexpr void resize(unsigned sz){
 		if(sz >= masks.max_size()){
 			throw std::bad_array_new_length();
 		}
@@ -52,7 +68,7 @@ public:
 		pass_count = sz;
 	}
 
-	constexpr void push_back(render_target_mask mask){
+	inline constexpr void push_back(const value_type& mask){
 		if(pass_count >= masks.max_size()){
 			throw std::bad_array_new_length();
 		}
@@ -61,11 +77,11 @@ public:
 		pass_count++;
 	}
 
-	constexpr auto begin(this auto& self) noexcept{
+	inline constexpr auto begin(this auto& self) noexcept{
 		return self.masks.begin();
 	}
 
-	constexpr auto end(this auto& self) noexcept{
+	inline constexpr auto end(this auto& self) noexcept{
 		return self.masks.begin() + self.size();
 	}
 };
@@ -178,7 +194,37 @@ protected:
 		);
 
 public:
-	draw_config::scene_render_pass_config render_pass_config{};
+	gfx_config::scene_render_pass_config pass_config{
+
+		// renderer().update_state(draw_mode_param{
+		// 		.mode = draw_mode::msdf,
+		// 		.draw_targets = 0b10
+		// 	});
+		// e.draw_background(region);
+		// const auto bound = region.round<int>();
+		// renderer().update_state(blit_config{
+		// 	.blit_region = {bound.src, bound.extent()}
+		// });
+		// renderer().update_state(draw_mode_param{
+		// 	.mode = draw_mode::msdf,
+		// 	.draw_targets = 0b01
+		// });
+		//
+		gfx_config::scene_render_pass_config::value_type{
+			.begin_config = {
+				.mode = draw_mode::msdf,
+				.draw_targets = 0b1,
+			},
+			.end_config = {}
+		},
+		{
+			.begin_config = {
+				.mode = draw_mode::msdf,
+				.draw_targets = 0b10,
+			},
+			.end_config = {}
+		}
+	};
 
 
 	template <std::derived_from<native_communicator> Ty, typename ...Args>
@@ -340,6 +386,8 @@ public:
 
 private:
 	void update(double delta_in_tick);
+
+	void draw_at(const elem& elem);
 
 	void draw(rect clip);
 

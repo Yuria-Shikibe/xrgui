@@ -7,6 +7,17 @@ module mo_yanxi.gui.infrastructure;
 import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
+void style::debug_elem_drawer::draw_layer_impl(const elem& element, math::frect region, float opacityScl,
+	gfx_config::layer_param layer_param) const{
+	switch(layer_param.layer_index){
+	case 0 : draw(element, region, opacityScl);
+		break;
+	case 1 : draw_background(element, region, opacityScl);
+		break;
+	default : std::unreachable();
+	}
+}
+
 void style::debug_elem_drawer::draw(const elem& element, rect region, float opacityScl) const{
 
 	auto cregion = element.clip_to_content_bound(region);
@@ -92,13 +103,8 @@ bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
 
 }
 
-void elem::draw_style() const{
-	if(style)style->draw(*this, bound_abs(), get_draw_opacity());
-}
-
-void elem::draw_style_background() const{
-	if(style)style->draw_background(*this, bound_abs(), get_draw_opacity());
-
+void elem::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+	draw_style(param);
 }
 
 bool elem::update(float delta_in_ticks){

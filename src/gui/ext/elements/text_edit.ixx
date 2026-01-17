@@ -725,7 +725,8 @@ protected:
 
 #pragma endregion
 
-	void draw_content_impl(const rect clipSpace) const override;
+	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override;
+
 
 	void layout_text_then_resume(const caret_range pos){
 		text_expired = true;

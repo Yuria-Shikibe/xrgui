@@ -101,7 +101,13 @@ struct progress_drawer : style_drawer<progress_bar>{
 
 export
 struct default_progress_drawer : progress_drawer{
-	void draw(const progress_bar& element, math::frect region, float opacityScl) const override;
+	constexpr default_progress_drawer()
+		: progress_drawer(tags::persistent, layer_top_only){
+	}
+
+
+protected:
+	void draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl, gfx_config::layer_param layer_param) const override;
 };
 
 export inline constexpr default_progress_drawer default_progress_drawer;
@@ -145,15 +151,13 @@ public:
 		return node;
 	}
 
-protected:
-	void draw_content_impl(const rect clipSpace) const override{
-		draw_style();
+public:
+	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override{
+		draw_style(param);
 		if(drawer){
-			drawer->draw(*this, content_bound_abs(), get_draw_opacity());
+			drawer->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
 		}
 	}
-
-public:
 	bool update(float delta_in_ticks) override{
 		if(elem::update(delta_in_ticks)){
 			progress.update(delta_in_ticks);

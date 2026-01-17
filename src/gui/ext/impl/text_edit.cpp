@@ -3,10 +3,12 @@ module mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
-void text_edit::draw_content_impl(const rect clipSpace) const{
-	using namespace graphic;
+void text_edit::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+	draw_style(param);
 
-	draw_style();
+	if(param != 0)return;
+
+	using namespace graphic;
 
 	if(caret_ && glyph_layout.contains(caret_->range.src.pos) && glyph_layout.contains(caret_->range.dst.pos)){
 		using namespace graphic::draw::instruction;
@@ -87,7 +89,7 @@ void text_edit::draw_content_impl(const rect clipSpace) const{
 	}
 
 	drawBase:
-	
+
 	draw_text();
 }
 

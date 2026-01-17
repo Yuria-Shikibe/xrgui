@@ -84,6 +84,13 @@ public:
 		// return current_frame_index_;
 	}
 
+	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override{
+		elem::draw_layer(clipSpace, param);
+		if(param == 0){
+			draw_content_impl();
+		}
+	}
+
 protected:
 	void try_swap_image(const std::size_t ldx, const std::size_t rdx){
 		if(ldx >= drawables_.size() || rdx >= drawables_.size()) return;
@@ -91,8 +98,7 @@ protected:
 		std::swap(drawables_[ldx], drawables_[rdx]);
 	}
 
-	void draw_content_impl(const rect clipSpace) const override{
-		elem::draw_content_impl(clipSpace);
+	void draw_content_impl() const{
 		auto drawable = get_region();
 		if(!drawable || !drawable->drawable) return;
 		const auto sz = get_expected_size(*drawable->drawable, drawable->style, content_extent());
@@ -204,18 +210,19 @@ public:
 		drawable_ = std::move(icon);
 	}
 
-protected:
-	void draw_content_impl(const rect clipSpace) const override{
-		draw_style();
+	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override{
+		draw_style(param);
+		if(param == 0){
+			auto sz = gui::get_expected_size(drawable_, style, content_extent());
+			auto off = align::get_offset_of(style.align, sz, content_bound_abs());
 
-		auto sz = gui::get_expected_size(drawable_, style, content_extent());
-		auto off = align::get_offset_of(style.align, sz, content_bound_abs());
-
-		//TODO support stylized color
-		graphic::color scl{graphic::colors::white};
-		scl.mul_a(get_draw_opacity());
-		drawable_.draw(get_scene().renderer(), math::raw_frect{off, sz}, scl);
+			//TODO support stylized color
+			graphic::color scl{graphic::colors::white};
+			scl.mul_a(get_draw_opacity());
+			drawable_.draw(get_scene().renderer(), math::raw_frect{off, sz}, scl);
+		}
 	}
+protected:
 };
 
 export

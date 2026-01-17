@@ -95,10 +95,6 @@ namespace mo_yanxi::gui{
 
 		bool update(const float delta_in_ticks) override;
 
-		void draw_background_impl(const rect clipSpace) const override;
-
-		void draw_content_impl(const rect clipSpace) const override;
-
 		void layout_elem() override{
 			elem::layout_elem();
 			update_item_layout();
@@ -106,6 +102,8 @@ namespace mo_yanxi::gui{
 
 
 	public:
+		void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override;
+
 		template <elem_init_func Fn, typename ...Args>
 		auto& create(Fn&& init, Args&& ...args){
 			this->item = elem_ptr{get_scene(), this, [&, this](elem_init_func_create_t<Fn>& e){

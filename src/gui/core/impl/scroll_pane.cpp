@@ -31,8 +31,8 @@ bool scroll_pane::update(const float delta_in_ticks){
 	return true;
 }
 
-void scroll_pane::draw_background_impl(rect clipSpace) const{
-	elem::draw_background_impl(clipSpace);
+void scroll_pane::draw_layer(rect clipSpace, gfx_config::layer_param_pass_t param) const{
+	elem::draw_layer(clipSpace, param);
 
 	auto& r = get_scene().renderer();
 
@@ -43,51 +43,36 @@ void scroll_pane::draw_background_impl(rect clipSpace) const{
 	if(enableHori || enableVert){
 		scissor_guard guard{r, {get_viewport()}};
 		transform_guard transform_guard{r, math::mat3{}.idt().set_translation(-scroll.temp)};
-		item->draw_background(clipSpace.move(scroll.temp));
+		item->draw_layer(clipSpace.move(scroll.temp), param);
 	}else{
-		item->draw_background(clipSpace);
-	}
-}
-
-void scroll_pane::draw_content_impl(rect clipSpace) const{
-	draw_style();
-
-	auto& r = get_scene().renderer();
-
-	const bool enableHori = is_hori_scroll_enabled();
-	const bool enableVert = is_vert_scroll_enabled();
-
-	assert(item);
-	if(enableHori || enableVert){
-		scissor_guard guard{r, {get_viewport()}};
-		transform_guard transform_guard{r, math::mat3{}.idt().set_translation(-scroll.temp)};
-		item->draw(clipSpace.move(scroll.temp));
-	}else{
-		item->draw(clipSpace);
+		item->draw_layer(clipSpace, param);
 	}
 
-	if(enableHori){
-		float shrink = scroll_bar_stroke_ * .25f;
-		auto rect = get_hori_bar_rect().shrink(2).move_y(boarder().bottom * .0 + shrink);
-		rect.add_height(-shrink);
+	if(param == 0){
+		if(enableHori){
+			float shrink = scroll_bar_stroke_ * .25f;
+			auto rect = get_hori_bar_rect().shrink(2).move_y(boarder().bottom * .0 + shrink);
+			rect.add_height(-shrink);
 
-		r.push(graphic::draw::instruction::rect_aabb{
-			.v00 = rect.vert_00(),
-			.v11 = rect.vert_11(),
-			.vert_color = graphic::colors::gray
-		});
+			r.push(graphic::draw::instruction::rect_aabb{
+				.v00 = rect.vert_00(),
+				.v11 = rect.vert_11(),
+				.vert_color = graphic::colors::gray
+			});
+		}
+
+		if(enableVert){
+			float shrink = scroll_bar_stroke_ * .25f;
+			auto rect = get_vert_bar_rect().shrink(2).move_x(boarder().right * .0 + shrink);
+			rect.add_width(-shrink);
+
+			r.push(graphic::draw::instruction::rect_aabb{
+				.v00 = rect.vert_00(),
+				.v11 = rect.vert_11(),
+				.vert_color = graphic::colors::gray
+			});
+		}
 	}
-
-	if(enableVert){
-		float shrink = scroll_bar_stroke_ * .25f;
-		auto rect = get_vert_bar_rect().shrink(2).move_x(boarder().right * .0 + shrink);
-		rect.add_width(-shrink);
-
-		r.push(graphic::draw::instruction::rect_aabb{
-			.v00 = rect.vert_00(),
-			.v11 = rect.vert_11(),
-			.vert_color = graphic::colors::gray
-		});	}
 }
 
 void scroll_pane::update_item_layout(){

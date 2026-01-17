@@ -158,15 +158,15 @@ void async_label_terminal::on_update(const exclusive_glyph_layout& data){
 	label->update_draw_buffer(*data);
 }
 
-void label::draw_content_impl(const rect clipSpace) const{
-	draw_style();
-	draw_text();
+void label::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+	draw_style(param);
+	if(param == 0)draw_text();
 }
 
 
+void async_label::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+	draw_style(param);
 
-void async_label::draw_content_impl(const rect clipSpace) const{
-	draw_style();
 	if(!terminal)return;
 	if(extent_state_ != async_label::layout_extent_state::valid)return;
 

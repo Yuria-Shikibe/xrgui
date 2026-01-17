@@ -32,14 +32,9 @@ protected:
 		}
 	}
 
-	void draw_children(const rect clipSpace) const{
+	void draw_children(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
 		for(const auto& element : children()){
-			element->try_draw(clipSpace);
-		}
-	}
-	void draw_children_background(const rect clipSpace) const{
-		for(const auto& element : children()){
-			element->try_draw_background(clipSpace);
+			element->try_draw_layer(clipSpace, param);
 		}
 	}
 
@@ -165,16 +160,10 @@ public:
 
 
 protected:
-	void draw_background_impl(const rect clipSpace) const override{
-		elem::draw_background_impl(clipSpace);
+	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override{
+		elem::draw_layer(clipSpace, param);
 		const auto space = content_bound_abs().intersection_with(clipSpace);
-		draw_children_background(space);
-	}
-
-	void draw_content_impl(const rect clipSpace) const override{
-		elem::draw_content_impl(clipSpace);
-		const auto space = content_bound_abs().intersection_with(clipSpace);
-		draw_children(space);
+		draw_children(space, param);
 	}
 
 	bool resize_impl(const math::vec2 size) override{

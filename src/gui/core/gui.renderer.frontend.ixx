@@ -14,7 +14,7 @@ export import mo_yanxi.graphic.draw.instruction.general;
 export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.gui.alloc;
-export import mo_yanxi.gui.draw_config;
+export import mo_yanxi.gui.gfx_config;
 import mo_yanxi.type_register;
 //TODO move this to other namespace
 import mo_yanxi.vk.util.uniform;
@@ -163,34 +163,6 @@ enum struct state_type{
 };
 
 export
-struct blit_config{
-	math::rect_ortho_trivial<int> blit_region;
-	std::uint32_t pipeline_index;
-	std::uint32_t inout_define_index = std::numeric_limits<std::uint32_t>::max();
-
-	bool use_default_inouts() const noexcept{
-		return inout_define_index == std::numeric_limits<std::uint32_t>::max();
-	}
-
-	void get_clamped_to_positive() noexcept{
-		if(blit_region.src.x < 0){
-			blit_region.extent.x += blit_region.src.x;
-			blit_region.src.x = 0;
-			if(blit_region.extent.x < 0)blit_region.extent.x = 0;
-		}
-		if(blit_region.src.y < 0){
-			blit_region.extent.y += blit_region.src.y;
-			blit_region.src.y = 0;
-			if(blit_region.extent.y < 0)blit_region.extent.y = 0;
-		}
-	}
-
-	math::usize2 get_dispatch_groups() const noexcept{
-		return (blit_region.extent.as<unsigned>() + math::usize2{15, 15}) / math::usize2{16, 16};
-	}
-};
-
-export
 enum struct draw_mode : std::uint16_t{
 	def,
 	msdf,
@@ -209,10 +181,10 @@ enum struct blending_type : std::uint16_t{
 
 
 export
-struct draw_mode_param{
+struct draw_config{
 	draw_mode mode{};
 	blending_type blending{};
-	draw_config::render_target_mask draw_targets{};
+	gfx_config::render_target_mask draw_targets{};
 	std::uint32_t pipeline_index{std::numeric_limits<std::uint32_t>::max()};
 
 };
@@ -230,18 +202,19 @@ export
 template <typename T>
 struct draw_state_config_deduce{};
 
-template <>
-struct draw_state_config_deduce<blit_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::blit)>{
-};
-
-template <>
-struct draw_state_config_deduce<draw_mode_param> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::mode)>{
-};
-
 template <typename T>
 concept draw_state_config_deduceable = requires{
 	requires std::same_as<typename draw_state_config_deduce<T>::value_type, std::uint32_t>;
 };
+
+template <>
+struct draw_state_config_deduce<gfx_config::blit_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::blit)>{
+};
+
+template <>
+struct draw_state_config_deduce<draw_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::mode)>{
+};
+
 
 export
 template <typename T>
@@ -556,11 +529,11 @@ private:
 	friend guard_base;
 
 	void pop() const{
-		renderer_->update_state(draw_mode_param{draw_mode::COUNT_or_fallback});
+		renderer_->update_state(draw_config{draw_mode::COUNT_or_fallback});
 	}
 
 public:
-	[[nodiscard]] mode_guard(renderer_frontend& renderer, const draw_mode_param& param) :
+	[[nodiscard]] mode_guard(renderer_frontend& renderer, const draw_config& param) :
 	guard_base(renderer){
 		renderer.update_state(param);
 	}

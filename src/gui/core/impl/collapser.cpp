@@ -129,8 +129,13 @@ events::op_afterwards collapser::on_click(const events::click event, std::span<e
 
 }
 
-void collapser::draw_impl(void(elem::* mfptr)(rect) const, rect region) const{
-	std::invoke(mfptr, head(), region);
+
+
+void collapser::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+	draw_style(param);
+	const auto space = content_bound_abs().intersection_with(clipSpace);
+
+	head().try_draw_layer(space, param);
 
 	switch(state_){
 	case collapser_state::un_expand : break;
@@ -139,30 +144,18 @@ void collapser::draw_impl(void(elem::* mfptr)(rect) const, rect region) const{
 		auto& r = get_scene().renderer();
 		r.push_scissor({get_expand_region()});
 		r.notify_viewport_changed();
-		std::invoke(mfptr, body(), region);
+		body().try_draw_layer(space, param);
 
 		r.pop_scissor();
 		r.notify_viewport_changed();
 		break;
 	}
-	case collapser_state::expanded : std::invoke(mfptr, body(), region);
+	case collapser_state::expanded : body().try_draw_layer(space, param);
 		break;
 	default : std::unreachable();
 	}
 }
 
-
-void collapser::draw_content_impl(const rect clipSpace) const{
-	draw_style();
-	const auto space = content_bound_abs().intersection_with(clipSpace);
-	draw_impl(&elem::draw, space);
-}
-
-void collapser::draw_background_impl(const rect clipSpace) const{
-	draw_style_background();
-	const auto space = content_bound_abs().intersection_with(clipSpace);
-	draw_impl(&elem::draw_background, space);
-}
 
 float collapser::get_interped_progress() const noexcept{
 	static constexpr auto smoother = [](float a) static noexcept{
