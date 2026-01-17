@@ -232,8 +232,7 @@ public:
 		}
 #endif
 
-
-		if(!std::ranges::contains(post.get_in_socket_type_index(), get_out_socket_type_index())){
+		if(const auto inputs = post.get_in_socket_type_index(); slot >= inputs.size() || inputs[slot] != get_out_socket_type_index()){
 			throw invalid_node{"Node type NOT match"};
 		}
 

@@ -135,6 +135,30 @@ task("gen_slang")
     })
 task_end()
 
+target("test.data_flow")
+    set_kind("binary")
+    set_languages("c++23")
+    set_policy("build.c++.modules", true)
+
+    function join_path(p)
+       return path.join(current_dir, p)
+    end
+
+    add_includedirs(join_path("./external/include"), {public = true})
+    add_includedirs(join_path("external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility/include"), {public = true})
+
+    add_files("src/data_flow/test_flow.cpp")
+    add_files("src/data_flow/**.ixx")
+
+    add_files("external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility/src/utility/**.ixx")
+
+    add_files("src/align.ixx")
+    add_files("src/aligned_allocator.ixx")
+    add_files("src/byte_pool.ixx")
+
+    set_warnings("all")
+target_end()
+
 task("set_mode")
 set_menu({
     usage = "xmake build_release",
