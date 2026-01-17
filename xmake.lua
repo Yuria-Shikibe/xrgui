@@ -17,15 +17,19 @@ if is_plat("windows") then
 else
     set_runtimes("c++_shared")
 end
+
 add_vectorexts("avx", "avx2")
 
-add_requires("msdfgen", {
-    configs = {
-        openmp = true,
-        extensions = true,
-    }
-})
+add_requires("msdfgen")
 
+if is_plat("windows") then
+    add_requireconfs("msdfgen", {
+        configs = {
+            openmp = true,
+            extensions = true,
+        }
+    })
+end
 add_requires("freetype")
 add_requires("harfbuzz")
 add_requires("nanosvg")
