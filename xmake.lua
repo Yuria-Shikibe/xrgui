@@ -33,7 +33,6 @@ add_requires("spirv-reflect")
 add_requires("clipper2")
 add_requires("mimalloc v2.2.4")
 add_requires("glfw")
-add_requires("benchmark")
 
 function set_xrgui_deps()
     function join_path(p)
@@ -113,35 +112,7 @@ target("xrgui.example")
     end)
 target_end()
 
-target("xrgui.test")
-    set_extension(".exe")
-    set_kind("binary")
-    set_languages("c++23")
-    set_policy("build.c++.modules", true)
-
-    set_xrgui_deps()
-
-    set_warnings("all")
-    set_warnings("pedantic")
-
-    add_packages("benchmark")
-    add_packages("glfw")
-
-    add_files("./test/main.cpp")
-
-    add_files("src.backends/universal/**.ixx", {public = true})
-    add_files("src.backends/universal/**.cpp")
-    add_files("src.backends/vulkan/**.ixx", {public = true})
-    add_files("src.backends/vulkan/**.cpp")
-    add_files("src.backends/vulkan_glfw/**.ixx", {public = true})
-    add_files("src.backends/vulkan_glfw/**.cpp")
-    add_files("src.examples/**.ixx", {public = true})
-    add_files("src.examples/**.cpp")
-
-target_end()
-
 task("gen_slang")
-
     on_run(function ()
         import("core.base.option")
 
