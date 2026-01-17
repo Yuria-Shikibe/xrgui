@@ -20,16 +20,13 @@ end
 
 add_vectorexts("avx", "avx2")
 
-add_requires("msdfgen")
+add_requires("msdfgen", {
+    configs = {
+        openmp = true,
+        extensions = true,
+    }
+})
 
-if is_plat("windows") then
-    add_requireconfs("msdfgen", {
-        configs = {
-            openmp = true,
-            extensions = true,
-        }
-    })
-end
 add_requires("freetype")
 add_requires("harfbuzz")
 add_requires("nanosvg")
