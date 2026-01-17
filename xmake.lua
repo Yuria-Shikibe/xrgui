@@ -9,6 +9,8 @@ set_project("xrgui")
 set_symbols("debug")
 
 if is_plat("windows") then
+    add_vectorexts("avx", "avx2")
+
     if is_mode("debug") then
         set_runtimes("MDd")
     else
@@ -18,7 +20,6 @@ else
     set_runtimes("c++_shared")
 end
 
-add_vectorexts("avx", "avx2")
 
 add_requires("msdfgen", {
     configs = {
@@ -28,7 +29,7 @@ add_requires("msdfgen", {
 })
 
 add_requires("freetype")
-add_requires("harfbuzz")
+--add_requires("harfbuzz")
 add_requires("nanosvg")
 add_requires("spirv-reflect")
 add_requires("clipper2")
@@ -43,7 +44,7 @@ function set_xrgui_deps()
 
     add_packages("msdfgen", {public = true})
     add_packages("freetype", {public = true})
-    add_packages("harfbuzz", {public = true})
+    --add_packages("harfbuzz", {public = true})
     add_packages("mimalloc", {public = true})
     add_packages("nanosvg", {public = true})
     add_packages("clipper2", {public = true})
