@@ -47,7 +47,7 @@ private:
 public:
 	constexpr scene_render_pass_config() = default;
 
-	constexpr explicit scene_render_pass_config(std::initializer_list<value_type> masks) : pass_count(masks.size()){
+	constexpr scene_render_pass_config(std::initializer_list<value_type> masks) : pass_count(masks.size()){
 		std::ranges::copy(masks, this->masks.begin());
 	}
 
@@ -193,39 +193,17 @@ protected:
 		Args&& ...args
 		);
 
+	gfx_config::scene_render_pass_config pass_config_{};
+
 public:
-	gfx_config::scene_render_pass_config pass_config{
 
-		// renderer().update_state(draw_mode_param{
-		// 		.mode = draw_mode::msdf,
-		// 		.draw_targets = 0b10
-		// 	});
-		// e.draw_background(region);
-		// const auto bound = region.round<int>();
-		// renderer().update_state(blit_config{
-		// 	.blit_region = {bound.src, bound.extent()}
-		// });
-		// renderer().update_state(draw_mode_param{
-		// 	.mode = draw_mode::msdf,
-		// 	.draw_targets = 0b01
-		// });
-		//
-		gfx_config::scene_render_pass_config::value_type{
-			.begin_config = {
-				.mode = draw_mode::msdf,
-				.draw_targets = 0b1,
-			},
-			.end_config = {}
-		},
-		{
-			.begin_config = {
-				.mode = draw_mode::msdf,
-				.draw_targets = 0b10,
-			},
-			.end_config = {}
-		}
-	};
+	void set_pass_config(const gfx_config::scene_render_pass_config& cfg){
+		pass_config_ = cfg;
+	}
 
+	const gfx_config::scene_render_pass_config& get_pass_config() const noexcept{
+		return pass_config_;
+	}
 
 	template <std::derived_from<native_communicator> Ty, typename ...Args>
 	void set_native_communicator(Args&& ...args){
@@ -292,6 +270,7 @@ public:
 	[[nodiscard]] vec2 get_cursor_pos() const noexcept{
 		return inputs_.cursor_pos();
 	}
+
 	[[nodiscard]] std::span<elem const * const> get_inbounds() const noexcept{
 		return last_inbounds_;
 	}
@@ -322,7 +301,6 @@ protected:
 		}
 		elem_owned_nodes_.erase(begin, end);
 	}
-
 };
 
 export

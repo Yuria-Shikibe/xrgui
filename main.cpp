@@ -127,7 +127,7 @@ void app_run(
 				}, 2);
 			}
 
-			gui::fringe::line_context line_ctx{r};
+			gui::fringe::line_context line_ctx{r.get_mem_pool()};
 			line_ctx.push({math::vec2{450, 600}, 12, 0, {graphic::colors::white, graphic::colors::white}});
 			line_ctx.push({math::vec2{400, 560}, 12, 0, {graphic::colors::white, graphic::colors::white}});
 			line_ctx.push({math::vec2{300, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
@@ -135,16 +135,16 @@ void app_run(
 			line_ctx.push({math::vec2{250, 450}, 12, 0, {graphic::colors::white, graphic::colors::white}});
 			line_ctx.push({math::vec2{1200, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
 
-			// line_ctx.add_cap();
-			// line_ctx.add_fringe_cap(2, 2);
-			// line_ctx.dump_mid(line_segments{});
-			// line_ctx.dump_fringe_inner(line_segments{}, 1.75f);
-			// line_ctx.dump_fringe_outer(line_segments{}, 1.75f);
+			line_ctx.add_cap();
+			line_ctx.add_fringe_cap(2, 2);
+			line_ctx.dump_mid(r, line_segments{});
+			line_ctx.dump_fringe_inner(r, line_segments{}, 1.75f);
+			line_ctx.dump_fringe_outer(r, line_segments{}, 1.75f);
 
-			// line_ctx.dump_fringe_cap_src(line_segments{}, 3.f, 4.f);
-			// line_ctx.dump_fringe_cap_dst(line_segments{}, 12.f, 4.f);
-			// line_ctx.dump_fringe_inner(line_segments_closed{}, 2.f);
-			// line_ctx.dump_fringe_outer(line_segments_closed{}, 2.f);
+			// line_ctx.dump_fringe_cap_src(r, line_segments{}, 3.f, 4.f);
+			// line_ctx.dump_fringe_cap_dst(r, line_segments{}, 12.f, 4.f);
+			// line_ctx.dump_fringe_inner(r, line_segments_closed{}, 2.f);
+			// line_ctx.dump_fringe_outer(r, line_segments_closed{}, 2.f);
 
 			// gui::fringe::curve(r, {
 			// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 400}, {800, 400}, {900, 500}),

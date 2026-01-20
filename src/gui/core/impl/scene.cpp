@@ -34,14 +34,14 @@ void scene::draw_at(const elem& elem){
 	auto c = get_region().intersection_with(elem.bound_abs());
 	const auto bound = c.round<int>();
 
-	for(unsigned i = 0; i < pass_config.size(); ++i){
-		renderer().update_state(pass_config[i].begin_config);
+	for(unsigned i = 0; i < pass_config_.size(); ++i){
+		renderer().update_state(pass_config_[i].begin_config);
 
 		elem.draw_layer(c, {i});
 
 		renderer().update_state(gfx_config::blit_config{
 				.blit_region = {bound.src, bound.extent()},
-				.pipe_info = pass_config[i].end_config
+				.pipe_info = pass_config_[i].end_config
 			});
 	}
 }
