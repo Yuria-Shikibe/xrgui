@@ -18,7 +18,7 @@ export import mo_yanxi.gui.gfx_config;
 import mo_yanxi.type_register;
 //TODO move this to other namespace
 import mo_yanxi.vk.util.uniform;
-import byte_pool;
+import mo_yanxi.byte_pool;
 
 import mo_yanxi.meta_programming;
 

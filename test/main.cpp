@@ -4,7 +4,7 @@
 #include <vector>
 #include <new>
 import std;
-import byte_pool;
+import mo_yanxi.byte_pool;
 // import mo_yanxi.aligned_allocator; // 如果想测试特定分配器可取消注释
 using namespace mo_yanxi;
 

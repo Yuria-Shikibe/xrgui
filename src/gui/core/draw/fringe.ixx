@@ -7,7 +7,7 @@ export module mo_yanxi.gui.fringe;
 export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.graphic.draw.instruction;
 
-import byte_pool;
+import mo_yanxi.byte_pool;
 
 import std;
 
