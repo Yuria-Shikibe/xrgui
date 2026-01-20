@@ -114,6 +114,42 @@ target("xrgui.example")
     end)
 target_end()
 
+target("xrgui.test.data_flow")
+    set_kind("binary")
+    set_languages("c++23")
+    set_policy("build.c++.modules", true)
+
+    function join_path(p)
+       return path.join(os.projectdir(), p)
+    end
+
+    function add_mo_yanxi_utility()
+        local wrapper_root = join_path("external/mo_yanxi_vulkan_wrapper")
+        local utility_root = path.join(wrapper_root, "external/mo_yanxi_utility")
+
+        add_includedirs(path.join(utility_root, "include"), {public = true})
+        add_files(path.join(utility_root, "src/utility/**.ixx"), {public = true})
+
+        add_defines("MO_YANXI_UTILITY_ENABLE_CHECK=0", {public = true})
+    end
+
+    add_mo_yanxi_utility()
+
+    add_includedirs(join_path("./external/plf_hive"), {public = true})
+    add_includedirs(join_path("./external/small_vector/source/include"), {public = true})
+    add_includedirs(join_path("./external/include"), {public = true})
+
+    add_defines("XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE", {public = true})
+
+    add_files(join_path("./src/data_flow/**.ixx"))
+    add_files(join_path("./src/data_flow/**.cpp"))
+
+    add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2", {public = true})
+    add_files(join_path("./external/allocator2d/include/mo_yanxi/allocator2d.ixx"), {public = true})
+
+    add_files("tests/test_data_flow.cpp")
+target_end()
+
 task("gen_slang")
     on_run(function ()
         import("core.base.option")
