@@ -34,6 +34,12 @@ struct bad_image_asset : public std::exception{
 using region_type = combined_image_region<size_awared_uv<uniformed_rect_uv>>;
 
 export
+struct borrowed_image_region;
+
+export
+struct cached_image_region;
+
+export
 struct allocated_image_region :
 	region_type,
 	referenced_object_atomic_nonpropagation{
@@ -79,6 +85,7 @@ public:
 	}
 
 	using referenced_object_atomic_nonpropagation::droppable;
+	using referenced_object_atomic_nonpropagation::check_droppable_and_retire;
 	using referenced_object_atomic_nonpropagation::ref_decr;
 	using referenced_object_atomic_nonpropagation::ref_incr;
 
@@ -87,10 +94,28 @@ public:
 	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic_nonpropagation>() noexcept{
 		return {*this, static_cast<T>(static_cast<const region_type&>(*this))};
 	}
+
+	template <typename T>
+		requires (std::convertible_to<region_type, T>)
+	std::optional<universal_borrowed_image_region<T, referenced_object_atomic_nonpropagation>> make_universal_borrow() noexcept{
+		universal_borrowed_image_region<T, referenced_object_atomic_nonpropagation> rst{*this, static_cast<T>(static_cast<const region_type&>(*this))};
+		if(rst.get()){
+			return rst;
+		}
+		return std::nullopt;
+	}
+
+	std::optional<borrowed_image_region> make_borrow() noexcept;
+
+	std::optional<cached_image_region> make_cached_borrow() noexcept;
 };
 
 export
 struct borrowed_image_region : referenced_ptr<allocated_image_region, no_deletion_on_ref_count_to_zero>{
+	friend allocated_image_region;
+	friend cached_image_region;
+
+private:
 	[[nodiscard]] constexpr explicit(false) borrowed_image_region(allocated_image_region* object)
 	: referenced_ptr(object){
 	}
@@ -99,6 +124,7 @@ struct borrowed_image_region : referenced_ptr<allocated_image_region, no_deletio
 	: referenced_ptr(std::addressof(object)){
 	}
 
+public:
 	[[nodiscard]] constexpr borrowed_image_region() = default;
 
 	constexpr operator combined_image_region<uniformed_rect_uv>() const{
@@ -119,23 +145,40 @@ struct borrowed_image_region : referenced_ptr<allocated_image_region, no_deletio
 export
 struct cached_image_region : borrowed_image_region{
 private:
+	friend allocated_image_region;
+
 	combined_image_region<uniformed_rect_uv> cache_{};
 
 public:
 	[[nodiscard]] constexpr cached_image_region() = default;
 
+	[[nodiscard]] constexpr cached_image_region(const borrowed_image_region& region) : borrowed_image_region(region){
+		if(*this){
+			cache_ = *this->get();
+		}
+	}
+	[[nodiscard]] constexpr cached_image_region(borrowed_image_region&& region) : borrowed_image_region(std::move(region)){
+		if(*this){
+			cache_ = *this->get();
+		}
+	}
+
+private:
 	[[nodiscard]] constexpr explicit(false) cached_image_region(allocated_image_region* image_region)
 	: borrowed_image_region(image_region){
-		if(image_region){
-			cache_ = *image_region;
+		if(*this){
+			cache_ = *this->get();
 		}
 	}
 
 	[[nodiscard]] constexpr explicit(false) cached_image_region(allocated_image_region& image_region)
 	: borrowed_image_region(image_region){
-		cache_ = image_region;
+		if(*this){
+			cache_ = *this->get();
+		}
 	}
 
+public:
 	operator const combined_image_region<uniformed_rect_uv>&() const{
 		return cache_;
 	}
@@ -286,6 +329,24 @@ public:
 
 allocated_image_region::~allocated_image_region(){
 	if(page) page->deallocate(region.src);
+}
+
+std::optional<borrowed_image_region> allocated_image_region::make_borrow() noexcept{
+	borrowed_image_region rst{*this};
+	if(rst){
+		return rst;
+	}else{
+		return std::nullopt;
+	}
+}
+
+std::optional<cached_image_region> allocated_image_region::make_cached_borrow() noexcept{
+	cached_image_region rst{*this};
+	if(rst){
+		return rst;
+	}else{
+		return std::nullopt;
+	}
 }
 
 }

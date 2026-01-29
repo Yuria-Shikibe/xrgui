@@ -39,9 +39,9 @@ export namespace mo_yanxi::font{
 	public:
 		[[nodiscard]] glyph() = default;
 
-		[[nodiscard]] glyph(const glyph_metrics& metrics, graphic::allocated_image_region& region)
-			: universal_borrowed_image_region{region}, metrics_{metrics}{
-			assert(region.view != nullptr);
+		[[nodiscard]] glyph(graphic::universal_borrowed_image_region<graphic::combined_image_region<graphic::uniformed_rect_uv>, referenced_object_atomic_nonpropagation>&& borrow, const glyph_metrics& metrics)
+			: universal_borrowed_image_region{std::move(borrow)}, metrics_{metrics}{
+			assert(borrow->view != nullptr);
 			assert(this->operator*().view != nullptr);
 		}
 
@@ -183,7 +183,10 @@ export namespace mo_yanxi::font{
 			auto id = get_face_id(face_main_thread_only);
 			auto name = format(id, key.index, key.size);
 			if(const auto prev = page().find(name)){
-				return glyph{mtx, *prev};
+				if(auto borrow = prev->make_universal_borrow<graphic::combined_image_region<graphic::uniformed_rect_uv>>()){
+					return glyph{std::move(*borrow), mtx};
+				}
+
 			}
 
 			graphic::sdf_load load{
@@ -193,8 +196,7 @@ export namespace mo_yanxi::font{
 			const auto aloc = page().register_named_region(
 				std::move(name),
 				graphic::image_load_description{std::move(load)});
-			assert(aloc.region.view != nullptr);
-			return glyph{mtx, aloc.region};
+			return glyph{*aloc.region.make_universal_borrow<graphic::combined_image_region<graphic::uniformed_rect_uv>>(), mtx};
 		}
 
 		font_face_group_meta& register_face(std::string_view keyName, const char* fontName){

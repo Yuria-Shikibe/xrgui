@@ -328,6 +328,21 @@ void submit_command(VkCommandBuffer commandBuffer, VkQueue queue){
 struct image_register_result{
 	allocated_image_region& region;
 	bool inserted;
+
+	image_register_result(allocated_image_region& region, bool inserted)
+		: region(region),
+		inserted(inserted){
+		region.ref_incr();
+	}
+
+	~image_register_result(){
+		region.ref_decr();
+	}
+
+	image_register_result(const image_register_result& other) = delete;
+	image_register_result(image_register_result&& other) noexcept = delete;
+	image_register_result& operator=(const image_register_result& other) = delete;
+	image_register_result& operator=(image_register_result&& other) noexcept = delete;
 };
 
 export
@@ -346,6 +361,7 @@ private:
 	VkClearColorValue clear_color_{};
 	std::uint32_t margin{};
 
+	//TODO using shared mutex instead?
 	std::mutex named_image_regions_mtx_{};
 	string_hash_map<allocated_image_region> named_image_regions{};
 
@@ -535,9 +551,14 @@ public:
 
 	void clear_unused() noexcept{
 		std::lock_guard lg{named_image_regions_mtx_};
-		std::erase_if(named_image_regions, [](decltype(named_image_regions)::const_reference region){
-			return region.second.droppable();
-		});
+
+		auto cur = named_image_regions.begin();
+		while(cur != named_image_regions.end()){
+			auto check = cur->second.check_droppable_and_retire();
+			if(check){
+				cur = named_image_regions.erase(cur);
+			}
+		}
 	}
 
 	template <typename T>
