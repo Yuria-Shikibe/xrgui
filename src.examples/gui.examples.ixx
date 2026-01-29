@@ -26,6 +26,7 @@ import mo_yanxi.gui.elem.progress_bar;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.image_frame;
+import mo_yanxi.gui.elem.drag_split;
 
 import mo_yanxi.gui.assets.manager;
 
@@ -298,6 +299,20 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 						}, math::vector2<grid_dim_spec>{
 							grid_uniformed_mastering{6, 300.f, {4, 4}},
 							grid_uniformed_passive{8, {4, 4}}
+						});
+				},
+				[](scroll_pane& pane){
+					pane.set_layout_policy(layout::layout_policy::vert_major);
+					pane.create(
+						[](drag_split& table){
+							table.set_expand_policy(layout::expand_policy::prefer);
+							using namespace std::literals;
+							table.create_head([](gui::label& label){
+								label.set_text(std::views::repeat("叮咚鸡 "s, 114) | std::views::join | std::ranges::to<std::string>());
+							});
+							table.create_body([](gui::label& label){
+								label.set_text(std::views::repeat("叮咚鸡 "s, 114) | std::views::join | std::ranges::to<std::string>());
+							});
 						});
 				}
 			};

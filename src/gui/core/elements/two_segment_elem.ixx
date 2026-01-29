@@ -114,6 +114,21 @@ public:
 		return true;
 	}
 
+	rect get_seperator_region_contnet_local() const noexcept{
+		const auto [major, minor] = layout::get_vec_ptr(get_layout_policy());
+		auto head_extent = head().extent();
+
+		math::vec2 region_ext;
+		math::vec2 offset{};
+		region_ext.*major = extent().*major - boarder().extent().* major;
+		region_ext.*minor = pad_;
+
+		offset.*minor += head_extent.*minor;
+
+		return rect{tags::from_extent, offset, region_ext};
+	}
+
+
 protected:
 	template <std::derived_from<elem> E, typename... Args>
 		requires (std::constructible_from<E, scene&, elem*, Args...>)
@@ -142,7 +157,7 @@ protected:
 
 	template <std::derived_from<elem> E, typename... Args>
 		requires (std::constructible_from<E, scene&, elem*, Args...>)
-	E& emplace_content(Args&&... args){
+	E& emplace_body(Args&&... args){
 		return this->emplace<E>(true, std::forward<Args>(args)...);
 	}
 
@@ -335,7 +350,7 @@ export struct head_body_no_invariant : head_body{
 	using head_body::create_body;
 	using head_body::create_head;
 
-	using head_body::emplace_content;
+	using head_body::emplace_body;
 	using head_body::emplace_head;
 };
 }

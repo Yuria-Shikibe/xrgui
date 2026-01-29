@@ -66,7 +66,7 @@ public:
 	using two_segment_elem::create;
 	using two_segment_elem::emplace;
 	using two_segment_elem::emplace_head;
-	using two_segment_elem::emplace_content;
+	using two_segment_elem::emplace_body;
 	using two_segment_elem::create_head;
 	using two_segment_elem::create_body;
 

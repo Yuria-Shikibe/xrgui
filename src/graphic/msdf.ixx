@@ -91,6 +91,7 @@ public:
 };
 
 struct msdf_glyph_generator_base{
+	//no lock to this face sine image loads from the same thread
 	msdfgen::FontHandle* face{};
 	unsigned font_w{};
 	unsigned font_h{};

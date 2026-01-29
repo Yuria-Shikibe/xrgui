@@ -21,7 +21,7 @@ acquire_result font_face::obtain(const glyph_index_t code, const glyph_size_type
 				this,
 				face_->glyph->metrics,
 				graphic::msdf::msdf_glyph_generator{
-					is_empty ? nullptr : face_.msdfHdl,
+					is_empty ? nullptr : face_.msdfHdl.get(),
 					face_->size->metrics.x_ppem, face_->size->metrics.y_ppem
 				}, get_extent(face_)};
 		}

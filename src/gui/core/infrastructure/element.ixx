@@ -941,12 +941,25 @@ export
 	}());
 }
 
+/**
+ *
+ * @param where target element
+ * @param inPos position in scene space
+ * @return position in target CONTENT space
+ */
 export
 [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(const elem* where, math::vec2 inPos) noexcept{
 	if(!where) return inPos;
 	return where->transform_to_children(transform_from_root_to_current(where->parent(), inPos));
 }
 
+
+/**
+ *
+ * @param where target element
+ * @param inPos position in target CONTENT space
+ * @return position in scene space
+ */
 export
 [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(std::span<const elem* const> range, math::vec2 inPos) noexcept{
 	for (auto elem : range){
@@ -1023,7 +1036,7 @@ void elem_ptr::delete_elem(elem* ptr) noexcept{
 
 namespace mo_yanxi::gui::events{
 bool click::within_elem(const elem& elem, float margin) const noexcept{
-	auto p = pos + elem.boarder().bot_lft();
+	auto p = pos + elem.content_src_offset();
 	p.x += margin;
 	p.y += margin;
 	return p.axis_greater(0, 0) && p.axis_less(elem.extent().add(margin * 2));

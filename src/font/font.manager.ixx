@@ -1,12 +1,14 @@
 module;
 
 #include <cassert>
-#include <msdfgen/msdfgen.h>
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 //no sense the compiler cannot find std::hash<sv>
 #include <string_view>
+#else
+#include <msdfgen/msdfgen-ext.h>
 #endif
+
 
 
 export module mo_yanxi.font.manager;
@@ -22,6 +24,11 @@ import mo_yanxi.math.vector2;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.heterogeneous.open_addr_hash;
 import std;
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+//no sense the compiler cannot find std::hash<sv>
+import <msdfgen/msdfgen-ext.h>;
+#endif
 
 export namespace mo_yanxi::font{
 
@@ -128,7 +135,7 @@ export namespace mo_yanxi::font{
 
 		std::mutex mutex_{};
 
-		[[nodiscard]] static std::string format(const unsigned idx, const glyph_index_t code, const glyph_size_type size){
+		[[nodiscard]] static std::string format(const unsigned idx, const char_code code, const glyph_size_type size){
 			return std::format("{}.{:#X}|{},{}", idx, std::bit_cast<int>(code), size.x, size.y);
 		}
 
