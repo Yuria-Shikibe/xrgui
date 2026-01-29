@@ -179,7 +179,7 @@ export struct layout_rect{
 };
 
 export inline font_manager* default_font_manager{};
-export inline font_face* default_font{};
+export inline font_face_group_meta* default_font{};
 
 namespace glyph_size{
 export{
@@ -360,7 +360,7 @@ private:
 	optional_stack<glyph_size_type> size_history{};
 
 public:
-	optional_stack<font_face*> font_history{};
+	optional_stack<font_face_group_meta*> font_history{};
 	optional_stack<graphic::color> color_history{};
 
 private:
@@ -370,6 +370,16 @@ private:
 	math::vec2 currentOffset{};
 	float minimum_line_spacing{50.f};
 	float line_fixed_spacing{8.f};
+
+	mutable font_face_group_meta* cache_face_group_identity_{};
+	mutable font_face_view cache_face_view_{};
+
+	font_face_view get_thread_local_view_(font_face_group_meta& meta) const{
+		if(&meta == cache_face_group_identity_)return cache_face_view_;
+		cache_face_view_ = meta.get_thread_local();
+		cache_face_group_identity_ = &meta;
+		return cache_face_view_;
+	}
 
 public:
 	[[nodiscard]] parse_context() = default;
@@ -424,13 +434,13 @@ public:
 
 	[[nodiscard]] float get_line_spacing() const noexcept{
 		const auto sz = get_current_size();
-		const auto spacing = get_face().get_line_spacing(sz);
+		const auto spacing = get_thread_local_view_(get_face_meta_group()).get_line_spacing(sz);
 		return math::max(spacing, minimum_line_spacing) * throughout_scale;
 	}
 
 	[[nodiscard]] math::usize2 get_font_size() const noexcept{
 		const auto sz = get_current_size();
-		return get_face().get_font_pixel_spacing(sz);
+		return get_thread_local_view_(get_face_meta_group()).get_font_pixel_spacing(sz);
 	}
 
 	[[nodiscard]] glyph_size_type get_default_size() const noexcept{
@@ -475,7 +485,7 @@ public:
 		return offset;
 	}
 
-	[[nodiscard]] font_face& get_face() const{
+	[[nodiscard]] font_face_group_meta& get_face_meta_group() const{
 		const auto t = font_history.top();
 		if(!t){
 			if(default_font) return *default_font;
@@ -489,24 +499,12 @@ public:
 		return *manager_;
 	}
 
-	[[nodiscard]] std::pair<font_face*, glyph_index_t> get_face_and_index(const char_code code) const{
-		auto* curr = &get_face();
-		while(curr){
-			const auto index = curr->face().index_of(code);
-			if(index != 0){
-				return {curr, index};
-			}
-			curr = curr->fallback;
-		}
-
-		auto& face = get_face();
-		return {&face, face.face().index_of(code)};
-	}
-
 	[[nodiscard]] glyph get_glyph(const char_code code) const{
-		auto c = code < std::numeric_limits<char>::max() && std::iscntrl(static_cast<char>(code)) ? U' ' : code;
-		const auto [face, index] = get_face_and_index(c);
-		return get_manager().get_glyph_exact(*face, glyph_identity{index, get_current_snapped_size()});
+		const auto c = code < std::numeric_limits<char>::max() && std::iscntrl(static_cast<char>(code)) ? U' ' : code;
+		auto& meta = get_face_meta_group();
+		auto view = get_thread_local_view_(meta);
+		const auto [face, index] = view.find_glyph_of(c);
+		return get_manager().get_glyph_exact(meta, view, *face, glyph_identity{index, get_current_snapped_size()});
 	}
 };
 

@@ -8,9 +8,9 @@ module;
 #include <ft2build.h>
 #include <freetype/freetype.h>
 
-#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+// #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <msdfgen/msdfgen-ext.h>
-#endif
+// #endif
 
 
 export module mo_yanxi.font;
@@ -23,9 +23,9 @@ import mo_yanxi.graphic.msdf;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.concurrent.guard;
 
-#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-import <msdfgen/msdfgen-ext.h>;
-#endif
+// #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+// import <msdfgen/msdfgen-ext.h>;
+// #endif
 
 namespace mo_yanxi::font{
 export constexpr inline math::vec2 font_draw_expand{graphic::msdf::sdf_image_boarder, graphic::msdf::sdf_image_boarder};
@@ -218,7 +218,14 @@ export constexpr inline auto ascii_chars = []() constexpr{
 	return charCodes;
 }();
 
-export struct font_face;
+export struct font_face_handle;
+
+export struct acquire_result{
+	glyph_metrics metrics;
+	graphic::msdf::msdf_glyph_generator generator;
+	math::usize2 extent;
+};
+
 
 struct font_face_handle : exclusive_handle<FT_Face>{
 	exclusive_handle_member<msdfgen::FontHandle*> msdfHdl{};
@@ -228,6 +235,20 @@ struct font_face_handle : exclusive_handle<FT_Face>{
 	~font_face_handle(){
 		if(handle) check(FT_Done_Face(handle));
 		if(msdfHdl) msdfgen::destroyFont(msdfHdl);
+	}
+	// 新增：从内存加载的构造函数
+	explicit font_face_handle(std::span<const std::byte> data, const FT_Long index = 0) {
+		auto lib = get_ft_lib();
+		// 使用 FT_New_Memory_Face 确保线程安全地从同一份内存创建独立 Face
+		check(FT_New_Memory_Face(lib,
+								reinterpret_cast<const FT_Byte*>(data.data()),
+								static_cast<FT_Long>(data.size()),
+								index,
+								&handle));
+
+		// 注意：msdfgen 也需要相应的内存加载适配，这里假设它支持类似操作
+		// 如果 msdfgen 必须用路径，则多线程下需确保其内部也是线程安全的
+		msdfHdl = msdfgen::adoptFreetypeFont(handle);
 	}
 
 	font_face_handle(const font_face_handle& other) = delete;
@@ -240,9 +261,6 @@ struct font_face_handle : exclusive_handle<FT_Face>{
 		check(FT_New_Face(lib, path, index, &handle));
 		msdfHdl = msdfgen::loadFont(graphic::msdf::HACK_get_ft_library_from(&lib), path);
 	}
-
-	friend font_face;
-
 
 	[[nodiscard]] std::string_view get_family_name() const noexcept{
 		return {handle->family_name};
@@ -264,7 +282,6 @@ struct font_face_handle : exclusive_handle<FT_Face>{
 		return FT_Get_Char_Index(handle, code);
 	}
 
-private:
 	[[nodiscard]] FT_Error load_glyph(const FT_UInt index, const FT_Int32 loadFlags) const noexcept{
 		return FT_Load_Glyph(handle, index, loadFlags);
 	}
@@ -321,6 +338,32 @@ private:
 		return handle->glyph;
 	}
 
+	acquire_result obtain(const glyph_index_t code, const glyph_size_type size){
+		check(set_size(size.x, size.y));
+		if(const auto shot = load_and_get_by_index(code)){
+			const bool is_empty = shot.value()->bitmap.width == 0 || shot.value()->bitmap.rows == 0;
+			return acquire_result{
+				handle->glyph->metrics,
+				graphic::msdf::msdf_glyph_generator{
+					is_empty ? nullptr : msdfHdl.get(),
+					handle->size->metrics.x_ppem, handle->size->metrics.y_ppem
+				},
+				get_extent()
+			};
+		}
+
+		return {};
+	}
+
+
+	[[nodiscard]] math::usize2 get_extent() noexcept {
+		return {
+			handle->glyph->bitmap.width + graphic::msdf::sdf_image_boarder * 2,
+			handle->glyph->bitmap.rows + graphic::msdf::sdf_image_boarder * 2
+		};
+	}
+
+
 };
 
 export struct glyph_wrap{
@@ -339,73 +382,158 @@ export struct glyph_wrap{
 
 };
 
-[[nodiscard]] math::usize2 get_extent(const font_face_handle& face) noexcept {
-	return {
-		face->glyph->bitmap.width + graphic::msdf::sdf_image_boarder * 2,
-		face->glyph->bitmap.rows + graphic::msdf::sdf_image_boarder * 2
-	};
-}
-export struct acquire_result{
-	font_face* wrap;
-	glyph_metrics metrics;
-	graphic::msdf::msdf_glyph_generator generator;
-	math::usize2 extent;
-};
+export struct font_face_group;
+export struct font_face_view;
 
-struct font_face{
+struct font_face_view{
 private:
-	font_face_handle face_{};
-	mutable std::binary_semaphore mutex_{1};
-	mutable std::binary_semaphore msdf_mutex_{1};
+	//TODO use a vec of pointer as list?
+	std::span<font_face_handle> chain_{};
+
 public:
-	//TODO english char replacement ?
-	font_face* fallback{};
+	font_face_view() = default;
 
-
-	[[nodiscard]] font_face() = default;
-
-	[[nodiscard]] explicit font_face(const char* fontPath)
-	: face_{fontPath}{
+	explicit font_face_view(const std::span<font_face_handle>& faces)
+		: chain_(faces){
 	}
-
-	[[nodiscard]] explicit font_face(const std::string_view fontPath)
-	: face_{fontPath.data()}{
-	}
-
-	[[nodiscard]] auto get_msdf_lock() const noexcept {
-		return ccur::semaphore_acq_guard{msdf_mutex_};
-	}
-
-	[[nodiscard]] acquire_result obtain(const glyph_index_t code, const glyph_size_type size);
 
 	[[nodiscard]] float get_line_spacing(const math::usize2 sz) const;
 
 	[[nodiscard]] math::usize2 get_font_pixel_spacing(const math::usize2 sz) const;
 
-	[[nodiscard]] acquire_result obtain(const glyph_index_t code, const glyph_size_type::value_type size) noexcept{
-		return obtain(code, {size, 0});
-	}
-
-	[[nodiscard]] acquire_result obtain_snapped(const glyph_index_t code, const glyph_size_type::value_type size) noexcept{
-		return obtain(code, get_snapped_size(size));
-	}
-
 	[[nodiscard]] std::string format(const glyph_index_t code, const glyph_size_type size) const{
-		return std::format("{}.{}.{:#0X}|{},{}", face_.get_family_name(), face_.get_style_name(),
+		return std::format("{}.{}.{:#0X}|{},{}", face().get_family_name(), face().get_style_name(),
 			std::bit_cast<int>(code), size.x, size.y);
 	}
 
-
 	[[nodiscard]] const font_face_handle& face() const noexcept{
-		return face_;
+		return chain_.front();
 	}
 
-	font_face(const font_face& other) = delete;
-	font_face(font_face&& other) noexcept = delete;
-	font_face& operator=(const font_face& other) = delete;
-	font_face& operator=(font_face&& other) noexcept = delete;
+	[[nodiscard]] font_face_handle& face() noexcept{
+		return chain_.front();
+	}
+
+	auto begin() noexcept{
+		return chain_.begin();
+	}
+
+	auto end() noexcept{
+		return chain_.end();
+	}
+
+	auto begin() const noexcept{
+		return chain_.begin();
+	}
+
+	auto end() const noexcept{
+		return chain_.end();
+	}
+
+	std::pair<font_face_handle*, glyph_index_t> find_glyph_of(const char_code code){
+		for(auto& chain : chain_){
+			const auto index = chain.index_of(code);
+			if(index != 0){
+				return {&chain, index};
+			}
+		}
+		return {&face(), face().index_of(code)};
+	}
 };
 
+struct font_face_group{
+private:
+	std::vector<font_face_handle> chain_{};
+
+public:
+
+	[[nodiscard]] font_face_group() = default;
+
+	[[nodiscard]] explicit font_face_group(std::generator<const std::span<const std::byte>&> data){
+		for (auto bytes : data){
+			chain_.push_back(font_face_handle{bytes});
+		}
+	}
+
+	auto begin() noexcept{
+		return chain_.begin();
+	}
+
+	auto end() noexcept{
+		return chain_.end();
+	}
+
+	auto begin() const noexcept{
+		return chain_.begin();
+	}
+
+	auto end() const noexcept{
+		return chain_.end();
+	}
+
+	explicit(false) operator font_face_view() noexcept{
+		return font_face_view{std::span{chain_}};
+	}
+};
+
+export struct font_face_group_meta{
+private:
+	std::vector<std::byte> font_data_{};
+
+	std::shared_mutex factory_mutex_{};
+	std::unordered_map<std::thread::id, font_face_group> thread_locals_{};
+
+	static std::vector<std::byte> read_file(const char* fontpath){
+		std::ifstream file(fontpath, std::ios::binary | std::ios::ate);
+		auto size = file.tellg();
+		std::vector<std::byte> font_data_(size);
+		file.seekg(0, std::ios::beg);
+		file.read(reinterpret_cast<char*>(font_data_.data()), size);
+		return font_data_;
+	}
+
+	font_face_group_meta* fallback_{};
+
+
+	font_face_group main_group_{};
+
+public:
+	font_face_group_meta() = default;
+
+	[[nodiscard]] explicit font_face_group_meta(const char* fontPath)
+	: font_data_{read_file(fontPath)}{
+	}
+
+	void mark_as_head(){
+		main_group_ = create();
+	}
+
+	font_face_handle& main_group_at(unsigned index) noexcept{
+		return main_group_.begin()[index];
+	}
+
+	font_face_group& get_thread_local(){
+		{
+			std::shared_lock _{factory_mutex_};
+			if(auto itr = thread_locals_.find(std::this_thread::get_id()); itr != thread_locals_.end()){
+				return itr->second;
+			}
+		}
+
+		std::lock_guard _{factory_mutex_};
+		return thread_locals_.insert(std::pair{std::this_thread::get_id(), create()}).first->second;
+	}
+
+	font_face_group create(){
+		return font_face_group{[this] -> std::generator<const std::span<const std::byte>&>{
+			auto cur = this;
+			while(cur){
+				co_yield std::span{font_data_};
+				cur = cur->fallback_;
+			}
+		}()};
+	}
+};
 }
 
 template <>

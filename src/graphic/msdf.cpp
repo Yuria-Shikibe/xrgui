@@ -2,14 +2,15 @@ module;
 
 #include <nanosvg/nanosvg.h>
 
-#define MSDFGEN_USE_CPP11
-#include <msdfgen/msdfgen.h>
-#include <msdfgen/msdfgen-ext.h>
-
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_STROKER_H
 #include FT_OUTLINE_H
+
+#define MSDFGEN_USE_CPP11
+#include <msdfgen/msdfgen.h>
+#include <msdfgen/msdfgen-ext.h>
+
 
 #include <clipper2/clipper.h>
 

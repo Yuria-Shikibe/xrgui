@@ -5,14 +5,29 @@ import mo_yanxi.graphic.draw.instruction;
 namespace mo_yanxi::gui{
 
 void cursor_collection::draw(scene& scene) const{
+	rect region;
+
 	if(current_drawers_.main){
 		current_drawers_.main->draw(scene.renderer(), {scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
+		region = current_drawers_.main->get_bound({scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
 	}else{
 		assets::builtin::default_cursor.draw(scene.renderer(), {scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
+		region = assets::builtin::default_cursor.get_bound({scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
 	}
 	if(current_drawers_.dcor){
 		current_drawers_.dcor->draw(scene.renderer(), {scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
+		region.expand_by(current_drawers_.dcor->get_bound({scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds()));
 	}
+
+
+	scene.renderer().update_state(graphic::draw::instruction::state_push_config{
+			graphic::draw::instruction::state_push_target::immediate
+	}, gui::gfx_config::blit_config{
+		{
+			.src = region.src.as<int>(),
+			.extent = region.extent().as<int>()
+		},
+		{.pipeline_index = 1}});
 }
 
 namespace assets::builtin{

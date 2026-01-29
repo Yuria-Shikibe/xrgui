@@ -76,7 +76,11 @@ void scene::draw(rect clip){
 			}
 		}
 	}
-	renderer().consume();
+	// renderer().update_state(pass_config_[i].begin_config);
+
+	cursor_collection_.draw(*this);
+
+	//renderer().consume();
 
 }
 

@@ -4,6 +4,7 @@
 
 export module mo_yanxi.gui.infrastructure:cursor;
 
+import :type_def;
 import :elem_ptr;
 
 export import mo_yanxi.gui.renderer.frontend;
@@ -18,6 +19,10 @@ export
 struct cursor{
 	virtual ~cursor() = default;
 	virtual void draw(gui::renderer_frontend& renderer, math::raw_frect region, std::span<const elem* const> inbound_stack) const = 0;
+
+	virtual rect get_bound(math::raw_frect region, std::span<const elem* const> inbound_stack) const {
+		return rect{tags::from_extent, region.src - region.extent, region.extent * 2}.expand(16);
+	}
 };
 
 

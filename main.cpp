@@ -273,7 +273,9 @@ void prepare(){
 
 	{
 		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
-		auto& SourceHanSansCN_regular = font_manager.register_face("srchs", (font_path / "SourceHanSansCN-Regular.otf").string());
+		auto& SourceHanSansCN_regular = font_manager.register_face("srchs", (font_path / "SourceHanSansCN-Regular.otf").string().c_str());
+		SourceHanSansCN_regular.mark_as_head();
+
 		font::typesetting::default_font_manager = &font_manager;
 		font::typesetting::default_font = &SourceHanSansCN_regular;
 	}
