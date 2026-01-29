@@ -27,11 +27,6 @@ acquire_result font_face::obtain(const glyph_index_t code, const glyph_size_type
 		}
 	}
 
-	if(fallback){
-		assert(fallback != this);
-		return fallback->obtain(code, size);
-	}
-
 	return acquire_result{};
 }
 
