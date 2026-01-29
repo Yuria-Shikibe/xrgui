@@ -89,6 +89,14 @@ public:
 	using referenced_object_atomic_nonpropagation::ref_decr;
 	using referenced_object_atomic_nonpropagation::ref_incr;
 
+
+	/**
+	 *
+	 * @warning When the page is doing cleanup, the resource can turn into the state of RETIRED,
+	 * which causing discard the reference(i.e. return a empty pointer)
+	 *
+	 * Is it a good option to make the implicit behavior a bit danger?
+	 */
 	template <typename T>
 		requires (std::convertible_to<region_type, T>)
 	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic_nonpropagation>() noexcept{

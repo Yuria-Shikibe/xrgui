@@ -9,7 +9,6 @@ import std;
 
 namespace mo_yanxi::graphic{
 
-//TODO make it force to check null after construct from resource
 
 /**
  * @brief Consider that the image region is immutable after allocation, this type erasure is valid.
