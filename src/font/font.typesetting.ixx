@@ -491,9 +491,23 @@ public:
 		return *manager_;
 	}
 
+	[[nodiscard]] std::pair<font_face*, glyph_index_t> get_face_and_index(const char_code code) const{
+		auto* curr = &get_face();
+		while(curr){
+			const auto index = curr->face().index_of(code);
+			if(index != 0){
+				return {curr, index};
+			}
+			curr = curr->fallback;
+		}
+
+		auto& face = get_face();
+		return {&face, face.face().index_of(code)};
+	}
+
 	[[nodiscard]] glyph get_glyph(const char_code code) const{
-		const auto index = get_face().face().index_of(code);
-		return get_manager().get_glyph_exact(get_face(), glyph_identity{index, get_current_snapped_size()});
+		const auto [face, index] = get_face_and_index(code);
+		return get_manager().get_glyph_exact(*face, glyph_identity{index, get_current_snapped_size()});
 	}
 };
 
