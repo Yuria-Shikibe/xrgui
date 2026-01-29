@@ -40,7 +40,7 @@ export
 export
 [[nodiscard]] bitmap load_glyph(
 	msdfgen::FontHandle* face,
-	msdfgen::unicode_t code,
+	msdfgen::GlyphIndex code,
 	unsigned target_w,
 	unsigned target_h,
 	int boarder,
@@ -100,9 +100,9 @@ struct msdf_glyph_generator_base{
 
 export
 struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
-	char32_t code{};
+	msdfgen::GlyphIndex code{};
 
-	[[nodiscard]] msdf_glyph_generator_crop(const msdf_glyph_generator_base& base, msdfgen::unicode_t code)
+	[[nodiscard]] msdf_glyph_generator_crop(const msdf_glyph_generator_base& base, msdfgen::GlyphIndex code)
 	: msdf_glyph_generator_base{base}, code(code){
 	}
 
@@ -120,7 +120,7 @@ struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
 
 export
 struct msdf_glyph_generator : msdf_glyph_generator_base{
-	[[nodiscard]] msdf_glyph_generator_crop crop(msdfgen::unicode_t code) const noexcept{
+	[[nodiscard]] msdf_glyph_generator_crop crop(msdfgen::GlyphIndex code) const noexcept{
 		return {*this, code};
 	}
 };

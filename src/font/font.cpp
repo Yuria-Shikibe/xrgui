@@ -9,22 +9,21 @@ namespace mo_yanxi::font{
 	U u;
 
 
-acquire_result font_face::obtain(const char_code code, const glyph_size_type size){
+acquire_result font_face::obtain(const glyph_index_t code, const glyph_size_type size){
 	assert((size.x != 0 || size.y != 0) && "must at least one none zero");
 
 	{
 		ccur::semaphore_acq_guard _{mutex_};
 		check(face_.set_size(size.x, size.y));
-		if(const auto shot = face_.load_and_get(code)){
-			if((shot.value()->bitmap.width != 0 && shot.value()->bitmap.rows != 0) || is_space(code)){
-				return acquire_result{
-					this,
-					face_->glyph->metrics,
-					graphic::msdf::msdf_glyph_generator{
-						face_.msdfHdl,
-						face_->size->metrics.x_ppem, face_->size->metrics.y_ppem
-					}, get_extent(face_, code)};
-			}
+		if(const auto shot = face_.load_and_get_by_index(code)){
+			const bool is_empty = shot.value()->bitmap.width == 0 || shot.value()->bitmap.rows == 0;
+			return acquire_result{
+				this,
+				face_->glyph->metrics,
+				graphic::msdf::msdf_glyph_generator{
+					is_empty ? nullptr : face_.msdfHdl,
+					face_->size->metrics.x_ppem, face_->size->metrics.y_ppem
+				}, get_extent(face_)};
 		}
 	}
 

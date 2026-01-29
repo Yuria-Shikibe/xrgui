@@ -1,6 +1,7 @@
 module;
 
 #include <cassert>
+#include <msdfgen/msdfgen.h>
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 //no sense the compiler cannot find std::hash<sv>
@@ -127,7 +128,7 @@ export namespace mo_yanxi::font{
 
 		std::mutex mutex_{};
 
-		[[nodiscard]] static std::string format(const unsigned idx, const char_code code, const glyph_size_type size){
+		[[nodiscard]] static std::string format(const unsigned idx, const glyph_index_t code, const glyph_size_type size){
 			return std::format("{}.{:#X}|{},{}", idx, std::bit_cast<int>(code), size.x, size.y);
 		}
 
@@ -165,14 +166,14 @@ export namespace mo_yanxi::font{
 
 		[[nodiscard]] glyph get_glyph_exact(font_face& ff, const glyph_identity key){
 
-			const auto [ptr, mtx, gen, ext] = ff.obtain(key.code, key.size);
+			const auto [ptr, mtx, gen, ext] = ff.obtain(key.index, key.size);
 
-			if(!gen.face ||is_space(key.code)){
+			if(!gen.face){
 				return glyph{mtx};
 			}
 
 			auto id = get_face_id(ff);
-			auto name = format(id, key.code, key.size);
+			auto name = format(id, key.index, key.size);
 			if(const auto prev = page().find(name)){
 				return glyph{mtx, *prev};
 			}
@@ -181,7 +182,7 @@ export namespace mo_yanxi::font{
 			{
 				auto _ = ptr->get_msdf_lock();
 				load = graphic::sdf_load{
-					gen.crop(key.code), ext
+					gen.crop(msdfgen::GlyphIndex(key.index)), ext
 				};
 			}
 
