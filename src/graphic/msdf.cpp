@@ -459,7 +459,7 @@ bitmap msdf::load_shape(
 }
 
 bitmap msdf::load_glyph(
-	msdfgen::FontHandle* face, msdfgen::unicode_t code,
+	msdfgen::FontHandle* face, msdfgen::GlyphIndex code,
 	unsigned target_w, unsigned target_h, int boarder,
 	double font_w, double font_h,
 	double range){

@@ -96,6 +96,7 @@ inline FT_Library get_ft_lib() noexcept{
 }
 
 export using char_code = char32_t;
+export using glyph_index_t = std::uint32_t;
 export using glyph_size_type = math::vector2<std::uint16_t>;
 export using glyph_raw_metrics = FT_Glyph_Metrics;
 
@@ -142,7 +143,7 @@ constexpr T get_snapped_size(const T len) noexcept{
 }
 
 export struct glyph_identity{
-	char_code code{};
+	glyph_index_t index{};
 	glyph_size_type size{};
 
 	constexpr friend bool operator==(const glyph_identity&, const glyph_identity&) noexcept = default;
@@ -301,6 +302,17 @@ private:
 		return std::expected<FT_GlyphSlot, FT_Error>{std::in_place, handle->glyph};
 	}
 
+	[[nodiscard]] std::expected<FT_GlyphSlot, FT_Error> load_and_get_by_index(
+		const glyph_index_t glyph_index,
+		const FT_Int32 loadFlags = FT_LOAD_DEFAULT) const{
+
+		if(auto error = load_glyph(glyph_index, loadFlags)){
+			return std::expected<FT_GlyphSlot, FT_Error>{std::unexpect, error};
+		}
+
+		return std::expected<FT_GlyphSlot, FT_Error>{std::in_place, handle->glyph};
+	}
+
 	[[nodiscard]] FT_GlyphSlot load_and_get_guaranteed(const char_code index, const FT_Int32 loadFlags) const{
 		if(const auto error = load_char(index, loadFlags)){
 			check(error);
@@ -327,7 +339,7 @@ export struct glyph_wrap{
 
 };
 
-[[nodiscard]] math::usize2 get_extent(const font_face_handle& face, const char_code code) noexcept {
+[[nodiscard]] math::usize2 get_extent(const font_face_handle& face) noexcept {
 	return {
 		face->glyph->bitmap.width + graphic::msdf::sdf_image_boarder * 2,
 		face->glyph->bitmap.rows + graphic::msdf::sdf_image_boarder * 2
@@ -364,21 +376,21 @@ public:
 		return ccur::semaphore_acq_guard{msdf_mutex_};
 	}
 
-	[[nodiscard]] acquire_result obtain(const char_code code, const glyph_size_type size);
+	[[nodiscard]] acquire_result obtain(const glyph_index_t code, const glyph_size_type size);
 
 	[[nodiscard]] float get_line_spacing(const math::usize2 sz) const;
 
 	[[nodiscard]] math::usize2 get_font_pixel_spacing(const math::usize2 sz) const;
 
-	[[nodiscard]] acquire_result obtain(const char_code code, const glyph_size_type::value_type size) noexcept{
+	[[nodiscard]] acquire_result obtain(const glyph_index_t code, const glyph_size_type::value_type size) noexcept{
 		return obtain(code, {size, 0});
 	}
 
-	[[nodiscard]] acquire_result obtain_snapped(const char_code code, const glyph_size_type::value_type size) noexcept{
+	[[nodiscard]] acquire_result obtain_snapped(const glyph_index_t code, const glyph_size_type::value_type size) noexcept{
 		return obtain(code, get_snapped_size(size));
 	}
 
-	[[nodiscard]] std::string format(const char_code code, const glyph_size_type size) const{
+	[[nodiscard]] std::string format(const glyph_index_t code, const glyph_size_type size) const{
 		return std::format("{}.{}.{:#0X}|{},{}", face_.get_family_name(), face_.get_style_name(),
 			std::bit_cast<int>(code), size.x, size.y);
 	}

@@ -492,7 +492,8 @@ public:
 	}
 
 	[[nodiscard]] glyph get_glyph(const char_code code) const{
-		return get_manager().get_glyph_exact(get_face(), glyph_identity{code, get_current_snapped_size()});
+		const auto index = get_face().face().index_of(code);
+		return get_manager().get_glyph_exact(get_face(), glyph_identity{index, get_current_snapped_size()});
 	}
 };
 
