@@ -4,6 +4,7 @@ module;
 
 export module mo_yanxi.gui.infrastructure:scene;
 
+import :type_def;
 import :elem_ptr;
 import :tooltip_manager;
 import :dialog_manager;
@@ -19,8 +20,9 @@ export import mo_yanxi.gui.alloc;
 export import mo_yanxi.gui.gfx_config;
 
 export import mo_yanxi.react_flow;
-import mo_yanxi.allocator_aware_unique_ptr;
 
+import mo_yanxi.allocator_aware_unique_ptr;
+import mo_yanxi.flat_set;
 
 namespace mo_yanxi::gui{
 
@@ -29,7 +31,10 @@ export
 struct layer_config{
 	draw_config begin_config;
 	blit_pipeline_config end_config;
+
+	//TODO pre/post draw function?
 };
+
 /**
  * @brief Note that the render pass has nothing to do with VkRenderPass,
  * it's only an abstraction name for layer pass draw.
@@ -88,18 +93,99 @@ public:
 
 }
 
+struct layer_altitude_record{
+private:
+
+	std::vector<unsigned, mr::heap_allocator<unsigned>> records_{};
+public:
+	layer_altitude_record() = default;
+
+	explicit layer_altitude_record(const mr::heap_allocator<unsigned>& alloc) : records_(alloc){
+
+	}
+
+	void insert(altitude_t alt, unsigned count = 1){
+		assert(alt <= records_.size());
+		if(alt == records_.size()){
+			records_.push_back(count);
+		}else{
+			records_[alt] += count;
+		}
+	}
+
+	void erase(altitude_t alt, unsigned count = 1) noexcept{
+		auto& rst = records_[alt];
+		assert(rst >= count);
+		rst -= count;
+		if(rst == 0){
+			assert(alt == records_.size() - 1);
+			records_.pop_back();
+		}
+	}
+
+	altitude_t get_max() const noexcept{
+		return records_.size();
+	}
+};
+
+template <typename T>
+struct double_buffer{
+private:
+	bool cur{};
+	T buf_[2]{};
+public:
+
+	constexpr double_buffer() = default;
+
+	template <typename ...Args>
+		requires (std::constructible_from<T, const Args&...>)
+	constexpr explicit double_buffer(const Args& ...args) : buf_{T(args...), T(args...)}{
+
+	}
+
+	template <typename S>
+	constexpr auto&& get_cur(this S&& self) noexcept{
+		return std::forward_like<S>(self.buf_[self.cur]);
+	}
+
+
+	template <typename S>
+	constexpr auto&& get_bak(this S&& self) noexcept{
+		return std::forward_like<S>(self.buf_[!self.cur]);
+	}
+
+	constexpr void swap() noexcept{
+		cur = !cur;
+	}
+
+	constexpr void swap_internal() noexcept{
+		std::ranges::swap(buf_[0], buf_[1]);
+	}
+};
 
 export
 struct native_communicator{
 	virtual ~native_communicator() = default;
 
-	virtual void send_clipboard(std::string_view text){
+	void set_clipboard(std::string_view text){
+		set_clipboard_impl(text, false);
+	}
+
+	void set_clipboard(std::string_view text, bool assume_zero_terminated){
+		set_clipboard_impl(text, assume_zero_terminated);
+	}
+
+protected:
+	virtual void set_clipboard_impl(std::string_view text, bool assume_zero_terminated){
 
 	}
+public:
 
 	virtual std::string_view get_clipboard(){
 		return {};
 	}
+
+	//TODO sound interface
 };
 
 struct mouse_state{
@@ -153,9 +239,11 @@ protected:
 	 */
 	bool request_cursor_update_{};
 
+	double_buffer<mr::heap_vector<elem*>> inbounds_{mr::heap_allocator<elem*>{get_heap()}};
 	//TODO double swap buffer?
-	mr::heap_vector<elem*> last_inbounds_{mr::heap_allocator<elem*>{get_heap()}};
-	mr::heap_uset<elem*> independent_layouts_{mr::heap_allocator<elem*>{get_heap()}};
+	// mr::heap_vector<elem*> last_inbounds_{mr::heap_allocator<elem*>{get_heap()}};
+	double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap()}};
+
 
 	allocator_aware_unique_ptr<react_flow::manager, mr::heap_allocator<react_flow::manager>> react_flow_{
 		mo_yanxi::make_allocate_aware_unique<react_flow::manager>(mr::heap_allocator<react_flow::manager>{get_heap()})
@@ -167,16 +255,16 @@ protected:
 		mr::heap_allocator<std::pair<const elem* const, react_flow::node*>>>
 	elem_owned_nodes_{};
 
+	layer_altitude_record layer_altitude_record_{get_heap()};
 
-	//must be the first to destruct
-	elem_ptr root_{};
-
-	tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
-	overlay_manager overlay_manager_{get_heap_allocator()};
 	cursor_collection cursor_collection_{};
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 
+	//must be the first to destruct
+	elem_ptr root_{};
+	tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
+	overlay_manager overlay_manager_{get_heap_allocator()};
 
 
 	//Frame things
@@ -271,8 +359,8 @@ public:
 		return inputs_.cursor_pos();
 	}
 
-	[[nodiscard]] std::span<elem const * const> get_inbounds() const noexcept{
-		return last_inbounds_;
+	[[nodiscard]] std::span<elem * const> get_inbounds() const noexcept{
+		return inbounds_.get_cur();
 	}
 
 	[[nodiscard]] bool is_mouse_pressed() const noexcept{
@@ -410,7 +498,7 @@ private:
 		request_cursor_update_ = true;
 	}
 
-	void update_inbounds(mr::heap_vector<elem*>&& next);
+	void update_inbounds();
 
 	void try_swap_focus(elem* newFocus);
 
@@ -419,7 +507,7 @@ private:
 	void drop_(const elem* target) noexcept;
 
 	void notify_isolated_layout_update(elem* element){
-		independent_layouts_.insert(element);
+		independent_layouts_.get_bak().insert(element);
 	}
 
 };

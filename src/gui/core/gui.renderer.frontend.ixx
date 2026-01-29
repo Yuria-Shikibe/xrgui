@@ -188,6 +188,9 @@ struct draw_config{
 	gfx_config::render_target_mask draw_targets{};
 	std::uint32_t pipeline_index{std::numeric_limits<std::uint32_t>::max()};
 
+	constexpr bool use_fallback_pipeline() const noexcept{
+		return pipeline_index == std::numeric_limits<std::uint32_t>::max();
+	}
 };
 
 export

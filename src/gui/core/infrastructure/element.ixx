@@ -20,11 +20,12 @@ import align;
 import :events;
 import :scene;
 import :tooltip_interface;
+import :type_def;
+
 export import :elem_ptr;
 
 
 namespace mo_yanxi::gui{
-export using boarder = align::spacing;
 
 export constexpr inline boarder default_boarder{8, 8, 8, 8};
 
@@ -168,7 +169,14 @@ private:
 	math::vec2 relative_pos_{};
 	math::vec2 absolute_pos_{};
 	boarder boarder_{};
-	boarder style_boarder_cache_{style::get_default_style_drawer()->get_boarder()};
+
+public:
+	style::elem_style_ptr style{style::get_default_style_drawer()};
+
+private:
+	boarder style_boarder_cache_{style ? style->get_boarder() : gui::boarder{}};
+
+	//TODO make it async?
 	std::deque<action::action_ptr<elem>, mr::heap_allocator<action::action_ptr<elem>>> actions{scene_->get_heap_allocator()};
 
 public:
@@ -195,25 +203,27 @@ public:
 
 private:
 	//TODO direct access
-	bool has_scene_direct_access{};
+	// bool has_scene_direct_access{};
 
 public:
 	layout_state layout_state{};
 	interactivity_flag interactivity{};
 
-	style::elem_style_ptr style{style::get_default_style_drawer()};
 
 private:
 	float context_opacity_{1.f};
 	float inherent_opacity_{1.f};
+	altitude_t layer_altitude_{};
 
 public:
 	virtual ~elem(){
 		clear_scene_references();
 	}
 
-	[[nodiscard]] elem(scene& scene, elem* parent) noexcept : scene_(std::addressof(scene)), parent_(parent){
-
+	[[nodiscard]] elem(scene& scene, elem* parent) noexcept :
+		scene_(std::addressof(scene)),
+		parent_(parent){
+		init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
 	}
 
 	elem(const elem& other) = delete;
@@ -255,7 +265,7 @@ public:
 	}
 
 protected:
-	[[nodiscard]] struct scene& tooltip_get_scene() const noexcept override{
+	[[nodiscard]] scene& tooltip_get_scene() const noexcept final{
 		return get_scene();
 	}
 
@@ -421,9 +431,17 @@ protected:
 	}
 
 public:
-	std::optional<math::vec2> pre_acquire_size_no_boarder_clip(const layout::optional_mastering_extent extent);
+	FORCE_INLINE inline std::optional<math::vec2> pre_acquire_size_no_boarder_clip(const layout::optional_mastering_extent extent){
+		return pre_acquire_size_impl(extent).transform([&, this](const math::vec2 v){
+			return size_.clamp(v + boarder_extent()).min(extent.potential_extent());
+		});
+	}
 
-	std::optional<math::vec2> pre_acquire_size(const layout::optional_mastering_extent extent);
+	FORCE_INLINE inline std::optional<math::vec2> pre_acquire_size(const layout::optional_mastering_extent extent){
+		return pre_acquire_size_impl(clip_boarder_from(extent, boarder_extent())).transform([&, this](const math::vec2 v){
+			return size_.clamp(v + boarder_extent()).min(extent.potential_extent());
+		});
+	}
 
 	//TODO responsibility chain to notify one?
 
@@ -437,8 +455,7 @@ protected:
 	}
 
 public:
-
-	[[nodiscard]] static std::optional<layout::layout_policy> search_layout_policy(const elem* from, bool allowNone) noexcept{
+	[[nodiscard]] FORCE_INLINE inline static std::optional<layout::layout_policy> search_layout_policy(const elem* from, bool allowNone) noexcept{
 		auto ptr = from;
 		while(true){
 			if(!ptr){
@@ -451,7 +468,7 @@ public:
 		}
 	}
 
-	[[nodiscard]] std::optional<layout::layout_policy> search_parent_layout_policy(bool allowNone) const noexcept{
+	[[nodiscard]] FORCE_INLINE inline std::optional<layout::layout_policy> search_parent_layout_policy(bool allowNone) const noexcept{
 		return search_layout_policy(parent(), allowNone);
 	}
 
@@ -466,7 +483,7 @@ protected:
 	}
 
 public:
-	bool resize(const math::vec2 size, propagate_mask temp_mask){
+	FORCE_INLINE inline bool resize(const math::vec2 size, propagate_mask temp_mask){
 		const auto last = layout_state.inherent_broadcast_mask;
 		layout_state.inherent_broadcast_mask &= temp_mask;
 		const auto rst = resize_impl(size);
@@ -474,7 +491,7 @@ public:
 		return rst;
 	}
 
-	bool resize(const math::vec2 size){
+	FORCE_INLINE inline bool resize(const math::vec2 size){
 		return resize_impl(size);
 	}
 
@@ -482,7 +499,7 @@ public:
 		layout_state.clear();
 	}
 
-	bool try_layout(){
+	FORCE_INLINE inline bool try_layout(){
 		if(layout_state.any_lower_changed()){
 			layout_elem();
 			return true;
@@ -571,58 +588,60 @@ public:
 
 #pragma region Trivial_Getter_Setters
 public:
-	[[nodiscard]] const cursor_states& cursor_state() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline const cursor_states& cursor_state() const noexcept{
 		return cursor_states_;
 	}
 
-	[[nodiscard]] math::vec2 get_scaling() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline math::vec2 get_scaling() const noexcept{
 		return context_scaling_ * inherent_scaling_;
 	}
 
-	[[nodiscard]] math::bool2 get_fill_parent() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline math::bool2 get_fill_parent() const noexcept{
 		return fill_parent_;
 	}
 
-	void set_fill_parent(math::bool2 f, propagate_mask notify = propagate_mask::force_upper) noexcept{
+	FORCE_INLINE inline void set_fill_parent(math::bool2 f, propagate_mask notify = propagate_mask::force_upper) noexcept{
 		fill_parent_ = f;
 		notify_layout_changed(notify);
 	}
 
-	[[nodiscard]] constexpr bool is_toggled() const noexcept{ return toggled; }
+	[[nodiscard]] FORCE_INLINE inline bool is_toggled() const noexcept{ return toggled; }
 
-	[[nodiscard]] constexpr bool is_visible() const noexcept{ return !invisible; }
+	[[nodiscard]] FORCE_INLINE inline bool is_visible() const noexcept{ return !invisible; }
 
-	[[nodiscard]] constexpr bool is_sleep() const noexcept{ return sleep; }
+	[[nodiscard]] FORCE_INLINE inline bool is_sleep() const noexcept{ return sleep; }
 
-	[[nodiscard]] constexpr bool is_disabled() const noexcept{ return disabled; }
+	[[nodiscard]] FORCE_INLINE inline bool is_disabled() const noexcept{ return disabled; }
 
 
-	[[nodiscard]] bool is_focus_extended_by_mouse() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline bool is_focus_extended_by_mouse() const noexcept{
 		return extend_focus_until_mouse_drop;
 	}
 
-	void set_focus_extended_by_mouse(bool b) noexcept{
+	FORCE_INLINE inline void set_focus_extended_by_mouse(bool b) noexcept{
 		extend_focus_until_mouse_drop = b;
 	}
 
-	[[nodiscard]] bool is_root_element() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline bool is_root_element() const noexcept{
 		return parent_ == nullptr;
 	}
 
-	elem* set_parent(elem* const parent) noexcept{
-		return std::exchange(parent_, parent);
+	FORCE_INLINE inline elem* set_parent(elem* const parent) noexcept{
+		auto rst = std::exchange(parent_, parent);
+		update_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
+		return rst;
 	}
 
-	[[nodiscard]] scene& get_scene() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline scene& get_scene() const noexcept{
 		return *scene_;
 	}
 
-	[[nodiscard]] elem* parent() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline elem* parent() const noexcept{
 		return parent_;
 	}
 
 	template <std::derived_from<elem> T, bool unchecked = false>
-	[[nodiscard]] T* parent() const noexcept{
+	[[nodiscard]] FORCE_INLINE T* parent() const noexcept{
 		if constexpr (!unchecked && !std::same_as<T, elem>){
 			return dynamic_cast<T*>(parent_);
 		}else{
@@ -630,81 +649,81 @@ public:
 		}
 	}
 
-	[[nodiscard]] vec2 content_extent() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline vec2 content_extent() const noexcept{
 		const auto [w, h] = size_.get_size();
 		const auto [bw, bh] = boarder_extent();
 		return {std::fdim(w, bw), std::fdim(h, bh)};
 	}
 
-	[[nodiscard]] float content_width() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline float content_width() const noexcept{
 		const auto w = size_.get_width();
 		const auto bw = boarder_.width() + style_boarder_cache_.width();
 		return std::fdim(w, bw);
 	}
 
-	[[nodiscard]] float content_height() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline float content_height() const noexcept{
 		const auto v = size_.get_height();
 		const auto bv = boarder_.height() + style_boarder_cache_.height();
 		return std::fdim(v, bv);
 	}
 
-	[[nodiscard]] vec2 extent() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline vec2 extent() const noexcept{
 		return size_.get_size();
 	}
 
-	[[nodiscard]] rect bound_abs() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline rect bound_abs() const noexcept{
 		return rect{tags::unchecked, tags::from_extent, pos_abs(), extent()};
 	}
 
-	[[nodiscard]] rect bound_rel() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline rect bound_rel() const noexcept{
 		return rect{tags::unchecked, tags::from_extent, pos_rel(), extent()};
 	}
 
-	[[nodiscard]] math::vec2 pos_abs() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline math::vec2 pos_abs() const noexcept{
 		return absolute_pos_;
 	}
 
-	[[nodiscard]] math::vec2 pos_rel() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline math::vec2 pos_rel() const noexcept{
 		return relative_pos_;
 	}
 
-	[[nodiscard]] constexpr align::spacing boarder() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline align::spacing boarder() const noexcept{
 		return boarder_ + style_boarder_cache_;
 	}
 
-	[[nodiscard]] constexpr vec2 boarder_extent() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline vec2 boarder_extent() const noexcept{
 		return boarder_.extent() + style_boarder_cache_.extent();
 	}
 
-	[[nodiscard]] constexpr math::vec2 content_src_offset() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline math::vec2 content_src_offset() const noexcept{
 		return boarder_.top_lft() + style_boarder_cache_.top_lft();
 	}
 
-	[[nodiscard]] rect clip_to_content_bound(rect region) const noexcept{
+	[[nodiscard]] FORCE_INLINE inline rect clip_to_content_bound(rect region) const noexcept{
 		return rect{tags::unchecked, tags::from_extent, region.src + content_src_offset(), region.extent().fdim(boarder_extent())};
 	}
 
-	[[nodiscard]] rect content_bound_abs() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline rect content_bound_abs() const noexcept{
 		return clip_to_content_bound(bound_abs());
 	}
 
-	[[nodiscard]] rect content_bound_rel() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline rect content_bound_rel() const noexcept{
 		return clip_to_content_bound(bound_rel());
 	}
 
-	[[nodiscard]] constexpr math::vec2 content_src_pos_abs() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline math::vec2 content_src_pos_abs() const noexcept{
 		return pos_abs() + content_src_offset();
 	}
 
-	[[nodiscard]] constexpr math::vec2 content_src_pos_rel() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline math::vec2 content_src_pos_rel() const noexcept{
 		return pos_rel() + content_src_offset();
 	}
 
-	constexpr void set_rel_pos(math::vec2 p) noexcept{
+	FORCE_INLINE inline void set_rel_pos(math::vec2 p) noexcept{
 		relative_pos_ = p;
 	}
 
-	constexpr void set_rel_pos(math::vec2 p, float lerp_alpha) noexcept{
+	FORCE_INLINE inline void set_rel_pos(math::vec2 p, float lerp_alpha) noexcept{
 		if(lerp_alpha <= 0)return;
 		const auto approch = p - relative_pos_;
 		if(approch.is_zero(std::numeric_limits<float>::epsilon() * 16) || lerp_alpha >= 1.f){
@@ -715,7 +734,7 @@ public:
 	}
 
 
-	[[nodiscard]] elem* root_parent() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline elem* root_parent() const noexcept{
 		elem* cur = parent();
 		if(!cur) return nullptr;
 
@@ -729,7 +748,7 @@ public:
 		return cur;
 	}
 
-	[[nodiscard]] constexpr bool is_interactable() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline bool is_interactable() const noexcept{
 		if(invisible) return false;
 		if(disabled) return false;
 		if(touch_blocked())return false;
@@ -740,15 +759,15 @@ public:
 	// 	return is_transparent_in_inbound_filter;
 	// }
 
-	[[nodiscard]] constexpr bool touch_blocked() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline bool touch_blocked() const noexcept{
 		return interactivity == interactivity_flag::disabled || interactivity == interactivity_flag::intercept;
 	}
 
-	[[nodiscard]] float get_draw_opacity() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline float get_draw_opacity() const noexcept{
 		return context_opacity_ * inherent_opacity_;
 	}
 
-	void update_context_opacity(const float val) noexcept{
+	FORCE_INLINE inline void update_context_opacity(const float val) noexcept{
 		const auto prev = get_draw_opacity();
 		if(util::try_modify(context_opacity_, val)){
 			on_opacity_changed(prev);
@@ -758,7 +777,7 @@ public:
 		}
 	}
 
-	void set_opacity(const float val) noexcept{
+	FORCE_INLINE inline void set_opacity(const float val) noexcept{
 		const auto prev = get_draw_opacity();
 		if(util::try_modify(inherent_opacity_, val)){
 			on_opacity_changed(prev);
@@ -768,22 +787,26 @@ public:
 		}
 	}
 
-	bool set_prefer_extent(math::vec2 extent) noexcept{
+	FORCE_INLINE inline bool set_prefer_extent(math::vec2 extent) noexcept{
 		return util::try_modify(preferred_size_, size_.clamp(extent));
 	}
 
-	bool set_prefer_extent_to_current() noexcept{
+	FORCE_INLINE inline bool set_prefer_extent_to_current() noexcept{
 		return util::try_modify(preferred_size_, extent());
 	}
 
-	[[nodiscard]] std::optional<vec2> get_prefer_extent() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline std::optional<vec2> get_prefer_extent() const noexcept{
 		return preferred_size_;
 	}
 
-	[[nodiscard]] std::optional<vec2> get_prefer_content_extent() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline std::optional<vec2> get_prefer_content_extent() const noexcept{
 		return preferred_size_.transform([this](math::vec2 extent){
 			return extent.fdim(boarder_extent());
 		});
+	}
+
+	[[nodiscard]] FORCE_INLINE inline altitude_t get_altitude() const noexcept{
+		return layer_altitude_;
 	}
 
 #pragma endregion
@@ -822,7 +845,11 @@ protected:
 	}
 
 private:
-	void reset_scene(struct scene* scene) noexcept;
+	void update_altitude_(altitude_t height);
+
+	void init_altitude_(altitude_t height);
+
+	void relocate_scene_(struct scene* scene) noexcept;
 };
 
 namespace util{
@@ -915,12 +942,13 @@ export
 }
 
 export
-[[nodiscard]] math::vec2 transform_from_root_to_current(const elem* where, math::vec2 inPos) noexcept{
+[[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(const elem* where, math::vec2 inPos) noexcept{
 	if(!where) return inPos;
 	return where->transform_to_children(transform_from_root_to_current(where->parent(), inPos));
 }
+
 export
-[[nodiscard]] math::vec2 transform_from_root_to_current(std::span<const elem* const> range, math::vec2 inPos) noexcept{
+[[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(std::span<const elem* const> range, math::vec2 inPos) noexcept{
 	for (auto elem : range){
 		assert(elem);
 		inPos = elem->transform_to_children(inPos);
@@ -929,7 +957,7 @@ export
 }
 
 export
-[[nodiscard]] math::vec2 transform_from_current_to_root(const elem* where, math::vec2 pos_in_children) noexcept{
+[[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_current_to_root(const elem* where, math::vec2 pos_in_children) noexcept{
 	while(where){
 		pos_in_children = where->transform_from_children(pos_in_children);
 		where = where->parent();
@@ -938,7 +966,7 @@ export
 }
 
 export
-[[nodiscard]] math::vec2 transform_from_current_to_root(std::span<const elem* const> range, math::vec2 inPos) noexcept{
+[[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_current_to_root(std::span<const elem* const> range, math::vec2 inPos) noexcept{
 	for (auto elem : range){
 		assert(elem);
 		inPos = elem->transform_from_children(inPos);
@@ -948,7 +976,7 @@ export
 
 events::op_afterwards thoroughly_esc(elem* where) noexcept;
 
-events::op_afterwards thoroughly_esc(elem& where) noexcept{
+FORCE_INLINE inline events::op_afterwards thoroughly_esc(elem& where) noexcept{
 	return thoroughly_esc(std::addressof(where));
 }
 }

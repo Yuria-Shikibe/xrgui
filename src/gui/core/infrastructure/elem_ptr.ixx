@@ -17,8 +17,6 @@ namespace mo_yanxi::gui{
 export struct elem;
 export struct scene;
 
-export using vec2 = math::vec2;
-export using rect = math::frect;
 
 export
 template <typename Elem, typename ...Args>

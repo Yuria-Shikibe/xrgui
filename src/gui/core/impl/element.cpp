@@ -137,18 +137,6 @@ void elem::clear_scene_references() noexcept{
 	scene_->drop_(this);
 }
 
-std::optional<math::vec2> elem::pre_acquire_size_no_boarder_clip(const layout::optional_mastering_extent extent){
-	return pre_acquire_size_impl(extent).transform([&, this](const math::vec2 v){
-		return size_.clamp(v + boarder_extent()).min(extent.potential_extent());
-	});
-}
-
-std::optional<math::vec2> elem::pre_acquire_size(const layout::optional_mastering_extent extent){
-	return pre_acquire_size_impl(clip_boarder_from(extent, boarder_extent())).transform([&, this](const math::vec2 v){
-		return size_.clamp(v + boarder_extent()).min(extent.potential_extent());
-	});
-}
-
 void elem::notify_layout_changed(propagate_mask propagation){
 	if(check_propagate_satisfy(propagation, propagate_mask::local)) layout_state.notify_self_changed();
 
@@ -214,7 +202,7 @@ bool elem::is_focused() const noexcept{
 
 bool elem::is_inbounded() const noexcept{
 	assert(scene_ != nullptr);
-	return std::ranges::contains(scene_->last_inbounds_, this);
+	return std::ranges::contains(scene_->get_inbounds(), this);
 }
 
 void elem::set_focused_scroll(const bool focus) noexcept{
@@ -227,11 +215,27 @@ void elem::set_focused_key(const bool focus) noexcept{
 	this->scene_->focus_key_ = focus ? this : nullptr;
 }
 
-void elem::reset_scene(struct gui::scene* scene) noexcept{
-	scene_ = scene;
-	for (auto && child : children()){
-		child->reset_scene(scene);
+void elem::update_altitude_(altitude_t height){
+	if(layer_altitude_ == height)return;
+	scene_->layer_altitude_record_.erase(layer_altitude_);
+	layer_altitude_ = height;
+	scene_->layer_altitude_record_.insert(layer_altitude_);
+	for (const auto & child : children()){
+		child->update_altitude_(height + 1);
 	}
+}
+
+void elem::init_altitude_(altitude_t height){
+	layer_altitude_ = height;
+	scene_->layer_altitude_record_.insert(layer_altitude_);
+}
+
+void elem::relocate_scene_(struct gui::scene* scene) noexcept{
+	for (auto && child : children()){
+		child->relocate_scene_(scene);
+	}
+
+	scene_ = scene;
 }
 
 events::op_afterwards util::thoroughly_esc(elem* where) noexcept{

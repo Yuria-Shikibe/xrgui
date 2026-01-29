@@ -297,11 +297,11 @@ private:
 
 		std::ranges::fill(cache_attachment_enter_mark_, false);
 		cache_draw_param_stack_.resize(1, {.pipeline_index = {}});
-		configure_rendering_info(cache_draw_param_stack_.back());
+		configure_rendering_info(get_current_draw_config());
 		rendering_config.set_color_attachment_load_op(VK_ATTACHMENT_LOAD_OP_CLEAR);
 
 		{
-			const auto mask = get_current_target(cache_draw_param_stack_.back());
+			const auto mask = get_current_target(get_current_draw_config());
 			mask.for_each_popbit([&](unsigned i){
 				cache_attachment_enter_mark_[i] = true;
 			});
@@ -314,7 +314,7 @@ private:
 
 			// Ensure draw attachments are in correct state
 			{
-				const auto mask = get_current_target(cache_draw_param_stack_.back());
+				const auto mask = get_current_target(get_current_draw_config());
 				mask.for_each_popbit([&](unsigned aIdx){
 					ensure_attachment_state(
 						cache_barrier_gen_,
@@ -330,7 +330,7 @@ private:
 
 			rendering_config.begin_rendering(command_buffer, region/*, VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT*/);
 
-			create_pipe_binding_cmd(command_buffer, i, cache_draw_param_stack_.back());
+			create_pipe_binding_cmd(command_buffer, i, get_current_draw_config());
 
 			vkCmdEndRendering(command_buffer);
 
@@ -345,7 +345,7 @@ private:
 				std::ranges::fill(cache_attachment_enter_mark_, 0);
 			}
 
-			const auto mask = get_current_target(cache_draw_param_stack_.back());
+			const auto mask = get_current_target(get_current_draw_config());
 			std::size_t curIdx{};
 			mask.for_each_popbit([&](unsigned aIdx){
 				const bool first_enter = !std::exchange(cache_attachment_enter_mark_[aIdx], true);
@@ -362,6 +362,8 @@ private:
 	 * @return clear required
 	 */
 	bool process_breakpoints(const graphic::draw::instruction::state_transition_entry& entry, VkCommandBuffer buffer) {
+		if(entry.process_builtin(buffer,  draw_pipeline_manager_.get_pipelines()[get_current_draw_config().pipeline_index].pipeline_layout))return false;
+
 		switch(entry.flag){
 		case gui::draw_state_index_deduce_v<gui::gfx_config::blit_config> :{
 			blit(entry.as<gui::gfx_config::blit_config>(), buffer);
@@ -372,10 +374,10 @@ private:
 			auto param = entry.as<gui::draw_config>();
 			if(param.mode == gui::draw_mode::COUNT_or_fallback){
 				cache_draw_param_stack_.pop_back();
-				param = cache_draw_param_stack_.back();
+				param = get_current_draw_config();
 			}else{
-				if(param.pipeline_index == std::numeric_limits<std::uint32_t>::max()){
-					param.pipeline_index = cache_draw_param_stack_.back().pipeline_index;
+				if(param.use_fallback_pipeline()){
+					param.pipeline_index = get_current_draw_config().pipeline_index;
 				}
 				cache_draw_param_stack_.push_back(param);
 			}
@@ -486,6 +488,10 @@ public:
 	}
 
 private:
+	auto& get_current_draw_config() const noexcept{
+		return cache_draw_param_stack_.back();
+	}
+
 	void create_blit_clear_and_init_cmd() const{
 		vk::scoped_recorder recorder{blit_attachment_clear_and_init_command_buffer, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT, true};
 

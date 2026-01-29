@@ -20,10 +20,15 @@ struct communicator : gui::native_communicator{
 		return {glfwGetClipboardString(window)};
 	}
 
-	void send_clipboard(std::string_view text) override{
-		cache_text = text;
-		//no other better way to provide a zero terminated string
-		glfwSetClipboardString(window, cache_text.data());
+	void set_clipboard_impl(std::string_view text, bool zero_terminated) override{
+		if(zero_terminated){
+			glfwSetClipboardString(window, text.data());
+		}else{
+			cache_text = text;
+			//no other better way to provide a zero terminated string
+			glfwSetClipboardString(window, cache_text.data());
+		}
+
 	}
 };
 

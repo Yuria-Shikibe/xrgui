@@ -189,7 +189,7 @@ template <typename Alloc>
 struct line_context{
 private:
 	// 使用 byte_borrow 管理生命周期和内存
-	byte_borrow<Alloc> buf_{};
+	byte_borrow<graphic::draw::instruction::line_node, Alloc> buf_{};
 
 	// 叉积累加，用于判断顺逆时针
 	float area_sum_{};
@@ -198,8 +198,8 @@ public:
 	[[nodiscard]] line_context() = default;
 
 	// 需要 pool 来进行内存分配
-	[[nodiscard]] explicit(false) line_context(byte_pool<Alloc>& pool, renderer_frontend* renderer = nullptr)
-		: buf_(pool.borrow(0)){
+	[[nodiscard]] explicit(false) line_context(byte_pool<Alloc>& pool)
+		: buf_(pool.template borrow<instruction::line_node>(0)){
 	}
 
 
@@ -208,7 +208,7 @@ public:
 		const auto current_idx = size();
 		// acquire_new 会处理容量检查、扩容和数据迁移
 		// 注意：根据上一轮的修复，这里传入的是需要的元素总数
-		buf_.template acquire_new<instruction::line_node>(current_idx + 1);
+		buf_.resize(current_idx + 1);
 
 		if (current_idx > 0) {
 			// 实时累加当前线段的叉积贡献
@@ -222,7 +222,7 @@ public:
 	}
 
 	FORCE_INLINE std::span<const instruction::line_node> get_nodes() const noexcept{
-		return buf_.get().template to_span<const instruction::line_node>();
+		return buf_.get().to_span();
 	}
 
 	FORCE_INLINE void push(const math::vec2 pos, float stroke, graphic::color color){
@@ -240,7 +240,7 @@ public:
 	FORCE_INLINE instruction::line_node& add_cap_src(float stroke){
 		const auto sz = size();
 		// 确保有两个额外的空间
-		buf_.template acquire_new<instruction::line_node>(sz + 2);
+		buf_.resize(sz + 2);
 
 		auto* ptr = data();
 		// 移动现有数据腾出头部两个位置: [0...N] -> [2...N+2]
@@ -255,7 +255,7 @@ public:
 
 	FORCE_INLINE instruction::line_node& add_cap_dst(float stroke){
 		const auto sz = size();
-		buf_.template acquire_new<instruction::line_node>(sz + 2);
+		buf_.resize(sz + 2);
 
 		auto* ptr = data();
 		// 尾部增加不需要移动数据，直接计算
@@ -268,7 +268,7 @@ public:
 	FORCE_INLINE math::section<instruction::line_node&> add_cap(float cap_src, float cap_dst) noexcept {
 		const auto sz = size();
 		// 确保有四个额外的空间
-		buf_.template acquire_new<instruction::line_node>(sz + 4);
+		buf_.resize(sz + 4);
 
 		auto* ptr = data();
 
@@ -337,15 +337,15 @@ public:
 	}
 
 	FORCE_INLINE std::size_t size() const noexcept{
-		return buf_.get().template size<instruction::line_node>();
+		return buf_.get().size();
 	}
 
 	FORCE_INLINE instruction::line_node* data() noexcept{
-		return buf_.template data<instruction::line_node>();
+		return buf_.data();
 	}
 
 	FORCE_INLINE const instruction::line_node* data() const noexcept{
-		return buf_.template data<instruction::line_node>();
+		return buf_.data();
 	}
 
 	FORCE_INLINE auto& front(this auto& self) noexcept{
@@ -404,11 +404,11 @@ private:
 
 
 		// 借用临时 buffer
-		byte_borrow<Alloc> temp_borrow = buf_.owner().borrow(size() * sizeof(instruction::line_node));
+		auto temp_borrow = buf_.owner().borrow<instruction::line_node>(size() * sizeof(instruction::line_node));
 
 		// 拷贝数据
 		auto src_span = get_nodes();
-		auto dst_ptr = temp_borrow.template data<instruction::line_node>();
+		auto dst_ptr = temp_borrow.data();
 		std::ranges::copy(src_span, dst_ptr);
 
 		// 修改数据

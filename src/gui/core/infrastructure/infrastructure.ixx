@@ -2,8 +2,9 @@ module;
 
 export module mo_yanxi.gui.infrastructure;
 
-export import :element;
+export import :type_def;
 export import :elem_ptr;
+export import :element;
 export import :events;
 export import :scene;
 export import :ui_manager;

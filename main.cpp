@@ -1,9 +1,9 @@
 #include <vulkan/vulkan.h>
 
-#include "magic_enum/magic_enum.hpp"
 import mo_yanxi.vk;
+import mo_yanxi.vk.cmd;
+
 import mo_yanxi.backend.vulkan.context;
-// import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.backend.glfw.window;
 import mo_yanxi.backend.application_timer;
 
@@ -23,9 +23,6 @@ import mo_yanxi.graphic.compositor.manager;
 import mo_yanxi.graphic.compositor.post_process_pass;
 import mo_yanxi.graphic.compositor.bloom;
 
-import mo_yanxi.vk.cmd;
-import std;
-
 
 import mo_yanxi.gui.examples;
 import mo_yanxi.backend.vulkan.renderer;
@@ -33,6 +30,11 @@ import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.gui.gfx_config;
 
 import mo_yanxi.gui.fringe;
+
+import mo_yanxi.math.rand;
+
+import std;
+
 
 void app_run(
 	mo_yanxi::backend::vulkan::context& ctx,
@@ -91,55 +93,55 @@ void app_run(
 			// 		.color = {graphic::colors::white}
 			// 	});
 
-			auto gen = [](float cx, float cy, float a, float b) -> std::vector<math::vec2> {
-				// 使用 8 个控制点来近似
-				// 为了让三次 B 样条闭合，通常需要将前 3 个点重复添加到末尾
-				std::vector<math::vec2> points = {};
-				for (int i = 0; i < 12; ++i) {
-					float angle = i * (360.0f / 12.0f) * (std::numbers::pi_v<float> / 180.0f);
-
-					points.push_back({
-						cx + a * std::cos(angle),
-						cy + b * std::sin(angle)
-					});
-				}
-				return points;
-			};
-
-			{
-				auto verts = gen(800, 500, 400, 300);
-				for(unsigned i = 0; i < verts.size(); ++i){
-					gui::fringe::curve(r, {
-						.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
-						.stroke = {12, 12},
-						.segments = 6,
-						.color = {graphic::colors::white}
-					}, 2);
-				}
-			}
-			auto verts = gen(1200, 900, 300, 200);
-			for(unsigned i = 0; i < verts.size(); ++i){
-				gui::fringe::curve(r, {
-					.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
-					.stroke = {12, 12},
-					.segments = 6,
-					.color = {graphic::colors::white}
-				}, 2);
-			}
-
-			gui::fringe::line_context line_ctx{r.get_mem_pool()};
-			line_ctx.push({math::vec2{450, 600}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-			line_ctx.push({math::vec2{400, 560}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-			line_ctx.push({math::vec2{300, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-
-			line_ctx.push({math::vec2{250, 450}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-			line_ctx.push({math::vec2{1200, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-
-			line_ctx.add_cap();
-			line_ctx.add_fringe_cap(2, 2);
-			line_ctx.dump_mid(r, line_segments{});
-			line_ctx.dump_fringe_inner(r, line_segments{}, 1.75f);
-			line_ctx.dump_fringe_outer(r, line_segments{}, 1.75f);
+			// auto gen = [](float cx, float cy, float a, float b) -> std::vector<math::vec2> {
+			// 	// 使用 8 个控制点来近似
+			// 	// 为了让三次 B 样条闭合，通常需要将前 3 个点重复添加到末尾
+			// 	std::vector<math::vec2> points = {};
+			// 	for (int i = 0; i < 12; ++i) {
+			// 		float angle = i * (360.0f / 12.0f) * (std::numbers::pi_v<float> / 180.0f);
+			//
+			// 		points.push_back({
+			// 			cx + a * std::cos(angle),
+			// 			cy + b * std::sin(angle)
+			// 		});
+			// 	}
+			// 	return points;
+			// };
+			//
+			// {
+			// 	auto verts = gen(800, 500, 400, 300);
+			// 	for(unsigned i = 0; i < verts.size(); ++i){
+			// 		gui::fringe::curve(r, {
+			// 			.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
+			// 			.stroke = {12, 12},
+			// 			.segments = 6,
+			// 			.color = {graphic::colors::white}
+			// 		}, 2);
+			// 	}
+			// }
+			// auto verts = gen(1200, 900, 300, 200);
+			// for(unsigned i = 0; i < verts.size(); ++i){
+			// 	gui::fringe::curve(r, {
+			// 		.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
+			// 		.stroke = {12, 12},
+			// 		.segments = 6,
+			// 		.color = {graphic::colors::white}
+			// 	}, 2);
+			// }
+			//
+			// gui::fringe::line_context line_ctx{r.get_mem_pool()};
+			// line_ctx.push({math::vec2{450, 600}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+			// line_ctx.push({math::vec2{400, 560}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+			// line_ctx.push({math::vec2{300, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+			//
+			// line_ctx.push({math::vec2{250, 450}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+			// line_ctx.push({math::vec2{1200, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+			//
+			// line_ctx.add_cap();
+			// line_ctx.add_fringe_cap(2, 2);
+			// line_ctx.dump_mid(r, line_segments{});
+			// line_ctx.dump_fringe_inner(r, line_segments{}, 1.75f);
+			// line_ctx.dump_fringe_outer(r, line_segments{}, 1.75f);
 
 			// line_ctx.dump_fringe_cap_src(r, line_segments{}, 3.f, 4.f);
 			// line_ctx.dump_fringe_cap_dst(r, line_segments{}, 12.f, 4.f);
@@ -175,46 +177,42 @@ void app_run(
 			// 	});
 
 
-			for(int x = 0; x < 15; ++x){
-				for(int y = 0; y < 5; ++y){
-					// r.push(rect_aabb{
-					// 	// .generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
-					// 	.v00 = {x * 60.f, y * 60.f},
-					// 	.v11 = {x * 60.f + 40, y * 60.f + 40},
-					// 	.vert_color = {graphic::colors::white.copy().mul_a(.4f)}
-					// });
-					// if((x + y) & 1){
-					//
-					// 	r.push(gui::draw_config::slide_line_config{
-					// 		.angle = -45,
-					// 		.spacing = 10,
-					// 		.stroke = 15,
-					// 	});
-					// }else{
-					// 	r.push(gui::draw_config::slide_line_config{});
-					// }
+
+			float size = 80;
+			auto X_count = math::ceil<int>(ctx.get_extent().width / size);
+			auto Y_count = math::ceil<int>(ctx.get_extent().height / size);
+
+			math::rand rand{54767963};
+			for(int x = 0; x < X_count; ++x){
+				for(int y = 0; y < Y_count; ++y){
+					r.push(rect_aabb{
+						// .generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
+						.v00 = {x * size, y * size},
+						.v11 = {x * size + size, y * size + size},
+						.vert_color = {graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}}
+					});
 				}
 			}
 
-			r.push(line{
-				.src = {100, 100},
-				.dst = {800, 400},
-				.color = {graphic::colors::white, graphic::colors::aqua},
-				.stroke = 2,
-			});
-
-
-			r.update_state(gui::gfx_config::blit_config{
-				{
-					.src = {},
-					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-				},
-				{.pipeline_index = 1}});
-
-			r.update_state(gui::draw_config{
-				.pipeline_index = 1
-			});
-
+			// r.push(line{
+			// 	.src = {100, 100},
+			// 	.dst = {800, 400},
+			// 	.color = {graphic::colors::white, graphic::colors::aqua},
+			// 	.stroke = 2,
+			// });
+			//
+			//
+			// r.update_state(gui::gfx_config::blit_config{
+			// 	{
+			// 		.src = {},
+			// 		.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+			// 	},
+			// 	{.pipeline_index = 1}});
+			//
+			// r.update_state(gui::draw_config{
+			// 	.pipeline_index = 1
+			// });
+			//
 			r.update_state(state_push_config{
 				state_push_target::defer_pre
 			}, gui::gfx_config::blit_config{
@@ -223,13 +221,13 @@ void app_run(
 					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
 				},
 				{.pipeline_index = 1}});
-
-			r.push(line{
-				.src = {200, 200},
-				.dst = {900, 500},
-				.color = {graphic::colors::white, graphic::colors::aqua},
-				.stroke = 2,
-			});
+			//
+			// r.push(line{
+			// 	.src = {200, 200},
+			// 	.dst = {900, 500},
+			// 	.color = {graphic::colors::white, graphic::colors::aqua},
+			// 	.stroke = 2,
+			// });
 
 		}
 

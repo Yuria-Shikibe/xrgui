@@ -929,7 +929,7 @@ public:
     void action_copy() const{
         if (!caret_ || !caret_->range.hasRegion()) return;
         if (const auto cmt = get_scene().get_communicator()) {
-            cmt->send_clipboard(caret_->range.getSelection(glyph_layout));
+            cmt->set_clipboard(caret_->range.getSelection(glyph_layout));
         }
     }
 
@@ -946,7 +946,7 @@ public:
         if (!caret_ || !caret_->range.hasRegion()) return;
         // Copy then Delete
         if (const auto cmt = get_scene().get_communicator()) {
-            cmt->send_clipboard(caret_->range.getSelection(glyph_layout));
+            cmt->set_clipboard(caret_->range.getSelection(glyph_layout));
         }
         action_do_delete();
     }
