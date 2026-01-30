@@ -3,7 +3,6 @@ module;
 #include <hb.h>
 #include <hb-ft.h>
 #include <freetype/freetype.h>
-#include <vulkan/vulkan.h>
 
 export module mo_yanxi.hb.typesetting;
 
@@ -24,6 +23,13 @@ export enum struct layout_direction {
 
 export enum struct linefeed {
     LF, CRLF
+};
+
+export enum struct content_alignment{
+	start,      // 左对齐(LTR) / 上对齐(TTB)
+	center,     // 居中
+	end,        // 右对齐(LTR) / 下对齐(TTB)
+	justify     // 两端对齐 (均匀分布)
 };
 
 export struct layout_result {
@@ -51,6 +57,9 @@ export struct layout_config {
     math::vec2 max_extent = math::vectors::constant2<float>::inf_positive_vec2;
     glyph_size_type font_size;
     linefeed line_feed_type;
+
+	content_alignment align = content_alignment::start;
+
     float tab_scale = 4.f;
 
 	float line_spacing_scale = 1.25f;
@@ -134,6 +143,15 @@ private:
     // 轴指针：用于抽象水平/垂直布局
     float math::vec2::* major_p = &math::vec2::x;
     float math::vec2::* minor_p = &math::vec2::y;
+
+
+	struct line_record{
+		std::size_t start_index; // 对应 results.elems 的起始下标
+		std::size_t count;       // 本行包含的字形数量
+		float line_advance;      // 本行在主轴上的实际长度
+	};
+	std::vector<line_record> lines_;
+	std::size_t current_line_start_idx_ = 0;
 
 	layout_block current_block{};
 
@@ -268,9 +286,23 @@ public:
 			};
 	}
 
+	void commit_line_state() noexcept {
+		const float current_line_width = std::abs(pen.*major_p);
+		const std::size_t current_count = results.elems.size() - current_line_start_idx_;
+
+		// 只有当行内有内容时才记录
+		if (current_count > 0 || current_line_width > 0) {
+			lines_.push_back({current_line_start_idx_, current_count, current_line_width});
+		}
+
+		// 更新下一行的起始索引
+		current_line_start_idx_ = results.elems.size();
+	}
 
     // 换行操作
     void advance_line() noexcept {
+		commit_line_state();
+
         pen.*minor_p += line_spacing;
         pen.*major_p = 0;
     }
@@ -304,8 +336,6 @@ public:
 						{ind.aabb.copy().expand(font_draw_expand * scale_factor), cached_indicator_.texture},
 						ind.advance);
 	        	}
-
-	        	//TODO add auto feed line symbol
 
 				const auto region_new = current_block.get_local_draw_bound().copy().move(pen);
 				const auto extent_new = get_max_extent(region_new);
@@ -386,7 +416,10 @@ public:
             // 处理控制字符
             switch (ch) {
                 case '\r':
-                    if (config.line_feed_type == linefeed::CRLF) pen.*major_p = 0;
+                    if (config.line_feed_type == linefeed::CRLF){
+                    	commit_line_state();
+	                    pen.*major_p = 0;
+                    }
                     continue;
                 case '\n':
                     if (config.line_feed_type == linefeed::CRLF) pen.*minor_p += line_spacing;
@@ -484,18 +517,92 @@ public:
 
 		// 确保最后的 Block 被输出
 		flush_block();
+		commit_line_state();
 	}
 
 	void finalize(){
-		if (results.elems.empty()) {
+		if(results.elems.empty()){
 			results.extent = {0, 0};
-		} else {
-			auto extent = max_bound - min_bound;
-			results.extent = extent;
-			for (auto& elem : results.elems) {
-				elem.aabb.move(-min_bound);
-			}
+			return;
 		}
+
+        // 1. 计算总包围盒 (Determine global bounding box)
+        auto extent = max_bound - min_bound;
+        results.extent = extent;
+
+        // 2. 获取对齐所需的基准尺寸 (主轴方向)
+        // 用户要求：基于 results.extent 进行对齐
+        // 注意：如果是 justify，通常是基于 max_extent (如果在配置里设置了限制)，
+        // 但这里我们严格按照 results.extent (即最宽的那一行) 作为对齐容器的宽度。
+        const float container_size = results.extent.*major_p;
+
+        // 3. 应用对齐偏移
+        if (config.align != content_alignment::start) {
+            for (const auto& line : lines_) {
+                // 如果是最后一行且要求 Justify，通常排版惯例是最后一行左对齐(Start)，
+                // 除非显式要求强制对齐。这里简单处理：单行不满不Justify，或者全部Justify。
+                // 常见的处理是：if (config.align == justify && is_last_line) continue;
+                // 这里暂且对所有行一视同仁。
+
+                float offset = 0.f;
+                float spacing_step = 0.f; // 仅用于 Justify
+
+                const float remaining_space = container_size - line.line_advance;
+
+                // 容差，避免浮点误差导致的微小偏移
+                if (remaining_space <= 0.001f) continue;
+
+                switch (config.align) {
+                    case content_alignment::center:
+                        offset = remaining_space / 2.0f;
+                        break;
+                    case content_alignment::end:
+                        offset = remaining_space;
+                        break;
+                    case content_alignment::justify:
+                        if (line.count > 1) {
+                            spacing_step = remaining_space / static_cast<float>(line.count - 1);
+                        }
+                        break;
+                    default: break;
+                }
+
+                // 对该行的每个字形应用偏移
+                // 注意：偏移是沿着 major 轴进行的
+                // 对于 Justify，每个字形的偏移量是累加的
+
+                math::vec2 move_vec{};
+
+                for (std::size_t i = 0; i < line.count; ++i) {
+                    auto& elem = results.elems[line.start_index + i];
+
+                    float current_offset = offset;
+                    if (config.align == content_alignment::justify) {
+                        current_offset += spacing_step * static_cast<float>(i);
+                    }
+
+                    // 设置偏移向量
+                    move_vec.*major_p = current_offset;
+                    // minor 轴不需要由于对齐而移动
+                    move_vec.*minor_p = 0;
+
+                    elem.aabb.move(move_vec);
+                }
+            }
+        }
+
+        // 4. 标准化坐标 (将左上角/起始点对齐到 0,0)
+        // 注意：min_bound 是在对齐操作*之前*计算的原始边界。
+        // 对齐操作（特别是 Center/End）会改变内容的实际分布，但不会改变 Container 的大小。
+        // 我们需要保持所有内容相对于 Container 的相对位置。
+        // 原有逻辑是将 min_bound 移回 0,0。
+        // 在对齐模式下，min_bound.*major_p 可能不再是内容的左边界（例如 Right Align 时左侧是空的）。
+        // 这里的逻辑：results.extent 已经是正确的容器大小。
+        // 我们应该根据 min_bound 将所有内容平移，使得原点 (0,0) 对应 min_bound 的位置。
+
+        for(auto& elem : results.elems){
+            elem.aabb.move(-min_bound);
+        }
 	}
 
 	[[nodiscard]] glyph_layout&& crop() && {

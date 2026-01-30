@@ -50,13 +50,14 @@ void app_run(
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
 	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font,
-		// "AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
-		std::views::repeat(std::string{"搞核算 "}, 114) | std::views::join | std::ranges::to<std::string>(),
+		"AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
+		// std::views::repeat(std::string{"搞核算 "}, 114) | std::views::join | std::ranges::to<std::string>(),
 		{
 			// .direction = font::hb::layout_direction::ttb,
-			.max_extent = {300, 300},
+			// .max_extent = {600, 300},
 			.font_size = {32, 32},
 			.line_feed_type = font::hb::linefeed::CRLF,
+			.align = font::hb::content_alignment::justify
 		});
 
 	while(!ctx.window().should_close()){
