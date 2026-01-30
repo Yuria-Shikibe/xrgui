@@ -19,7 +19,8 @@ math::vec2 font_face_view::get_line_spacing_vec(const math::usize2 sz) const{
 }
 
 math::vec2 font_face_view::get_line_spacing_vec() const{
-	return {normalize_len(face()->max_advance_width), normalize_len(face()->size->metrics.height)};
+	//TODO col distance is not good here.
+	return {normalize_len(face()->size->metrics.max_advance), normalize_len(face()->size->metrics.height)};
 
 }
 

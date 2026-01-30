@@ -460,7 +460,7 @@ scan:
 
 	record:
 
-		const auto codeSize = encode::getUnicodeLength<>(reinterpret_cast<const char&>(charCode));
+		const auto codeSize = encode::getUnicodeLength<>(std::bit_cast<std::array<char, 4>>(charCode)[0]);
 
 		if(!escapingNext){
 			if(codeSize > 1 && off + codeSize <= size){

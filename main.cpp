@@ -50,13 +50,13 @@ void app_run(
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
 	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font,
-		// "AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ",
-		"1楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
+		"AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
+		// std::views::repeat(std::string{"abc vvasv "}, 114) | std::views::join | std::ranges::to<std::string>(),
 		{
 			// .direction = font::hb::layout_direction::ttb,
-			// .max_extent = {500, 100},
+			// .max_extent = {500, 300},
 			.font_size = {32, 32},
-			.line_feed_type = font::hb::linefeed::CRLF
+			.line_feed_type = font::hb::linefeed::CRLF,
 		});
 
 	while(!ctx.window().should_close()){
@@ -109,9 +109,10 @@ void app_run(
 				.stroke = {2},
 				.vert_color = {graphic::colors::white}
 			});
+
 			r.push(rect_aabb_outline{
-				.v00 = math::vec2{200, 200}.add(500, 100),
-				.v11 = math::vec2{200, 200},
+				.v00 = math::vec2{}.add(200, 200),
+				.v11 = math::vec2{500, 300}.add(200, 200),
 				.stroke = {2},
 				.vert_color = {graphic::colors::GREEN}
 			});
