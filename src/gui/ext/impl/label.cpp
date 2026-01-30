@@ -40,6 +40,12 @@ void record_glyph_draw_instructions(
 				.uv11 = glyph.glyph->uv.v11(),
 				.vert_color = tempColor
 			});
+			// buffer.push(draw::instruction::rect_aabb_outline{
+			// 	.v00 = lineOff + glyph.region.vert_00(),
+			// 	.v11 = lineOff + glyph.region.vert_11(),
+			// 	.stroke = {2},
+			// 	.vert_color = tempColor
+			// });
 		}
 	}
 }

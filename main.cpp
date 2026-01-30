@@ -35,6 +35,8 @@ import mo_yanxi.math.rand;
 
 import std;
 
+import mo_yanxi.font.typesetting;
+import mo_yanxi.hb.typesetting;
 
 void app_run(
 	mo_yanxi::backend::vulkan::context& ctx,
@@ -46,6 +48,17 @@ void app_run(
 	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
+
+	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font,
+		// "AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ",
+		"1楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
+		{
+			// .direction = font::hb::layout_direction::ttb,
+			// .max_extent = {500, 100},
+			.font_size = {32, 32},
+			.line_feed_type = font::hb::linefeed::CRLF
+		});
+
 	while(!ctx.window().should_close()){
 
 		ctx.window().poll_events();
@@ -62,7 +75,58 @@ void app_run(
 
 		auto& r = gui::global::manager.get_current_focus().renderer();
 		r.init_projection();
+		// gui::global::manager.draw();
+
 		{
+			using namespace graphic::draw::instruction;
+
+			r.update_state(gui::draw_config{
+					.mode = gui::draw_mode::msdf,
+					.draw_targets = {0b1},
+					.pipeline_index = 0
+				});
+			for (const auto & layout_result : rst.elems){
+				if(!layout_result.texture->view)continue;
+				r.push(rect_aabb{
+					.generic = {layout_result.texture->view},
+					.v00 = layout_result.aabb.get_src().add(200, 200),
+					.v11 = layout_result.aabb.get_end().add(200, 200),
+					.uv00 = layout_result.texture->uv.v00(),
+					.uv11 = layout_result.texture->uv.v11(),
+					.vert_color = {graphic::colors::white}
+				});
+				// r.push(rect_aabb_outline{
+				// 	.v00 = layout_result.aabb.get_src().add(200, 200),
+				// 	.v11 = layout_result.aabb.get_end().add(200, 200),
+				// 	.stroke = {2},
+				// 	.vert_color = {graphic::colors::white}
+				// });
+			}
+
+			r.push(rect_aabb_outline{
+				.v00 = math::vec2{}.add(200, 200),
+				.v11 = rst.extent.copy().add(200, 200),
+				.stroke = {2},
+				.vert_color = {graphic::colors::white}
+			});
+			r.push(rect_aabb_outline{
+				.v00 = math::vec2{200, 200}.add(500, 100),
+				.v11 = math::vec2{200, 200},
+				.stroke = {2},
+				.vert_color = {graphic::colors::GREEN}
+			});
+
+			r.update_state(state_push_config{
+				state_push_target::defer_pre
+			}, gui::gfx_config::blit_config{
+				{
+					.src = {},
+					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+				},
+				{.pipeline_index = 1}});
+		}
+
+		if(false){
 			using namespace graphic::draw::instruction;
 
 			// gui::fringe::poly_partial_with_cap(r, poly_partial{
@@ -231,7 +295,6 @@ void app_run(
 
 		}
 
-		gui::global::manager.draw();
 		renderer.batch_host.end_rendering();
 		renderer.upload();
 		renderer.create_command();
@@ -274,10 +337,13 @@ void prepare(){
 	{
 		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
 		auto& SourceHanSansCN_regular = font_manager.register_face("srchs", (font_path / "SourceHanSansCN-Regular.otf").string().c_str());
-		SourceHanSansCN_regular.mark_as_head();
+		auto& telegrama = font_manager.register_face("tele", (font_path / "telegrama.otf").string().c_str());
+		telegrama.set_fallback(&SourceHanSansCN_regular);
+		telegrama.mark_as_head();
+		// SourceHanSansCN_regular.mark_as_head();
 
 		font::typesetting::default_font_manager = &font_manager;
-		font::typesetting::default_font = &SourceHanSansCN_regular;
+		font::typesetting::default_font = &telegrama;
 	}
 #pragma endregion
 

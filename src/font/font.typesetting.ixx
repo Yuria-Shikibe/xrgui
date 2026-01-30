@@ -121,7 +121,7 @@ export struct glyph_elem{
 
 	math::vec2 correct_scale{};
 
-	[[nodiscard]] FORCE_INLINE math::frect get_draw_bound() const noexcept{
+	[[nodiscard]] FORCE_INLINE inline math::frect get_draw_bound() const noexcept{
 		return region.copy().expand(font_draw_expand * correct_scale);
 	}
 

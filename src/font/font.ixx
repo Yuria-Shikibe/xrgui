@@ -201,8 +201,8 @@ struct glyph_metrics{
 	[[nodiscard]] math::frect place_to(const math::vec2 pos, const math::vec2 scale) const{
 		math::vec2 src = pos;
 		math::vec2 end = pos;
-		src.add(horiBearing.x, -horiBearing.y * scale.y);
-		end.add(horiBearing.x + size.x * scale.x, descender() * scale.y);
+		src.add(horiBearing.x * scale.x, -horiBearing.y * scale.y);
+		end.add(horiBearing.x * scale.x + size.x * scale.x, descender() * scale.y);
 
 		return {tags::unchecked, tags::from_vertex, src, end};
 	}
@@ -399,6 +399,9 @@ public:
 
 	[[nodiscard]] float get_line_spacing(const math::usize2 sz) const;
 
+	[[nodiscard]] math::vec2 get_line_spacing_vec(const math::usize2 sz) const;
+	[[nodiscard]] math::vec2 get_line_spacing_vec() const;
+
 	[[nodiscard]] math::usize2 get_font_pixel_spacing(const math::usize2 sz) const;
 
 	[[nodiscard]] std::string format(const glyph_index_t code, const glyph_size_type size) const{
@@ -481,6 +484,8 @@ private:
 	std::vector<std::byte> font_data_{};
 
 	std::shared_mutex factory_mutex_{};
+
+	//TODO add LRU and ref count to prevent memory growing?
 	std::unordered_map<std::thread::id, font_face_group> thread_locals_{};
 
 	static std::vector<std::byte> read_file(const char* fontpath){
@@ -502,6 +507,10 @@ public:
 
 	[[nodiscard]] explicit font_face_group_meta(const char* fontPath)
 	: font_data_{read_file(fontPath)}{
+	}
+
+	void set_fallback(font_face_group_meta* next){
+		fallback_ = next;
 	}
 
 	void mark_as_head(){
@@ -528,7 +537,7 @@ public:
 		return font_face_group{[this] -> std::generator<const std::span<const std::byte>&>{
 			auto cur = this;
 			while(cur){
-				co_yield std::span{font_data_};
+				co_yield std::span{cur->font_data_};
 				cur = cur->fallback_;
 			}
 		}()};

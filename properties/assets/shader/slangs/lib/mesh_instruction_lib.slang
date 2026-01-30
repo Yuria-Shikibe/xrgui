@@ -238,8 +238,8 @@ struct triangle_draw : instr_resolver
 struct quad_draw : instr_resolver
 {
     primitive_generic generic;
-    float2 v00, v10, v01, v11;
-    float2 uv00, uv10, uv01, uv11;
+    float2 vts[4];
+    float2 uv[4];
 
     quad_vert_color vert_color;
 
@@ -253,18 +253,14 @@ struct quad_draw : instr_resolver
         switch (param.vtx_skip) {
         case 0:
             primits[param.prm_skip] = Primitive(generic, param);
-            return Vertex(float3(v00, generic.depth), vert_color.c00, uv00);
         case 1:
             primits[param.prm_skip + 1 - param.isPatch()] = Primitive(generic, param);
-            return Vertex(float3(v10, generic.depth), vert_color.c10, uv10);
         case 2:
             indices[param.get_primitive_index()] = param.getTrivialIndicies();
-            return Vertex(float3(v01, generic.depth), vert_color.c01, uv01);
         case 3:
             indices[param.get_primitive_index()] = param.getTrivialIndicies();
-            return Vertex(float3(v11, generic.depth), vert_color.c11, uv11);
-        default: return Vertex();
         }
+        return Vertex(float3(vts[param.vtx_skip], generic.depth), vert_color[param.vtx_skip], uv[param.vtx_skip]);
     }
 };
 
@@ -840,7 +836,7 @@ public Vertex push_vertex(
         return instruction.LoadAligned<triangle_draw>((location), instruction_align).push_vertex(param, primits, indices);
 
     case instruction_type::quad:
-        return instruction.LoadAligned<quad_draw>((location), instruction_align).push_vertex(param, primits, indices);
+        return instruction.Load<quad_draw>((location)).push_vertex(param, primits, indices);
 
     case instruction_type::rectangle:
         return instruction.LoadAligned<rectangle_draw>((location), instruction_align).push_vertex(param, primits, indices);

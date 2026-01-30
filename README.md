@@ -33,6 +33,7 @@ XRGUI(mo_yanXi's Retaine mode GUI)是一个**每帧重绘和更新**的带有**�
 * [ ] 完善compositor
 
 ### Style
+* [ ] 完善光标绘制
 * [ ] 提供更多基本样式选择
 * [ ] Nine Patch
 

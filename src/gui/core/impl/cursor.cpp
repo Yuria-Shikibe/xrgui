@@ -35,26 +35,49 @@ using namespace graphic::draw::instruction;
 
 void default_cursor_regular::draw(renderer_frontend& renderer, math::raw_frect region,
 	std::span<const elem* const> inbound_stack) const{
-	static constexpr float stroke = 6.f;
+	static constexpr float stroke = 1.35f;
+
+
+	math::section<graphic::float4> color{graphic::colors::white.copy_set_a(0), graphic::colors::white};
+
+	const auto verts = std::to_array({
+		region.src + math::vec2{0, region.extent.y * .75f},
+		region.src,
+		region.src + math::vec2{region.extent.x * .225f, region.extent.y * .5f},
+		region.src + region.extent * (1.18f / 2),
+	});
+
+	//Body
+	renderer.push(quad{
+			.vert = verts,
+			.vert_color = {graphic::colors::white}
+		});
+
+	//AA
 	renderer.push(line_segments_closed{
 		line_segments{
 			.generic = {}
 		}
 	}, line_node{
-		.pos = region.src,
+		.pos = verts[0],
 		.stroke = stroke,
 		.offset = stroke * -.5f,
-		.color = graphic::colors::white,
+		.color = color,
 	}, line_node{
-		.pos = region.src + math::vec2{region.extent.x, region.extent.y * .25f},
-		.stroke = 0,
-		.offset = 0,
-		.color = graphic::colors::white,
+		.pos = verts[1],
+		.stroke = stroke,
+		.offset = stroke * -.5f,
+		.color = color,
 	}, line_node{
-		.pos = region.src + math::vec2{region.extent.x * .25f, region.extent.y},
-		.stroke = 0,
-		.offset = 0,
-		.color = graphic::colors::white,
+		.pos = verts[3],
+		.stroke = stroke,
+		.offset = stroke * -.5f,
+		.color = color,
+	}, line_node{
+		.pos = verts[2],
+		.stroke = stroke,
+		.offset = stroke * -.5f,
+		.color = color,
 	});
 }
 

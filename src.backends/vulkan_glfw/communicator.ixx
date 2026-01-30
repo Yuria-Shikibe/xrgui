@@ -28,7 +28,10 @@ struct communicator : gui::native_communicator{
 			//no other better way to provide a zero terminated string
 			glfwSetClipboardString(window, cache_text.data());
 		}
+	}
 
+	void set_native_cursor_visibility(bool show) override{
+		glfwSetInputMode(window, GLFW_CURSOR, show ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_HIDDEN);
 	}
 };
 

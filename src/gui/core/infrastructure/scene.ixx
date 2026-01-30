@@ -180,6 +180,9 @@ protected:
 
 	}
 public:
+	virtual void set_native_cursor_visibility(bool show){
+
+	}
 
 	virtual std::string_view get_clipboard(){
 		return {};

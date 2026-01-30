@@ -78,7 +78,16 @@ void scene::draw(rect clip){
 	}
 	// renderer().update_state(pass_config_[i].begin_config);
 
-	cursor_collection_.draw(*this);
+	if(inputs_.is_cursor_inbound()){
+		renderer().update_state(draw_config{
+				.mode = draw_mode::def,
+				.draw_targets = {0b1},
+				.pipeline_index = 0
+			});
+		cursor_collection_.draw(*this);
+
+	}
+
 
 	//renderer().consume();
 

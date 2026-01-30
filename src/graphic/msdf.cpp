@@ -474,7 +474,7 @@ bitmap msdf::load_glyph(
 		const auto bound = shape.getBounds();
 		const math::vector2 scale{font_w, font_h};
 
-		msdfgen::edgeColoringSimple(shape, 2.5);
+		msdfgen::edgeColoringByDistance(shape, 2.5);
 		msdfgen::Bitmap<float, 3> msdf(bitmap.width(), bitmap.height());
 
 		const auto offx = -bound.l + static_cast<double>(boarder) / scale.x;

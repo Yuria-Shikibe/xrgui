@@ -10,7 +10,7 @@ export import mo_yanxi.math.vector2;
 export import mo_yanxi.math.vector4;
 export import mo_yanxi.graphic.color;
 export import mo_yanxi.math.matrix4;
-import mo_yanxi.hlsl_alias;
+export import mo_yanxi.hlsl_alias;
 import mo_yanxi.math;
 import std;
 
@@ -57,8 +57,8 @@ struct quad_like{
 
 export struct quad : quad_like{
 	primitive_generic generic;
-	float2 v00, v10, v01, v11;
-	float2 uv00, uv10, uv01, uv11;
+	std::array<float2, 4> vert;
+	float2 uv[4];
 
 	quad_vert_color vert_color;
 };
@@ -83,6 +83,8 @@ export struct rect_aabb : quad_like{
 
 };
 
+
+//TODO remove texture info ?
 export struct rect_aabb_outline{
 	primitive_generic generic;
 	float2 v00, v11;

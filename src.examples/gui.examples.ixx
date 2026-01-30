@@ -71,6 +71,7 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 	});
 
 	scene.set_native_communicator<backend::glfw::communicator>(ctx.window().get_handle());
+	scene.get_communicator()->set_native_cursor_visibility(false);
 
 	auto e = scene.create<scaling_stack>();
 	e->set_fill_parent({true, true});
