@@ -50,11 +50,11 @@ void app_run(
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
 	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font,
-		"AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
-		// std::views::repeat(std::string{"abc vvasv "}, 114) | std::views::join | std::ranges::to<std::string>(),
+		// "AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
+		std::views::repeat(std::string{"搞核算 "}, 114) | std::views::join | std::ranges::to<std::string>(),
 		{
 			// .direction = font::hb::layout_direction::ttb,
-			// .max_extent = {500, 300},
+			.max_extent = {300, 300},
 			.font_size = {32, 32},
 			.line_feed_type = font::hb::linefeed::CRLF,
 		});
@@ -112,7 +112,7 @@ void app_run(
 
 			r.push(rect_aabb_outline{
 				.v00 = math::vec2{}.add(200, 200),
-				.v11 = math::vec2{500, 300}.add(200, 200),
+				.v11 = math::vec2{300, 300}.add(200, 200),
 				.stroke = {2},
 				.vert_color = {graphic::colors::GREEN}
 			});
@@ -339,7 +339,9 @@ void prepare(){
 		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
 		auto& SourceHanSansCN_regular = font_manager.register_face("srchs", (font_path / "SourceHanSansCN-Regular.otf").string().c_str());
 		auto& telegrama = font_manager.register_face("tele", (font_path / "telegrama.otf").string().c_str());
+		auto& seguisym = font_manager.register_face("segui", (font_path / "seguisym.ttf").string().c_str());
 		telegrama.set_fallback(&SourceHanSansCN_regular);
+		SourceHanSansCN_regular.set_fallback(&seguisym);
 		telegrama.mark_as_head();
 		// SourceHanSansCN_regular.mark_as_head();
 

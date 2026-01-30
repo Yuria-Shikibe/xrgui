@@ -56,6 +56,11 @@ export struct layout_config {
 	float line_spacing_scale = 1.25f;
 	float line_spacing_fixed_distance = 0.f;
 
+	char32_t wrap_indicator_char = U'\u2925';
+
+	constexpr bool has_wrap_indicator() const noexcept{
+		return wrap_indicator_char;
+	}
 };
 
 // --- 内部：排版上下文封装 ---
@@ -80,6 +85,20 @@ private:
 			glyphs.push_back(glyph);
 			pos_min.min(glyph_region.vert_00());
 			pos_max.max(glyph_region.vert_11());
+		}
+
+		void push_front(math::frect glyph_region, const layout_result& glyph, math::vec2 glyph_advance){
+			for (auto && layout_result : glyphs){
+				layout_result.aabb.move(glyph_advance);
+			}
+			glyphs.insert(glyphs.begin(), glyph);
+
+			pos_min += glyph_advance;
+			pos_max += glyph_advance;
+			pos_min.min(glyph_region.vert_00());
+			pos_max.max(glyph_region.vert_11());
+
+			total_advance += glyph_advance;
 		}
 
 		math::frect get_local_draw_bound(){
@@ -118,6 +137,12 @@ private:
 
 	layout_block current_block{};
 
+	struct indicator_cache {
+		glyph_borrow texture; // 纹理引用
+		math::frect aabb;     // 位于原点(0,0)时的相对AABB
+		math::vec2 advance;   // 绘制后笔触需要移动的距离
+	};
+	indicator_cache cached_indicator_;
 public:
 	// 构造函数：初始化所有布局参数
 	layout_context(
@@ -144,7 +169,6 @@ public:
 
     	const math::vec2 base_spacing = view.get_line_spacing_vec() * scale_factor;
 
-    	//TODO support deduced
     	if (config.direction != layout_direction::deduced) {
     		switch (config.direction) {
     		case layout_direction::ltr: target_hb_dir = HB_DIRECTION_LTR; break;
@@ -182,6 +206,51 @@ public:
     	}
 
 		line_spacing = line_spacing * config.line_spacing_scale + config.line_spacing_scale;
+
+		if (config.has_wrap_indicator()) {
+			auto [face, index] = view.find_glyph_of(config.wrap_indicator_char);
+			// 只有当能找到对应的字形时才启用
+			if (index) {
+				glyph_identity id{index, snapped_size};
+				// 获取字形 (注意：这里直接同步获取，假设 manager 内部处理好了)
+				glyph g = manager.get_glyph_exact(font_group, view, *face, id);
+
+				// 计算步进 (参照 process_text_run 中的逻辑)
+				math::vec2 adv{};
+				const auto& m = g.metrics();
+				// 简单的根据方向计算 advance，这里主要处理 LTR/RTL/TTB 的简单情况
+				// 复杂的 HarfBuzz position 在这里可能无法完全复用，但对于单个符号通常足够
+				const float x_adv = m.advance.x * scale_factor.x;
+				const float y_adv = m.advance.y * scale_factor.y;
+
+
+				if(target_hb_dir == HB_DIRECTION_LTR){
+					adv.x += x_adv;
+				} // 通常 y_adv 为 0
+				else if(target_hb_dir == HB_DIRECTION_RTL){
+					adv.x -= x_adv;
+				} else if(target_hb_dir == HB_DIRECTION_TTB){
+					adv.y += y_adv;
+				} // 垂直布局通常主要移动 Y
+				else if(target_hb_dir == HB_DIRECTION_BTT){
+					adv.y -= y_adv;
+				}
+
+				// 计算相对 AABB (位于 0,0)
+				// metrics().place_to 需要具体的 pen 位置，这里给 0,0，之后在 flush_block 中再平移
+				math::frect local_aabb = m.place_to({}, scale_factor);
+				// 扩展绘制边界
+				math::frect draw_aabb = local_aabb.copy().expand(font_draw_expand * scale_factor);
+
+				cached_indicator_ = indicator_cache{
+					std::move(g), // glyph 继承自 glyph_borrow，可以切片保存或移动
+					draw_aabb,
+					adv
+				};
+			}else{
+				config.wrap_indicator_char = 0;
+			}
+		}
     }
 
 	bool is_reversed_() const noexcept{
@@ -212,31 +281,35 @@ public:
 
 		{
         	//Check bounding box, if exceeded, directly exit.
-        	const auto block_region = current_block.get_local_draw_bound();
 
-        	const auto get_max_extent = [&](const math::frect& region, float math::vec2::* mptr){
-        		if(is_reversed_()){
-        			return region.get_src().*mptr;
+        	const auto get_max_extent = [&](math::frect region){
+        		if(min_bound.is_Inf()){
+        			return region.extent();
         		}else{
-        			return region.get_end().*mptr;
+        			return region.copy().expand_by({tags::unchecked, tags::from_vertex, min_bound, max_bound}).extent();
         		}
+
         	};
 
-	        const auto global_region = block_region.copy().move(pen);
-
-	        const float scale = is_reversed_() ? -1 : 1;
-	        if(const auto target_max_major = get_max_extent(global_region, major_p);
-	        	scale * target_max_major > config.max_extent.*major_p){
+	        const auto global_region = current_block.get_local_draw_bound().copy().move(pen);
+	        if(const auto target_max_major = get_max_extent(global_region).*major_p;
+	        target_max_major > config.max_extent.*major_p){
         		//try advance line, put it to line head
         		advance_line();
 
+	        	if (config.has_wrap_indicator()) {
+	        		const auto& ind = cached_indicator_;
+					current_block.push_front(
+						ind.aabb,
+						{ind.aabb.copy().expand(font_draw_expand * scale_factor), cached_indicator_.texture},
+						ind.advance);
+	        	}
+
 	        	//TODO add auto feed line symbol
 
-				const auto region_new = block_region.copy().move(pen);
-
-        		if(
-        			scale * get_max_extent(region_new, major_p) > config.max_extent.*major_p ||
-        			scale * get_max_extent(region_new, minor_p) > config.max_extent.*minor_p
+				const auto region_new = current_block.get_local_draw_bound().copy().move(pen);
+				const auto extent_new = get_max_extent(region_new);
+        		if(extent_new.*major_p > config.max_extent.*major_p || extent_new.*minor_p > config.max_extent.*minor_p
         			){
         			//the next line can't hold it, directly fail
         			return false;
@@ -245,7 +318,7 @@ public:
 		        min_bound.min(region_new.vert_00());
 		        max_bound.max(region_new.vert_11());
 	        }else{
-        		if(scale * get_max_extent(global_region, minor_p) > config.max_extent.*minor_p){
+        		if(get_max_extent(global_region).*minor_p > config.max_extent.*minor_p){
         			return false;
         		}
 
