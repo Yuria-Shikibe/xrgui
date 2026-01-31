@@ -58,10 +58,6 @@ public:
 	}
 };
 
-struct font_family{
-	std::vector<const font_face_meta*> metas;
-};
-
 struct glyph_size_identity{
 	char head[2]{'f', 't'};
 	char extent;

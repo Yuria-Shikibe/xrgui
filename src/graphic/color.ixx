@@ -87,7 +87,7 @@ public:
 
 	constexpr friend bool operator==(const color& lhs, const color& rhs) noexcept = default;
 
-	static auto string_to_rgba(const std::string_view hexStr) noexcept{
+	static constexpr auto string_to_rgba(const std::string_view hexStr) noexcept{
 		std::array<std::uint8_t, 4> rgba{};
 		for(const auto& [index, v1] : hexStr
 		    | std::views::slide(2)
@@ -104,7 +104,7 @@ public:
 		return rgba;
 	}
 
-	static rgba8_bits string_to_rgba_bits(const std::string_view hexStr) noexcept{
+	static constexpr rgba8_bits string_to_rgba_bits(const std::string_view hexStr) noexcept{
 		auto value = std::bit_cast<rgba8_bits>(string_to_rgba(hexStr));
 		if constexpr(std::endian::native == std::endian::little){
 			value = std::byteswap(value);
@@ -113,7 +113,7 @@ public:
 		return value;
 	}
 
-	static color from_string(const std::string_view hexStr){
+	static constexpr color from_string(const std::string_view hexStr){
 		const auto rgba = string_to_rgba(hexStr);
 
 		color color{

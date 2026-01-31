@@ -37,6 +37,7 @@ import std;
 
 import mo_yanxi.font.typesetting;
 import mo_yanxi.hb.typesetting;
+import mo_yanxi.typesetting.rich_text;
 
 
 void app_run(
@@ -542,23 +543,74 @@ void prepare(){
 	ctx.wait_on_device();
 }
 
+std::string to_utf8(std::u32string_view s) {
+	std::string res;
+	res.reserve(s.size() * 4); // 预留空间，避免频繁重分配
+
+	for (char32_t c : s) {
+		if (c <= 0x7F) {
+			res += static_cast<char>(c);
+		} else if (c <= 0x7FF) {
+			res += static_cast<char>(0xC0 | ((c >> 6) & 0x1F));
+			res += static_cast<char>(0x80 | (c & 0x3F));
+		} else if (c <= 0xFFFF) {
+			res += static_cast<char>(0xE0 | ((c >> 12) & 0x0F));
+			res += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+			res += static_cast<char>(0x80 | (c & 0x3F));
+		} else if (c <= 0x10FFFF) {
+			res += static_cast<char>(0xF0 | ((c >> 18) & 0x07));
+			res += static_cast<char>(0x80 | ((c >> 12) & 0x3F));
+			res += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+			res += static_cast<char>(0x80 | (c & 0x3F));
+		}
+	}
+	return res;
+}
+
 int main(){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
-#ifndef NDEBUG
-	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
-		vk::enable_validation_layers = false;
-	}else{
-		vk::enable_validation_layers = true;
-	}
-#endif
+const char* test_text =
+R"({size:24}Basic Token Test{/}
+{color:#FF0000}Red Text{/} and {font:Arial}Font Change{/}
 
-	font::initialize();
-	backend::glfw::initialize();
+Escapes Test:
+1. Backslash: \\ (Should see single backslash)
+2. Braces with slash: \{ and \} (Should see literal { and })
+3. Braces with double: {{ and }} (Should see literal { and })
 
-	prepare();
+Line Continuation Test:
+This is a very long line that \
+should be joined together \
+without newlines.
 
-	backend::glfw::terminate();
-	font::terminate();
+Edge Cases:
+1. Token without arg: {bold}Bold Text{/bold}
+2. Unclosed brace: { This is just text because no closing bracket
+3. Unknown escape: \z (Should show 'z')
+4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
+)";
+
+	type_setting::tokenized_text text{test_text};
+
+	std::println("{}", to_utf8(text.get_text()));
+
+	// type_setting::tokenized_text text2{test_text};
+
+// #ifndef NDEBUG
+// 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
+// 		vk::enable_validation_layers = false;
+// 	}else{
+// 		vk::enable_validation_layers = true;
+// 	}
+// #endif
+//
+// 	font::initialize();
+// 	backend::glfw::initialize();
+//
+// 	prepare();
+//
+// 	backend::glfw::terminate();
+// 	font::terminate();
 }

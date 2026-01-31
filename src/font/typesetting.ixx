@@ -115,4 +115,67 @@ export{
 	inline constexpr float standard_size = pt_xiao_er;
 }
 }
+export template <typename T>
+	requires std::is_arithmetic_v<T>
+constexpr T string_cast(std::string_view str, T def = 0){
+	T t{def};
+	std::from_chars(str.data(), str.data() + str.size(), t);
+	return t;
+}
+
+export template <typename T>
+	requires std::is_arithmetic_v<T>
+constexpr std::vector<T> string_cast_seq(const std::string_view str, T def = 0, std::size_t expected = 2){
+	const char* begin = str.data();
+	const char* end = begin + str.size();
+
+	std::vector<T> result{};
+	if(expected) result.reserve(expected);
+
+	while(!expected || result.size() != expected){
+		if(begin == end) break;
+		T t{def};
+		auto [ptr, ec] = std::from_chars(begin, end, t);
+		begin = ptr;
+
+		if(ec == std::errc::invalid_argument){
+			begin++;
+		} else{
+			result.push_back(t);
+		}
+	}
+
+	return result;
+}
+
+template <typename T, std::size_t sz>
+struct cast_result{
+	std::array<T, sz> data;
+	typename std::array<T, sz>::size_type size;
+};
+
+export template <std::size_t expected_count, typename T>
+	requires std::is_arithmetic_v<T>
+constexpr cast_result<T, expected_count> string_cast_seq(const std::string_view str, T def){
+	const char* begin = str.data();
+	const char* end = begin + str.size();
+
+	std::array<T, expected_count> result{};
+	std::size_t count{};
+
+	while(count != expected_count && begin != end){
+		T t{def};
+		auto [ptr, ec] = std::from_chars(begin, end, t);
+		begin = ptr;
+
+		if(ec == std::errc::invalid_argument){
+			begin++;
+		} else{
+			result[count++] = t;
+		}
+	}
+
+	return {result, count};
+}
+
 }

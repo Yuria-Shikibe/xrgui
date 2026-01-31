@@ -1,6 +1,9 @@
 module;
+#include <hb.h>
 
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <gch/small_vector.hpp>
+#endif
 
 export module mo_yanxi.typesetting.rich_text;
 
@@ -9,10 +12,25 @@ export import mo_yanxi.typesetting;
 import mo_yanxi.font;
 import mo_yanxi.math.vector2;
 import mo_yanxi.graphic.color;
+import mo_yanxi.heterogeneous;
 import mo_yanxi.static_string;
 import std;
 
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <gch/small_vector.hpp>;
+#endif
+
 namespace mo_yanxi::type_setting{
+
+export
+struct look_up_table{
+	string_hash_map<font::font_family> family;
+	string_hash_map<graphic::color> color;
+};
+
+// export
+/*inline*/ look_up_table global_look_up_table{};
+
 namespace rich_text_token{
 export enum struct setter_type{
 	/**
@@ -39,14 +57,11 @@ struct rich_text_context{
 	stack_of<math::vec2> history_offset_;
 	stack_of<graphic::color> history_color_;
 	stack_of<font::glyph_size_type> history_size_;
-	// stack_of<math::vec2> history_font_;
+	stack_of<font::font_family*> history_font_;
+	stack_of<gch::small_vector<hb_feature_t>> history_features_;
 	stack_of<bool> history_underline_;
 };
 
-// /**
-//  * @tparam off
-//  * @param type[empty(as abs), abs, *, mul, +, add], num X, num Y
-//  */
 struct set_offset{
 	setter_type type = setter_type::relative_add;
 	math::vec2 offset;
@@ -57,8 +72,12 @@ struct set_color{
 	graphic::color color;
 };
 
-struct set_font{
+struct set_font_by_name{
 	static_string<23> font_name;
+};
+
+struct set_font_directly{
+	const font::font_family* family;
 };
 
 
@@ -69,21 +88,21 @@ private:
 	}
 public:
 	setter_type type = setter_type::absolute;
-	font::glyph_size_type size;
+	math::vec2 size;
 
-	constexpr font::glyph_size_type apply_to(font::glyph_size_type dst) const noexcept{
-		switch(type){
-		case setter_type::absolute : return size;
-		case setter_type::relative_add : return dst + size;
-		case setter_type::relative_mul : return {mul_26_6(size.x, dst.x), mul_26_6(size.y, dst.y)};
-		default : std::unreachable();
-		}
-	}
+	// constexpr font::glyph_size_type apply_to(font::glyph_size_type dst) const noexcept{
+	// 	switch(type){
+	// 	case setter_type::absolute : return size;
+	// 	case setter_type::relative_add : return dst + size;
+	// 	case setter_type::relative_mul : return {mul_26_6(size.x, dst.x), mul_26_6(size.y, dst.y)};
+	// 	default : std::unreachable();
+	// 	}
+	// }
 };
 
 
 struct set_feature{
-
+	hb_feature_t feature;
 };
 
 struct set_underline{
@@ -99,40 +118,230 @@ struct fallback_font{};
 struct fallback_size{};
 struct fallback_feature{};
 
+struct setter_parse_result{
+	setter_type type;
+	std::string_view remain;
+};
+
+using tokens = std::variant<
+	std::monostate, //used for invalid token
+
+	set_underline,
+
+	set_offset,
+	set_color,
+	set_size,
+	set_feature,
+	set_font_by_name,
+	set_font_directly,
+
+	fallback_offset,
+	fallback_color,
+	fallback_size,
+	fallback_feature,
+	fallback_font
+
+>;
+
+template <typename T>
+constexpr inline std::size_t token_index_of = mo_yanxi::tuple_index_v<T, variant_to_tuple_t<tokens>>;
+
+[[nodiscard]] constexpr setter_parse_result get_setter_type_from(std::string_view args) noexcept{
+	switch(args.front()){
+	case '*': return {setter_type::relative_mul, args.substr(1)};
+	case '+': return {setter_type::relative_add, args.substr(1)};
+	case '=': return {setter_type::absolute, args.substr(1)};
+	default: return {setter_type::absolute, args};
+	}
+}
+
+[[nodiscard]] constexpr set_offset parse_set_offset(std::string_view args) noexcept{
+	const auto [type, arg_remain] = get_setter_type_from(args);
+	auto [off, count] = string_cast_seq<2>(arg_remain, 0.f);
+	return {type, off[0], off[1]};
+}
+
+[[nodiscard]] constexpr set_color parse_set_color(const look_up_table& table, std::string_view args) noexcept{
+	auto [type, remain] = get_setter_type_from(args);
+	if(remain.front() == '#'){
+		return {type, graphic::color::from_string(remain.substr(1))};
+	}
+
+	if(const auto c = table.color.try_find(remain)){
+		return {type, *c};
+	}
+
+	return {type, graphic::colors::white};
+}
+
+[[nodiscard]] constexpr set_size parse_set_size(std::string_view args) noexcept{
+	const auto [type, arg_remain] = get_setter_type_from(args);
+	switch(auto [off, count] = string_cast_seq<2>(arg_remain, 0.f); count){
+	case 0:
+		return {setter_type::relative_add, {}};
+	case 1:
+		return {type, off[0], off[0]};
+	case 2:
+		return {type, off[0], off[1]};
+	default: std::unreachable();
+	}
+}
+
+[[nodiscard]] constexpr tokens parse_set_font(const look_up_table& table, bool has_arg, std::string_view args) noexcept{
+	if(!has_arg){
+		return fallback_font{};
+	}
+	if(args.empty()){
+		//set to fallback
+		return set_font_directly{};
+	}
+
+	if(auto ptr = table.family.try_find(args)){
+		return set_font_directly{ptr};
+	}
+
+	return set_font_by_name{args};
+}
+
+namespace hb_constexpr{
+consteval hb_tag_t make_tag_constexpr(const char* s) {
+	return (hb_tag_t)((((std::uint32_t)(s[0]) & 0xFF) << 24) |
+					  (((std::uint32_t)(s[1]) & 0xFF) << 16) |
+					  (((std::uint32_t)(s[2]) & 0xFF) << 8) |
+					  ((std::uint32_t)(s[3]) & 0xFF));
+}
+
+// 简单的编译期字符串转整数解析
+consteval std::uint32_t parse_uint(std::string_view s) {
+	std::uint32_t res = 0;
+	auto rst = std::from_chars(s.data(), s.data() + s.size(), res);
+	if(rst.ec != std::errc{}){
+		throw std::invalid_argument{"invalid feature arg"};
+	}
+	return res;
+}
+
+// 核心解析函数
+consteval hb_feature_t parse_feature_constexpr(std::string_view str) {
+	hb_feature_t feature = {HB_TAG_NONE, 0, 0, static_cast<std::uint32_t>(-1)};
+
+	if (str.empty()) return feature;
+
+	std::size_t start_idx = 0;
+
+	// 处理前缀 + 或 -
+	if (str[0] == '+') {
+		feature.value = 1;
+		start_idx = 1;
+	} else if (str[0] == '-') {
+		feature.value = 0;
+		start_idx = 1;
+	} else {
+		feature.value = 1; // 默认开启
+	}
+
+	// 解析 4 字节 Tag
+	// 注意：实际解析需处理 tag 长度不足 4 位的情况（用空格填充）
+	char tag_chars[4] = {' ', ' ', ' ', ' '};
+	std::size_t i = 0;
+	while (i < 4 && (start_idx + i) < str.size() &&
+		   str[start_idx + i] != '[' && str[start_idx + i] != '=') {
+		tag_chars[i] = str[start_idx + i];
+		i++;
+		   }
+	feature.tag = make_tag_constexpr(tag_chars);
+
+	// 查找 '=' 处理自定义值
+	std::size_t equal_pos = str.find('=');
+	if (equal_pos != std::string_view::npos) {
+		feature.value = parse_uint(str.substr(equal_pos + 1));
+	}
+
+	return feature;
+}
+}
+
+[[nodiscard]] constexpr set_feature parse_set_feature(std::string_view args) noexcept{
+	hb_feature_t feature;
+
+	if consteval {
+		feature = hb_constexpr::parse_feature_constexpr(args);
+	}else{
+		hb_feature_from_string(args.data(), args.length(), &feature);
+	}
+
+	return {feature};
+}
+
 }
 
 struct rich_text_token_argument{
-	using tokens = std::variant<
-		rich_text_token::set_offset,
-		rich_text_token::set_color,
-		rich_text_token::set_font,
-		rich_text_token::set_size,
-		rich_text_token::set_underline,
-
-		rich_text_token::fallback_offset,
-		rich_text_token::fallback_color,
-		rich_text_token::fallback_font,
-		rich_text_token::fallback_size
-	>;
-
-	tokens token;
+	rich_text_token::tokens token;
 
 	constexpr rich_text_token_argument() = default;
-	constexpr rich_text_token_argument(std::string_view name, std::string_view args){
-		using token_str = static_string<8>;
 
-		static constexpr token_str name_set_offset{"off"};
-		constexpr auto t = std::bit_cast<std::uint64_t>(name_set_offset.get_data());
-		// static_string<7> str;
-		// str.assign_or_truncate(name);
-		// auto& t = str.get_data();
+	constexpr rich_text_token_argument(
+		const look_up_table& table,
+		const rich_text_token_argument& last,
+
+		std::string_view name,
+		bool has_arg,
+		std::string_view args
+
+		) : token([&] -> rich_text_token::tokens{
+		using namespace rich_text_token;
+		using token_str = array_string<sizeof(std::uint64_t), alignof(std::uint64_t)>;
+
+		static constexpr auto s2i = [](token_str str) static constexpr{
+			return std::bit_cast<std::uint64_t>(str.get_data());
+		};
+
+		switch(s2i(name)){
+			case s2i("/") :{
+				switch(last.token.index()){
+					case token_index_of<set_feature>: return fallback_feature{};
+					case token_index_of<set_font_by_name>: [[fallthrough]];
+					case token_index_of<set_font_directly>: return fallback_font{};
+					case token_index_of<set_color>: return fallback_color{};
+					case token_index_of<set_offset>: return fallback_offset{};
+					case token_index_of<set_size>: return fallback_size{};
+				case token_index_of<set_underline>: return set_underline{!std::get<set_underline>(last.token).enabled};
+					default: return std::monostate{};
+				}
+			}
+		case s2i("off") : return args.empty() ? tokens{fallback_offset{}} : parse_set_offset(args);
+
+		case s2i("sz") : [[fallthrough]];
+		case s2i("size") : return args.empty() ? tokens{fallback_size{}} : parse_set_size(args);
+
+		case s2i("f") : [[fallthrough]];
+		case s2i("font") : return parse_set_font(table, has_arg, args);
+
+		case s2i("c") : [[fallthrough]];
+		case s2i("#") : [[fallthrough]];
+		case s2i("color") : return args.empty() ? tokens{fallback_color{}} : parse_set_color(table, args);
+
+		case s2i("ftr") : [[fallthrough]];
+		case s2i("feature") : return args.empty() ? tokens{fallback_feature{}} : parse_set_feature(args);
+
+			// case s2i("^") : TODO superscript
+			// case s2i("_") : TODO subscript
+			// case s2i("/") : TODO end script
+
+		case s2i("u") : [[fallthrough]];
+		case s2i("ul") : return set_underline{true};
+
+		case s2i("/u") : [[fallthrough]];
+		case s2i("/ul") : return set_underline{false};
+
+		default: return std::monostate{};
+		}
+	}()){
 	}
 };
 
 export
 struct tokenized_text{
-	static constexpr char token_split_char = '|';
-
 	struct posed_token_argument : rich_text_token_argument{
 		std::uint32_t pos{};
 
@@ -152,6 +361,10 @@ public:
 	using pos_t = decltype(codes)::size_type;
 	using token_iterator = decltype(tokens)::const_iterator;
 
+	constexpr std::u32string_view get_text() const noexcept{
+		return codes;
+	}
+
 	constexpr token_iterator get_token(const pos_t pos, const token_iterator& last){
 		return std::ranges::lower_bound(last, tokens.end(), pos, {}, &posed_token_argument::pos);
 	}
@@ -166,26 +379,30 @@ public:
 
 	[[nodiscard]] constexpr tokenized_text() = default;
 
-	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string){
-		parse_from_(string);
+	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string, const look_up_table& table){
+		parse_from_(string, table);
+	}
+	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string) : tokenized_text{string, global_look_up_table}{
+	}
+
+	constexpr void reset(std::string_view string, const look_up_table& table){
+		codes.clear();
+		tokens.clear();
+		parse_from_(string, table);
 	}
 
 	constexpr void reset(std::string_view string){
-		codes.clear();
-		tokens.clear();
-		parse_from_(string);
+		reset(string, global_look_up_table);
 	}
 
 private:
-	constexpr void parse_from_(std::string_view string);
+	constexpr void parse_from_(std::string_view string, const look_up_table& table);
 };
 }
 
 namespace mo_yanxi::type_setting {
 
-    // 辅助函数：将字符串参数转换为 rich_text_token_argument
-    // TODO: 用户需要根据实际需求完善此函数中的字符串匹配和转换逻辑
-    static constexpr void append_utf8_to_u32(std::u32string& dest, std::string_view source) {
+    constexpr void append_utf8_to_u32(std::u32string& dest, std::string_view source) {
         const char* p = source.data();
         const char* end = p + source.size();
 
@@ -212,156 +429,145 @@ namespace mo_yanxi::type_setting {
         }
     }
 
-    // TODO: 留给你完成的参数解析函数
-    // 将 name (如 "color") 和 arg (如 "#FF0000") 转换为具体的 Token 结构
-    constexpr rich_text_token_argument parse_rich_token_payload(std::string_view name, std::string_view arg){
-	    return {};
-    }
+   constexpr void tokenized_text::parse_from_(const std::string_view string, const look_up_table& table) {
+    const char* ptr = string.data();
+    const size_t size = string.size();
 
-   constexpr void tokenized_text::parse_from_(const std::string_view string) {
-        const char* ptr = string.data();
-        const size_t size = string.size();
+    codes.reserve(size);
 
-        codes.reserve(size);
+    std::size_t text_start_idx = 0;
+    std::size_t i = 0;
 
-        // 记录上一次转换结束后的下一个字符位置（即当前未处理文本片段的起始位置）
-        std::size_t text_start_idx = 0;
-        std::size_t i = 0;
+    const auto flush_pending_text = [&](std::size_t current_end) {
+        assert(current_end >= text_start_idx);
+        if (current_end > text_start_idx) { // 增加判空，虽然 append 内部也会处理
+            std::string_view pending(ptr + text_start_idx, current_end - text_start_idx);
+            append_utf8_to_u32(codes, pending);
+        }
+    };
 
-        // 辅助 lambda：将 [text_start_idx, current_end) 的内容转为 UTF-32 并追加到 codes
-        const auto flush_pending_text = [&](std::size_t current_end) {
-        	assert(current_end >= text_start_idx);
-        	std::string_view pending(ptr + text_start_idx, current_end - text_start_idx);
-        	append_utf8_to_u32(codes, pending);
+    while (i < size) {
+        const auto c = ptr[i];
 
-        };
+        // 1. 处理转义字符 '\'
+        if (c == '\\') {
+            flush_pending_text(i);
 
-        while (i < size) {
-            const auto c = ptr[i];
+            if (i + 1 < size) {
+                auto next = ptr[i + 1];
+                std::size_t skip_len{};
 
-            // 1. 处理转义字符 '\'
-            if (c == '\\') {
-                // 先结算之前的普通文本
-                flush_pending_text(i);
-
-                if (i + 1 < size) {
-                    auto next = ptr[i + 1];
-                    std::size_t skip_len{};
-
-                    if (next == '\\') {
-                        // case: \\ -> 转义为字面量 '\'
-                        codes.push_back(U'\\');
-                        skip_len = 2;
-                    }
-                    else if (next == '{' || next == '}') {
-                        // case: \{ or \} -> 转义为字面量 '{' or '}'
-                        codes.push_back(static_cast<char32_t>(next));
-                        skip_len = 2;
-                    }
-                    else if (next == '\r') {
-                        // case: \ + \r\n (Windows换行续行) 或 \ + \r (Mac旧版)
-                        skip_len = 2;
-                        if (i + 2 < size && ptr[i + 2] == '\n') skip_len = 3;
-                        // 不push任何字符，通过跳过索引实现“忽略”
-                    }
-                    else if (next == '\n') {
-                        // case: \ + \n\r (极少见) 或 \ + \n (Linux/Unix换行续行)
-                        skip_len = 2;
-                        if (i + 2 < size && ptr[i + 2] == '\r') skip_len = 3;
-                        // 不push任何字符
-                    }
-                    else {
-                        // case: \ + 其他字符 (如 \t, \a 等)
-                        // 根据你的需求，这里可以扩展支持标准转义。
-                        // 目前默认行为：消耗掉反斜杠，保留后续字符作为字面量
-                        // 例如 "\a" -> "a"
-                        // codes.push_back(static_cast<char32_t>(next));
-                        skip_len = 2;
-                    }
-
-                    i += skip_len;
-                } else {
-                    // 字符串末尾的单个反斜杠，忽略或作为字面量
-                    i++;
+                if (next == '\\') {
+                    codes.push_back(U'\\');
+                    skip_len = 2;
+                }
+                else if (next == '{' || next == '}') {
+                    codes.push_back(static_cast<char32_t>(next));
+                    skip_len = 2;
+                }
+                else if (next == '\r') {
+                    // Windows (\r\n) or Old Mac (\r)
+                    skip_len = 2;
+                    if (i + 2 < size && ptr[i + 2] == '\n') skip_len = 3;
+                }
+                else if (next == '\n') {
+                    // Unix (\n) or Rare (\n\r)
+                    skip_len = 2;
+                    if (i + 2 < size && ptr[i + 2] == '\r') skip_len = 3;
+                }
+                else {
+                    // 未知转义：保留后续字符作为字面量 (例如 \a -> a)
+                    // 如果你想保留反斜杠 (例如 \a -> \a)，则需要 push U'\\' 和 next
+                    // 这里采用常见做法：转义为字面量
+                    codes.push_back(static_cast<char32_t>(next));
+                    skip_len = 2;
                 }
 
-                // 更新下一次转换的起始位置
+                i += skip_len;
+            } else {
+                // 字符串末尾的单个反斜杠，忽略
+                i++;
+            }
+            text_start_idx = i;
+            continue;
+        }
+
+        // 2. 处理 Token 开始 '{'
+        if (c == '{') {
+            // 检查双括号 '{{' -> 转义为 '{'
+            if (i + 1 < size && ptr[i + 1] == '{') {
+                flush_pending_text(i);
+                codes.push_back(U'{');
+                i += 2;
                 text_start_idx = i;
                 continue;
             }
 
-            // 2. 处理 Token 开始 '{'
-            if (c == '{') {
-                // 检查双括号 '{{'
-                if (i + 1 < size && ptr[i + 1] == '{') {
-                    flush_pending_text(i); // 结算之前的文本
-                    codes.push_back(U'{'); // 插入字面量 '{'
-                    i += 2;
-                    text_start_idx = i;
-                    continue;
+            // Token 解析模式
+            const std::size_t start_content = i + 1;
+            // [修复]：使用 string_view 的 find 查找，并加上偏移量
+
+        	const auto post_string = string.substr(start_content);
+            const auto relative_pos = post_string.find('}');
+            if (relative_pos != std::string_view::npos) {
+	            if(const auto find_another = post_string.substr(0, relative_pos).find('{') != std::string_view::npos){
+            		i++;
+            		continue;
+            	}
+
+                // 找到了 Token
+                flush_pending_text(i);
+
+                // 计算内容的实际结束位置（绝对索引）
+                // relative_pos 是相对于 start_content 的
+                const std::size_t end_content_idx = start_content + relative_pos;
+
+                // 解析 Token 内容
+                // 长度 = end_content_idx - start_content (也就是 relative_pos)
+                std::string_view content(ptr + start_content, relative_pos);
+
+                std::string_view name = content;
+                std::string_view arg = {};
+
+                auto colon_pos = content.find(':');
+                if (colon_pos != std::string_view::npos) {
+                    name = content.substr(0, colon_pos);
+                    arg = content.substr(colon_pos + 1);
                 }
 
-                // Token 解析模式
-                // 先寻找闭合的 '}'
-                const std::size_t start_content = i + 1;
+                rich_text_token_argument parsed_arg = rich_text_token_argument(table, (tokens.empty() ? rich_text_token_argument{} : tokens.back()), name, colon_pos != std::string_view::npos, arg);
 
-                if (
-                	const std::size_t end_content = string.substr(start_content).find('}');
-                	end_content != std::string_view::npos) {
-                    // 找到了 Token，先结算之前的普通文本
-                    flush_pending_text(i);
+                posed_token_argument posed_token;
+                static_cast<rich_text_token_argument&>(posed_token) = std::move(parsed_arg);
+                posed_token.pos = static_cast<std::uint32_t>(codes.size());
 
-                    // 解析 Token 内容
-                    std::string_view content(ptr + start_content, end_content - start_content);
-                    std::string_view name = content;
-                    std::string_view arg = {};
+                tokens.push_back(std::move(posed_token));
 
-                    if (auto colon_pos = content.find(':'); colon_pos != std::string_view::npos) {
-                        name = content.substr(0, colon_pos);
-                        arg = content.substr(colon_pos + 1);
-                    }
-
-                    // 调用外部转换函数
-                    rich_text_token_argument parsed_arg = parse_rich_token_payload(name, arg);
-
-                    posed_token_argument posed_token;
-                    static_cast<rich_text_token_argument&>(posed_token) = std::move(parsed_arg);
-                    // Token 生效位置绑定到当前 codes 的末尾（即接下来的文字）
-                    posed_token.pos = static_cast<std::uint32_t>(codes.size());
-
-                    tokens.push_back(std::move(posed_token));
-
-                    // 移动索引跳过整个 Token "{...}"
-                    i = end_content + 1;
-                    text_start_idx = i; // 更新起始位置
-                    continue;
-                }
-                else {
-                	//Throw directly?
-                    // 没找到配对的 '}'，视为普通字符，暂不处理，留给下一次 flush 或循环继续
-                    i++;
-                    continue;
-                }
+                // i 跳到 '}' 之后
+                i = end_content_idx + 1;
+                text_start_idx = i;
+                continue;
             }
 
-            // 3. 处理转义结束符 '}' (用于双括号 '}}')
-            // 单独的 '}' 在这里不需要特殊处理（除非是错误语法），它会被包含在下一次 flush 中
-            // 但我们需要处理 '}}' 转义的情况
-            if (c == '}') {
-                if (i + 1 < size && ptr[i + 1] == '}') {
-                    flush_pending_text(i); // 结算之前的文本
-                    codes.push_back(U'}'); // 插入字面量 '}'
-                    i += 2;
-                    text_start_idx = i;
-                    continue;
-                }
-            }
-
-            // 普通字符，继续扫描
+        	// 没找到配对的 '}'，视为普通字符 '{'，继续扫描
             i++;
+            continue;
         }
 
-        // 循环结束，处理剩余的普通文本
-        flush_pending_text(size);
+        // 3. 处理转义结束符 '}' (用于双括号 '}}')
+        if (c == '}') {
+            if (i + 1 < size && ptr[i + 1] == '}') {
+                flush_pending_text(i);
+                codes.push_back(U'}');
+                i += 2;
+                text_start_idx = i;
+                continue;
+            }
+        }
+
+        i++;
     }
+
+    flush_pending_text(size);
+}
 }

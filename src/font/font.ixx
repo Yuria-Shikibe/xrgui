@@ -517,6 +517,13 @@ private:
 		return read_file(file);
 	}
 };
+
+export
+struct font_family{
+	std::vector<const font_face_meta*> metas;
+};
+
+
 }
 
 template <>
