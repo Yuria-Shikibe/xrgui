@@ -17,6 +17,10 @@ struct optional_stack{
 		: stack{stack}{
 	}
 
+	bool empty() const noexcept{
+		return stack.empty();
+	}
+
 	void push(const T& val){
 		stack.push(val);
 	}
@@ -53,6 +57,14 @@ struct optional_stack{
 		} else{
 			return stack.top();
 		}
+	}
+
+	[[nodiscard]] T& top_ref() noexcept{
+		return stack.top();
+	}
+
+	[[nodiscard]] const T& top_ref() const noexcept{
+		return stack.top();
 	}
 };
 }

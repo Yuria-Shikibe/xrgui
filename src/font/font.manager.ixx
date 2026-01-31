@@ -175,7 +175,7 @@ public:
 		return families.try_find(familyName);
 	}
 
-	[[nodiscard]] font_family* get_default_recipe() const noexcept{
+	[[nodiscard]] font_family* get_default_family() const noexcept{
 		return default_family;
 	}
 

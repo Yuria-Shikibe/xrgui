@@ -55,7 +55,7 @@ void app_run(
 	type_setting::tokenized_text text{std::views::repeat(std::string{"搞核算 "}, 114) | std::views::join | std::ranges::to<std::string>()};
 
 
-	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font_manager->get_default_recipe(),
+	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font_manager->get_default_family(),
 		// "AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
 		text,
 		{

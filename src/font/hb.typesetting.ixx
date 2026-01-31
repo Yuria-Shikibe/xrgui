@@ -172,6 +172,8 @@ private:
 
 	indicator_cache cached_indicator_;
 
+	type_setting::rich_text_context rich_text_context_;
+	type_setting::tokenized_text::token_iterator last_iterator{full_text->get_init_token()};
 public:
 	// 构造函数：初始化所有布局参数
 	layout_context(
@@ -494,6 +496,10 @@ public:
 		font_face_handle* current_face = nullptr;
 
 		while (current_idx < full_text->get_text().size()) {
+			auto tokens = full_text->get_token_group(current_idx, last_iterator);
+			rich_text_context_.update(manager, {32, 32}, tokens);
+			last_iterator = tokens.end();
+
 			const auto codepoint = full_text->get_text()[current_idx];
 
 			auto [best_face, _] = view.find_glyph_of(codepoint);

@@ -13,12 +13,17 @@ export import mo_yanxi.typesetting;
 import <gch/small_vector.hpp>;
 #endif
 
+import std;
+
 import mo_yanxi.font;
+import mo_yanxi.font.manager;
 import mo_yanxi.math.vector2;
 import mo_yanxi.graphic.color;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.static_string;
-import std;
+
+import mo_yanxi.utility;
+
 
 namespace mo_yanxi::type_setting{
 
@@ -47,19 +52,6 @@ export enum struct setter_type{
 	 * @brief set current to current * specified
 	 */
 	relative_mul,
-};
-
-template <typename T>
-using stack_of = optional_stack<T, gch::small_vector<T>>;
-
-
-struct rich_text_context{
-	stack_of<math::vec2> history_offset_;
-	stack_of<graphic::color> history_color_;
-	stack_of<font::glyph_size_type> history_size_;
-	stack_of<font::font_family*> history_font_;
-	stack_of<gch::small_vector<hb_feature_t>> history_features_;
-	stack_of<bool> history_underline_;
 };
 
 struct set_offset{
@@ -275,6 +267,7 @@ consteval hb_feature_t parse_feature_constexpr(std::string_view str) {
 
 }
 
+
 struct rich_text_token_argument{
 	rich_text_token::tokens token;
 
@@ -360,20 +353,25 @@ private:
 public:
 	using pos_t = decltype(codes)::size_type;
 	using token_iterator = decltype(tokens)::const_iterator;
+	using token_subrange = std::ranges::subrange<token_iterator>;
 
 	constexpr std::u32string_view get_text() const noexcept{
 		return codes;
 	}
 
-	constexpr token_iterator get_token(const pos_t pos, const token_iterator& last){
+	constexpr token_iterator get_token(const pos_t pos, const token_iterator& last) const noexcept {
 		return std::ranges::lower_bound(last, tokens.end(), pos, {}, &posed_token_argument::pos);
 	}
 
-	constexpr token_iterator get_token(const pos_t pos){
+	constexpr token_iterator get_token(const pos_t pos) const noexcept {
 		return get_token(pos, tokens.begin());
 	}
 
-	[[nodiscard]] constexpr auto get_token_group(const pos_t pos, const token_iterator& last) const{
+	constexpr token_iterator get_init_token() const noexcept {
+		return tokens.begin();
+	}
+
+	[[nodiscard]] constexpr token_subrange get_token_group(const pos_t pos, const token_iterator& last) const{
 		return std::ranges::equal_range(last, tokens.end(), pos, {}, &posed_token_argument::pos);
 	}
 
@@ -397,6 +395,134 @@ public:
 
 private:
 	constexpr void parse_from_(std::string_view string, const look_up_table& table);
+};
+
+
+
+template <typename T>
+using stack_of = optional_stack<T, gch::small_vector<T>>;
+
+export
+struct rich_text_context{
+private:
+	stack_of<math::vec2> history_offset_;
+	stack_of<graphic::color> history_color_;
+	stack_of<math::vec2> history_size_;
+	stack_of<const font::font_family*> history_font_;
+	stack_of<gch::small_vector<hb_feature_t>> history_features_;
+
+	bool enables_underline_{};
+
+public:
+
+	[[nodiscard]] bool is_underline_enabled() const noexcept{
+		return enables_underline_;
+	}
+
+	[[nodiscard]] math::vec2 get_size(math::vec2 default_font_size) const noexcept{
+		return history_size_.top(default_font_size);
+	}
+
+	[[nodiscard]] math::vec2 get_offset() const noexcept{
+		return history_offset_.top({});
+	}
+
+	[[nodiscard]] graphic::color get_color() const noexcept{
+		return history_color_.top(graphic::colors::white);
+	}
+
+	[[nodiscard]] const font::font_family& get_font(const font::font_family* default_family) const noexcept{
+		auto rst = history_font_.top(default_family);
+		assert(rst != nullptr);
+		return *rst;
+	}
+
+	[[nodiscard]] std::span<const hb_feature_t> get_features() const noexcept{
+		if(history_features_.empty()){
+			return {};
+		}else{
+			return history_features_.top_ref();
+		}
+	}
+
+	void update(font::font_manager& manager, math::vec2 default_font_size, const tokenized_text::token_subrange& tokens){
+		using namespace rich_text_token;
+
+		bool is_contiguous_feature{};
+		for(const rich_text_token_argument& token : tokens){
+			std::visit(overload{
+					[&](const std::monostate t){
+
+					},
+					[&](const  set_underline& t){
+						enables_underline_ = t.enabled;
+					},
+					[&](const  set_offset& t){
+						switch(t.type){
+						case setter_type::absolute: history_offset_.push(t.offset); break;
+						case setter_type::relative_add: history_offset_.push(history_offset_.top({}) + t.offset); break;
+						case setter_type::relative_mul: history_offset_.push(history_offset_.top({}) * t.offset); break;
+						default: std::unreachable();
+						}
+					},
+					[&](const  set_color& t){
+						switch(t.type){
+						case setter_type::absolute: history_color_.push(t.color); break;
+						case setter_type::relative_add: history_color_.push(history_color_.top(graphic::colors::white / 2) + t.color); break;
+						case setter_type::relative_mul: history_color_.push(history_color_.top(graphic::colors::white / 2) * t.color); break;
+						default: std::unreachable();
+						}
+					},
+					[&](const set_size& t){
+						switch(t.type){
+						case setter_type::absolute: history_size_.push(t.size); break;
+						case setter_type::relative_add: history_size_.push(history_size_.top(default_font_size) + t.size); break;
+						case setter_type::relative_mul: history_size_.push(history_size_.top(default_font_size) * t.size); break;
+						default: std::unreachable();
+						}
+					},
+					[&](const set_feature& t){
+						if(is_contiguous_feature){
+							history_features_.top_ref().push_back(t.feature);
+						}else{
+							history_features_.push({t.feature});
+						}
+					},
+					[&](const set_font_by_name& t){
+						if(auto ptr = manager.find_family(t.font_name)){
+							history_font_.push(ptr);
+						}else{
+							history_font_.push(manager.get_default_family());
+						}
+					},
+					[&](const set_font_directly& t){
+						history_font_.push(t.family ? t.family : manager.get_default_family());
+					},
+					[&](const fallback_offset& t){
+						history_offset_.pop();
+					},
+					[&](const fallback_color& t){
+						history_color_.pop();
+					},
+					[&](const fallback_size& t){
+						history_size_.pop();
+					},
+					[&](const fallback_feature& t){
+						history_features_.pop();
+					},
+					[&](const fallback_font& t){
+						history_font_.pop();
+					},
+				}, token.token);
+
+
+			if(std::holds_alternative<set_feature>(token.token)){
+				is_contiguous_feature = true;
+			}else{
+				is_contiguous_feature = false;
+			}
+		}
+	}
 };
 }
 

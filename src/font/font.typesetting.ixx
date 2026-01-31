@@ -438,7 +438,7 @@ public:
 	[[nodiscard]] const font_family& get_face_meta_group() const{
 		const auto t = font_history.top();
 		if(!t){
-			if(manager_->get_default_recipe()) return *manager_->get_default_recipe();
+			if(manager_->get_default_family()) return *manager_->get_default_family();
 			throw std::runtime_error("No Valid Font Face");
 		}
 		return **t;
