@@ -4,6 +4,10 @@ export module mo_yanxi.typesetting;
 
 import std;
 
+import mo_yanxi.math;
+import mo_yanxi.math.rect_ortho;
+import mo_yanxi.math.vector2;
+
 export namespace mo_yanxi{
 
 
@@ -127,6 +131,39 @@ export{
 	inline constexpr float standard_size = pt_xiao_er;
 }
 }
+
+
+
+export struct layout_rect{
+	float width;
+	float ascender;
+	float descender;
+
+	[[nodiscard]] constexpr float height() const noexcept{
+		return ascender + descender;
+	}
+
+	[[nodiscard]] constexpr math::vec2 size() const noexcept{
+		return {width, height()};
+	}
+
+	[[nodiscard]] constexpr math::frect to_region(math::vec2 src) const noexcept{
+		return {tags::from_extent, src.add_y(descender), width, -height()};
+	}
+
+	constexpr void max_height(layout_rect region) noexcept{
+		ascender = math::max(ascender, region.ascender);
+		descender = math::max(descender, region.descender);
+	}
+
+	constexpr void scale(float scale) noexcept{
+		ascender *= scale;
+		descender *= scale;
+		width *= scale;
+	}
+};
+
+
 export template <typename T>
 	requires std::is_arithmetic_v<T>
 constexpr T string_cast(std::string_view str, T def = 0){
