@@ -8,9 +8,9 @@ module;
 #include <ft2build.h>
 #include <freetype/freetype.h>
 
-// #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <msdfgen/msdfgen-ext.h>
-// #endif
+#endif
 
 
 export module mo_yanxi.font;
@@ -18,22 +18,22 @@ import std;
 
 import mo_yanxi.math.rect_ortho;
 import mo_yanxi.math.vector2;
-
 import mo_yanxi.graphic.msdf;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.concurrent.guard;
+import mo_yanxi.msdf_adaptor;
 
-// #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-// import <msdfgen/msdfgen-ext.h>;
-// #endif
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <msdfgen/msdfgen-ext.h>;
+#endif
 
 namespace mo_yanxi::font{
 export constexpr inline math::vec2 font_draw_expand{graphic::msdf::sdf_image_boarder, graphic::msdf::sdf_image_boarder};
-
 void check(FT_Error error);
 
 export struct library : exclusive_handle<FT_Library>{
-	[[nodiscard]] explicit(false) library(std::nullptr_t){}
+	[[nodiscard]] explicit(false) library(std::nullptr_t){
+	}
 
 	[[nodiscard]] library(){
 		check(FT_Init_FreeType(as_data()));
@@ -57,15 +57,20 @@ inline FT_Library global_free_type_lib_handle;
 
 union U{
 	library owner_free_type_lib;
-	[[nodiscard]] U(){}
-	~U(){}
+
+	[[nodiscard]] U(){
+	}
+
+	~U(){
+	}
 };
+
 extern U u;
 
 /**
  * @brief
  * @param externals already available handle, or null to initialize one.
- */
+*/
 export
 inline void initialize(FT_Library externals = nullptr){
 	if(global_free_type_lib_handle){
@@ -74,7 +79,7 @@ inline void initialize(FT_Library externals = nullptr){
 	if(externals){
 		global_free_type_lib_handle = externals;
 		std::construct_at(&u.owner_free_type_lib, library{nullptr});
-	}else{
+	} else{
 		std::construct_at(&u.owner_free_type_lib, library{});
 		global_free_type_lib_handle = u.owner_free_type_lib;
 	}
@@ -82,7 +87,7 @@ inline void initialize(FT_Library externals = nullptr){
 
 export
 inline bool terminate() noexcept{
-	if(!global_free_type_lib_handle)return false;
+	if(!global_free_type_lib_handle) return false;
 	global_free_type_lib_handle = nullptr;
 	if(u.owner_free_type_lib){
 		std::destroy_at(&u.owner_free_type_lib);
@@ -152,7 +157,12 @@ export struct glyph_identity{
 export
 template <std::floating_point T = float>
 constexpr T normalize_len(const FT_Pos pos) noexcept{
-	return std::ldexp(static_cast<T>(pos), -6); // NOLINT(*-narrowing-conversions)
+	if consteval{
+		return static_cast<T>(pos) / 64.f;
+	} else{
+		return std::ldexp(static_cast<T>(pos), -6);
+		// NOLINT(*-narrowing-conversions)
+	}
 }
 
 export
@@ -179,7 +189,6 @@ struct glyph_metrics{
 		vertBearing.x = normalize_len<float>(metrics.vertBearingX);
 		vertBearing.y = normalize_len<float>(metrics.vertBearingY);
 		advance.y = normalize_len<float>(metrics.vertAdvance);
-
 		if(metrics.height == 0 && metrics.horiBearingY == 0){
 			size.y = horiBearing.y = vertBearing.y;
 		}
@@ -203,7 +212,6 @@ struct glyph_metrics{
 		math::vec2 end = pos;
 		src.add(horiBearing.x * scale.x, -horiBearing.y * scale.y);
 		end.add(horiBearing.x * scale.x + size.x * scale.x, descender() * scale.y);
-
 		return {tags::unchecked, tags::from_vertex, src, end};
 	}
 
@@ -226,35 +234,45 @@ export struct acquire_result{
 	math::usize2 extent;
 };
 
+export struct font_face_meta;
 
 struct font_face_handle : exclusive_handle<FT_Face>{
+private:
 	exclusive_handle_member<msdfgen::FontHandle*> msdfHdl{};
+	exclusive_handle_member<const font_face_meta*> origin_meta{};
 
+public:
 	[[nodiscard]] font_face_handle() = default;
 
 	~font_face_handle(){
 		if(handle) check(FT_Done_Face(handle));
 		if(msdfHdl) msdfgen::destroyFont(msdfHdl);
 	}
-	// 新增：从内存加载的构造函数
-	explicit font_face_handle(std::span<const std::byte> data, const FT_Long index = 0) {
-		auto lib = get_ft_lib();
-		// 使用 FT_New_Memory_Face 确保线程安全地从同一份内存创建独立 Face
-		check(FT_New_Memory_Face(lib,
-								reinterpret_cast<const FT_Byte*>(data.data()),
-								static_cast<FT_Long>(data.size()),
-								index,
-								&handle));
 
-		// 注意：msdfgen 也需要相应的内存加载适配，这里假设它支持类似操作
-		// 如果 msdfgen 必须用路径，则多线程下需确保其内部也是线程安全的
-		msdfHdl = msdfgen::adoptFreetypeFont(handle);
+	// 从内存加载，注意 data 必须在 handle 生命周期内有效
+	explicit font_face_handle(std::span<const std::byte> data, const font_face_meta* meta, const FT_Long index = 0) : origin_meta(meta){
+		auto lib = get_ft_lib();
+		check(FT_New_Memory_Face(lib,
+			reinterpret_cast<const FT_Byte*>(data.data()),
+			static_cast<FT_Long>(data.size()),
+			index,
+			&handle));
+		// msdfgen 采用 FreeType 句柄
+		msdfHdl = adopt_msdfgen_hld(handle);
 	}
 
 	font_face_handle(const font_face_handle& other) = delete;
 	font_face_handle(font_face_handle&& other) noexcept = default;
 	font_face_handle& operator=(const font_face_handle& other) = delete;
 	font_face_handle& operator=(font_face_handle&& other) noexcept = default;
+
+	const font_face_meta* get_source() const noexcept{
+		return origin_meta;
+	}
+
+	msdfgen::FontHandle* get_msdf_handle() const noexcept{
+		return msdfHdl;
+	}
 
 	explicit font_face_handle(const char* path, const FT_Long index = 0){
 		auto lib = get_ft_lib();
@@ -322,7 +340,6 @@ struct font_face_handle : exclusive_handle<FT_Face>{
 	[[nodiscard]] std::expected<FT_GlyphSlot, FT_Error> load_and_get_by_index(
 		const glyph_index_t glyph_index,
 		const FT_Int32 loadFlags = FT_LOAD_DEFAULT) const{
-
 		if(auto error = load_glyph(glyph_index, loadFlags)){
 			return std::expected<FT_GlyphSlot, FT_Error>{std::unexpect, error};
 		}
@@ -341,29 +358,28 @@ struct font_face_handle : exclusive_handle<FT_Face>{
 	acquire_result obtain(const glyph_index_t code, const glyph_size_type size){
 		check(set_size(size.x, size.y));
 		if(const auto shot = load_and_get_by_index(code)){
-			const bool is_empty = shot.value()->bitmap.width == 0 || shot.value()->bitmap.rows == 0;
+			const bool is_empty = shot.value()->bitmap.width == 0 ||
+				shot.value()->bitmap.rows == 0;
 			return acquire_result{
-				handle->glyph->metrics,
-				graphic::msdf::msdf_glyph_generator{
-					is_empty ? nullptr : msdfHdl.get(),
-					handle->size->metrics.x_ppem, handle->size->metrics.y_ppem
-				},
-				get_extent()
-			};
+					handle->glyph->metrics,
+					graphic::msdf::msdf_glyph_generator{
+						is_empty ? nullptr : msdfHdl.get(),
+						handle->size->metrics.x_ppem, handle->size->metrics.y_ppem
+					},
+					get_extent()
+				};
 		}
 
 		return {};
 	}
 
 
-	[[nodiscard]] math::usize2 get_extent() noexcept {
+	[[nodiscard]] math::usize2 get_extent() noexcept{
 		return {
-			handle->glyph->bitmap.width + graphic::msdf::sdf_image_boarder * 2,
-			handle->glyph->bitmap.rows + graphic::msdf::sdf_image_boarder * 2
-		};
+				handle->glyph->bitmap.width + graphic::msdf::sdf_image_boarder * 2,
+				handle->glyph->bitmap.rows + graphic::msdf::sdf_image_boarder * 2
+			};
 	}
-
-
 };
 
 export struct glyph_wrap{
@@ -375,19 +391,16 @@ export struct glyph_wrap{
 	[[nodiscard]] glyph_wrap(
 		const char_code code,
 		font_face_handle& face) :
-	code{code},
-	face(&face){
+		code{code},
+		face(&face){
 	}
-
-
 };
 
-export struct font_face_group;
 export struct font_face_view;
 
 struct font_face_view{
 private:
-	//TODO use a vec of pointer as list?
+	// A view is just a span over a thread-local vector of handles
 	std::span<font_face_handle> chain_{};
 
 public:
@@ -401,7 +414,6 @@ public:
 
 	[[nodiscard]] math::vec2 get_line_spacing_vec(const math::usize2 sz) const;
 	[[nodiscard]] math::vec2 get_line_spacing_vec() const;
-
 	[[nodiscard]] math::usize2 get_font_pixel_spacing(const math::usize2 sz) const;
 
 	[[nodiscard]] std::string format(const glyph_index_t code, const glyph_size_type size) const{
@@ -444,103 +456,65 @@ public:
 	}
 };
 
-struct font_face_group{
-private:
-	std::vector<font_face_handle> chain_{};
-
-public:
-
-	[[nodiscard]] font_face_group() = default;
-
-	[[nodiscard]] explicit font_face_group(std::generator<const std::span<const std::byte>&> data){
-		for (auto bytes : data){
-			chain_.push_back(font_face_handle{bytes});
-		}
-	}
-
-	auto begin() noexcept{
-		return chain_.begin();
-	}
-
-	auto end() noexcept{
-		return chain_.end();
-	}
-
-	auto begin() const noexcept{
-		return chain_.begin();
-	}
-
-	auto end() const noexcept{
-		return chain_.end();
-	}
-
-	explicit(false) operator font_face_view() noexcept{
-		return font_face_view{std::span{chain_}};
-	}
-};
-
-export struct font_face_group_meta{
+/**
+ * @brief 字体元数据 (Read-Only)
+ * 仅包含文件数据，多线程共享，不包含任何 Handle。
+ */
+export struct font_face_meta {
 private:
 	std::vector<std::byte> font_data_{};
 
-	std::shared_mutex factory_mutex_{};
+	// 这是一个专门给 Loading Thread 使用的 Handle。
+	// 因为 Loading Thread 是单例/串行的，所以这里存放一个实例是安全的。
+	// 它的初始化在 Meta 创建时完成（通常在主线程），之后仅由 Loading Thread 读取/使用。
+	font_face_handle loader_handle_{};
 
-	//TODO add LRU and ref count to prevent memory growing?
-	std::unordered_map<std::thread::id, font_face_group> thread_locals_{};
+public:
+	font_face_meta() = default;
 
-	static std::vector<std::byte> read_file(const char* fontpath){
-		std::ifstream file(fontpath, std::ios::binary | std::ios::ate);
-		auto size = file.tellg();
-		std::vector<std::byte> font_data_(size);
-		file.seekg(0, std::ios::beg);
-		file.read(reinterpret_cast<char*>(font_data_.data()), size);
+	explicit font_face_meta(std::vector<std::byte> data) : font_data_(std::move(data)) {
+		// 在 Meta 创建时，立即为加载线程初始化一个专用的 Handle
+		// 注意：这里传 nullptr 给 meta 参数，防止递归引用，且 loader handle 不需要回溯
+		loader_handle_ = font_face_handle(font_data_, nullptr);
+	}
+
+	explicit font_face_meta(const char* path) : font_face_meta(read_file(path)) {}
+	explicit font_face_meta(const wchar_t* path) : font_face_meta(read_file(path)) {}
+	explicit font_face_meta(const std::filesystem::path& path) : font_face_meta(read_file(path)) {}
+	explicit font_face_meta(const std::string_view path) : font_face_meta(read_file(path)) {}
+	explicit font_face_meta(const std::string& path) : font_face_meta(read_file(path)) {}
+
+	[[nodiscard]] std::span<const std::byte> data() const noexcept {
 		return font_data_;
 	}
 
-	font_face_group_meta* fallback_{};
-
-
-	font_face_group main_group_{};
-
-public:
-	font_face_group_meta() = default;
-
-	[[nodiscard]] explicit font_face_group_meta(const char* fontPath)
-	: font_data_{read_file(fontPath)}{
+	// 提供给 sdf_load 使用的接口
+	[[nodiscard]] msdfgen::FontHandle* get_loader_msdf_handle() const noexcept {
+		return loader_handle_.get_msdf_handle();
 	}
 
-	void set_fallback(font_face_group_meta* next){
-		fallback_ = next;
+private:
+	static std::vector<std::byte> read_file(std::ifstream& file){
+		if (!file.is_open()) throw std::runtime_error("Failed to open font file");
+		auto size = file.tellg();
+		std::vector<std::byte> buffer(size);
+		file.seekg(0, std::ios::beg);
+		file.read(reinterpret_cast<char*>(buffer.data()), size);
+		return buffer;
+	}
+	[[nodiscard]] static std::vector<std::byte> read_file(const char* fontpath) {
+		std::ifstream file(fontpath, std::ios::binary | std::ios::ate);
+		return read_file(file);
 	}
 
-	void mark_as_head(){
-		main_group_ = create();
+	[[nodiscard]] static std::vector<std::byte> read_file(const wchar_t* fontpath) {
+		std::ifstream file(fontpath, std::ios::binary | std::ios::ate);
+		return read_file(file);
 	}
 
-	font_face_handle& main_group_at(unsigned index) noexcept{
-		return main_group_.begin()[index];
-	}
-
-	font_face_group& get_thread_local(){
-		{
-			std::shared_lock _{factory_mutex_};
-			if(auto itr = thread_locals_.find(std::this_thread::get_id()); itr != thread_locals_.end()){
-				return itr->second;
-			}
-		}
-
-		std::lock_guard _{factory_mutex_};
-		return thread_locals_.insert(std::pair{std::this_thread::get_id(), create()}).first->second;
-	}
-
-	font_face_group create(){
-		return font_face_group{[this] -> std::generator<const std::span<const std::byte>&>{
-			auto cur = this;
-			while(cur){
-				co_yield std::span{cur->font_data_};
-				cur = cur->fallback_;
-			}
-		}()};
+	[[nodiscard]] static std::vector<std::byte> read_file(const std::filesystem::path& fontpath) {
+		std::ifstream file(fontpath, std::ios::binary | std::ios::ate);
+		return read_file(file);
 	}
 };
 }
@@ -553,8 +527,6 @@ struct std::hash<mo_yanxi::font::glyph_identity>{ // NOLINT(*-dcl58-cpp)
 };
 
 module : private;
-
-
 void mo_yanxi::font::check(FT_Error error){
 	if(!error) return;
 

@@ -45,19 +45,21 @@ void app_run(
 	mo_yanxi::vk::command_buffer& cmdBUf
 	){
 
+
+
 	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
-	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font,
-		"AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
-		// std::views::repeat(std::string{"搞核算 "}, 114) | std::views::join | std::ranges::to<std::string>(),
+	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font_manager->get_default_recipe(),
+		// "AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
+		std::views::repeat(std::string{"搞核算 "}, 114) | std::views::join | std::ranges::to<std::string>(),
 		{
 			// .direction = font::hb::layout_direction::ttb,
-			// .max_extent = {600, 300},
+			.max_extent = {600, 300},
 			.font_size = {32, 32},
 			.line_feed_type = font::hb::linefeed::CRLF,
-			.align = font::hb::content_alignment::justify
+			// .align = font::hb::content_alignment::justify
 		});
 
 	while(!ctx.window().should_close()){
@@ -338,16 +340,14 @@ void prepare(){
 
 	{
 		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
-		auto& SourceHanSansCN_regular = font_manager.register_face("srchs", (font_path / "SourceHanSansCN-Regular.otf").string().c_str());
-		auto& telegrama = font_manager.register_face("tele", (font_path / "telegrama.otf").string().c_str());
-		auto& seguisym = font_manager.register_face("segui", (font_path / "seguisym.ttf").string().c_str());
-		telegrama.set_fallback(&SourceHanSansCN_regular);
-		SourceHanSansCN_regular.set_fallback(&seguisym);
-		telegrama.mark_as_head();
-		// SourceHanSansCN_regular.mark_as_head();
+		auto& SourceHanSansCN_regular = font_manager.register_meta("srchs", font_path / "SourceHanSansCN-Regular.otf");
+		auto& telegrama = font_manager.register_meta("tele", font_path / "telegrama.otf");
+		auto& seguisym = font_manager.register_meta("segui", font_path / "seguisym.ttf");
+
+		auto& default_family = font_manager.register_family("def", {&telegrama, &SourceHanSansCN_regular, &seguisym});
+		font_manager.set_default_recipe(&default_family);
 
 		font::typesetting::default_font_manager = &font_manager;
-		font::typesetting::default_font = &telegrama;
 	}
 #pragma endregion
 

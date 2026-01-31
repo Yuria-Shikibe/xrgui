@@ -9,6 +9,8 @@ module;
 
 export module mo_yanxi.font.typesetting;
 
+export import mo_yanxi.typesetting;
+
 export import mo_yanxi.font;
 export import mo_yanxi.font.manager;
 export import mo_yanxi.graphic.color;
@@ -23,57 +25,6 @@ import std;
 import <gch/small_vector.hpp>;
 #endif
 
-
-namespace mo_yanxi{
-template <typename T, typename Cont = gch::small_vector<T>>
-struct optional_stack{
-	std::stack<T, Cont> stack{};
-
-	[[nodiscard]] optional_stack() = default;
-
-	[[nodiscard]] explicit optional_stack(const std::stack<T, Cont>& stack)
-	: stack{stack}{
-	}
-
-	void push(const T& val){
-		stack.push(val);
-	}
-
-	void push(T&& val){
-		stack.push(std::move(val));
-	}
-
-	std::optional<T> pop_and_get(){
-		if(stack.empty()){
-			return std::nullopt;
-		}
-
-		const std::optional rst{std::move(stack.top())};
-		stack.pop();
-		return rst;
-	}
-
-	void pop(){
-		if(!stack.empty()) stack.pop();
-	}
-
-	[[nodiscard]] T top(const T defaultVal) const noexcept{
-		if(stack.empty()){
-			return defaultVal;
-		} else{
-			return stack.top();
-		}
-	}
-
-	[[nodiscard]] std::optional<T> top() const noexcept{
-		if(stack.empty()){
-			return std::nullopt;
-		} else{
-			return stack.top();
-		}
-	}
-};
-}
 
 
 namespace mo_yanxi::font::typesetting{
@@ -179,7 +130,6 @@ export struct layout_rect{
 };
 
 export inline font_manager* default_font_manager{};
-export inline font_face_group_meta* default_font{};
 
 namespace glyph_size{
 export{
@@ -360,7 +310,7 @@ private:
 	optional_stack<glyph_size_type> size_history{};
 
 public:
-	optional_stack<font_face_group_meta*> font_history{};
+	optional_stack<const group_recipe*> font_history{};
 	optional_stack<graphic::color> color_history{};
 
 private:
@@ -371,12 +321,12 @@ private:
 	float minimum_line_spacing{50.f};
 	float line_fixed_spacing{8.f};
 
-	mutable font_face_group_meta* cache_face_group_identity_{};
+	mutable const group_recipe* cache_face_group_identity_{};
 	mutable font_face_view cache_face_view_{};
 
-	font_face_view get_thread_local_view_(font_face_group_meta& meta) const{
+	font_face_view get_thread_local_view_(const group_recipe& meta) const{
 		if(&meta == cache_face_group_identity_)return cache_face_view_;
-		cache_face_view_ = meta.get_thread_local();
+		cache_face_view_ = manager_->use_family(&meta);
 		cache_face_group_identity_ = &meta;
 		return cache_face_view_;
 	}
@@ -485,10 +435,10 @@ public:
 		return offset;
 	}
 
-	[[nodiscard]] font_face_group_meta& get_face_meta_group() const{
+	[[nodiscard]] const group_recipe& get_face_meta_group() const{
 		const auto t = font_history.top();
 		if(!t){
-			if(default_font) return *default_font;
+			if(manager_->get_default_recipe()) return *manager_->get_default_recipe();
 			throw std::runtime_error("No Valid Font Face");
 		}
 		return **t;
@@ -504,7 +454,7 @@ public:
 		auto& meta = get_face_meta_group();
 		auto view = get_thread_local_view_(meta);
 		const auto [face, index] = view.find_glyph_of(c);
-		return get_manager().get_glyph_exact(meta, view, *face, glyph_identity{index, get_current_snapped_size()});
+		return get_manager().get_glyph_exact(*face, glyph_identity{index, get_current_snapped_size()});
 	}
 };
 
@@ -1016,7 +966,7 @@ struct parser_base{
 					context.push_scaled_current_size(func::string_cast(name.substr(1), 1));
 				}
 			} else{
-				if(auto* font = context.get_manager().find_face(name)){
+				if(auto* font = context.get_manager().find_family(name)){
 					context.font_history.push(font);
 				}
 			}
@@ -1203,7 +1153,7 @@ void apd_default_modifiers(parser& parser){
 			return;
 		}
 
-		if(auto* font = context.get_manager().find_face(arg)){
+		if(auto* font = context.get_manager().find_family(arg)){
 			context.font_history.push(font);
 		}
 	};
