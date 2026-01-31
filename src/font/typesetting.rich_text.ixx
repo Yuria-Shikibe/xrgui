@@ -9,16 +9,16 @@ export module mo_yanxi.typesetting.rich_text;
 
 export import mo_yanxi.typesetting;
 
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <gch/small_vector.hpp>;
+#endif
+
 import mo_yanxi.font;
 import mo_yanxi.math.vector2;
 import mo_yanxi.graphic.color;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.static_string;
 import std;
-
-#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-import <gch/small_vector.hpp>;
-#endif
 
 namespace mo_yanxi::type_setting{
 

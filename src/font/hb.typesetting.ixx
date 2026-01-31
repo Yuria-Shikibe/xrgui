@@ -3,17 +3,25 @@ module;
 #include <hb.h>
 #include <hb-ft.h>
 #include <freetype/freetype.h>
+#include <cassert>
 
 export module mo_yanxi.hb.typesetting;
 
-import mo_yanxi.math;
+
+
+import std;
 import mo_yanxi.font;
+
+import mo_yanxi.typesetting;
+import mo_yanxi.typesetting.rich_text;
+
+
+import mo_yanxi.math;
 import mo_yanxi.font.manager;
 import mo_yanxi.hb.wrap;
 import mo_yanxi.graphic.image_region;
-import mo_yanxi.encode;
-import std;
 import mo_yanxi.cache;
+
 
 namespace mo_yanxi::font::hb {
 
@@ -115,13 +123,25 @@ struct layout_block {
 // 将排版过程中的状态封装在此类中，避免 lambda 捕获过多变量
 struct layout_context {
 
+	struct line_record{
+		std::size_t start_index; // 对应 results.elems 的起始下标
+		std::size_t count;       // 本行包含的字形数量
+		float line_advance;      // 本行在主轴上的实际长度
+	};
+
+	struct indicator_cache {
+		glyph_borrow texture; // 纹理引用
+		math::frect glyph_aabb;     // 位于原点(0,0)时的相对AABB
+		math::vec2 advance;   // 绘制后笔触需要移动的距离
+	};
+
 private:
 
     // 引用外部资源
     font_manager& manager;
     font_face_view view;
     layout_config config;
-    std::string_view full_text;
+    const type_setting::tokenized_text* full_text;
 
     // 缓存
     lru_cache<font_face_handle*, font_ptr, 4> hb_cache_;
@@ -145,36 +165,27 @@ private:
     float math::vec2::* minor_p = &math::vec2::y;
 
 
-	struct line_record{
-		std::size_t start_index; // 对应 results.elems 的起始下标
-		std::size_t count;       // 本行包含的字形数量
-		float line_advance;      // 本行在主轴上的实际长度
-	};
 	std::vector<line_record> lines_;
 	std::size_t current_line_start_idx_ = 0;
 
 	layout_block current_block{};
 
-	struct indicator_cache {
-		glyph_borrow texture; // 纹理引用
-		math::frect glyph_aabb;     // 位于原点(0,0)时的相对AABB
-		math::vec2 advance;   // 绘制后笔触需要移动的距离
-	};
 	indicator_cache cached_indicator_;
+
 public:
 	// 构造函数：初始化所有布局参数
 	layout_context(
 		font_manager& m, font_face_view& v,
-		const layout_config& c, std::string_view t
+		const layout_config& c, const type_setting::tokenized_text& t
 	) : manager(m)
 		, view(v)
 		, config(c)
-		, full_text(t){
+		, full_text(&t){
 		// 计算 snapped size
     	const glyph_size_type snapped_size{get_snapped_font_size()};
 
         hb_buffer_ = hb::make_buffer();
-        results.elems.reserve(t.size());
+        results.elems.reserve(full_text->get_text().size());
 
         // 计算缩放因子
         scale_factor = config.font_size.as<float>() / snapped_size.as<float>();
@@ -195,7 +206,7 @@ public:
     		default: break;
     		}
     	}else{
-    		hb_buffer_add_utf8(hb_buffer_.get(), full_text.data(), static_cast<int>(full_text.size()), 0, -1);
+    		hb_buffer_add_utf32(hb_buffer_.get(), reinterpret_cast<const std::uint32_t*>(full_text->get_text().data()), static_cast<int>(full_text->get_text().size()), 0, -1);
     		hb_buffer_guess_segment_properties(hb_buffer_.get());
     		target_hb_dir = hb_buffer_get_direction(hb_buffer_.get());
     		if(target_hb_dir == HB_DIRECTION_INVALID){
@@ -383,9 +394,9 @@ public:
     	std::size_t length,
     	font_face_handle* face) {
         hb_buffer_clear_contents(hb_buffer_.get());
-        hb_buffer_add_utf8(
-            hb_buffer_.get(), full_text.data(),
-            static_cast<int>(full_text.size()), static_cast<unsigned int>(start), static_cast<int>(length));
+        hb_buffer_add_utf32(
+            hb_buffer_.get(), reinterpret_cast<const std::uint32_t*>(full_text->get_text().data()),
+            static_cast<int>(full_text->get_text().size()), static_cast<unsigned int>(start), static_cast<int>(length));
         hb_buffer_set_direction(hb_buffer_.get(), target_hb_dir);
         hb_buffer_guess_segment_properties(hb_buffer_.get());
 
@@ -398,12 +409,15 @@ public:
         hb_glyph_info_t* infos = hb_buffer_get_glyph_infos(hb_buffer_.get(), &len);
         hb_glyph_position_t* pos = hb_buffer_get_glyph_positions(hb_buffer_.get(), &len);
 
+		std::span sz{infos, len};
+
+
         for (unsigned int i = 0; i < len; ++i) {
             const glyph_index_t gid = infos[i].codepoint;
 
         	//TODO get char32_t and check
 
-            const char ch = full_text[infos[i].cluster];
+            const auto ch = full_text->get_text()[infos[i].cluster];
 
             // --- 关键修改：遇到分隔符先结算 Block ---
             if (bool is_delimiter = (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n')) {
@@ -479,9 +493,8 @@ public:
 		std::size_t run_start = 0;
 		font_face_handle* current_face = nullptr;
 
-		while (current_idx < full_text.size()) {
-			const auto len = encode::getUnicodeLength(full_text[current_idx]);
-			const auto codepoint = encode::utf_8_to_32(full_text.data() + current_idx, len);
+		while (current_idx < full_text->get_text().size()) {
+			const auto codepoint = full_text->get_text()[current_idx];
 
 			auto [best_face, _] = view.find_glyph_of(codepoint);
 
@@ -495,12 +508,13 @@ public:
 				current_face = best_face;
 				run_start = current_idx;
 			}
-			current_idx += len;
+
+			current_idx++;
 		}
 
 		// 处理最后一段
 		if (current_face != nullptr) {
-			process_text_run(run_start, full_text.size() - run_start, current_face);
+			process_text_run(run_start, full_text->get_text().size() - run_start, current_face);
 		}
 
 		// 确保最后的 Block 被输出
@@ -601,11 +615,11 @@ public:
 export glyph_layout layout_text(
     font_manager& manager,
     const font_family& font_group,
-    std::string_view text,
+    const type_setting::tokenized_text& text,
     const layout_config& config
 ) {
     glyph_layout empty_result{};
-    if (text.empty()) return empty_result;
+    if (text.get_text().empty()) return empty_result;
 
     auto view = font_face_view{manager.use_family(&font_group)};
     if (std::ranges::empty(view)) return empty_result;

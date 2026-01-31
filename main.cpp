@@ -52,10 +52,12 @@ void app_run(
 	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
+	type_setting::tokenized_text text{std::views::repeat(std::string{"搞核算 "}, 114) | std::views::join | std::ranges::to<std::string>()};
+
 
 	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font_manager->get_default_recipe(),
 		// "AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
-		std::views::repeat(std::string{"搞核算 "}, 114) | std::views::join | std::ranges::to<std::string>(),
+		text,
 		{
 			// .direction = font::hb::layout_direction::ttb,
 			.max_extent = {600, 300},
@@ -594,23 +596,23 @@ Edge Cases:
 
 	type_setting::tokenized_text text{test_text};
 
-	std::println("{}", to_utf8(text.get_text()));
+	// std::println("{}", to_utf8(text.get_text()));
 
 	// type_setting::tokenized_text text2{test_text};
 
-// #ifndef NDEBUG
-// 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
-// 		vk::enable_validation_layers = false;
-// 	}else{
-// 		vk::enable_validation_layers = true;
-// 	}
-// #endif
-//
-// 	font::initialize();
-// 	backend::glfw::initialize();
-//
-// 	prepare();
-//
-// 	backend::glfw::terminate();
-// 	font::terminate();
+#ifndef NDEBUG
+	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
+		vk::enable_validation_layers = false;
+	}else{
+		vk::enable_validation_layers = true;
+	}
+#endif
+
+	font::initialize();
+	backend::glfw::initialize();
+
+	prepare();
+
+	backend::glfw::terminate();
+	font::terminate();
 }

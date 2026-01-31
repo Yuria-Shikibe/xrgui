@@ -14,7 +14,6 @@ module;
 
 
 export module mo_yanxi.font;
-import std;
 
 import mo_yanxi.math.rect_ortho;
 import mo_yanxi.math.vector2;
@@ -26,6 +25,8 @@ import mo_yanxi.msdf_adaptor;
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 import <msdfgen/msdfgen-ext.h>;
 #endif
+
+import std;
 
 namespace mo_yanxi::font{
 export constexpr inline math::vec2 font_draw_expand{graphic::msdf::sdf_image_boarder, graphic::msdf::sdf_image_boarder};
