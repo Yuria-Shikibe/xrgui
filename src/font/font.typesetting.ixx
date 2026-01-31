@@ -310,7 +310,7 @@ private:
 	optional_stack<glyph_size_type> size_history{};
 
 public:
-	optional_stack<const group_recipe*> font_history{};
+	optional_stack<const font_family*> font_history{};
 	optional_stack<graphic::color> color_history{};
 
 private:
@@ -321,10 +321,10 @@ private:
 	float minimum_line_spacing{50.f};
 	float line_fixed_spacing{8.f};
 
-	mutable const group_recipe* cache_face_group_identity_{};
+	mutable const font_family* cache_face_group_identity_{};
 	mutable font_face_view cache_face_view_{};
 
-	font_face_view get_thread_local_view_(const group_recipe& meta) const{
+	font_face_view get_thread_local_view_(const font_family& meta) const{
 		if(&meta == cache_face_group_identity_)return cache_face_view_;
 		cache_face_view_ = manager_->use_family(&meta);
 		cache_face_group_identity_ = &meta;
@@ -435,7 +435,7 @@ public:
 		return offset;
 	}
 
-	[[nodiscard]] const group_recipe& get_face_meta_group() const{
+	[[nodiscard]] const font_family& get_face_meta_group() const{
 		const auto t = font_history.top();
 		if(!t){
 			if(manager_->get_default_recipe()) return *manager_->get_default_recipe();

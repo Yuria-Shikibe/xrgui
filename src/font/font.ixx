@@ -258,7 +258,7 @@ public:
 			index,
 			&handle));
 		// msdfgen 采用 FreeType 句柄
-		msdfHdl = adopt_msdfgen_hld(handle);
+		msdfHdl = adopt_msdfgen_hld_and_fuck_msvc(handle);
 	}
 
 	font_face_handle(const font_face_handle& other) = delete;

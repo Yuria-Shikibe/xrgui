@@ -600,7 +600,7 @@ public:
 
 export glyph_layout layout_text(
     font_manager& manager,
-    const group_recipe& font_group,
+    const font_family& font_group,
     std::string_view text,
     const layout_config& config
 ) {

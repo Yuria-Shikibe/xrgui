@@ -9,6 +9,7 @@ export import mo_yanxi.typesetting;
 import mo_yanxi.font;
 import mo_yanxi.math.vector2;
 import mo_yanxi.graphic.color;
+import mo_yanxi.static_string;
 import std;
 
 namespace mo_yanxi::type_setting{

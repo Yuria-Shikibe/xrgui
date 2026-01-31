@@ -5,6 +5,6 @@ module;
 
 export module mo_yanxi.msdf_adaptor;
 
-export auto adopt_msdfgen_hld(FT_Face face){
+export auto adopt_msdfgen_hld_and_fuck_msvc(FT_Face face){
 	return msdfgen::adoptFreetypeFont(face);
 }
