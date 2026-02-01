@@ -9,7 +9,7 @@ module;
 
 export module mo_yanxi.font.typesetting;
 
-export import mo_yanxi.typesetting;
+export import mo_yanxi.typesetting.util;
 
 export import mo_yanxi.font;
 export import mo_yanxi.font.manager;

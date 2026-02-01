@@ -36,6 +36,8 @@ add_requires("clipper2")
 add_requires("mimalloc v2.2.4")
 add_requires("glfw")
 
+add_requires("simdutf", {optional = true})
+
 function set_xrgui_deps()
     function join_path(p)
        return path.join(current_dir, p)
@@ -49,6 +51,8 @@ function set_xrgui_deps()
     add_packages("nanosvg", {public = true})
     add_packages("clipper2", {public = true})
     add_packages("spirv-reflect", {public = true})
+
+    add_packages("simdutf", {public = true})
 
 
     add_includedirs(join_path("./external/VulkanMemoryAllocator/include"), {public = true})

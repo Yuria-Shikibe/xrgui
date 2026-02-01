@@ -36,7 +36,7 @@ import mo_yanxi.math.rand;
 import std;
 
 import mo_yanxi.font.typesetting;
-import mo_yanxi.hb.typesetting;
+import mo_yanxi.typesetting;
 import mo_yanxi.typesetting.rich_text;
 
 
@@ -53,17 +53,15 @@ void app_run(
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
-
 	const char* test_text =
 R"(Basic{size:64} Token {size:128}Test{//}
 {u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâãäåx̂̃ñ
 {color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
-{color:#FF0000}楼上的{/} 下来搞核算
 
 Escapes Test:
 1. Backslash: \\ {_}(Should see single backslash){/}
 2. Braces {size:128}with{/} slash: \{ and \} (Should see literal { and })
-3. {off:16 16}Braces with double{/}: {{ and }} (Should see literal { and })
+3. Braces with double: {{ and }} (Should see literal { and })
 
 Line Continuation Test:
 This is a very long line that \
@@ -81,20 +79,19 @@ Edge Cases:
 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
 )";
 
-	type_setting::tokenized_text text{test_text};
+	typesetting::tokenized_text text{test_text};
+	typesetting::layout_context context{*font::typesetting::default_font_manager, {
+		.max_extent = {1500, 800},
+		.font_size = {32, 32},
+		.line_feed_type = typesetting::linefeed::LF,
+		.line_spacing_scale = 1.6f,
+	}};
 
-
-	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font_manager->get_default_family(),
-		// "AVasdfdjk\nfhvbawhboozxcgiuTeWaVoT.P.àáâãäåx̂̃ñ\n\r楼上的下来搞核算\n\r咚鸡叮咚鸡\t大狗大狗叫叫叫\n带兴奋兴奋剂\n一段一段带一段",
-		text,
-		{
-			// .direction = font::hb::layout_direction::ttb,
-			.max_extent = {1200, 300},
-			.font_size = {32, 32},
-			.line_feed_type = font::hb::linefeed::CRLF,
-			.line_spacing_scale = 1.6f
-			// .align = font::hb::content_alignment::end
-		});
+	auto rst = context.layout(text);
+	rst = context.layout(text);
+	rst = context.layout(text);
+	rst = context.layout(text);
+	rst = context.layout(text);
 
 	while(!ctx.window().should_close()){
 
@@ -631,7 +628,7 @@ Edge Cases:
 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
 )";
 
-	type_setting::tokenized_text text{test_text};
+	typesetting::tokenized_text text{test_text};
 
 	// std::println("{}", to_utf8(text.get_text()));
 

@@ -4,16 +4,27 @@ module;
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
+
 #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <gch/small_vector.hpp>
+
+#if __has_include(<simdutf.h>)
+#include <simdutf.h>
+#endif
+
 #endif
 
 export module mo_yanxi.typesetting.rich_text;
 
-export import mo_yanxi.typesetting;
+export import mo_yanxi.typesetting.util;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 import <gch/small_vector.hpp>;
+
+#if __has_include(<simdutf.h>)
+import <simdutf.h>;
+#endif
+
 #endif
 
 import std;
@@ -28,7 +39,7 @@ import mo_yanxi.static_string;
 import mo_yanxi.utility;
 
 
-namespace mo_yanxi::type_setting{
+namespace mo_yanxi::typesetting{
 export
 struct look_up_table{
 	string_hash_map<font::font_family> family;
@@ -50,7 +61,6 @@ export enum struct setter_type{
 	/** @brief set current to current * specified */
 	relative_mul,
 };
-
 
 
 struct set_offset{
@@ -343,7 +353,9 @@ struct rich_text_token_argument{
 		case token_index_of<set_offset> : return fallback_offset{};
 		case token_index_of<set_size> : return fallback_size{};
 		case token_index_of<set_underline> : return set_underline{!std::get<set_underline>(token).enabled};
-		case token_index_of<set_script> : return std::get<set_script>(token).type != script_type{} ? set_script{script_type::ends} : tokens{};
+		case token_index_of<set_script> : return std::get<set_script>(token).type != script_type{}
+			                                         ? set_script{script_type::ends}
+			                                         : tokens{};
 		default : return std::monostate{};
 		}
 	}
@@ -438,7 +450,8 @@ public:
 
 private:
 	constexpr void parse_from_(std::string_view string, const look_up_table& table);
-	constexpr void parse_tokens_(const look_up_table& table, std::uint32_t pos, std::string_view name, bool has_arg, std::string_view args);
+	constexpr void parse_tokens_(const look_up_table& table, std::uint32_t pos, std::string_view name, bool has_arg,
+		std::string_view args);
 };
 
 
@@ -464,11 +477,11 @@ struct update_param{
 
 	float ascender;
 	float descender;
+	bool is_vertical;
 };
 
 export
 struct rich_text_context{
-
 private:
 	stack_of<math::vec2> history_offset_;
 	stack_of<graphic::color> history_color_;
@@ -504,13 +517,15 @@ public:
 		return history_color_.top(graphic::colors::white);
 	}
 
-	[[nodiscard]] FORCE_INLINE inline const font::font_family& get_font(const font::font_family* default_family) const noexcept{
+	[[nodiscard]] FORCE_INLINE inline const font::font_family& get_font(
+		const font::font_family* default_family) const noexcept{
 		auto rst = history_font_.top(default_family);
 		assert(rst != nullptr);
 		return *rst;
 	}
 
-	template <std::invocable<hb_feature_t> OnAddFn = overload_def_noop<void>, std::invocable<unsigned> OnEraseFn = overload_def_noop<void>>
+	template <std::invocable<hb_feature_t> OnAddFn = overload_def_noop<void>, std::invocable<unsigned> OnEraseFn =
+		overload_def_noop<void>>
 	void update(
 		font::font_manager& manager,
 		const update_param& param,
@@ -518,7 +533,7 @@ public:
 		context_update_mode mode = context_update_mode::all,
 		OnAddFn&& on_add = {},
 		OnEraseFn&& on_erase = {}
-		){
+	){
 		using namespace rich_text_token;
 
 		bool is_contiguous_feature{};
@@ -599,12 +614,32 @@ public:
 						case script_type::subs :{
 							auto size = history_size_.top(param.default_font_size).mul(.6f);
 							history_size_.push(size);
-							history_offset_.push(history_offset_.top({}) + math::vec2{0.f, param.descender + size.y * .2f});
+
+							// [Fix] Handle Vertical/Horizontal shifts
+							math::vec2 offset{};
+							if(param.is_vertical){
+								// Vertical Subscript: Shift Left (-X)
+								offset.x = -(param.descender + size.y * .2f);
+							} else{
+								// Horizontal Subscript: Shift Down (+Y)
+								offset.y = param.descender + size.y * .2f;
+							}
+							history_offset_.push(history_offset_.top({}) + offset);
 							break;
 						}
 						case script_type::sups :{
 							history_size_.push(history_size_.top(param.default_font_size).mul(.6f));
-							history_offset_.push(history_offset_.top({}) + math::vec2{0.f, -param.ascender * 0.5f});
+
+							// [Fix] Handle Vertical/Horizontal shifts
+							math::vec2 offset{};
+							if(param.is_vertical){
+								// Vertical Superscript: Shift Right (+X)
+								offset.x = param.ascender * 0.5f;
+							} else{
+								// Horizontal Superscript: Shift Up (-Y)
+								offset.y = -param.ascender * 0.5f;
+							}
+							history_offset_.push(history_offset_.top({}) + offset);
 							break;
 						}
 						default : std::unreachable();
@@ -636,12 +671,24 @@ public:
 		}
 	}
 };
-
-
 }
 
-namespace mo_yanxi::type_setting{
+namespace mo_yanxi::typesetting{
 constexpr void append_utf8_to_u32(std::u32string& dest, std::string_view source){
+	if !consteval{
+#if __has_include(<simdutf.h>)
+		const std::size_t expected_utf32_len = simdutf::utf32_length_from_utf8(source.data(), source.size());
+
+		const auto src_size = dest.size();
+		dest.resize_and_overwrite(src_size + expected_utf32_len, [&](char32_t* tgt, std::size_t){
+			const auto count = simdutf::convert_utf8_to_utf32(source.data(), source.size(), tgt + src_size);
+			return src_size + count;
+		});
+
+		return;
+#endif
+	}
+
 	const char* p = source.data();
 	const char* end = p + source.size();
 
@@ -808,19 +855,20 @@ constexpr void tokenized_text::parse_tokens_(const look_up_table& table, std::ui
 	}
 
 	switch(name.front()){
-	case '/':{
+	case '/' :{
 		unsigned count;
 		const auto original_size = tokens_.size();
 
-		if(const auto [ptr, ec] = std::from_chars(name.data() + 1, name.data() + name.size(), count); ec == std::errc{}){
-			for(std::size_t i = 0; i < count; ++i) {
+		if(const auto [ptr, ec] = std::from_chars(name.data() + 1, name.data() + name.size(), count); ec == std::errc
+			{}){
+			for(std::size_t i = 0; i < count; ++i){
 				const std::size_t src_index = original_size - 1 - i;
 				tokens_.emplace_back(tokens_[src_index].make_fallback(), codes.size());
 			}
-		}else{
+		} else{
 			const auto limit = std::min(name.size(), original_size);
 
-			for(std::size_t i = 0; i < limit; ++i) {
+			for(std::size_t i = 0; i < limit; ++i){
 				if(name[i] != '/') break;
 				const std::size_t src_index = original_size - 1 - i;
 				tokens_.emplace_back(tokens_[src_index].make_fallback(), codes.size());
@@ -830,12 +878,7 @@ constexpr void tokenized_text::parse_tokens_(const look_up_table& table, std::ui
 	}
 
 
-		default:
-		tokens_.emplace_back(rich_text_token_argument{table, name, has_arg, args}, codes.size());
-
+	default : tokens_.emplace_back(rich_text_token_argument{table, name, has_arg, args}, codes.size());
 	}
-
-
-
 }
 }

@@ -1,6 +1,6 @@
 module;
 
-export module mo_yanxi.typesetting;
+export module mo_yanxi.typesetting.util;
 
 import std;
 
@@ -95,7 +95,7 @@ struct optional_stack {
 };
 }
 
-namespace mo_yanxi::type_setting{
+namespace mo_yanxi::typesetting{
 namespace glyph_size{
 export{
 	// 字体排印标准：1 英寸 = 72 点 (pt)
