@@ -306,12 +306,12 @@ private:
 
 	float throughout_scale{1.f};
 
-	optional_stack<math::vec2> offset_history{};
-	optional_stack<glyph_size_type> size_history{};
+	optional_stack<gch::small_vector<math::vec2>> offset_history{};
+	optional_stack<gch::small_vector<glyph_size_type>> size_history{};
 
 public:
-	optional_stack<const font_family*> font_history{};
-	optional_stack<graphic::color> color_history{};
+	optional_stack<gch::small_vector<const font_family*>> font_history{};
+	optional_stack<gch::small_vector<graphic::color>> color_history{};
 
 private:
 	float row_pen_pos{};
@@ -339,10 +339,10 @@ public:
 	}
 
 	void reset_context(){
-		color_history.stack = {};
-		offset_history.stack = {};
-		size_history.stack = {};
-		font_history.stack = {};
+		color_history.clear();
+		offset_history.clear();
+		size_history.clear();
+		font_history.clear();
 	}
 
 	[[nodiscard]] math::vec2 get_current_correction_scale() const noexcept{

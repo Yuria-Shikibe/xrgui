@@ -1,5 +1,6 @@
 module;
 #include <hb.h>
+#include <freetype/freetype.h>
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
@@ -50,6 +51,8 @@ export enum struct setter_type{
 	relative_mul,
 };
 
+
+
 struct set_offset{
 	setter_type type = setter_type::relative_add;
 	math::vec2 offset;
@@ -89,6 +92,17 @@ struct set_underline{
 	bool enabled;
 };
 
+
+enum struct script_type{
+	ends,
+	sups,
+	subs
+};
+
+struct set_script{
+	script_type type;
+};
+
 /**
  * @brief using empty arguments to spec fallback
  */
@@ -123,6 +137,8 @@ using tokens = std::variant<
 	set_feature,
 	set_font_by_name,
 	set_font_directly,
+
+	set_script,
 
 	fallback_offset,
 	fallback_color,
@@ -266,9 +282,12 @@ struct rich_text_token_argument{
 
 	constexpr rich_text_token_argument() = default;
 
+	constexpr explicit(false) rich_text_token_argument(const rich_text_token::tokens& token)
+		: token(token){
+	}
+
 	constexpr rich_text_token_argument(
 		const look_up_table& table,
-		const rich_text_token_argument& last,
 
 		std::string_view name,
 		bool has_arg,
@@ -282,19 +301,8 @@ struct rich_text_token_argument{
 			return std::bit_cast<std::uint64_t>(str.get_data());
 		};
 
+
 		switch(s2i(name)){
-		case s2i("/") :{
-			switch(last.token.index()){
-			case token_index_of<set_feature> : return fallback_feature{};
-			case token_index_of<set_font_by_name> :[[fallthrough]];
-			case token_index_of<set_font_directly> : return fallback_font{};
-			case token_index_of<set_color> : return fallback_color{};
-			case token_index_of<set_offset> : return fallback_offset{};
-			case token_index_of<set_size> : return fallback_size{};
-			case token_index_of<set_underline> : return set_underline{!std::get<set_underline>(last.token).enabled};
-			default : return std::monostate{};
-			}
-		}
 		case s2i("off") : return args.empty() ? tokens{fallback_offset{}} : parse_set_offset(args);
 
 		case s2i("sz") :[[fallthrough]];
@@ -310,9 +318,9 @@ struct rich_text_token_argument{
 		case s2i("ftr") :[[fallthrough]];
 		case s2i("feature") : return args.empty() ? tokens{fallback_feature{}} : parse_set_feature(args);
 
-		// case s2i("^") : TODO superscript
-		// case s2i("_") : TODO subscript
-		// case s2i("/") : TODO end script
+		case s2i("^") : return set_script{script_type::sups};
+		case s2i("_") : return set_script{script_type::subs};
+		case s2i("-") : return set_script{script_type::ends};
 
 		case s2i("u") :[[fallthrough]];
 		case s2i("ul") : return set_underline{true};
@@ -323,6 +331,21 @@ struct rich_text_token_argument{
 		default : return std::monostate{};
 		}
 	}()){
+	}
+
+	constexpr rich_text_token::tokens make_fallback() const noexcept{
+		using namespace rich_text_token;
+		switch(token.index()){
+		case token_index_of<set_feature> : return fallback_feature{};
+		case token_index_of<set_font_by_name> :[[fallthrough]];
+		case token_index_of<set_font_directly> : return fallback_font{};
+		case token_index_of<set_color> : return fallback_color{};
+		case token_index_of<set_offset> : return fallback_offset{};
+		case token_index_of<set_size> : return fallback_size{};
+		case token_index_of<set_underline> : return set_underline{!std::get<set_underline>(token).enabled};
+		case token_index_of<set_script> : return std::get<set_script>(token).type != script_type{} ? set_script{script_type::ends} : tokens{};
+		default : return std::monostate{};
+		}
 	}
 
 	constexpr bool need_reset_run() const noexcept{
@@ -340,6 +363,7 @@ struct rich_text_token_argument{
 			arr[tuple_index_v<set_feature, tpl>] = true;
 			arr[tuple_index_v<fallback_feature, tpl>] = true;
 
+			arr[tuple_index_v<set_script, tpl>] = true;
 
 			return arr;
 		}();
@@ -355,19 +379,20 @@ struct tokenized_text{
 
 		[[nodiscard]] posed_token_argument() = default;
 
-		[[nodiscard]] explicit posed_token_argument(std::uint32_t pos)
-			: pos(pos){
+		[[nodiscard]] explicit posed_token_argument(const rich_text_token_argument& t, std::uint32_t pos) :
+			rich_text_token_argument(t)
+			, pos(pos){
 		}
 	};
 
 private:
 	std::u32string codes{};
 
-	std::vector<posed_token_argument> tokens{};
+	std::vector<posed_token_argument> tokens_{};
 
 public:
 	using pos_t = decltype(codes)::size_type;
-	using token_iterator = decltype(tokens)::const_iterator;
+	using token_iterator = decltype(tokens_)::const_iterator;
 	using token_subrange = std::ranges::subrange<token_iterator>;
 
 	constexpr std::u32string_view get_text() const noexcept{
@@ -375,19 +400,19 @@ public:
 	}
 
 	constexpr token_iterator get_token(const pos_t pos, const token_iterator& last) const noexcept{
-		return std::ranges::lower_bound(last, tokens.end(), pos, {}, &posed_token_argument::pos);
+		return std::ranges::lower_bound(last, tokens_.end(), pos, {}, &posed_token_argument::pos);
 	}
 
 	constexpr token_iterator get_token(const pos_t pos) const noexcept{
-		return get_token(pos, tokens.begin());
+		return get_token(pos, tokens_.begin());
 	}
 
 	constexpr token_iterator get_init_token() const noexcept{
-		return tokens.begin();
+		return tokens_.begin();
 	}
 
 	[[nodiscard]] constexpr token_subrange get_token_group(const pos_t pos, const token_iterator& last) const{
-		return std::ranges::equal_range(last, tokens.end(), pos, {}, &posed_token_argument::pos);
+		return std::ranges::equal_range(last, tokens_.end(), pos, {}, &posed_token_argument::pos);
 	}
 
 	[[nodiscard]] constexpr tokenized_text() = default;
@@ -403,7 +428,7 @@ public:
 
 	constexpr void reset(std::string_view string, const look_up_table& table){
 		codes.clear();
-		tokens.clear();
+		tokens_.clear();
 		parse_from_(string, table);
 	}
 
@@ -413,6 +438,7 @@ public:
 
 private:
 	constexpr void parse_from_(std::string_view string, const look_up_table& table);
+	constexpr void parse_tokens_(const look_up_table& table, std::uint32_t pos, std::string_view name, bool has_arg, std::string_view args);
 };
 
 
@@ -423,7 +449,7 @@ bool check_token_group_need_another_run(const tokenized_text::token_subrange& ra
 
 
 template <typename T>
-using stack_of = optional_stack<T, gch::small_vector<T>>;
+using stack_of = optional_stack<gch::small_vector<T>>;
 
 export
 enum struct context_update_mode{
@@ -432,6 +458,13 @@ enum struct context_update_mode{
 	soft_only
 };
 
+export
+struct update_param{
+	math::vec2 default_font_size;
+
+	float ascender;
+	float descender;
+};
 
 export
 struct rich_text_context{
@@ -446,6 +479,15 @@ private:
 	bool enables_underline_{};
 
 public:
+	void clear() noexcept{
+		history_offset_.clear();
+		history_font_.clear();
+		history_color_.clear();
+		history_font_.clear();
+		history_feature_group_count_.clear();
+		enables_underline_ = false;
+	}
+
 	[[nodiscard]] FORCE_INLINE inline bool is_underline_enabled() const noexcept{
 		return enables_underline_;
 	}
@@ -469,9 +511,9 @@ public:
 	}
 
 	template <std::invocable<hb_feature_t> OnAddFn = overload_def_noop<void>, std::invocable<unsigned> OnEraseFn = overload_def_noop<void>>
-	FORCE_INLINE inline void update(
+	void update(
 		font::font_manager& manager,
-		math::vec2 default_font_size,
+		const update_param& param,
 		const tokenized_text::token_subrange& tokens,
 		context_update_mode mode = context_update_mode::all,
 		OnAddFn&& on_add = {},
@@ -520,10 +562,10 @@ public:
 						case setter_type::absolute : history_size_.push(t.size);
 							break;
 						case setter_type::relative_add : history_size_.push(
-								history_size_.top(default_font_size) + t.size);
+								history_size_.top(param.default_font_size) + t.size);
 							break;
 						case setter_type::relative_mul : history_size_.push(
-								history_size_.top(default_font_size) * t.size);
+								history_size_.top(param.default_font_size) * t.size);
 							break;
 						default : std::unreachable();
 						}
@@ -546,6 +588,27 @@ public:
 					},
 					[&](const set_font_directly& t){
 						history_font_.push(t.family ? t.family : manager.get_default_family());
+					},
+					[&](const set_script& t){
+						switch(t.type){
+						case script_type::ends :{
+							history_offset_.pop();
+							history_size_.pop();
+							break;
+						}
+						case script_type::subs :{
+							auto size = history_size_.top(param.default_font_size).mul(.6f);
+							history_size_.push(size);
+							history_offset_.push(history_offset_.top({}) + math::vec2{0.f, param.descender + size.y * .2f});
+							break;
+						}
+						case script_type::sups :{
+							history_size_.push(history_size_.top(param.default_font_size).mul(.6f));
+							history_offset_.push(history_offset_.top({}) + math::vec2{0.f, -param.ascender * 0.5f});
+							break;
+						}
+						default : std::unreachable();
+						}
 					},
 					[&](const fallback_offset& t){
 						history_offset_.pop();
@@ -708,15 +771,7 @@ constexpr void tokenized_text::parse_from_(const std::string_view string, const 
 					arg = content.substr(colon_pos + 1);
 				}
 
-				rich_text_token_argument parsed_arg = rich_text_token_argument(table,
-					(tokens.empty() ? rich_text_token_argument{} : tokens.back()), name,
-					colon_pos != std::string_view::npos, arg);
-
-				posed_token_argument posed_token;
-				static_cast<rich_text_token_argument&>(posed_token) = std::move(parsed_arg);
-				posed_token.pos = static_cast<std::uint32_t>(codes.size());
-
-				tokens.push_back(std::move(posed_token));
+				parse_tokens_(table, codes.size(), name, colon_pos != std::string_view::npos, arg);
 
 				// i 跳到 '}' 之后
 				i = end_content_idx + 1;
@@ -744,5 +799,43 @@ constexpr void tokenized_text::parse_from_(const std::string_view string, const 
 	}
 
 	flush_pending_text(size);
+}
+
+constexpr void tokenized_text::parse_tokens_(const look_up_table& table, std::uint32_t pos, std::string_view name,
+	bool has_arg, std::string_view args){
+	if(name.empty()){
+		return;
+	}
+
+	switch(name.front()){
+	case '/':{
+		unsigned count;
+		const auto original_size = tokens_.size();
+
+		if(const auto [ptr, ec] = std::from_chars(name.data() + 1, name.data() + name.size(), count); ec == std::errc{}){
+			for(std::size_t i = 0; i < count; ++i) {
+				const std::size_t src_index = original_size - 1 - i;
+				tokens_.emplace_back(tokens_[src_index].make_fallback(), codes.size());
+			}
+		}else{
+			const auto limit = std::min(name.size(), original_size);
+
+			for(std::size_t i = 0; i < limit; ++i) {
+				if(name[i] != '/') break;
+				const std::size_t src_index = original_size - 1 - i;
+				tokens_.emplace_back(tokens_[src_index].make_fallback(), codes.size());
+			}
+		}
+		break;
+	}
+
+
+		default:
+		tokens_.emplace_back(rich_text_token_argument{table, name, has_arg, args}, codes.size());
+
+	}
+
+
+
 }
 }

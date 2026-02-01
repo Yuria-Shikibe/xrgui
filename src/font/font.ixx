@@ -430,6 +430,14 @@ public:
 		return chain_.front();
 	}
 
+	bool empty() const noexcept{
+		return chain_.empty();
+	}
+
+	explicit operator bool() const noexcept{
+		return !chain_.empty();
+	}
+
 	auto begin() noexcept{
 		return chain_.begin();
 	}

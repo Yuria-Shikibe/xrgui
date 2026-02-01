@@ -10,65 +10,87 @@ import mo_yanxi.math.vector2;
 
 export namespace mo_yanxi{
 
+template <typename Cont>
+struct optional_stack {
+	using value_type = std::ranges::range_value_t<Cont>;
 
-template <typename T, typename Cont = std::vector<T>>
-struct optional_stack{
-	std::stack<T, Cont> stack{};
+	Cont data{};
 
 	[[nodiscard]] optional_stack() = default;
 
-	[[nodiscard]] explicit optional_stack(const std::stack<T, Cont>& stack)
-		: stack{stack}{
+	// 修改点 3: 构造函数现在接受底层容器
+	[[nodiscard]] explicit optional_stack(const Cont& cont)
+	   : data{cont}{
+	}
+
+	// 添加移动构造支持（可选，但推荐）
+	[[nodiscard]] explicit optional_stack(Cont&& cont)
+	   : data{std::move(cont)}{
+	}
+
+	// 修改点 4: 针对 vector/deque 的 clear
+	void clear() noexcept{
+		data.clear();
 	}
 
 	bool empty() const noexcept{
-		return stack.empty();
+		return data.empty();
 	}
 
-	void push(const T& val){
-		stack.push(val);
+	// 修改点 5: stack.push() -> container.push_back()
+	void push(const value_type& val){
+		data.push_back(val);
 	}
 
-	void push(T&& val){
-		stack.push(std::move(val));
+	void push(value_type&& val){
+		data.push_back(std::move(val));
 	}
 
-	std::optional<T> pop_and_get(){
-		if(stack.empty()){
+	std::optional<value_type> pop_and_get(){
+		if(data.empty()){
 			return std::nullopt;
 		}
 
-		const std::optional rst{std::move(stack.top())};
-		stack.pop();
+		// 修改点 6: stack.top() -> container.back()
+		// 注意：先 move 元素，再 pop_back
+		std::optional<value_type> rst{std::move(data.back())};
+		data.pop_back();
 		return rst;
 	}
 
 	void pop(){
-		if(!stack.empty()) stack.pop();
+		// 修改点 7: stack.pop() -> container.pop_back()
+		if(!data.empty()) data.pop_back();
 	}
 
-	[[nodiscard]] T top(const T defaultVal) const noexcept{
-		if(stack.empty()){
+	[[nodiscard]] value_type top(const value_type defaultVal) const noexcept{
+		if(data.empty()){
 			return defaultVal;
 		} else{
-			return stack.top();
+			return data.back();
 		}
 	}
 
-	[[nodiscard]] std::optional<T> top() const noexcept{
-		if(stack.empty()){
+	[[nodiscard]] std::optional<value_type> top() const noexcept{
+		if(data.empty()){
 			return std::nullopt;
 		} else{
-			return stack.top();
+			return data.back();
 		}
 	}
 
-	[[nodiscard]] T& top_ref() noexcept{
-		return stack.top();
+	// 修改点 8: 直接返回 back() 的引用
+	[[nodiscard]] value_type& top_ref() noexcept{
+		return data.back();
 	}
 
-	[[nodiscard]] const T& top_ref() const noexcept{
-		return stack.top();
+	[[nodiscard]] const value_type& top_ref() const noexcept{
+		return data.back();
+	}
+
+	// 额外建议: 既然直接暴露了 Cont，有时提供底层容器的访问也是有用的
+	[[nodiscard]] const Cont& get_container() const noexcept {
+		return data;
 	}
 };
 }

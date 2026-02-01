@@ -55,13 +55,13 @@ void app_run(
 
 
 	const char* test_text =
-R"(Basic{size:128} Token Test{/}
+R"(Basic{size:64} Token {size:128}Test{//}
 {u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâãäåx̂̃ñ
 {color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
 {color:#FF0000}楼上的{/} 下来搞核算
 
 Escapes Test:
-1. Backslash: \\ (Should see single backslash)
+1. Backslash: \\ {_}(Should see single backslash){/}
 2. Braces {size:128}with{/} slash: \{ and \} (Should see literal { and })
 3. {off:16 16}Braces with double{/}: {{ and }} (Should see literal { and })
 
