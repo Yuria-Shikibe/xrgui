@@ -179,7 +179,7 @@ public:
 		return default_family;
 	}
 
-	void set_default_recipe(font_family* const default_recipe) noexcept{
+	void set_default_family(font_family* const default_recipe) noexcept{
 		this->default_family = default_recipe;
 	}
 

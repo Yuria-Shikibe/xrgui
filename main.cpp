@@ -52,7 +52,36 @@ void app_run(
 	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
-	type_setting::tokenized_text text{std::views::repeat(std::string{"搞核算 "}, 114) | std::views::join | std::ranges::to<std::string>()};
+
+
+	const char* test_text =
+R"(Basic{size:128} Token Test{/}
+{u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâãäåx̂̃ñ
+{color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
+{color:#FF0000}楼上的{/} 下来搞核算
+
+Escapes Test:
+1. Backslash: \\ (Should see single backslash)
+2. Braces {size:128}with{/} slash: \{ and \} (Should see literal { and })
+3. {off:16 16}Braces with double{/}: {{ and }} (Should see literal { and })
+
+Line Continuation Test:
+This is a very long line that \
+{font:gui}should be joined together{/} \
+without newlines.
+
+{feature:liga}0 ff {feature:-liga}1 ff {feature:liga} 2 ff{feature} 3 ff{feature} 4 ff
+
+O{ftr:liga}off file flaff{/} ff
+
+Edge Cases:
+1. Token without arg: {bold}Bold Text{/bold}
+2. {u}Unclosed brace{/}: { This is just text because no closing bracket
+3. Unknown escape: \z (Should show 'z')
+4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
+)";
+
+	type_setting::tokenized_text text{test_text};
 
 
 	auto rst = font::hb::layout_text(*font::typesetting::default_font_manager, *font::typesetting::default_font_manager->get_default_family(),
@@ -60,10 +89,11 @@ void app_run(
 		text,
 		{
 			// .direction = font::hb::layout_direction::ttb,
-			.max_extent = {600, 300},
+			.max_extent = {1200, 300},
 			.font_size = {32, 32},
 			.line_feed_type = font::hb::linefeed::CRLF,
-			// .align = font::hb::content_alignment::justify
+			.line_spacing_scale = 1.6f
+			// .align = font::hb::content_alignment::end
 		});
 
 	while(!ctx.window().should_close()){
@@ -87,6 +117,8 @@ void app_run(
 		{
 			using namespace graphic::draw::instruction;
 
+			math::vec2 offset{50, 50};
+
 			r.update_state(gui::draw_config{
 					.mode = gui::draw_mode::msdf,
 					.draw_targets = {0b1},
@@ -96,33 +128,35 @@ void app_run(
 				if(!layout_result.texture->view)continue;
 				r.push(rect_aabb{
 					.generic = {layout_result.texture->view},
-					.v00 = layout_result.aabb.get_src().add(200, 200),
-					.v11 = layout_result.aabb.get_end().add(200, 200),
+					.v00 = layout_result.aabb.get_src().add(offset),
+					.v11 = layout_result.aabb.get_end().add(offset),
 					.uv00 = layout_result.texture->uv.v00(),
 					.uv11 = layout_result.texture->uv.v11(),
-					.vert_color = {graphic::colors::white}
+					.vert_color = {layout_result.color}
 				});
-				// r.push(rect_aabb_outline{
-				// 	.v00 = layout_result.aabb.get_src().add(200, 200),
-				// 	.v11 = layout_result.aabb.get_end().add(200, 200),
-				// 	.stroke = {2},
-				// 	.vert_color = {graphic::colors::white}
-				// });
+			}
+			for (const auto & layout_result : rst.underlines){
+				r.push(line{
+					.src = offset + layout_result.start,
+					.dst = offset + layout_result.end,
+					.color = {layout_result.color, layout_result.color},
+					.stroke = layout_result.thickness,
+				});
 			}
 
 			r.push(rect_aabb_outline{
-				.v00 = math::vec2{}.add(200, 200),
-				.v11 = rst.extent.copy().add(200, 200),
+				.v00 = math::vec2{}.add(offset),
+				.v11 = rst.extent.copy().add(offset),
 				.stroke = {2},
 				.vert_color = {graphic::colors::white}
 			});
 
-			r.push(rect_aabb_outline{
-				.v00 = math::vec2{}.add(200, 200),
-				.v11 = math::vec2{300, 300}.add(200, 200),
-				.stroke = {2},
-				.vert_color = {graphic::colors::GREEN}
-			});
+			// r.push(rect_aabb_outline{
+			// 	.v00 = math::vec2{}.add(offset),
+			// 	.v11 = math::vec2{300, 300}.add(offset),
+			// 	.stroke = {2},
+			// 	.vert_color = {graphic::colors::GREEN}
+			// });
 
 			r.update_state(state_push_config{
 				state_push_target::defer_pre
@@ -349,7 +383,10 @@ void prepare(){
 		auto& seguisym = font_manager.register_meta("segui", font_path / "seguisym.ttf");
 
 		auto& default_family = font_manager.register_family("def", {&telegrama, &SourceHanSansCN_regular, &seguisym});
-		font_manager.set_default_recipe(&default_family);
+
+		auto& default_family2 = font_manager.register_family("gui", {&SourceHanSansCN_regular, &seguisym});
+
+		font_manager.set_default_family(&default_family2);
 
 		font::typesetting::default_font_manager = &font_manager;
 	}

@@ -104,7 +104,9 @@ export struct line : quad_like{
 	math::section<float4> color;
 	float stroke;
 
-	std::uint32_t _cap[3];
+	float cap_length;
+
+	std::uint32_t _cap[2];
 };
 
 export struct line_node{
