@@ -7,48 +7,48 @@ import mo_yanxi.math.vector2;
 import mo_yanxi.math;
 
 namespace mo_yanxi::gui{
-void record_glyph_draw_instructions(
+void layout_record<font::typesetting::glyph_layout>::record_glyph_draw_instructions(
 	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
 	const font::typesetting::glyph_layout& layout,
 	graphic::color color_scl
 	){
-	using namespace mo_yanxi::graphic;
-	color tempColor{};
+		using namespace mo_yanxi::graphic;
+		color tempColor{};
 
-	static constexpr auto instr_sz = draw::instruction::get_payload_size<draw::instruction::rect_aabb>();
-	buffer.clear();
+		static constexpr auto instr_sz = draw::instruction::get_payload_size<draw::instruction::rect_aabb>();
+		buffer.clear();
 
-	for(const auto& row : layout.rows()){
-		const auto lineOff = row.src;
-		for(auto&& glyph : row.glyphs){
-			if(!glyph.glyph) continue;
-			tempColor = glyph.color * color_scl;
+		for(const auto& row : layout.rows()){
+			const auto lineOff = row.src;
+			for(auto&& glyph : row.glyphs){
+				if(!glyph.glyph) continue;
+				tempColor = glyph.color * color_scl;
 
-			if(glyph.code.code == U'\0'){
-				tempColor.mul_a(.65f);
+				if(glyph.code.code == U'\0'){
+					tempColor.mul_a(.65f);
+				}
+
+				const auto region = glyph.get_draw_bound().move(lineOff);
+
+				buffer.push(draw::instruction::rect_aabb{
+					.generic = {
+						.image = glyph.glyph->view,
+					},
+					.v00 = region.vert_00(),
+					.v11 = region.vert_11(),
+					.uv00 = glyph.glyph->uv.v00(),
+					.uv11 = glyph.glyph->uv.v11(),
+					.vert_color = tempColor
+				});
+				// buffer.push(draw::instruction::rect_aabb_outline{
+				// 	.v00 = lineOff + glyph.region.vert_00(),
+				// 	.v11 = lineOff + glyph.region.vert_11(),
+				// 	.stroke = {2},
+				// 	.vert_color = tempColor
+				// });
 			}
-
-			const auto region = glyph.get_draw_bound().move(lineOff);
-
-			buffer.push(draw::instruction::rect_aabb{
-				.generic = {
-					.image = glyph.glyph->view,
-				},
-				.v00 = region.vert_00(),
-				.v11 = region.vert_11(),
-				.uv00 = glyph.glyph->uv.v00(),
-				.uv11 = glyph.glyph->uv.v11(),
-				.vert_color = tempColor
-			});
-			// buffer.push(draw::instruction::rect_aabb_outline{
-			// 	.v00 = lineOff + glyph.region.vert_00(),
-			// 	.v11 = lineOff + glyph.region.vert_11(),
-			// 	.stroke = {2},
-			// 	.vert_color = tempColor
-			// });
 		}
 	}
-}
 
 void draw_glyph_draw_instructions(
 	renderer_frontend& renderer,
@@ -87,11 +87,6 @@ void draw_glyph_draw_instructions(
 
 }
 
-
-void text_holder::push_text_draw_buffer() const{
-	using namespace graphic::draw::instruction;
-	get_scene().renderer().push(draw_instr_buffer_.heads(), draw_instr_buffer_.data());
-}
 
 void sync_label_terminal::on_update(const std::string& data){
 	terminal<std::string>::on_update(data);
@@ -151,8 +146,8 @@ void label::draw_text() const{
 	}
 }
 
-void async_label_terminal::on_update(const exclusive_glyph_layout& data){
-	terminal<exclusive_glyph_layout>::on_update(data);
+void async_label_terminal::on_update(const exclusive_glyph_layout<font::typesetting::glyph_layout>& data){
+	terminal::on_update(data);
 	if(!data->extent().equals(label->content_extent(), 1)){
 		label->extent_state_ = async_label::layout_extent_state::waiting_correction;
 		label->notify_layout_changed(propagate_mask::local | propagate_mask::force_upper);

@@ -5,7 +5,7 @@ module;
 
 module mo_yanxi.backend.glfw.window.callback;
 
-import mo_yanxi.font.typesetting;
+import mo_yanxi.typesetting.util;
 
 import mo_yanxi.backend.glfw.window;
 
@@ -144,5 +144,5 @@ void glfw::set_call_back(Wptr window, void* user){
 	glfwSetKeyCallback(window, keyCallback);
 	glfwSetCharCallback(window, charInputCallback);
 
-	font::typesetting::glyph_size::screen_ppi = CalculateWindowPPI(window);
+	typesetting::glyph_size::screen_ppi = CalculateWindowPPI(window);
 }

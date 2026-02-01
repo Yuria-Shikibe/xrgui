@@ -15,10 +15,6 @@ import mo_yanxi.gui.renderer.frontend;
 
 import mo_yanxi.graphic.image_atlas;
 
-import mo_yanxi.font;
-import mo_yanxi.font.manager;
-import mo_yanxi.font.typesetting;
-
 import mo_yanxi.graphic.compositor.manager;
 import mo_yanxi.graphic.compositor.post_process_pass;
 import mo_yanxi.graphic.compositor.bloom;
@@ -35,8 +31,10 @@ import mo_yanxi.math.rand;
 
 import std;
 
-import mo_yanxi.font.typesetting;
+import mo_yanxi.font;
+import mo_yanxi.font.manager;
 import mo_yanxi.typesetting;
+import mo_yanxi.typesetting.util;
 import mo_yanxi.typesetting.rich_text;
 
 
@@ -80,11 +78,7 @@ Edge Cases:
 )";
 
 	typesetting::tokenized_text text{test_text};
-	typesetting::layout_context context{*font::typesetting::default_font_manager, {
-		.max_extent = {1500, 800},
-		.font_size = {32, 32},
-		.line_feed_type = typesetting::linefeed::LF,
-		.line_spacing_scale = 1.6f,
+	typesetting::layout_context context{{
 	}};
 
 	auto rst = context.layout(text);
@@ -109,9 +103,8 @@ Edge Cases:
 
 		auto& r = gui::global::manager.get_current_focus().renderer();
 		r.init_projection();
-		// gui::global::manager.draw();
 
-		{
+		if(false){
 			using namespace graphic::draw::instruction;
 
 			math::vec2 offset{50, 50};
@@ -155,6 +148,13 @@ Edge Cases:
 			// 	.vert_color = {graphic::colors::GREEN}
 			// });
 
+			// r.push(line{
+			// 	.src = {100, 100},
+			// 	.dst = {800, 400},
+			// 	.color = {graphic::colors::white, graphic::colors::aqua},
+			// 	.stroke = 2,
+			// });
+
 			r.update_state(state_push_config{
 				state_push_target::defer_pre
 			}, gui::gfx_config::blit_config{
@@ -163,6 +163,8 @@ Edge Cases:
 					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
 				},
 				{.pipeline_index = 1}});
+
+
 		}
 
 		if(false){
@@ -334,6 +336,7 @@ Edge Cases:
 
 		}
 
+		gui::global::manager.draw();
 		renderer.batch_host.end_rendering();
 		renderer.upload();
 		renderer.create_command();
@@ -385,7 +388,7 @@ void prepare(){
 
 		font_manager.set_default_family(&default_family2);
 
-		font::typesetting::default_font_manager = &font_manager;
+		font::default_font_manager = &font_manager;
 	}
 #pragma endregion
 
@@ -579,56 +582,33 @@ void prepare(){
 	ctx.wait_on_device();
 }
 
-std::string to_utf8(std::u32string_view s) {
-	std::string res;
-	res.reserve(s.size() * 4); // 预留空间，避免频繁重分配
-
-	for (char32_t c : s) {
-		if (c <= 0x7F) {
-			res += static_cast<char>(c);
-		} else if (c <= 0x7FF) {
-			res += static_cast<char>(0xC0 | ((c >> 6) & 0x1F));
-			res += static_cast<char>(0x80 | (c & 0x3F));
-		} else if (c <= 0xFFFF) {
-			res += static_cast<char>(0xE0 | ((c >> 12) & 0x0F));
-			res += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
-			res += static_cast<char>(0x80 | (c & 0x3F));
-		} else if (c <= 0x10FFFF) {
-			res += static_cast<char>(0xF0 | ((c >> 18) & 0x07));
-			res += static_cast<char>(0x80 | ((c >> 12) & 0x3F));
-			res += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
-			res += static_cast<char>(0x80 | (c & 0x3F));
-		}
-	}
-	return res;
-}
 
 int main(){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
-const char* test_text =
-R"({size:24}Basic Token Test{/}
-{color:#FF0000}Red Text{/} and {font:Arial}Font Change{/}
-
-Escapes Test:
-1. Backslash: \\ (Should see single backslash)
-2. Braces with slash: \{ and \} (Should see literal { and })
-3. Braces with double: {{ and }} (Should see literal { and })
-
-Line Continuation Test:
-This is a very long line that \
-should be joined together \
-without newlines.
-
-Edge Cases:
-1. Token without arg: {bold}Bold Text{/bold}
-2. Unclosed brace: { This is just text because no closing bracket
-3. Unknown escape: \z (Should show 'z')
-4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
-)";
-
-	typesetting::tokenized_text text{test_text};
+// const char* test_text =
+// R"({size:24}Basic Token Test{/}
+// {color:#FF0000}Red Text{/} and {font:Arial}Font Change{/}
+//
+// Escapes Test:
+// 1. Backslash: \\ (Should see single backslash)
+// 2. Braces with slash: \{ and \} (Should see literal { and })
+// 3. Braces with double: {{ and }} (Should see literal { and })
+//
+// Line Continuation Test:
+// This is a very long line that \
+// should be joined together \
+// without newlines.
+//
+// Edge Cases:
+// 1. Token without arg: {bold}Bold Text{/bold}
+// 2. Unclosed brace: { This is just text because no closing bracket
+// 3. Unknown escape: \z (Should show 'z')
+// 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
+// )";
+//
+// 	typesetting::tokenized_text text{test_text};
 
 	// std::println("{}", to_utf8(text.get_text()));
 
@@ -644,6 +624,8 @@ Edge Cases:
 
 	font::initialize();
 	backend::glfw::initialize();
+	typesetting::rich_text_look_up_table table;
+	typesetting::look_up_table = &table;
 
 	prepare();
 

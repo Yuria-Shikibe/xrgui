@@ -40,15 +40,6 @@
     },
 
     {
-      "file": "ui/draw.slang",
-      "alias": "ui/draw/basic"
-    },
-    {
-      "file": "ui/draw.slang",
-      "alias": "ui/draw/sdf",
-      "options": ["-DMODE_SDF=1"]
-    },
-    {
       "file": "ui/blit.default.slang",
       "alias": "ui/blit/basic"
     }

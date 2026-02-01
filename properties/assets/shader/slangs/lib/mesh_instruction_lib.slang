@@ -1,28 +1,6 @@
 module mesh_instruction_lib;
 import general_lib;
 
-extension<T> vector<T, 2> where T : IArithmetic {
-    [ForceInline]
-    vector<T, 2> rotate_rt_counter_clockwise() {
-        return vector<T, 2>(this.y, -this.x);
-    }
-}
-
-[ForceInline]
-func cross<T>(vector<T, 2> l, vector<T, 2> r) -> T where T : IArithmetic {
-    return l.x * r.y - l.y * r.x;
-}
-
-[ForceInline]
-float angle_between(float2 from, float2 to) {
-    return atan2(cross(from, to), dot(from, to));
-}
-
-[ForceInline]
-func rotate_rt_counter_clockwise<T>(vector<T, 2> vec) -> vector<T, 2> where T : IArithmetic  {
-    return vector<T, 2>( vec.y, -vec.x );
-}
-
 
 [ForceInline]
 float2 get_dir_vec2(float rad) {
@@ -349,8 +327,9 @@ struct line : instr_resolver{
     float4 src_color;
     float4 dst_color;
     float stroke;
+    float cap_length;
 
-    uint32_t _cap1, cap2, cap3;
+    uint32_t _cap1, cap2;
 
     [ForceInline]
     Vertex push_vertex(
@@ -358,25 +337,40 @@ struct line : instr_resolver{
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, 
     ) {
-        let h_stroke = stroke / 2.0f;
-        let diff = normalize(dst - src);
+        let h_stroke = stroke * 0.5f;
+        let dir = normalize(dst - src);
+        let normal = float2(dir.y, -dir.x);
 
-        switch (param.vtx_skip) {
-        case 0:
-            primits[param.prm_skip] = Primitive(generic, param);
-            return Vertex(float3(fma(float2(-diff.x + diff.y, -diff.y - diff.x), h_stroke, src), generic.depth), src_color, 0);
-            
-        case 1:
-            primits[param.prm_skip + 1 - param.isPatch()] = Primitive(generic, param);
-            return Vertex(float3(fma(float2(-diff.x - diff.y, -diff.y + diff.x), h_stroke, src), generic.depth), src_color, 0);
-        case 2:
-            indices[param.get_primitive_index()] = param.getTrivialIndicies();
-            return Vertex(float3(fma(float2(+diff.x + diff.y, +diff.y - diff.x), h_stroke, dst), generic.depth), dst_color, 0);
-        case 3:
-            indices[param.get_primitive_index()] = uint3(param.vtx_idx - 1, param.vtx_idx - 2, param.vtx_idx);
-            return Vertex(float3(fma(float2(+diff.x - diff.y, +diff.y + diff.x), h_stroke, dst), generic.depth), dst_color, 0);
-        default: return Vertex();
+        // 2. 利用位运算提取状态标志 (无需分支)
+        let idx = param.vtx_skip;
+
+        // Bit 1 (值 2) 决定是处理终点(dst)还是起点(src)
+        let is_dst_end = (idx & 2u) != 0u;
+
+        // Bit 0 (值 1) 决定法线方向的正负
+        // idx=0(00)->Norm+, idx=1(01)->Norm-, idx=2(10)->Norm+, idx=3(11)->Norm-
+        let is_neg_normal = (idx & 1u) != 0u;
+
+        // 3. 计算系数 (利用三元运算符或直接数学转换，GPU编译器会将其编译为条件传送指令)
+        let sign_dir = is_dst_end ? cap_length : -cap_length;
+
+        let sign_norm = is_neg_normal ? -h_stroke : h_stroke;
+
+        // 4. 计算顶点位置和颜色
+        // 逻辑等价于：Original_Pos + h_stroke * (sign_dir * dir + sign_norm * normal)
+        let base_pos = is_dst_end ? dst : src;
+        let color = is_dst_end ? dst_color : src_color;
+
+        // 向量化偏移计算：方向向量与法线向量的线性组合
+        let offset = dir * sign_dir + normal * sign_norm;
+
+        if (param.vtx_skip > 1) {
+            let idc_idx = param.get_primitive_index();
+            primits[idc_idx] = Primitive(generic, param);
+            indices[idc_idx] = param.getTrivialIndicies();
         }
+
+        return Vertex(float3(base_pos + offset, generic.depth), color, 0);
     }
 };
 
@@ -405,24 +399,40 @@ struct line_draw
         let dirR = posR - posC;
 
         // 2. 计算垂直法向 (旋转 90 度)
-        // 如果是端点，dirL 或 dirR 至少有一个为 0
         let nL = float2(-dirL.y, dirL.x);
         let nR = float2(-dirR.y, dirR.x);
 
-        // 3. 归一化 (加上极小值防止除以 0)
-        // 即使在端点，只要线段长度不为 0，n_sum 归一化后就是正确的端点法向
-        let nL_u = nL * rsqrt(max(dot(nL, nL), 0.00001f));
-        let nR_u = nR * rsqrt(max(dot(nR, nR), 0.00001f));
+        // 3. 归一化 (使用 max 防止除以 0，保持无分支)
+        let nL_u = nL * rsqrt(max(dot(nL, nL), 1e-6f));
+        let nR_u = nR * rsqrt(max(dot(nR, nR), 1e-6f));
 
-        // 4. Miter Join 核心逻辑
+        // 4. 计算 Miter 方向和投影系数 k
+        // miter_dir 是角平分线方向 (未归一化)
         let miter_dir = nL_u + nR_u;
 
-        // 计算投影长度的倒数: 1 / cos(theta)
-        // 使用 max 防止夹角为 180 度时除以 0
+        // k = dot(nL, nR) + 1. 范围 [0, 2].
+        // 2.0 = 直线 (180度), 0.0 = 掉头 (0度/360度)
         let k = dot(miter_dir, nL_u);
-        var inv_k = rcp(max(k, 0.0001f));
 
-        return miter_dir * inv_k;
+        // 5. 计算标准的 Miter 向量
+        // 加上 epsilon 防止除零 (当 k=0 时 miter_vec 的值不重要，因为会被 lerp 掉，但不能是 Inf/NaN)
+        let miter_vec = miter_dir * rcp(max(k, 1e-6f));
+
+        // 6. 设定 Miter Limit 阈值
+        // Miter Length = sqrt(2/k).
+        // 比如 Limit = 4.0 (尖角长度是线宽的4倍), 则 k_limit = 2 / (4*4) = 0.125
+        const float k_limit = 0.125f;
+        const float k_smooth_range = 0.1f; // 混合过渡区域的大小
+
+        // 7. 计算混合权重 (Branchless)
+        // 当 k < k_limit 时 (太尖), weight -> 0.
+        // 当 k > k_limit + range 时 (够平), weight -> 1.
+        let is_safe = smoothstep(k_limit, k_limit + k_smooth_range, k);
+
+        // 8. 混合输出
+        // 在尖角处平滑过渡到 nL_u (表现为 Bevel Join / 平头连接)
+        // nL_u 在 180 度掉头时提供了稳定的宽度偏移
+        return lerp(nL_u, miter_vec, is_safe);
     }
 
     [ForceInline]
@@ -517,30 +527,6 @@ struct circle_fill_draw : instr_resolver
     }
 
     [ForceInline]
-    private Vertex draw_full(
-        resolve_param param,
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, ) {
-        let isPatch = param.isPatch();
-        let idx = param.vtx_skip + (isPatch ? param.vtx_patch_idx : 0);
-
-        if (param.vtx_skip == 0 || param.vtx_patch_idx == 2) {
-            return Vertex(float3(pos, generic.depth), inner, 0);
-        } else {
-            const float angle = angle_at(param.vtx_skip);
-            let direction = get_dir_vec2(angle);
-
-            if (!isPatch && param.vtx_skip > 1) {
-                let idc_idx = param.get_primitive_index();
-                primits[idc_idx] = Primitive(generic, param);
-                indices[idc_idx] = uint3(param.vtx_idx - param.vtx_skip - min(param.prm_skip, 0), param.vtx_idx - 1, param.vtx_idx);
-            }
-
-            return Vertex(float3(fma(direction, radius.to, pos), generic.depth), outer, 0);
-        }
-    }
-
-    [ForceInline]
     private Vertex draw_ring(
         resolve_param param,
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
@@ -568,13 +554,6 @@ struct circle_fill_draw : instr_resolver
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
     {
         return draw_ring(param, primits, indices);
-
-        // [branch]
-        // if (radius.from > 0) {
-        //     return draw_ring(param, primits, indices);
-        // } else {
-        //     return draw_full(param, primits, indices);
-        // }
         
     }
 };
@@ -599,30 +578,6 @@ struct partial_circle_fill_draw : instr_resolver
     private float angle_at(uint index) {
         return fma(float(index) / float(segments), ratio_ext, ratio_src) * float.getPi() * 2;
     }
-
-    // [ForceInline]
-    // private Vertex draw_full(
-    //     resolve_param param,
-    //     OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-    //     OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, ) {
-    //     let isPatch = param.isPatch();
-    //     let idx = param.vtx_skip + (isPatch ? param.vtx_patch_idx : 0);
-
-    //     if (param.vtx_skip == 0 || param.vtx_patch_idx == 2) {
-    //         return Vertex(float3(pos, generic.depth), inner, 0);
-    //     } else {
-    //         const float angle = angle_at(param.vtx_skip);
-    //         let direction = get_dir_vec2(angle);
-
-    //         if (!isPatch && param.vtx_skip > 1) {
-    //             let idc_idx = param.get_primitive_index();
-    //             primits[idc_idx] = Primitive(generic, param);
-    //             indices[idc_idx] = uint3(param.vtx_idx - param.vtx_skip - min(param.prm_skip, 0), param.vtx_idx - 1, param.vtx_idx);
-    //         }
-
-    //         return Vertex(float3(fma(direction, radius.to, pos), generic.depth), outer, 0);
-    //     }
-    // }
 
     [ForceInline]
     private Vertex draw_ring(
@@ -656,12 +611,6 @@ struct partial_circle_fill_draw : instr_resolver
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
     {
         return draw_ring(param, primits, indices);
-        // [branch]
-        // if (radius.from > 0) {
-        //     return draw_ring(param, primits, indices);
-        // } else {
-        //     return draw_full(param, primits, indices);
-        // }
     }
 };
 
@@ -867,79 +816,9 @@ public Vertex push_vertex(
 
     case instruction_type::row_patch:
         return instruction.LoadAligned<row_patch>((location), instruction_align).push_vertex(param, primits, indices);
-
-
-    default:
-        return Vertex();
+                
+    default : return {};
     }
-}
-
-public struct subrange_info {
-    public uint override_index;
-    public uint cap1;
-    public uint cap2;
-    public uint cap3;
-    public mesh_dispatch_info[GROUP_COUNT] ranges;
-}
-
-public interface vertex_transformer<T> {
-    [ForceInline]
-    T operator()(Vertex v);
-}
-
-[ForceInline]
-public uint resolve_instruction<T>(
-    const uint groupId,
-    const uint threadId,
-    const in subrange_info mesh_subrange,
-    const in ByteAddressBuffer instruction,
-    const in vertex_transformer<T> transformer,
-
-    OutputVertices<T, VERTEX_PER_MESH> verts: __ref,
-    OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> prims: __ref,
-    OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices: __ref
-) {
-    let group_head = mesh_subrange.ranges[groupId];
-    let patch_til_index = bool(group_head.vertex_offset) * 2;
-    let group_instr_head_ptr = group_head.instruction_offset;
-
-    uint skipped_vertices = 0;
-    int skipped_primitives = -int(group_head.primit_offset);
-    var ptr_to_head = group_instr_head_ptr;
-
-    [ForceUnroll]
-    for (int i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
-        let target_index = (i == 1 ? (VERTEX_PER_MESH - threadId - 1) : threadId);
-        let thread_vtx_skip = target_index + group_head.vertex_offset;
-
-        while (true) {
-            let head = get_instruction_head(instruction, ptr_to_head);
-
-            if (skipped_primitives >= int(group_head.primitives)) break;
-            if (head.vertex_count == 0) break;
-
-            let local_skip = thread_vtx_skip - skipped_vertices;
-            if (local_skip < head.vertex_count) {
-
-                let patch_index = patch_til_index > target_index ? patch_til_index - target_index : 0;
-                var vtx = push_vertex(
-                    head, instruction, ptr_to_head + sizeof(instruction_head),
-                    resolve_param(target_index, local_skip, patch_index, skipped_primitives),
-                    prims, indices);
-
-                verts[target_index] = transformer(vtx);
-                break;
-            }
-
-            ptr_to_head += head.size;
-            skipped_vertices += head.vertex_count;
-            skipped_primitives += head.primit_count;
-        }
-    }
-
-    
-
-    return group_head.primitives;
 }
 
 public interface vertex_transformer_2<T> {

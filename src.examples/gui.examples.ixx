@@ -27,6 +27,7 @@ import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.drag_split;
+import mo_yanxi.gui.elem.label_v2;
 
 import mo_yanxi.gui.assets.manager;
 
@@ -306,13 +307,50 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create(
 						[](drag_split& table){
+							const char* test_text =
+R"(Basic{size:64} Token {size:128}Test{//}
+{u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâãäåx̂̃ñ
+{color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
+
+Escapes Test:
+1. Backslash: \\ {_}(Should see single backslash){/}
+2. Braces {size:128}with{/} slash: \{ and \} (Should see literal { and })
+3. Braces with double: {{ and }} (Should see literal { and })
+
+Line Continuation Test:
+This is a very long line that \
+{font:gui}should be joined together{/} \
+without newlines.
+
+{feature:liga}0 ff {feature:-liga}1 ff {feature:liga} 2 ff{feature} 3 ff{feature} 4 ff
+
+O{ftr:liga}off file flaff{/} ff
+
+Edge Cases:
+1. Token without arg: {bold}Bold Text{/bold}
+2. {u}Unclosed brace{/}: { This is just text because no closing bracket
+3. Unknown escape: \z (Should show 'z')
+4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
+)";
+
 							table.set_expand_policy(layout::expand_policy::prefer);
 							using namespace std::literals;
-							table.create_head([](gui::label& label){
-								label.set_text(std::views::repeat("叮咚鸡 "s, 114) | std::views::join | std::ranges::to<std::string>());
+							table.create_head([&](scroll_pane& label){
+								label.set_style();
+								label.create([&](label_v2& l){
+									l.set_expand_policy(layout::expand_policy::prefer);
+									l.set_fit(false);
+									l.set_text(test_text);
+								});
 							});
-							table.create_body([](gui::label& label){
-								label.set_text(std::views::repeat("叮咚鸡 "s, 114) | std::views::join | std::ranges::to<std::string>());
+							table.create_body([&](scroll_pane& label){
+								label.set_overlay_bar(true);
+								label.set_style();
+								label.create([&](label_v2& l){
+									l.set_expand_policy(layout::expand_policy::prefer);
+									l.set_fit(false);
+									l.set_text(test_text);
+								});
 							});
 						});
 				}

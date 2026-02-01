@@ -212,7 +212,8 @@ void scene::update_cursor(){
 		}
 	}
 
-	focus_cursor_->on_cursor_moved(events::cursor_move{.src = inputs_.last_cursor_pos(), .dst = inputs_.cursor_pos()});
+	focus_cursor_->on_cursor_moved(
+		events::cursor_move{.src = util::transform_from_root_to_current(rng, inputs_.last_cursor_pos()), .dst = cursor_transformed});
 }
 
 events::op_afterwards scene::on_esc(){

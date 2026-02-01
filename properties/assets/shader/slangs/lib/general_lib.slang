@@ -1,5 +1,27 @@
 module general_lib;
 
+public extension<T> vector<T, 2> where T : IArithmetic {
+    [ForceInline]
+    public vector<T, 2> rotate_rt_counter_clockwise() {
+        return vector<T, 2>(this.y, -this.x);
+    }
+}
+
+[ForceInline]
+public func cross<T>(vector<T, 2> l, vector<T, 2> r)->T where T : IArithmetic {
+    return l.x * r.y - l.y * r.x;
+}
+
+[ForceInline]
+public float angle_between(float2 from, float2 to) {
+    return atan2(cross(from, to), dot(from, to));
+}
+
+[ForceInline]
+public func rotate_rt_counter_clockwise<T>(vector<T, 2> vec)->vector<T, 2> where T : IArithmetic {
+    return vector<T, 2>(vec.y, -vec.x);
+}
+
 public extension float
 {
     public static const float sqrt2 = 1.4142135623730950488016887242097f;

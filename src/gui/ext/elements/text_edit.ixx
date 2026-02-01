@@ -5,6 +5,7 @@ module;
 export module mo_yanxi.gui.elem.text_edit;
 
 export import mo_yanxi.gui.elem.label;
+export import mo_yanxi.gui.elem.text_holder;
 
 import mo_yanxi.gui.alloc;
 import mo_yanxi.font.typesetting;

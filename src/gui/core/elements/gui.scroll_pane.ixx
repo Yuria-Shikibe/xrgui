@@ -29,8 +29,23 @@ namespace mo_yanxi::gui{
 		elem_ptr item{};
 		layout::layout_policy layout_policy_{layout::layout_policy::hori_major};
 		bool bar_caps_size{true};
+		bool force_hori_scroll_enabled_{false};
+		bool force_vert_scroll_enabled_{false};
+
+		// --- [新增] 状态变量 ---
+		float bar_opacity_{1.0f};          // 当前滚动条的不透明度
+		float activity_timer_{0.0f};       // 无操作计时器
+		math::vec2 last_local_cursor_pos_{-10000.f, -10000.f}; // 缓存鼠标位置用于检测悬停
+
+		bool overlay_scroll_bars_{false};       // 是否开启悬浮模式
 
 	public:
+		bool draw_track_if_locked{true};
+		// --- [新增] 配置项 ---
+		float fade_delay_ticks{60.0f * 1.5f};  // 1.5秒后开始淡出
+		float fade_duration_ticks{60.0f * 0.5f}; // 0.5秒淡出时间
+
+
 		[[nodiscard]] scroll_pane(scene& scene, elem* parent, layout::layout_policy policy)
 			: elem(scene, parent), layout_policy_{policy}{
 			interactivity = interactivity_flag::enabled;
@@ -41,6 +56,12 @@ namespace mo_yanxi::gui{
 
 		[[nodiscard]] scroll_pane(scene& scene, elem* parent)
 			: scroll_pane(scene, parent, layout::layout_policy::hori_major){
+		}
+
+		void set_overlay_bar(bool enable){
+			if(util::try_modify(overlay_scroll_bars_, enable)){
+				notify_isolated_layout_changed();
+			}
 		}
 
 		void set_layout_policy(layout::layout_policy policy){
@@ -129,7 +150,17 @@ namespace mo_yanxi::gui{
 
 	private:
 #pragma region Event
-		events::op_afterwards on_scroll(const events::scroll e, std::span<elem* const> aboves) override{
+		events::op_afterwards on_cursor_moved(const events::cursor_move event) override {
+			// 假设 event 提供的位置是相对于当前元素的坐标系 (或者在这里做必要的转换)
+			// 根据基类 elem 的逻辑，通常传递下来的事件已经处理过坐标
+			last_local_cursor_pos_ = event.dst;
+
+			// 只要鼠标在动，暂时重置淡出（可选，或者只在悬停滚动条时重置，下面在 update 中实现更精确的逻辑）
+			// 这里我们只记录位置，逻辑在 update 中统一处理
+			return elem::on_cursor_moved(event);
+		}
+
+		events::op_afterwards on_scroll(const events::scroll e, std::span<elem* const> aboves) override/*{
 			auto cmp = -e.delta;
 
 			if(input_handle::matched(e.mode, input_handle::mode::shift) || (is_hori_scroll_enabled() && !is_vert_scroll_enabled())){
@@ -139,7 +170,7 @@ namespace mo_yanxi::gui{
 			scrollTargetVelocity = cmp * get_vel_clamp();
 			scrollVelocity = scrollTargetVelocity.scl(VelocityScale);
 			return {};
-		}
+		}*/;
 		
 		events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 			if(event.key.action == input_handle::act::release){
@@ -147,9 +178,9 @@ namespace mo_yanxi::gui{
 			}
 				
 			return elem::on_click(event, aboves);
-		}
+		};
 
-		events::op_afterwards on_drag(const events::drag e) override{
+		events::op_afterwards on_drag(const events::drag e) override/*{
 			scrollTargetVelocity = scrollVelocity = {};
 			const auto trans = e.delta() * get_vel_clamp();
 			const auto blank = get_viewport_extent() - math::vec2{bar_hori_length(), bar_vert_length()};
@@ -167,7 +198,7 @@ namespace mo_yanxi::gui{
 			}
 
 			return events::op_afterwards::intercepted;
-		}
+		}*/;
 #pragma endregion
 
 		void update_item_layout();
@@ -207,10 +238,22 @@ namespace mo_yanxi::gui{
 		}
 
 		[[nodiscard]] bool is_hori_scroll_enabled() const noexcept{
-			return item_extent().x > content_width();
+			return is_hori_scroll_active() || force_hori_scroll_enabled_;
 		}
 
 		[[nodiscard]] bool is_vert_scroll_enabled() const noexcept{
+			return is_vert_scroll_active() || force_vert_scroll_enabled_;
+		}
+
+		/**
+		 * @brief 物理上是否开启滚动条（用于判断是否需要 Scissor/Transform 以及绘制滑块）
+		 * 仅当内容确实溢出时为真
+		 */
+		[[nodiscard]] bool is_hori_scroll_active() const noexcept{
+			return item_extent().x > content_width();
+		}
+
+		[[nodiscard]] bool is_vert_scroll_active() const noexcept{
 			return item_extent().y > content_height();
 		}
 
@@ -229,10 +272,8 @@ namespace mo_yanxi::gui{
 
 		[[nodiscard]] math::vec2 get_bar_extent() const noexcept{
 			math::vec2 rst{};
-
 			if(is_hori_scroll_enabled())rst.y = scroll_bar_stroke_;
 			if(is_vert_scroll_enabled())rst.x = scroll_bar_stroke_;
-
 			return rst;
 		}
 
@@ -259,6 +300,9 @@ namespace mo_yanxi::gui{
 		}
 
 		[[nodiscard]] vec2 get_viewport_extent() const noexcept{
+			if (overlay_scroll_bars_) {
+				return content_extent();
+			}
 			return content_extent().fdim(get_bar_extent());
 		}
 

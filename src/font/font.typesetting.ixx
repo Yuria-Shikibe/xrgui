@@ -129,82 +129,6 @@ export struct layout_rect{
 	}
 };
 
-export inline font_manager* default_font_manager{};
-
-namespace glyph_size{
-export{
-	// 字体排印标准：1 英寸 = 72 点 (pt)
-	inline constexpr float points_per_inch = 72.0f;
-
-	inline constexpr float pt_6  = 6.0f;
-	inline constexpr float pt_7  = 7.0f;
-	inline constexpr float pt_8  = 8.0f;
-	inline constexpr float pt_9  = 9.0f;
-
-	// --- 标准阅读字号 (Web/Print 默认) ---
-	// 网页和移动设备上常见的标准默认尺寸
-	inline constexpr float pt_10 = 10.0f;
-	inline constexpr float pt_11 = 11.0f;
-	inline constexpr float pt_12 = 12.0f; // 传统印刷和桌面软件的默认尺寸
-	inline constexpr float pt_14 = 14.0f;
-	inline constexpr float pt_16 = 16.0f; // 现代网页设计的常见默认尺寸
-
-	// --- 标题和强调字号 ---
-	inline constexpr float pt_18 = 18.0f;
-	inline constexpr float pt_20 = 20.0f;
-	inline constexpr float pt_24 = 24.0f;
-
-	// --- 大标题和展示字号 ---
-	inline constexpr float pt_36 = 36.0f;
-	inline constexpr float pt_48 = 48.0f;
-	inline constexpr float pt_72 = 72.0f; // 恰好等于 1 英寸
-
-	// --- 中文字号体系对应点数 (pt) ---
-
-	// 大字号
-	inline constexpr float pt_chu_hao    = 42.0f; // 初号
-	inline constexpr float pt_xiao_chu   = 36.0f; // 小初
-
-	// 标题字号
-	inline constexpr float pt_yi_hao     = 26.0f; // 一号
-	inline constexpr float pt_xiao_yi    = 24.0f; // 小一
-	inline constexpr float pt_er_hao     = 22.0f; // 二号
-	inline constexpr float pt_xiao_er    = 18.0f; // 小二
-
-	// 正文字号
-	inline constexpr float pt_san_hao    = 16.0f; // 三号
-	inline constexpr float pt_xiao_san   = 15.0f; // 小三
-	inline constexpr float pt_si_hao     = 14.0f; // 四号
-	inline constexpr float pt_xiao_si    = 12.0f; // 小四
-	inline constexpr float pt_wu_hao     = 10.5f; // 五号 (常用正文尺寸)
-
-	// 脚注/细小字号
-	inline constexpr float pt_xiao_wu    = 9.0f;  // 小五
-	inline constexpr float pt_liu_hao    = 7.5f;  // 六号
-	inline constexpr float pt_xiao_liu   = 6.5f;  // 小六
-	inline constexpr float pt_qi_hao     = 5.5f;  // 七号
-	inline constexpr float pt_ba_hao     = 5.0f;  // 八号
-
-	inline constexpr float standard_size = pt_xiao_er;
-}
-
-export inline math::vec2 screen_ppi{102, 102};
-
-constexpr math::vec2 get_glyph_std_size_at(const double fontSize, math::vec2 ppi) noexcept{
-	return ppi.mul(fontSize / 72.);
-}
-
-math::vec2 get_glyph_std_size_at(const double fontSize) noexcept{
-	return get_glyph_std_size_at(fontSize, screen_ppi);
-}
-
-export constexpr float get_glyph_scale_at(const float fontSize) noexcept{
-	return fontSize / standard_size;
-}
-
-}
-
-
 
 export
 struct token_argument{
@@ -302,7 +226,7 @@ export struct parse_context{
 
 private:
 	font_manager* manager_{};
-	math::vec2 ppi_{glyph_size::screen_ppi}; //TODO make it specifiable by user
+	math::vec2 ppi_{mo_yanxi::typesetting::glyph_size::screen_ppi}; //TODO make it specifiable by user
 
 	float throughout_scale{1.f};
 
@@ -394,7 +318,7 @@ public:
 	}
 
 	[[nodiscard]] glyph_size_type get_default_size() const noexcept{
-		return glyph_size::get_glyph_std_size_at(glyph_size::standard_size, ppi_).round<glyph_size_type::value_type>();
+		return mo_yanxi::typesetting::glyph_size::get_glyph_std_size_at(mo_yanxi::typesetting::glyph_size::standard_size, ppi_).round<glyph_size_type::value_type>();
 	}
 
 	[[nodiscard]] glyph_size_type get_current_size() const noexcept{

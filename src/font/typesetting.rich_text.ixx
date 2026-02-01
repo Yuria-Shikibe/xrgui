@@ -29,11 +29,11 @@ import <simdutf.h>;
 
 import std;
 
-import mo_yanxi.font;
+export import mo_yanxi.font;
 import mo_yanxi.font.manager;
 import mo_yanxi.math.vector2;
-import mo_yanxi.graphic.color;
-import mo_yanxi.heterogeneous;
+export import mo_yanxi.graphic.color;
+export import mo_yanxi.heterogeneous;
 import mo_yanxi.static_string;
 
 import mo_yanxi.utility;
@@ -41,14 +41,12 @@ import mo_yanxi.utility;
 
 namespace mo_yanxi::typesetting{
 export
-struct look_up_table{
+struct rich_text_look_up_table{
 	string_hash_map<font::font_family> family;
 	string_hash_map<graphic::color> color;
 };
 
-// export
-/*inline*/
-look_up_table global_look_up_table{};
+export inline rich_text_look_up_table* look_up_table{};
 
 namespace rich_text_token{
 export enum struct setter_type{
@@ -176,13 +174,13 @@ constexpr inline std::size_t token_index_of = mo_yanxi::tuple_index_v<T, variant
 	return {type, off[0], off[1]};
 }
 
-[[nodiscard]] constexpr set_color parse_set_color(const look_up_table& table, std::string_view args) noexcept{
+[[nodiscard]] constexpr set_color parse_set_color(const rich_text_look_up_table* table, std::string_view args) noexcept{
 	auto [type, remain] = get_setter_type_from(args);
 	if(remain.front() == '#'){
 		return {type, graphic::color::from_string(remain.substr(1))};
 	}
 
-	if(const auto c = table.color.try_find(remain)){
+	if(table)if(const auto c = table->color.try_find(remain)){
 		return {type, *c};
 	}
 
@@ -199,7 +197,7 @@ constexpr inline std::size_t token_index_of = mo_yanxi::tuple_index_v<T, variant
 	}
 }
 
-[[nodiscard]] constexpr tokens parse_set_font(const look_up_table& table, bool has_arg, std::string_view args) noexcept{
+[[nodiscard]] constexpr tokens parse_set_font(const rich_text_look_up_table* table, bool has_arg, std::string_view args) noexcept{
 	if(!has_arg){
 		return fallback_font{};
 	}
@@ -208,7 +206,7 @@ constexpr inline std::size_t token_index_of = mo_yanxi::tuple_index_v<T, variant
 		return set_font_directly{};
 	}
 
-	if(auto ptr = table.family.try_find(args)){
+	if(table)if(auto ptr = table->family.try_find(args)){
 		return set_font_directly{ptr};
 	}
 
@@ -297,7 +295,7 @@ struct rich_text_token_argument{
 	}
 
 	constexpr rich_text_token_argument(
-		const look_up_table& table,
+		const rich_text_look_up_table* table,
 
 		std::string_view name,
 		bool has_arg,
@@ -429,28 +427,26 @@ public:
 
 	[[nodiscard]] constexpr tokenized_text() = default;
 
-	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string, const look_up_table& table){
+	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string, const rich_text_look_up_table* table){
 		parse_from_(string, table);
 	}
 
 	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string) : tokenized_text{
-			string, global_look_up_table
+			string, look_up_table
 		}{
 	}
 
-	constexpr void reset(std::string_view string, const look_up_table& table){
+	[[nodiscard]] constexpr explicit(false) tokenized_text(std::in_place_t, std::string_view string);
+
+	constexpr void reset(std::string_view string, const rich_text_look_up_table* table = look_up_table){
 		codes.clear();
 		tokens_.clear();
 		parse_from_(string, table);
 	}
 
-	constexpr void reset(std::string_view string){
-		reset(string, global_look_up_table);
-	}
-
 private:
-	constexpr void parse_from_(std::string_view string, const look_up_table& table);
-	constexpr void parse_tokens_(const look_up_table& table, std::uint32_t pos, std::string_view name, bool has_arg,
+	constexpr void parse_from_(std::string_view string, const rich_text_look_up_table* table);
+	constexpr void parse_tokens_(const rich_text_look_up_table* table, std::uint32_t pos, std::string_view name, bool has_arg,
 		std::string_view args);
 };
 
@@ -715,7 +711,11 @@ constexpr void append_utf8_to_u32(std::u32string& dest, std::string_view source)
 	}
 }
 
-constexpr void tokenized_text::parse_from_(const std::string_view string, const look_up_table& table){
+constexpr tokenized_text::tokenized_text(std::in_place_t, const std::string_view string){
+	append_utf8_to_u32(this->codes, string);
+}
+
+constexpr void tokenized_text::parse_from_(const std::string_view string, const rich_text_look_up_table* table){
 	const char* ptr = string.data();
 	const size_t size = string.size();
 
@@ -848,7 +848,7 @@ constexpr void tokenized_text::parse_from_(const std::string_view string, const 
 	flush_pending_text(size);
 }
 
-constexpr void tokenized_text::parse_tokens_(const look_up_table& table, std::uint32_t pos, std::string_view name,
+constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* table, std::uint32_t pos, std::string_view name,
 	bool has_arg, std::string_view args){
 	if(name.empty()){
 		return;
