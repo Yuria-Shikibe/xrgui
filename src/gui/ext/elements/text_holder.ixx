@@ -5,7 +5,7 @@
 export module mo_yanxi.gui.elem.text_holder;
 
 import std;
-import mo_yanxi.ccur.atomic_shared_mutex;
+import mo_yanxi.concurrent.atomic_shared_mutex;
 import mo_yanxi.graphic.draw.instruction.recorder;
 import mo_yanxi.graphic.color;
 import mo_yanxi.gui.infrastructure;
@@ -160,7 +160,7 @@ private:
 
 	std::atomic_uint current_idx_{0};
 	LayoutType layout_[2]{};
-	ccur::atomic_shared_mutex shared_mutex_;
+	ccur::atomic_shared_mtx shared_mutex_;
 
 public:
 	[[nodiscard]] glyph_layout_node()
