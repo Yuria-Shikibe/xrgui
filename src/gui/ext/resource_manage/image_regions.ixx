@@ -355,27 +355,25 @@ struct nine_patch_brief{
 	}
 };
 
-/*
 export
-struct image_nine_region : nine_patch_brief{
+struct nine_patch : nine_patch_brief{
 	static constexpr auto size = NinePatchSize;
-	using region_type = combined_image_region<size_awared_uv<uniformed_rect_uv>>;
 
-	graphic::sized_image image_view{};
+	image_region_borrow image_region_{};
 	std::array<graphic::uniformed_rect_uv, NinePatchSize> regions{};
 	float margin{};
 
-	[[nodiscard]] image_nine_region() = default;
+	[[nodiscard]] nine_patch() = default;
 
-	image_nine_region(
-		const region_type& imageRegion,
+	nine_patch(
+		const image_region_borrow& imageRegion,
 		math::urect internal_in_relative,
 		const float external_margin = 0.f,
 		const math::usize2 centerSize = {},
 		const align::scale centerScale = DefaultScale,
 		const float edgeShrinkScale = 0.25f
-	) : image_view(imageRegion), margin(external_margin){
-		const auto external = imageRegion.uv.get_region();
+	) : image_region_(imageRegion), margin(external_margin){
+		const auto external = imageRegion_->uv.get_region();
 		internal_in_relative.src += external.src;
 		assert(external.contains_loose(internal_in_relative));
 		this->nine_patch_brief::operator=(nine_patch_brief{external, internal_in_relative, centerSize, centerScale});
@@ -383,37 +381,42 @@ struct image_nine_region : nine_patch_brief{
 
 		using gen = Generator<float>;
 		const auto ninePatch = nine_patch_raw{internal_in_relative, external, centerSize, centerScale};
+		const auto sz = imageRegion_->uv.size;
 		for(auto&& [i, region] : regions | std::views::enumerate){
-			region.fetch_into(image_view.size, ninePatch[i]);
+			region.fetch_into(sz, ninePatch[i]);
 		}
 
 		for(const auto hori_edge_index : gen::property::edge_indices | std::views::take(
 			    gen::property::edge_indices.size() / 2)){
-			regions[hori_edge_index].shrink(image_view.size, {edgeShrinkScale * inner_size.x, 0});
+			regions[hori_edge_index].shrink(sz, {edgeShrinkScale * inner_size.x, 0});
 		}
 
 		for(const auto vert_edge_index : gen::property::edge_indices | std::views::drop(
 			    gen::property::edge_indices.size() / 2)){
-			regions[vert_edge_index].shrink(image_view.size, {0, edgeShrinkScale * inner_size.y});
+			regions[vert_edge_index].shrink(sz, {0, edgeShrinkScale * inner_size.y});
 		}
 	}
 
-	image_nine_region(
-		const region_type& imageRegion,
+	nine_patch(
+		const image_region_borrow& imageRegion,
 		const align::padding2d<std::uint32_t> margin,
 		const float external_margin = 0.f,
 		const math::usize2 centerSize = {},
 		const align::scale centerScale = DefaultScale,
 		const float edgeShrinkScale = 0.25f
-	) : image_nine_region{
+	) : nine_patch{
 		imageRegion, math::urect{
-			tags::from_extent, margin.bot_lft(), imageRegion.uv.get_region().extent().sub(margin.extent())
+			tags::from_extent, margin.bot_lft(), imageRegion->uv.get_region().extent().sub(margin.extent())
 		},
 		external_margin, centerSize, centerScale, edgeShrinkScale
 	}{
-		assert(margin.extent().within(imageRegion.uv.get_region().extent()));
+		assert(margin.extent().within(imageRegion_->uv.get_region().extent()));
 	}
-};*/
+
+	[[nodiscard]] image_native_handle get_image_view() const noexcept{
+		return image_region_->view;
+	}
+};
 
 
 namespace builtin{
