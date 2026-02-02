@@ -11,7 +11,7 @@ export import mo_yanxi.font;
 export import mo_yanxi.typesetting;
 export import mo_yanxi.typesetting.rich_text;
 export import mo_yanxi.graphic.draw.instruction.recorder;
-import mo_yanxi.concurrent.atomic_shared_mutex;
+import mo_yanxi.ccur.atomic_shared_mutex;
 import std;
 
 namespace mo_yanxi::gui{

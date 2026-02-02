@@ -5,7 +5,7 @@
 export module mo_yanxi.gui.elem.text_holder;
 
 import std;
-import mo_yanxi.concurrent.atomic_shared_mutex;
+import mo_yanxi.ccur.atomic_shared_mutex;
 import mo_yanxi.graphic.draw.instruction.recorder;
 import mo_yanxi.graphic.color;
 import mo_yanxi.gui.infrastructure;
