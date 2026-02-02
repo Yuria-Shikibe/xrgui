@@ -3,7 +3,6 @@ module;
 module mo_yanxi.graphic.bitmap;
 
 import mo_yanxi.io.image;
-import mo_yanxi.io.file;
 
 mo_yanxi::bitmap mo_yanxi::graphic::load_bitmap(const std::string_view path){
 	int width, height, bpp;
@@ -17,18 +16,21 @@ void mo_yanxi::graphic::write_bitmap(const mo_yanxi::bitmap& bitmap, std::string
 	if(bitmap.area() == 0) return;
 	//TODO...
 
-	io::file file{path};
-	if(!file.exist()){
+	std::filesystem::path file{path};
+	if(!std::filesystem::exists(file)){
 		bool result = false;
 
-		if(autoCreateFile) result = file.create_file();
+		if(autoCreateFile){
+			const std::ofstream ofStream(file);
+			result = ofStream.is_open();
+		}
 
-		if(!file.exist() || !result) throw std::runtime_error{"Inexist File!"};
+		if(!std::filesystem::exists(file) || !result) throw std::runtime_error{"Inexist File!"};
 	}
 
 	//OPTM ...
 	// ReSharper disable once CppTooWideScopeInitStatement
-	std::string ext = file.extension();
+	std::string ext = file.extension().generic_string();
 
 	if(path.ends_with(".bmp")){
 		io::image::write_bmp(path, bitmap.width(), bitmap.height(), 4, reinterpret_cast<const unsigned char*>(bitmap.data()));
