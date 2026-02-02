@@ -614,7 +614,6 @@ protected:
 	}
 };
 
-
 export
 template <typename T>
 struct terminal_cached : terminal<T>{

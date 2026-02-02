@@ -855,6 +855,15 @@ private:
 namespace util{
 
 export
+math::vec2 select_prefer_extent(bool is_prefer, math::vec2 current, std::optional<math::vec2> preferred){
+	if(is_prefer){
+		if(const auto pref = preferred)current.max(*pref);
+	}
+
+	return current;
+}
+
+export
 template <typename Container>
 void dfs_record_inbound_element(
 	math::vec2 cursorPos,
@@ -1041,4 +1050,5 @@ bool click::within_elem(const elem& elem, float margin) const noexcept{
 	p.y += margin;
 	return p.axis_greater(0, 0) && p.axis_less(elem.extent().add(margin * 2));
 }
+
 }

@@ -141,6 +141,7 @@ protected:
 	}
 };
 
+
 export
 template <typename Fn>
 auto make_listener(propagate_behavior data_propagate_type, Fn&& fn){

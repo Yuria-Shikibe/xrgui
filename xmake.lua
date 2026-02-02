@@ -42,7 +42,11 @@ function set_xrgui_deps()
     function join_path(p)
        return path.join(current_dir, p)
     end
-    mo_yanxi_vulkan_wrapper_use_vulkan()
+
+
+
+    add_deps("mo_yanxi.utility")
+    add_deps("mo_yanxi.vulkan_wrapper")
 
     add_packages("msdfgen", {public = true})
     add_packages("freetype", {public = true})

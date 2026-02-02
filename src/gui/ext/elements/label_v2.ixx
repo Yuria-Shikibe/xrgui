@@ -37,6 +37,14 @@ BITMASK_OPS(, change_type);
 
 export
 struct label_v2 : text_holder<typesetting::glyph_layout>{
+	struct from_string{
+		label_v2* label_;
+		void operator()(std::string&& ){
+
+		}
+	};
+
+
 protected:
 	std::string raw_string_{};
 	typesetting::tokenized_text tokenized_text_{};
@@ -96,22 +104,6 @@ public:
 	}
 
 
-	// sync_label_terminal& request_receiver(){
-	// 	if(notifier_){
-	// 		return *notifier_;
-	// 	}
-	// 	auto& node = get_scene().request_react_node<sync_label_terminal>(*this);
-	// 	this->notifier_ = &node;
-	// 	return node;
-	// }
-
-	// sync_label_terminal& request_receiver_and_connect(react_flow::node& prev){
-	// 	auto& node = request_receiver();
-	// 	node.connect_predecessor(prev);
-	// 	return node;
-	// }
-
-
 protected:
 	exclusive_glyph_layout<typesetting::glyph_layout> get_glyph_layout() const noexcept final{
 		return &glyph_layout_;
@@ -126,7 +118,6 @@ protected:
 	}
 
 	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override;
-
 
 	bool resize_impl(const math::vec2 size) override{
 		if(elem::resize_impl(size)){
@@ -146,13 +137,9 @@ protected:
 			extent.apply(text_size.required_extent);
 		}
 
-		auto ext = extent.potential_extent().inf_to0();
+		const auto ext = extent.potential_extent().inf_to0();
 
-		if(get_expand_policy() == layout::expand_policy::prefer){
-			if(auto pref = get_prefer_content_extent())ext.max(*pref);
-		}
-
-		return ext;
+		return util::select_prefer_extent(get_expand_policy() == layout::expand_policy::prefer, ext, get_prefer_content_extent());
 	}
 
 	bool set_text_quiet(std::string_view text){
@@ -195,7 +182,6 @@ protected:
 		if((change_mark_ & change_type::text) != change_type{}){
 			tokenized_text_.reset(raw_string_);
 		}
-
 
 		if(fit_){
 			if((change_mark_ & change_type::max_extent) != change_type{}){
