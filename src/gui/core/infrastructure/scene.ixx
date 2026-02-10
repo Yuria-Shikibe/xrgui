@@ -93,37 +93,49 @@ public:
 
 }
 
-struct layer_altitude_record{
+/**
+ * @brief Principally, holes are not allowed, but this cause the destruction must begin from tail(highest), which cause some performance issue.
+ *
+ * TODO currently tooltip and overlays are not supported
+ */
+struct layer_altitude_record {
 private:
-
 	std::vector<unsigned, mr::heap_allocator<unsigned>> records_{};
+
 public:
 	layer_altitude_record() = default;
 
-	explicit layer_altitude_record(const mr::heap_allocator<unsigned>& alloc) : records_(alloc){
-
+	explicit layer_altitude_record(const mr::heap_allocator<unsigned>& alloc) : records_(alloc) {
 	}
 
-	void insert(altitude_t alt, unsigned count = 1){
-		assert(alt <= records_.size());
-		if(alt == records_.size()){
-			records_.push_back(count);
-		}else{
-			records_[alt] += count;
-		}
+	void insert(altitude_t alt, unsigned count = 1) {
+		// // 修改 1: 允许在任意高度插入。
+		// // 如果 alt 超过当前 size，自动扩容并填充 0 (产生空洞)
+		// if (alt >= records_.size()) {
+		// 	records_.resize(alt + 1, 0);
+		// }
+		// records_[alt] += count;
 	}
 
-	void erase(altitude_t alt, unsigned count = 1) noexcept{
-		auto& rst = records_[alt];
-		assert(rst >= count);
-		rst -= count;
-		if(rst == 0){
-			assert(alt == records_.size() - 1);
-			records_.pop_back();
-		}
+	void erase(altitude_t alt, unsigned count = 1) noexcept {
+		// assert(alt < records_.size()); // 确保删除的层存在
+		// auto& rst = records_[alt];
+		// assert(rst >= count);
+		// rst -= count;
+		//
+		// // 修改 2: 只有当变为空的是"最高层"时，才尝试收缩容器
+		// if (rst == 0 && alt == records_.size() - 1) {
+		// 	records_.pop_back();
+		//
+		// 	// 关键修改: 循环移除尾部的空洞(0)，直到遇到非空层或容器为空
+		// 	// 这样能保证 size() 始终反映真实的最高高度
+		// 	while (!records_.empty() && records_.back() == 0) {
+		// 		records_.pop_back();
+		// 	}
+		// }
 	}
 
-	altitude_t get_max() const noexcept{
+	altitude_t get_max() const noexcept {
 		return records_.size();
 	}
 };

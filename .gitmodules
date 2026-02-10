@@ -13,3 +13,6 @@
 [submodule "external/allocator2d"]
 	path = external/allocator2d
 	url = https://github.com/Yuria-Shikibe/allocator2d.git
+[submodule "external/mo_yanxi_react_flow"]
+	path = external/mo_yanxi_react_flow
+	url = https://github.com/Yuria-Shikibe/mo_yanxi_react_flow.git

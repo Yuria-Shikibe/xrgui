@@ -87,14 +87,14 @@ public:
 			auto src = content_src_pos_abs();
 
 			math::vec2 off{};
+			math::vec2 ext{};
 			off.*minor_p = seperator_position_.temp * content_extent().*minor_p;
+			ext.*major_p = content_extent().*major_p;
 
 			src += off;
-
-
 			get_scene().renderer().push(graphic::draw::instruction::line{
 				.src = src,
-				.dst = src + math::vec2{0, content_height()},
+				.dst = src + ext,
 				.color = {graphic::colors::white, graphic::colors::white},
 				.stroke = 4,
 			});

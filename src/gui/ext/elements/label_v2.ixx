@@ -74,9 +74,9 @@ public:
 		}
 	}
 
-	void set_typesetting_policy(typesetting::layout_config policy){
-		if(context_.get_config() != policy){
-			context_.set_config(policy);
+	void set_typesetting_config(typesetting::layout_config config){
+		if(context_.get_config() != config){
+			context_.set_config(config);
 
 			change_mark_ |= change_type::config;
 			notify_text_changed();

@@ -21,10 +21,10 @@ bool scroll_pane::update(const float delta_in_ticks){
         // 2. 如果正在被拖拽 (通过 scrollVelocity判断通常足够，或者检查 captured 状态)
         // 3. 检查鼠标悬停
         else if (cursor_state().inbound) {
-            const auto check_pos = content_src_pos_abs() + last_local_cursor_pos_;
+            const auto check_pos = last_local_cursor_pos_ -scroll.temp;
 
-            if (is_hori_scroll_enabled() && get_hori_bar_rect().contains(check_pos)) active = true;
-            if (is_vert_scroll_enabled() && get_vert_bar_rect().contains(check_pos)) active = true;
+        	const auto vp = rect{tags::unchecked, tags::from_extent, {}, get_viewport_extent().fdim(get_bar_extent())};
+        	active = !vp.contains_loose(check_pos) && (is_hori_scroll_enabled() || is_vert_scroll_enabled());
         }
 
         if (active) {
@@ -38,7 +38,7 @@ bool scroll_pane::update(const float delta_in_ticks){
         if (activity_timer_ < fade_delay_ticks) {
             target_opacity = 1.0f;
         } else {
-            float fade_progress = (activity_timer_ - fade_delay_ticks) / fade_duration_ticks;
+            const float fade_progress = (activity_timer_ - fade_delay_ticks) / fade_duration_ticks;
             target_opacity = 1.0f - math::clamp(fade_progress, 0.0f, 1.0f);
         }
 

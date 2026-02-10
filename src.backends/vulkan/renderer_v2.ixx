@@ -267,6 +267,20 @@ private:
 		VkImageLayout new_layout)
 	{
 		const bool layout_change = state.layout != new_layout;
+
+		// 检查是否是连续的颜色附件写入 (Draw -> Draw)
+		// 只有当前后两个阶段 *都* 仅仅涉及颜色输出时，才利用 Rasterization Order 跳过同步
+		const bool is_consecutive_color_write =
+			(state.stage_mask == VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT) && // 上一个阶段是颜色输出
+			(new_stage == VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT) &&        // 当前阶段是颜色输出
+			(state.access_mask == VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT) &&         // 上一个是写
+			(new_access == VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);                   // 当前是写
+
+		if (!layout_change && is_consecutive_color_write) {
+			return; // 安全跳过 Barrier
+		}
+
+		// 原有的只读检查逻辑...
 		const bool is_read_only = (new_access & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) == 0;
 		const bool was_read_only = (state.access_mask & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) == 0;
 
@@ -281,13 +295,14 @@ private:
 		state.layout = new_layout;
 	}
 
+	// [In mo_yanxi::backend::vulkan::renderer]
+
 	void record_cmd(VkCommandBuffer command_buffer){
 		const auto cmd_sz = batch_host.get_submit_sections_count();
 
 		vkCmdExecuteCommands(command_buffer, 1, blit_attachment_clear_and_init_command_buffer.as_data());
 
 		reset_barrier_context();
-
 		auto submit_span = batch_host.get_valid_submit_groups();
 		if(submit_span.empty()) [[unlikely]] {
 			return;
@@ -297,25 +312,35 @@ private:
 
 		std::ranges::fill(cache_attachment_enter_mark_, false);
 		cache_draw_param_stack_.resize(1, {.pipeline_index = {}});
-		configure_rendering_info(get_current_draw_config());
-		rendering_config.set_color_attachment_load_op(VK_ATTACHMENT_LOAD_OP_CLEAR);
 
-		{
-			const auto mask = get_current_target(get_current_draw_config());
-			mask.for_each_popbit([&](unsigned i){
-				cache_attachment_enter_mark_[i] = true;
-			});
-		}
+		bool is_rendering = false;
+		gui::gfx_config::render_target_mask current_pass_mask{};
+		// [Fix 1]: 追踪当前的 MSAA 状态
+		bool current_pass_msaa = false;
+
+		auto flush_render_pass = [&]() {
+			if (is_rendering) {
+				vkCmdEndRendering(command_buffer);
+				is_rendering = false;
+			}
+		};
+
+		// 预先获取全局 MSAA 开关设置
+		const bool global_msaa_enabled = attachment_manager.enables_multisample();
 
 		cache_barrier_gen_.clear();
 
-		//TODO optimize empty submit group
 		for(unsigned i = 0; i < cmd_sz; ++i){
+			const auto& current_draw_cfg = get_current_draw_config();
+			const auto& pipes = draw_pipeline_manager_.get_pipelines()[current_draw_cfg.pipeline_index].option;
 
-			// Ensure draw attachments are in correct state
+			// 计算当前 Draw Call 是否启用了 MSAA
+			const bool is_msaa = pipes.enables_multisample && global_msaa_enabled;
+			const auto next_mask = get_current_target(current_draw_cfg);
+
+			bool barrier_required = false;
 			{
-				const auto mask = get_current_target(get_current_draw_config());
-				mask.for_each_popbit([&](unsigned aIdx){
+				next_mask.for_each_popbit([&](unsigned aIdx){
 					ensure_attachment_state(
 						cache_barrier_gen_,
 						draw_attachment_states_[aIdx],
@@ -325,49 +350,88 @@ private:
 						VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 					);
 				});
-				cache_barrier_gen_.apply(command_buffer);
+				barrier_required = !cache_barrier_gen_.empty();
 			}
 
-			rendering_config.begin_rendering(command_buffer, region/*, VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT*/);
+			// [Fix 2]: 增加 MSAA 状态变化的检查 (is_msaa != current_pass_msaa)
+			// 如果采样数改变，必须重启 Render Pass
+			if (is_rendering) {
+				if (barrier_required || (next_mask != current_pass_mask) || (is_msaa != current_pass_msaa)) {
+					flush_render_pass();
+				}
+			}
 
-			create_pipe_binding_cmd(command_buffer, i, get_current_draw_config());
+			if (barrier_required) {
+				cache_barrier_gen_.apply(command_buffer);
+				cache_barrier_gen_.clear();
+			}
 
-			vkCmdEndRendering(command_buffer);
+			if (!is_rendering) {
+				configure_rendering_info(current_draw_cfg);
+
+				const auto mask = next_mask;
+				std::size_t curIdx{};
+
+				mask.for_each_popbit([&](unsigned aIdx){
+					bool already_entered = cache_attachment_enter_mark_[aIdx];
+					VkAttachmentLoadOp load_op = already_entered ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+
+					auto& info = rendering_config.get_color_attachment_infos()[curIdx];
+
+					// 设置 Color Attachment (MSAA buffer 或 普通 buffer)
+					info.loadOp = load_op;
+
+					// [Fix 3]: 显式设置 Resolve Attachment 的 LoadOp
+					// 如果开启了 MSAA，Resolve Attachment 也需要在第一次使用时 Clear，
+					// 否则 Resolve 操作可能会混合进垃圾数据（取决于 ResolveMode），或者如果 Resolve 区域不完整，背景会是花的。
+					// if (is_msaa) {
+					// 	info.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT; // 确保设置了 Resolve Mode
+					// } else {
+					// 	info.resolveMode = VK_RESOLVE_MODE_NONE;
+					// }
+
+					cache_attachment_enter_mark_[aIdx] = true;
+					++curIdx;
+				});
+
+				rendering_config.begin_rendering(command_buffer, region);
+				is_rendering = true;
+				current_pass_mask = next_mask;
+				current_pass_msaa = is_msaa; // 更新状态
+			}
+
+			create_pipe_binding_cmd(command_buffer, i, current_draw_cfg);
 
 			bool requiresClear = false;
 			auto& cfg = batch_host.get_break_config_at(i);
 			requiresClear = cfg.clear_draw_after_break;
+
 			for (const auto & e : cfg.get_entries()){
-				requiresClear = process_breakpoints(e, command_buffer) || requiresClear;
+				requiresClear = process_breakpoints(e, command_buffer, flush_render_pass) || requiresClear;
 			}
 
 			if(requiresClear){
+				flush_render_pass();
 				std::ranges::fill(cache_attachment_enter_mark_, 0);
 			}
-
-			const auto mask = get_current_target(get_current_draw_config());
-			std::size_t curIdx{};
-			mask.for_each_popbit([&](unsigned aIdx){
-				const bool first_enter = !std::exchange(cache_attachment_enter_mark_[aIdx], true);
-				rendering_config.get_color_attachment_infos()[curIdx].loadOp = first_enter ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-				++curIdx;
-			});
-
 		}
-
+		flush_render_pass();
 	}
 
 	/**
 	 *
 	 * @return clear required
 	 */
-	bool process_breakpoints(const graphic::draw::instruction::state_transition_entry& entry, VkCommandBuffer buffer) {
-		if(entry.process_builtin(buffer,  draw_pipeline_manager_.get_pipelines()[get_current_draw_config().pipeline_index].pipeline_layout))return false;
+	template<typename F>
+	bool process_breakpoints(const graphic::draw::instruction::state_transition_entry& entry, VkCommandBuffer buffer, F&& flush_callback) {
+		if(entry.process_builtin(buffer,  draw_pipeline_manager_.get_pipelines()[get_current_draw_config().pipeline_index].pipeline_layout)) return false;
 
 		switch(entry.flag){
 		case gui::draw_state_index_deduce_v<gui::gfx_config::blit_config> :{
-			blit(entry.as<gui::gfx_config::blit_config>(), buffer);
+			// [Optimization]: Blit 是 Compute Shader，必须在 Render Pass 外部执行
+			flush_callback();
 
+			blit(entry.as<gui::gfx_config::blit_config>(), buffer);
 			return true;
 		}
 		case gui::draw_state_index_deduce_v<gui::draw_config> :{
@@ -381,8 +445,8 @@ private:
 				}
 				cache_draw_param_stack_.push_back(param);
 			}
-			configure_rendering_info(param);
-
+			// 配置变更会在下一次循环的 begin_rendering 逻辑中处理，这里不需要 flush
+			// configure_rendering_info(param); // 移除此行，推迟到 Loop 内的 begin 逻辑前
 			return false;
 		}
 		default : break;

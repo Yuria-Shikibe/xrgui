@@ -32,6 +32,7 @@ import mo_yanxi.math.rand;
 import std;
 
 import mo_yanxi.font;
+import mo_yanxi.font.plat;
 import mo_yanxi.font.manager;
 import mo_yanxi.typesetting;
 import mo_yanxi.typesetting.util;
@@ -45,14 +46,12 @@ void app_run(
 	mo_yanxi::vk::command_buffer& cmdBUf
 	){
 
-
-
 	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
 	const char* test_text =
-R"(Basic{size:64} Token {size:128}Test{//}
+R"({s:*.5f}Basic{size:64} Token {size:128}Test{//}
 {u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâãäåx̂̃ñ
 {color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
 
@@ -76,7 +75,6 @@ Edge Cases:
 3. Unknown escape: \z (Should show 'z')
 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
 )";
-
 	typesetting::tokenized_text text{test_text};
 	typesetting::layout_context context{{
 	}};
@@ -377,6 +375,7 @@ void prepare(){
 	font_manager.set_page(image_atlas.create_image_page("font"));
 
 	{
+		auto sys_font_path = font::get_system_fonts();
 		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
 		auto& SourceHanSansCN_regular = font_manager.register_meta("srchs", font_path / "SourceHanSansCN-Regular.otf");
 		auto& telegrama = font_manager.register_meta("tele", font_path / "telegrama.otf");

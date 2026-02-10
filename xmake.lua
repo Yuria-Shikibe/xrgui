@@ -8,6 +8,8 @@ set_encodings("utf-8")
 set_project("xrgui")
 set_symbols("debug")
 
+set_config("spec_mo_yanxi_utility_path", path.join(current_dir, "./external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"))
+
 if is_plat("windows") then
     add_vectorexts("avx", "avx2")
 
@@ -42,8 +44,6 @@ function set_xrgui_deps()
     function join_path(p)
        return path.join(current_dir, p)
     end
-
-
 
     add_deps("mo_yanxi.utility")
     add_deps("mo_yanxi.vulkan_wrapper")
@@ -156,8 +156,7 @@ on_run(function ()
     import("core.base.task")
     import("core.base.option")
 
-    os.exec("xmake f -m " .. option.get("mode"))
-    task.run("gen_ide_hintonly_cmake")
+    task.run("gen_ide_hintonly_cmake", {mode = option.get("mode")})
 
     print("Switch To " .. option.get("mode"))
 end)

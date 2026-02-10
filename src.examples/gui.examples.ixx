@@ -307,8 +307,8 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create(
 						[](drag_split& table){
-							const char* test_text =
-R"(Basic{size:64} Token {size:128}Test{//}
+							constexpr static auto test_text =
+R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
 {u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâãäåx̂̃ñ
 {color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
 
@@ -335,21 +335,63 @@ Edge Cases:
 
 							table.set_expand_policy(layout::expand_policy::prefer);
 							using namespace std::literals;
-							table.create_head([&](scroll_pane& label){
-								label.set_style();
-								label.create([&](label_v2& l){
-									l.set_expand_policy(layout::expand_policy::prefer);
-									l.set_fit(false);
-									l.set_text(test_text);
+							table.create_head([](drag_split& inner){
+								inner.set_expand_policy(layout::expand_policy::passive);
+								inner.set_layout_policy(layout::layout_policy::hori_major);
+								inner.create_head([](scroll_pane& label){
+									label.set_style();
+									label.create([](label_v2& l){
+										l.set_expand_policy(layout::expand_policy::prefer);
+										l.set_fit(false);
+										l.set_typesetting_config(typesetting::layout_config{
+												.throughout_scale = 1.75f
+											});
+										l.set_text(test_text);
+									});
+								});
+								inner.create_body([](scroll_pane& label){
+									label.set_overlay_bar(true);
+									label.set_layout_policy(layout::layout_policy::vert_major);
+									label.set_style();
+									label.create([&](label_v2& l){
+										l.set_expand_policy(layout::expand_policy::prefer);
+										l.set_fit(false);
+										l.set_typesetting_config(typesetting::layout_config{
+												.direction = typesetting::layout_direction::ttb
+											});
+										l.set_text(test_text);
+									});
 								});
 							});
-							table.create_body([&](scroll_pane& label){
-								label.set_overlay_bar(true);
-								label.set_style();
-								label.create([&](label_v2& l){
-									l.set_expand_policy(layout::expand_policy::prefer);
-									l.set_fit(false);
-									l.set_text(test_text);
+
+
+							table.create_body([](drag_split& inner){
+								inner.set_expand_policy(layout::expand_policy::passive);
+								inner.set_layout_policy(layout::layout_policy::hori_major);
+								inner.create_head([](scroll_pane& label){
+									label.set_style();
+									label.create([](label_v2& l){
+										l.set_expand_policy(layout::expand_policy::prefer);
+										l.set_fit(false);
+										l.set_typesetting_config(typesetting::layout_config{
+												.direction = typesetting::layout_direction::rtl,
+												.throughout_scale = 1.75f
+											});
+										l.set_text(test_text);
+									});
+								});
+								inner.create_body([](scroll_pane& label){
+									label.set_layout_policy(layout::layout_policy::vert_major);
+									label.set_overlay_bar(true);
+									label.set_style();
+									label.create([&](label_v2& l){
+										l.set_expand_policy(layout::expand_policy::prefer);
+										l.set_fit(false);
+										l.set_typesetting_config(typesetting::layout_config{
+												.direction = typesetting::layout_direction::btt
+											});
+										l.set_text(test_text);
+									});
 								});
 							});
 						});

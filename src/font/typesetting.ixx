@@ -96,6 +96,7 @@ export struct layout_config{
 	math::optional_vec2<float> default_font_size{math::nullopt_vec2<float>};
 	linefeed line_feed_type;
 	content_alignment align = content_alignment::start;
+	float throughout_scale = 1.f;
 	float tab_scale = 4.f;
 	float line_spacing_scale = 1.5f;
 	float line_spacing_fixed_distance = 0.f;
@@ -670,7 +671,7 @@ private:
 		hb_buffer_set_direction(hb_buffer_.get(), state_.target_hb_dir);
 
 		hb_buffer_guess_segment_properties(hb_buffer_.get());
-		const auto req_size_vec = state_.rich_text_context_.get_size(state_.default_font_size);
+		const auto req_size_vec = (state_.rich_text_context_.get_size(state_.default_font_size) * config.throughout_scale).max({1, 1});
 		const auto snapped_size = get_snapped_size_vec(req_size_vec);
 		const math::vec2 run_scale_factor = req_size_vec / snapped_size.as<float>();
 

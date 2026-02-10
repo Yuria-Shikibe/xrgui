@@ -313,6 +313,7 @@ struct rich_text_token_argument{
 		switch(s2i(name)){
 		case s2i("off") : return args.empty() ? tokens{fallback_offset{}} : parse_set_offset(args);
 
+		case s2i("s") :[[fallthrough]];
 		case s2i("sz") :[[fallthrough]];
 		case s2i("size") : return args.empty() ? tokens{fallback_size{}} : parse_set_size(args);
 
@@ -492,7 +493,7 @@ public:
 		history_offset_.clear();
 		history_font_.clear();
 		history_color_.clear();
-		history_font_.clear();
+		history_size_.clear();
 		history_feature_group_count_.clear();
 		enables_underline_ = false;
 	}

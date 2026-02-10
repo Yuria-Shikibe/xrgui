@@ -394,45 +394,28 @@ struct line_draw
 
     [ForceInline]
     float2 calculate_vert_nor(float2 posL, float2 posC, float2 posR) {
-        // 1. 获取方向向量
         let dirL = posC - posL;
         let dirR = posR - posC;
 
         // 2. 计算垂直法向 (旋转 90 度)
+        // 如果是端点，dirL 或 dirR 至少有一个为 0
         let nL = float2(-dirL.y, dirL.x);
         let nR = float2(-dirR.y, dirR.x);
 
-        // 3. 归一化 (使用 max 防止除以 0，保持无分支)
-        let nL_u = nL * rsqrt(max(dot(nL, nL), 1e-6f));
-        let nR_u = nR * rsqrt(max(dot(nR, nR), 1e-6f));
+        // 3. 归一化 (加上极小值防止除以 0)
+        // 即使在端点，只要线段长度不为 0，n_sum 归一化后就是正确的端点法向
+        let nL_u = nL * rsqrt(max(dot(nL, nL), 0.00001f));
+        let nR_u = nR * rsqrt(max(dot(nR, nR), 0.00001f));
 
-        // 4. 计算 Miter 方向和投影系数 k
-        // miter_dir 是角平分线方向 (未归一化)
+        // 4. Miter Join 核心逻辑
         let miter_dir = nL_u + nR_u;
 
-        // k = dot(nL, nR) + 1. 范围 [0, 2].
-        // 2.0 = 直线 (180度), 0.0 = 掉头 (0度/360度)
+        // 计算投影长度的倒数: 1 / cos(theta)
+        // 使用 max 防止夹角为 180 度时除以 0
         let k = dot(miter_dir, nL_u);
+        var inv_k = rcp(max(k, 0.0001f));
 
-        // 5. 计算标准的 Miter 向量
-        // 加上 epsilon 防止除零 (当 k=0 时 miter_vec 的值不重要，因为会被 lerp 掉，但不能是 Inf/NaN)
-        let miter_vec = miter_dir * rcp(max(k, 1e-6f));
-
-        // 6. 设定 Miter Limit 阈值
-        // Miter Length = sqrt(2/k).
-        // 比如 Limit = 4.0 (尖角长度是线宽的4倍), 则 k_limit = 2 / (4*4) = 0.125
-        const float k_limit = 0.125f;
-        const float k_smooth_range = 0.1f; // 混合过渡区域的大小
-
-        // 7. 计算混合权重 (Branchless)
-        // 当 k < k_limit 时 (太尖), weight -> 0.
-        // 当 k > k_limit + range 时 (够平), weight -> 1.
-        let is_safe = smoothstep(k_limit, k_limit + k_smooth_range, k);
-
-        // 8. 混合输出
-        // 在尖角处平滑过渡到 nL_u (表现为 Bevel Join / 平头连接)
-        // nL_u 在 180 度掉头时提供了稳定的宽度偏移
-        return lerp(nL_u, miter_vec, is_safe);
+        return miter_dir * inv_k;
     }
 
     [ForceInline]
