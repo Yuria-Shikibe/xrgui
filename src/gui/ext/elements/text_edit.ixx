@@ -809,7 +809,7 @@ public:
 		}
 	}
 
-	edit_string_prov_node& set_as_string_prov(react_flow::propagate_behavior propagate_type = react_flow::propagate_behavior::pulse){
+	edit_string_prov_node& set_as_string_prov(react_flow::propagate_type propagate_type = react_flow::propagate_type::pulse){
 		if(!string_prov_node_){
 			string_prov_node_ = &get_scene().request_react_node<edit_string_prov_node>(*this, propagate_type);
 			string_prov_node_->update_value(get_text());

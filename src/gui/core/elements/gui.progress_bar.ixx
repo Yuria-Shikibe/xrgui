@@ -126,7 +126,7 @@ struct progress_bar_terminal final : react_flow::terminal<float>{
 	}
 
 protected:
-	void on_update(const float& data) override;
+	void on_update(react_flow::data_pass_t<float> data) override;
 };
 
 struct progress_bar : elem{
@@ -167,7 +167,7 @@ public:
 	}
 };
 
-void progress_bar_terminal::on_update(const float& data){
+void progress_bar_terminal::on_update(react_flow::data_pass_t<float> data){
 	target->progress.set_target(data);
 }
 

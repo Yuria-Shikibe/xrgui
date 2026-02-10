@@ -1,14 +1,20 @@
-includes("external/**/xmake.lua");
 
 local current_dir = os.scriptdir()
+
+option("spec_mo_yanxi_utility_path")
+    -- 在检测前执行脚本域逻辑
+    before_check(function (option)
+        os.setenv("MO_YANXI_UTILITY_PATH", path.join(current_dir, "./external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"));
+    end)
+option_end()
+
+includes("external/**/xmake.lua");
 
 add_rules("mode.debug", "mode.release")
 set_arch("x64")
 set_encodings("utf-8")
 set_project("xrgui")
 set_symbols("debug")
-
-set_config("spec_mo_yanxi_utility_path", path.join(current_dir, "./external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"))
 
 if is_plat("windows") then
     add_vectorexts("avx", "avx2")
@@ -47,6 +53,7 @@ function set_xrgui_deps()
 
     add_deps("mo_yanxi.utility")
     add_deps("mo_yanxi.vulkan_wrapper")
+    add_deps("mo_yanxi.react_flow")
 
     add_packages("msdfgen", {public = true})
     add_packages("freetype", {public = true})

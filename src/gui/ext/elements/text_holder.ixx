@@ -150,13 +150,19 @@ protected:
 	}
 };
 
+/*
 export
 template <typename LayoutType, typename Param>
-struct glyph_layout_node : react_flow::modifier_transient<exclusive_glyph_layout<LayoutType>, std::string, Param>{
+struct glyph_layout_node : react_flow::async_node<
+		react_flow::descriptor<exclusive_glyph_layout<LayoutType>>,
+		react_flow::descriptor<std::string, {true}, std::string_view>,
+		react_flow::descriptor<Param>>{
 	using layout_type = LayoutType;
 
 private:
-	using base_type = react_flow::modifier_transient<exclusive_glyph_layout<LayoutType>, std::string, Param>;
+	using base_type = react_flow::async_node<react_flow::descriptor<exclusive_glyph_layout<LayoutType>>,
+		react_flow::descriptor<std::string, {true}, std::string_view>,
+		react_flow::descriptor<Param>>;
 
 	std::atomic_uint current_idx_{0};
 	LayoutType layout_[2]{};
@@ -211,5 +217,6 @@ protected:
 	 	return this->operator()(stop_token, std::string{str}, Param(policy));
 	 }
 };
+*/
 
 }

@@ -127,11 +127,11 @@ private:
 
 public:
 	[[nodiscard]] explicit check_box_receiver(check_box& check_box)
-	: terminal(react_flow::propagate_behavior::eager), check_box_(&check_box){
+	: terminal(react_flow::propagate_type::eager), check_box_(&check_box){
 	}
 
 protected:
-	void on_update(const std::size_t& data) override;
+	void on_update(react_flow::data_pass_t<std::size_t> data) override;
 };
 
 struct check_box : image_frame{
@@ -161,7 +161,7 @@ public:
 	}
 
 	node_provider_type& request_provider(){
-		return request_and_cache_node(&check_box::node_prov_, react_flow::propagate_behavior::eager);
+		return request_and_cache_node(&check_box::node_prov_, react_flow::propagate_type::eager);
 	}
 
 	node_terminal_type& request_terminal(){
@@ -185,7 +185,7 @@ protected:
 	}
 };
 
-void check_box_receiver::on_update(const std::size_t& data){
+void check_box_receiver::on_update(react_flow::data_pass_t<std::size_t> data){
 	this->check_box_->set_index(data);
 }
 

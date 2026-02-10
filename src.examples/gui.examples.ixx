@@ -36,19 +36,6 @@ import mo_yanxi.backend.vulkan.context;
 
 import std;
 
-struct format_node : mo_yanxi::react_flow::modifier_transient<std::string, mo_yanxi::react_flow::stoa_result<int>, std::string_view, mo_yanxi::math::vec2>{
-	[[nodiscard]] format_node() = default;
-
-protected:
-	std::optional<std::string> operator()(
-		const std::stop_token& stop_token,
-		const mo_yanxi::react_flow::stoa_result<int>& arth,
-		const std::string_view& p1,
-		const mo_yanxi::math::vector2<float>& p2) override{
-		return std::format("T2A:{}, {}/{}", to_string(arth), p1, p2);
-	}
-};
-
 namespace mo_yanxi::gui::example{
 
 
@@ -78,7 +65,7 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 	e->set_fill_parent({true, true});
 	auto& mroot = static_cast<scaling_stack&>(root.insert(0, std::move(e)));
 
-	auto& node_layout = scene.request_independent_react_node<label_layout_node>();
+	/*auto& node_layout = scene.request_independent_react_node<label_layout_node>();
 	auto& node_format = scene.request_independent_react_node<format_node>();
 	auto& node_stoint = scene.request_independent_react_node<react_flow::string_to_arth<int, std::string_view>>();
 	auto& node_proj_x = scene.request_independent_react_node(react_flow::make_transformer(react_flow::async_type::none, [](math::vec2 v){
@@ -424,6 +411,7 @@ Edge Cases:
 			creator(scroll_pane);
 		});
 	}
+	*/
 
 }
 }

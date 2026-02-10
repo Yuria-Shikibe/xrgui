@@ -46,7 +46,7 @@ struct sync_label_terminal : react_flow::terminal<std::string>{
 	}
 
 protected:
-	void on_update(const std::string& data) override;
+	void on_update(react_flow::data_pass_t<std::string> data) override;
 };
 
 
@@ -264,6 +264,7 @@ protected:
 	void draw_text() const;
 };
 
+/*
 export struct async_label;
 
 
@@ -466,5 +467,5 @@ protected:
 		return to_result(cur);
 	}
 
-};
+};*/
 }
