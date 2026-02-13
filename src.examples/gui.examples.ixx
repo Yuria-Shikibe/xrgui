@@ -65,17 +65,17 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 	e->set_fill_parent({true, true});
 	auto& mroot = static_cast<scaling_stack&>(root.insert(0, std::move(e)));
 
-	/*auto& node_layout = scene.request_independent_react_node<label_layout_node>();
-	auto& node_format = scene.request_independent_react_node<format_node>();
-	auto& node_stoint = scene.request_independent_react_node<react_flow::string_to_arth<int, std::string_view>>();
-	auto& node_proj_x = scene.request_independent_react_node(react_flow::make_transformer(react_flow::async_type::none, [](math::vec2 v){
-		return v.x;
-	}));
+	// auto& node_layout = scene.request_independent_react_node<label_layout_node>();
+	// auto& node_format = scene.request_independent_react_node<format_node>();
+	// auto& node_stoint = scene.request_independent_react_node<react_flow::string_to_arth<int, std::string_view>>();
+	// auto& node_proj_x = scene.request_independent_react_node(react_flow::make_transformer(react_flow::async_type::none, [](math::vec2 v){
+	// 	return v.x;
+	// }));
 
 	auto make_create_table = [&]{
 		using function_signature = void(scroll_pane&);
 		std::vector<std::function<function_signature>> creators{
-				[&](scroll_pane& pane){
+				/*[&](scroll_pane& pane){
 					pane.create([&](sequence& sequence){
 						sequence.template_cell.set_pad({4, 4});
 
@@ -114,7 +114,7 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 							react_flow::connect_chain({&nd, &node_stoint, &node_format});
 						}).cell().set_pending();
 					});
-				},
+				},*/
 				[&](scroll_pane& pane){
 					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create([](sequence& sequence){
@@ -211,7 +211,7 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 						}
 					});
 				},
-				[](scroll_pane& pane){
+				/*[](scroll_pane& pane){
 					pane.create([](table& table){
 						table.set_expand_policy(layout::expand_policy::prefer);
 						table.set_entire_align(align::pos::center);
@@ -250,7 +250,7 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 							table.end_line();
 						}
 					});
-				},
+				},*/
 				[](scroll_pane& pane){
 					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create(
@@ -339,7 +339,7 @@ Edge Cases:
 								inner.create_body([](scroll_pane& label){
 									label.set_overlay_bar(true);
 									label.set_layout_policy(layout::layout_policy::vert_major);
-									label.set_style();
+									// label.set_style();
 									label.create([&](label_v2& l){
 										l.set_expand_policy(layout::expand_policy::prefer);
 										l.set_fit(false);
@@ -411,7 +411,6 @@ Edge Cases:
 			creator(scroll_pane);
 		});
 	}
-	*/
 
 }
 }

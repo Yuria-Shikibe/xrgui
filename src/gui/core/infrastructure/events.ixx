@@ -20,6 +20,8 @@ struct click{
 	math::vec2 pos;
 	key_set key;
 
+	math::vec2 get_content_pos(const elem& elem) const noexcept;
+
 	bool within_elem(const elem& elem, float margin = 0) const noexcept;
 };
 

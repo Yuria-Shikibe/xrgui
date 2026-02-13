@@ -25,7 +25,7 @@ import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.gui.gfx_config;
 
-import mo_yanxi.gui.fringe;
+import mo_yanxi.gui.draw.fringe;
 
 import mo_yanxi.math.rand;
 
@@ -38,6 +38,60 @@ import mo_yanxi.typesetting;
 import mo_yanxi.typesetting.util;
 import mo_yanxi.typesetting.rich_text;
 
+template <std::size_t Stride, typename Tup, typename Proj, std::size_t Offset = 0>
+using tuple_stride_t = decltype([]{
+	static_assert(Stride > 0);
+	static constexpr auto total = std::tuple_size_v<Tup>;
+	static constexpr auto count_raw = total / Stride;
+	static constexpr auto count = Offset < (total - count_raw * Stride) ? count_raw + 1 : count_raw;
+	return []<std::size_t ...Idx>(std::index_sequence<Idx...>){
+		return std::type_identity<std::tuple<std::invoke_result_t<Proj, std::tuple_element_t<Idx * Stride + Offset, Tup>>...>>{};
+	}(std::make_index_sequence<count>{});
+}())::type;
+
+template <typename FWIT, typename ...Args>
+auto copy_classify(FWIT begin, FWIT end, Args&& ...args){
+	static_assert(sizeof...(Args) & 1);
+	using ParamTup = std::tuple<Args&&...>;
+	using IteratorFwdTup = tuple_stride_t<2, ParamTup, std::identity, 1>;
+	using PredFwdTup = tuple_stride_t<2, ParamTup, decltype([](auto&& decay) -> auto {return decay;})>;
+
+	auto forward = std::forward_as_tuple(std::forward<Args>(args)...);
+	auto pred_tup = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
+		return PredFwdTup{std::get<Idx * 2>(std::move(forward)) ...};
+	}(std::make_index_sequence<std::tuple_size_v<PredFwdTup>>{});
+
+	auto iter_tup = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
+		return IteratorFwdTup{std::get<Idx * 2 + 1>(std::move(forward)) ...};
+	}(std::make_index_sequence<std::tuple_size_v<IteratorFwdTup>>{});
+
+	auto write = []<typename OutputItr, typename Val>(OutputItr& itr, Val&& input){
+		*itr = std::forward<Val>(input);
+		++itr;
+	};
+
+	auto cur = begin;
+	while(cur != end){
+		auto&& value = *cur;
+		bool any = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
+			return ([&]<std::size_t I>(){
+				auto&& pred = std::get<I>(pred_tup);
+				if(pred(value)){
+					std::get<I>(pred_tup) = iter_tup;
+					write(std::get<I>(pred_tup), std::forward<decltype(value)>(value));
+					return true;
+				}
+				return false;
+			}.template operator()<Idx>() || ...);
+		}(std::make_index_sequence<std::tuple_size_v<PredFwdTup>>{});
+		if(!any){
+			write(std::get<std::tuple_size_v<PredFwdTup>>(pred_tup), std::forward<decltype(value)>(value));
+		}
+		++cur;
+	}
+
+	return iter_tup;
+}
 
 void app_run(
 	mo_yanxi::backend::vulkan::context& ctx,

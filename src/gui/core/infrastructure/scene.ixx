@@ -264,6 +264,9 @@ protected:
 		mo_yanxi::make_allocate_aware_unique<react_flow::manager>(mr::heap_allocator<react_flow::manager>{get_heap()})
 	};
 
+	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> cursor_event_active_elems_{};
+
+	//TODO own node_pointer instead?
 	std::unordered_multimap<
 		const elem*, react_flow::node*,
 		std::hash<const elem*>, std::equal_to<const elem*>,
@@ -520,6 +523,8 @@ private:
 	void swap_focus(elem* newFocus);
 
 	void drop_(const elem* target) noexcept;
+
+	void update_elem_cursor_state_(float delta_in_tick) noexcept;
 
 	void notify_isolated_layout_update(elem* element){
 		independent_layouts_.get_bak().insert(element);

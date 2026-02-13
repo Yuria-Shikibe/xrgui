@@ -108,8 +108,10 @@ public:
 	bool update(float delta_in_ticks) override{
 		if(!elem::update(delta_in_ticks))return false;
 
+		if(!update_flag.is_children_update_required())return true;
+
 		for(auto& item : items){
-			item->update(delta_in_ticks);
+			if(item->update_flag.is_update_required())item->update(delta_in_ticks);
 		}
 		return true;
 	}
@@ -132,21 +134,27 @@ public:
 protected:
 	template <std::derived_from<elem> E, typename... Args>
 		requires (std::constructible_from<E, scene&, elem*, Args...>)
-	E& emplace(bool as_content, Args&&... args){
-		items[as_content] = elem_ptr{get_scene(), this, std::in_place_type<E>, std::forward<Args>(args)...};
+	E& emplace(bool as_body, Args&&... args){
+		if(items[as_body]){
+			clear_children_update_required(items[as_body].get());
+		}
+		items[as_body] = elem_ptr{get_scene(), this, std::in_place_type<E>, std::forward<Args>(args)...};
 		notify_isolated_layout_changed();
-		return static_cast<E&>(*items[as_content]);
+		return static_cast<E&>(*items[as_body]);
 	}
 
 	template <invocable_elem_init_func Fn, typename... Args>
 	auto& create(
-		bool as_content,
+		bool as_body,
 		Fn&& init,
 		Args&&... args
 	){
-		items[as_content] = elem_ptr{get_scene(), this, std::forward<Fn>(init), std::forward<Args>(args)...};
+		if(items[as_body]){
+			clear_children_update_required(items[as_body].get());
+		}
+		items[as_body] = elem_ptr{get_scene(), this, std::forward<Fn>(init), std::forward<Args>(args)...};
 		notify_isolated_layout_changed();
-		return static_cast<elem_init_func_create_t<Fn>&>(*items[as_content]);
+		return static_cast<elem_init_func_create_t<Fn>&>(*items[as_body]);
 	}
 
 	template <std::derived_from<elem> E, typename... Args>

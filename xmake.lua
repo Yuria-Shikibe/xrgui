@@ -1,14 +1,10 @@
 
 local current_dir = os.scriptdir()
 
-option("spec_mo_yanxi_utility_path")
-    -- 在检测前执行脚本域逻辑
-    before_check(function (option)
-        os.setenv("MO_YANXI_UTILITY_PATH", path.join(current_dir, "./external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"));
-    end)
-option_end()
+set_config("spec_mo_yanxi_utility_path", path.join(current_dir, "./external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"))
 
 includes("external/**/xmake.lua");
+
 
 add_rules("mode.debug", "mode.release")
 set_arch("x64")
@@ -42,6 +38,7 @@ add_requires("nanosvg")
 add_requires("spirv-reflect")
 add_requires("clipper2")
 add_requires("mimalloc v2.2.4")
+
 add_requires("glfw")
 
 add_requires("simdutf", {optional = true})

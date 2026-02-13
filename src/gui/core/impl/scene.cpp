@@ -18,6 +18,8 @@ scene& scene::operator=(scene&& other) noexcept{
 
 void scene::update(double delta_in_tick){
 	react_flow_->update();
+	update_elem_cursor_state_(delta_in_tick);
+
 	tooltip_manager_.update(delta_in_tick, get_cursor_pos(), is_mouse_pressed());
 	overlay_manager_.update(delta_in_tick);
 
@@ -120,6 +122,7 @@ void scene::on_unicode_input(char32_t val) const{
 
 void scene::on_scroll(const math::vec2 scroll) const{
 	events::scroll e{scroll, inputs_.main_binds.get_mode()};
+	//TODO provide cursor position?
 
 	auto rng = get_inbounds();
 	if(focus_scroll_){
@@ -191,11 +194,13 @@ void scene::update_cursor(){
 	if(!focus_cursor_) return;
 
 	const auto rng = get_inbounds();
-	const auto cursor_transformed = util::transform_from_root_to_current(rng, get_cursor_pos());
+	const auto cursor_transform_delta = util::transform_scene2local(rng, {});
+	const auto cursor_transformed = get_cursor_pos() + cursor_transform_delta;
+
 	for(const auto& [i, state] : mouse_states_ | std::views::enumerate){
 		if(!state.pressed) continue;
 
-		auto src = util::transform_from_root_to_current(rng, state.src);
+		auto src = state.src + cursor_transform_delta;
 		auto dst = cursor_transformed;
 		const auto mode = inputs_.main_binds.get_mode();
 		events::key_set key{static_cast<std::uint16_t>(i), input_handle::act::ignore, mode};
@@ -203,8 +208,9 @@ void scene::update_cursor(){
 		auto cur = rng.rbegin();
 		while(cur != rng.rend()){
 			if((*cur)->on_drag({src, dst, key}) != events::op_afterwards::intercepted){
-				src = (*cur)->transform_from_children(src);
-				dst = (*cur)->transform_from_children(dst);
+				const auto delta = util::transform_current2parent(**cur, {});
+				src += delta;
+				dst += delta;
 				++cur;
 			}else{
 				break;
@@ -213,7 +219,7 @@ void scene::update_cursor(){
 	}
 
 	focus_cursor_->on_cursor_moved(
-		events::cursor_move{.src = util::transform_from_root_to_current(rng, inputs_.last_cursor_pos()), .dst = cursor_transformed});
+		events::cursor_move{.src = inputs_.last_cursor_pos() + cursor_transform_delta, .dst = cursor_transformed});
 }
 
 events::op_afterwards scene::on_esc(){
@@ -273,6 +279,7 @@ void scene::update_inbounds(){
 
 	for(; itr != backend.end(); ++itr){
 		(*itr)->on_inbound_changed(true, true);
+		cursor_event_active_elems_.insert(*itr);
 	}
 
 	inbounds_.swap();
@@ -291,14 +298,14 @@ void scene::update_mouse_state(const input_handle::key_set k){
 
 	if(focus_cursor_){
 		const auto rng = get_inbounds();
-		const auto pos = util::transform_from_root_to_current(rng, get_cursor_pos());
+		const auto pos = util::transform_scene2local(rng, get_cursor_pos());
 		events::click e{pos, k};
 
 		auto cur = rng.rbegin();
 		while(cur != rng.rend()){
 			const std::span aboves{cur.base(), rng.end()};
 			if((*cur)->on_click(e, aboves) != events::op_afterwards::intercepted){
-				e.pos = (*cur)->transform_from_children(e.pos);
+				e.pos = util::transform_current2parent(**cur, e.pos);
 				++cur;
 			}else{
 				break;
@@ -358,12 +365,27 @@ void scene::swap_focus(elem* newFocus){
 void scene::drop_(const elem* target) noexcept{
 	drop_elem_nodes(target);
 	drop_event_focus(target);
+	std::erase(inbounds_.get_bak(), target);
 	std::erase(inbounds_.get_cur(), target);
 	// asyncTaskOwners.erase(const_cast<elem*>(target));
+	cursor_event_active_elems_.erase(const_cast<elem*>(target));
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
 	layer_altitude_record_.erase(target->get_altitude());
 	// erase_independent_draw(target);
 	// erase_direct_access({}, target);
 	// tooltipManager.requestDrop(*target);
 }
+
+void scene::update_elem_cursor_state_(float delta_in_tick) noexcept{
+	cursor_event_active_elems_.modify_and_erase([=](elem* e){
+		e->cursor_states_.update(delta_in_tick);
+
+		if(e->cursor_states_.focused){
+			tooltip_manager_.try_append_tooltip(*e, false);
+		}
+
+		return e->cursor_states_.check_update_exitable();
+	});
+}
+
 }

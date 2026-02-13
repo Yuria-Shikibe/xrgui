@@ -173,7 +173,9 @@ public:
 		if(!basic_group::update(delta_in_ticks))return false;
 
 		if(has_smooth_pos_animation_){
-			update_children_src(delta_in_ticks);
+			if(auto done = !update_children_src(delta_in_ticks)){
+				set_update_disabled(update_channel::position);
+			}
 		}
 
 		return true;
@@ -291,7 +293,11 @@ public:
 
 	void set_has_smooth_pos_animation(const bool has_smooth_pos_animation){
 		if(util::try_modify(has_smooth_pos_animation_, has_smooth_pos_animation)){
-			if(!has_smooth_pos_animation)notify_isolated_layout_changed();
+			if(!has_smooth_pos_animation){
+				notify_isolated_layout_changed();
+			}else{
+				set_update_required(update_channel::position);
+			}
 		}
 	}
 
@@ -303,16 +309,25 @@ protected:
 	void on_element_add(elem& adaptor) const final{
 	}
 
-	void update_children_src(float delta){
+	bool update_children_src(float delta){
 		auto speed = .5f * delta;
+
+		bool any_changed = false;
 		for (auto && cell : cells_){
-			cell.cell.update_relative_src(*cell.element, content_src_pos_abs(), speed);
+			any_changed = cell.cell.update_relative_src(*cell.element, content_src_pos_abs(), speed) || any_changed;
 		}
+
+		return any_changed;
 	}
-	void update_children_src_instantly(){
+
+	bool update_children_src_instantly(){
+		bool any_changed = false;
+
 		for (auto && cell : cells_){
-			cell.cell.update_relative_src(*cell.element, content_src_pos_abs());
+			any_changed = cell.cell.update_relative_src(*cell.element, content_src_pos_abs()) || any_changed;
 		}
+
+		return any_changed;
 	}
 
 };

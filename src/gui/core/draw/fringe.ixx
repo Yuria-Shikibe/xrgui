@@ -2,7 +2,7 @@ module;
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.gui.fringe;
+export module mo_yanxi.gui.draw.fringe;
 
 export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.graphic.draw.instruction;
@@ -12,7 +12,7 @@ import mo_yanxi.byte_pool;
 import std;
 
 
-namespace mo_yanxi::gui::fringe{
+namespace mo_yanxi::gui::fx::fringe{
 using namespace mo_yanxi::graphic::draw;
 
 template <std::floating_point T>
@@ -184,45 +184,50 @@ FORCE_INLINE void curve_with_cap(
         }
     }
 }
+
+template <typename T>
+concept container_buffer = requires(T& t, std::size_t sz){
+	t.resize(sz);
+	requires std::ranges::contiguous_range<T>;
+	requires std::ranges::sized_range<T>;
+};
+
 export
-template <typename Alloc>
+template <container_buffer Buffer>
 struct line_context{
 private:
-	// 使用 byte_borrow 管理生命周期和内存
-	byte_borrow<graphic::draw::instruction::line_node, Alloc> buf_{};
-
-	// 叉积累加，用于判断顺逆时针
-	float area_sum_{};
+	Buffer buf_{};
 
 public:
 	[[nodiscard]] line_context() = default;
 
-	// 需要 pool 来进行内存分配
-	[[nodiscard]] explicit(false) line_context(byte_pool<Alloc>& pool)
-		: buf_(pool.template borrow<instruction::line_node>(0)){
+	[[nodiscard]] explicit(false) line_context(Buffer&& buf)
+		: buf_(std::move(buf)){
 	}
 
+	[[nodiscard]] explicit(false) line_context(const Buffer& buf)
+		: buf_(std::move(buf)){
+	}
+
+	template <typename ...Args>
+		requires (std::constructible_from<Buffer, Args&&...>)
+	[[nodiscard]] explicit(false) line_context(std::in_place_type_t<Buffer>, Args&& ...args)
+		: buf_(std::forward<Args>(args)...){
+	}
+
+	FORCE_INLINE void clear() noexcept{
+		resize(0);
+	}
 
 	FORCE_INLINE void push(const instruction::line_node& node){
-		// 确保有空间
 		const auto current_idx = size();
-		// acquire_new 会处理容量检查、扩容和数据迁移
-		// 注意：根据上一轮的修复，这里传入的是需要的元素总数
-		buf_.resize(current_idx + 1);
+		resize(current_idx + 1);
 
-		if (current_idx > 0) {
-			// 实时累加当前线段的叉积贡献
-			// Cross product: x1*y2 - x2*y1
-			const auto& last = data()[current_idx - 1].pos;
-			area_sum_ += last.cross(node.pos);
-		}
-
-		// 写入新数据
 		data()[current_idx] = node;
 	}
 
 	FORCE_INLINE std::span<const instruction::line_node> get_nodes() const noexcept{
-		return buf_.get().to_span();
+		return buf_;
 	}
 
 	FORCE_INLINE void push(const math::vec2 pos, float stroke, graphic::color color){
@@ -240,7 +245,7 @@ public:
 	FORCE_INLINE instruction::line_node& add_cap_src(float stroke){
 		const auto sz = size();
 		// 确保有两个额外的空间
-		buf_.resize(sz + 2);
+		resize(sz + 2);
 
 		auto* ptr = data();
 		// 移动现有数据腾出头部两个位置: [0...N] -> [2...N+2]
@@ -255,7 +260,7 @@ public:
 
 	FORCE_INLINE instruction::line_node& add_cap_dst(float stroke){
 		const auto sz = size();
-		buf_.resize(sz + 2);
+		resize(sz + 2);
 
 		auto* ptr = data();
 		// 尾部增加不需要移动数据，直接计算
@@ -268,7 +273,7 @@ public:
 	FORCE_INLINE math::section<instruction::line_node&> add_cap(float cap_src, float cap_dst) noexcept {
 		const auto sz = size();
 		// 确保有四个额外的空间
-		buf_.resize(sz + 4);
+		resize(sz + 4);
 
 		auto* ptr = data();
 
@@ -337,15 +342,15 @@ public:
 	}
 
 	FORCE_INLINE std::size_t size() const noexcept{
-		return buf_.get().size();
+		return std::ranges::size(buf_);
 	}
 
 	FORCE_INLINE instruction::line_node* data() noexcept{
-		return buf_.data();
+		return std::ranges::data(buf_);
 	}
 
 	FORCE_INLINE const instruction::line_node* data() const noexcept{
-		return buf_.data();
+		return std::ranges::data(buf_);
 	}
 
 	FORCE_INLINE auto& front(this auto& self) noexcept{
@@ -376,51 +381,23 @@ private:
 	// 通用的 Fringe 处理逻辑
 	template<typename HeadType>
 	FORCE_INLINE void dump_fringe_impl(renderer_frontend& renderer, const HeadType& head, float stroke, bool is_inner) {
+		assert(data() != nullptr);
 
-		// 1. 从 Pool 借用临时缓冲区 (Copy on write)
-		// 只需要当前大小的空间
-		// owner_ 可能为空吗？如果 buf_ 是默认构造的，owner_ 是 nullptr。
-		// 这里假设 line_context 初始化正确。
-		assert(buf_.data() != nullptr); // 确保有数据才 dump
+		const auto element_count = size();
+		resize(element_count * 2);
 
-		// 通过 owner 借用新块
-		// 这是一个RAII对象，函数结束自动归还
-		// 注意：我们需要 byte_pool 的指针。buf_ 有 owner_ 指针。
-		// 这里假设 byte_borrow 暴露了 owner_ 或者我们可以通过某种方式访问。
-		// 查看 byte_borrow 定义，owner_ 是私有的，也没有 get_owner()。
-		// 但 line_context 在 byte_pool 模块的友元列表中吗？不是。
-		// *修正*: byte_borrow 在 byte_pool.ixx 中定义，我们这里是 fringe.ixx。
-		// 我们无法直接访问 owner_。
-		// *解决方案*: 我们必须依赖 buf_.acquire_new 的行为吗？不行，那是修改自己。
-		// 我们必须在 line_context 中存储 byte_pool 的引用或指针吗？
-		// 为了不改变太多结构，我们可以利用 byte_borrow 的 move 语义或者假设 buf_ 提供了某种 clone 机制？
-		// 既然无法访问 owner_，我们只能假设 line_context 持有 pool 引用，或者
-		// 我们得改 byte_borrow 增加 get_owner()。
-		// 鉴于不能改 byte_pool 定义（假设），我们这里在 Ctor 中必须保存 pool 指针吗？
-		// 查看 context: byte_borrow 的 owner_ 是 private 的。
-		// 但是！ `byte_buffer` 声明了 `byte_borrow` 为友元。`byte_borrow` 没有声明 `line_context` 为友元。
-		// *HACK*: 让我们假设 line_context 可以保存一个 byte_pool 指针。
-		// 我将在类成员中添加 `byte_pool<Alloc>* pool_{};`
-
-
-		// 借用临时 buffer
-		auto temp_borrow = buf_.owner().borrow<instruction::line_node>(size() * sizeof(instruction::line_node));
-
-		// 拷贝数据
-		auto src_span = get_nodes();
-		auto dst_ptr = temp_borrow.data();
-		std::ranges::copy(src_span, dst_ptr);
+		auto dat = data();
+		std::ranges::copy_n(dat, element_count, dat + element_count);
 
 		// 修改数据
-		const auto sz = size();
-		for(std::size_t i=0; i<sz; ++i) {
-			const auto& src = src_span[i];
-			auto& dst = dst_ptr[i];
+		for(std::size_t i = 0; i < element_count; ++i){
+			const auto& src = dat[i];
+			auto& dst = dat[i + element_count];
 
-			if (is_inner) {
+			if(is_inner){
 				dst.offset = src.offset - (src.stroke + stroke) * .5f;
 				dst.color.from = dst.color.to.make_transparent();
-			} else {
+			} else{
 				dst.offset = src.offset + (src.stroke + stroke) * .5f;
 				dst.color.to = dst.color.from.make_transparent();
 			}
@@ -428,7 +405,8 @@ private:
 		}
 
 		// 提交
-		renderer.push(head, std::span{dst_ptr, sz});
+		renderer.push(head, std::span{dat + element_count, element_count});
+		resize(element_count);
 	}
 
 	instruction::line_node& patch_cap_src(math::vec2 mov) noexcept{
@@ -440,23 +418,8 @@ private:
 		return ptr[1];
 	}
 
-	// base_idx 是未添加 cap 前的原始大小（或者是数据的末尾索引）
-	// patch_cap_dst 实际上是在末尾追加两个点，基于原末尾点计算
 	instruction::line_node& patch_cap_dst(math::vec2 mov, std::size_t base_idx) noexcept{
 		auto* ptr = data();
-		// base_idx 是新数据的起始位置（即原数组的 size）
-		// 我们需要基于 ptr[base_idx - 1] (原最后一个点) 来生成
-		// ptr[base_idx] 和 ptr[base_idx + 1]
-
-		// 注意：原代码逻辑是
-		// buffer_[count_ - 2] = buffer_[count_ - 3];
-		// buffer_[count_ - 1] = buffer_[count_ - 2];
-		// 这里 count_ 已经是 +2 之后的大小了。
-
-		// 对应到现在：
-		// current total size = base_idx + 2
-		// target indices: base_idx, base_idx + 1
-		// source index: base_idx - 1
 
 		ptr[base_idx] = ptr[base_idx - 1];
 		ptr[base_idx].pos += mov;
@@ -467,15 +430,9 @@ private:
 		return ptr[base_idx];
 	}
 
-	template <bool closed>
-	[[nodiscard]] FORCE_INLINE bool is_ccw() const noexcept {
-		float final_area = area_sum_;
-		if (closed && !empty()) {
-			final_area += back().pos.cross(front().pos);
-		}
-		return final_area > 0.0f;
+	void resize(std::size_t size){
+		buf_.resize(size);
 	}
-
 };
 
 

@@ -1,4 +1,5 @@
 module mo_yanxi.gui.elem.collapser;
+import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
 
@@ -21,6 +22,7 @@ void collapser::update_collapse(float delta) noexcept{
 			}
 		}else{
 			expand_reload_ = 0;
+			set_update_disabled(update_channel::layout);
 		}
 		break;
 	}
@@ -33,6 +35,7 @@ void collapser::update_collapse(float delta) noexcept{
 			expand_reload_ = 0.f;
 			state_ = collapser_state::expanded;
 			if(update_opacity_during_expand_)body().update_context_opacity(get_draw_opacity());
+			set_update_disabled(update_channel::layout);
 		}else if(update_opacity_during_expand_){
 			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
 		}
@@ -57,6 +60,7 @@ void collapser::update_collapse(float delta) noexcept{
 			}
 		}else{
 			expand_reload_ = 0;
+			set_update_disabled(update_channel::layout);
 		}
 		break;
 	}
@@ -68,6 +72,7 @@ void collapser::update_collapse(float delta) noexcept{
 		if(expand_reload_ == 0.f){
 			state_ = collapser_state::un_expand;
 			if(update_opacity_during_expand_)body().update_context_opacity(0);
+			set_update_disabled(update_channel::layout);
 		}else if(update_opacity_during_expand_){
 			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
 		}
@@ -112,18 +117,21 @@ events::op_afterwards collapser::on_click(const events::click event, std::span<e
 		if((!aboves.empty() && aboves.front() == items[0].get())){
 			if(event.key.action == input_handle::act::release){
 				clicked_ = !clicked_;
+				set_update_required(update_channel::layout);
 			}
 			return events::op_afterwards::intercepted;
 		} else if(head().contains(event.pos)){
 			cursor_states_.update_press(event.key);
 			if(event.key.action == input_handle::act::release){
 				clicked_ = !clicked_;
+				set_update_required(update_channel::layout);
 			}
 			return events::op_afterwards::intercepted;
 		}
 
 		return events::op_afterwards::fall_through;
 	}else{
+		set_update_required(update_channel::layout);
 		return elem::on_click(event, aboves);
 	}
 
@@ -136,6 +144,17 @@ void collapser::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t 
 	const auto space = content_bound_abs().intersection_with(clipSpace);
 
 	head().try_draw_layer(space, param);
+
+	if(true){
+		auto region = get_expand_region();
+		renderer().push(graphic::draw::instruction::rect_aabb_outline{
+			.v00 = region.vert_00(),
+			.v11 = region.vert_11(),
+			.stroke = {3},
+			.vert_color = {graphic::colors::GOLD.copy_set_a(.4f)}
+		});
+
+	}
 
 	switch(state_){
 	case collapser_state::un_expand : break;

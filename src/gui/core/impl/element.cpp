@@ -2,9 +2,19 @@ module;
 
 #include <cassert>
 
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#include <beman/inplace_vector.hpp>
+#endif
+
 module mo_yanxi.gui.infrastructure;
 
 import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.gui.draw.compound;
+import mo_yanxi.gui.draw.fringe;
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <beman/inplace_vector.hpp>;
+#endif
 
 namespace mo_yanxi::gui{
 void style::debug_elem_drawer::draw_layer_impl(const elem& element, math::frect region, float opacityScl,
@@ -30,6 +40,7 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 	});
 
 	using namespace graphic;
+	using namespace graphic::draw::instruction;
 	color c = colors::gray;
 	/*if(element.cursor_state().pressed){
 		c = colors::aqua;
@@ -53,18 +64,55 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 	};
 
 	auto vcb = vc;
-	vcb *= graphic::color{.1, .1, .1, 1};
+	vcb *= color{.1, .1, .1, 1};
 
 
 	region.shrink(1.f);
-	element.get_scene().renderer().push(draw::instruction::rect_aabb_outline{
+	element.get_scene().renderer().push(rect_aabb_outline{
 			.v00 = region.vert_00(),
 			.v11 = region.vert_11(),
 			.stroke = {2},
 			.vert_color = {vc}
 		});
 
+	if(element.cursor_state().inbound){
+		auto pos = util::transform_scene2local(element, element.get_scene().get_cursor_pos());
+		auto pos_abs = pos + element.pos_abs();
 
+		auto hit_region = rect{pos_abs, 5 + util::get_nest_depth(&element) * 9.f};
+
+		element.get_scene().renderer().push(rect_aabb_outline{
+			.v00 = hit_region.vert_00(),
+			.v11 = hit_region.vert_11(),
+			.stroke = {2},
+			.vert_color = colors::LIME.copy().set_a(.8f)
+		});
+
+		auto seg = math::rect::get_closest_vertex_pair(region, hit_region);
+
+		fx::fringe::line_context ctx{std::in_place_type<beman::inplace_vector::inplace_vector<line_node, 12>>};
+
+		fx::compound::dash_line(seg, {8.0, 6.0, 24.0, 6.0}, [&](math::section<math::vec2> s){
+			ctx.push(s.from, 1, colors::LIME.copy().set_a(.8f));
+			ctx.push(s.to, 1, colors::LIME.copy().set_a(.8f));
+			static constexpr float stroke = .5f;
+			ctx.add_fringe_cap(stroke, stroke);
+			ctx.dump_fringe_inner(element.renderer(), line_segments{}, stroke);
+			ctx.dump_fringe_outer(element.renderer(), line_segments{}, stroke);
+			ctx.dump_mid(element.renderer(), line_segments{});
+			ctx.clear();
+		});
+	}
+
+	if(element.update_flag.is_self_update_required()){
+		element.renderer().push(poly_partial{
+			.pos = region.vert_00() ,
+			.segments = 4,
+			.radius = {3, 5},
+			.range = {static_cast<float>(element.get_scene().get_current_time() / 60.f), 1},
+			.color = {colors::aqua}
+		});
+	}
 }
 
 void style::debug_elem_drawer::draw_background(const elem& element, math::frect region, float opacityScl) const{
@@ -84,8 +132,8 @@ tooltip::align_config elem::tooltip_get_align_config() const{
 		};
 	switch(tooltip_create_config.layout_info.follow){
 	case tooltip::anchor_type::owner :{
-		auto pos = align::get_vert(tooltip_create_config.layout_info.attach_point_spawner, bound_rel());
-		pos = util::transform_from_current_to_root(parent(), pos);
+		auto pos = align::get_vert(tooltip_create_config.layout_info.attach_point_spawner, extent());
+		pos = util::transform_local2scene(*this, pos);
 		cfg.pos = pos;
 		break;
 	}
@@ -96,11 +144,7 @@ tooltip::align_config elem::tooltip_get_align_config() const{
 }
 
 bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
-	//TODO transform from root
-
-
-	return contains(util::transform_from_root_to_current(parent(), cursorPos));
-
+	return rect{extent()}.contains_loose(util::transform_scene2local(*this, cursorPos));
 }
 
 void elem::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
@@ -108,14 +152,8 @@ void elem::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param
 }
 
 bool elem::update(float delta_in_ticks){
-	cursor_states_.update(delta_in_ticks);
 
 	if(sleep)return false;
-
-	if(cursor_states_.focused){
-		//TODO dependent above?
-		get_scene().tooltip_manager_.try_append_tooltip(*this, false);
-	}
 
 	for(float actionDelta = delta_in_ticks; !actions.empty();){
 		const auto& current = actions.front();
@@ -173,7 +211,7 @@ bool elem::update_abs_src(math::vec2 parent_content_src) noexcept{
 
 bool elem::contains(const math::vec2 pos_relative) const noexcept{
 	return bound_rel().contains_loose(pos_relative) &&
-		(!parent() || parent()->parent_contain_constrain(parent()->transform_from_children(pos_relative)));
+		(!parent() || parent()->parent_contain_constrain(parent()->transform_from_content_space(pos_relative)));
 }
 
 bool elem::contains_self(const math::vec2 pos_relative, const float margin) const noexcept{
@@ -181,7 +219,7 @@ bool elem::contains_self(const math::vec2 pos_relative, const float margin) cons
 }
 
 bool elem::parent_contain_constrain(const math::vec2 pos_relative) const noexcept{
-	return (!parent() || parent()->parent_contain_constrain(parent()->transform_from_children(pos_relative)));
+	return (!parent() || parent()->parent_contain_constrain(parent()->transform_from_content_space(pos_relative)));
 }
 
 bool elem::is_focused_scroll() const noexcept{

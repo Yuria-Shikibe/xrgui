@@ -21,6 +21,7 @@ import :events;
 import :scene;
 import :tooltip_interface;
 import :type_def;
+import :update_flag;
 
 export import :elem_ptr;
 
@@ -150,6 +151,16 @@ struct cursor_states{
 		}
 	}
 
+	bool check_update_exitable() const noexcept{
+		if(inbound || focused || pressed)return false;
+		if(time_inbound > 0.f)return false;
+		if(time_focus > 0.f) [[unlikely]] return false;
+		if(time_stagnate > 0.f) [[unlikely]] return false;
+		if(time_pressed > 0.f) [[unlikely]] return false;
+		if(time_tooltip > 0.f) [[unlikely]] return false;
+		return true;
+	}
+
 	[[nodiscard]] float get_factor_of(float cursor_states::* mptr) const noexcept{
 		return this->*mptr / maximum_duration;
 	}
@@ -198,6 +209,8 @@ protected:
 public:
 	bool invisible{};
 	bool sleep{};
+
+	update_flag update_flag{};
 
 	// bool is_transparent_in_inbound_filter{};
 
@@ -400,6 +413,38 @@ public:
 
 	virtual bool update(float delta_in_ticks);
 
+protected:
+	void propagate_update_requirement_since_self(bool required){
+		auto last = this;
+		auto cur = parent();
+		update_requirement_set_result cur_rst{true, required};
+		while(cur){
+			if((cur_rst = cur->update_flag.set_child_mark_update_changed(last, cur_rst.is_required()))){
+				last = cur;
+				cur = cur->parent();
+			}else{
+				break;
+			}
+		}
+	}
+
+	void clear_children_update_required( elem* children_of_self) noexcept{
+		if(children_of_self->update_flag.is_update_required()){
+			if(const auto rst = update_flag.set_child_mark_update_changed(children_of_self, false)){
+				propagate_update_requirement_since_self(rst.is_required());
+			}
+		}
+	}
+public:
+	void set_update_required(update_channel channel, update_channel mask = update_channel{~0U}) noexcept{
+		if(const auto rst = update_flag.set_self_update_required(channel, mask)){
+			propagate_update_requirement_since_self(rst.is_required());
+		}
+	}
+	void set_update_disabled(update_channel channel) noexcept{
+		set_update_required({}, channel);
+	}
+
 	void clear_scene_references() noexcept;
 	void clear_scene_references_recursively() noexcept{
 		clear_scene_references();
@@ -543,11 +588,11 @@ public:
 
 #pragma region Transform
 public:
-	[[nodiscard]] virtual math::vec2 transform_to_children(math::vec2 where_relative_in_parent) const noexcept{
+	[[nodiscard]] virtual math::vec2 transform_to_content_space(math::vec2 where_relative_in_parent) const noexcept{
 		return where_relative_in_parent - content_src_offset() - relative_pos_;
 	}
 
-	[[nodiscard]] virtual math::vec2 transform_from_children(math::vec2 where_relative_in_child) const noexcept{
+	[[nodiscard]] virtual math::vec2 transform_from_content_space(math::vec2 where_relative_in_child) const noexcept{
 		return where_relative_in_child + content_src_offset() + relative_pos_;
 	}
 
@@ -630,6 +675,10 @@ public:
 		auto rst = std::exchange(parent_, parent);
 		update_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
 		return rst;
+	}
+
+	[[nodiscard]] FORCE_INLINE inline renderer_frontend& renderer() const noexcept{
+		return get_scene().renderer();
 	}
 
 	[[nodiscard]] FORCE_INLINE inline scene& get_scene() const noexcept{
@@ -719,17 +768,19 @@ public:
 		return pos_rel() + content_src_offset();
 	}
 
-	FORCE_INLINE inline void set_rel_pos(math::vec2 p) noexcept{
-		relative_pos_ = p;
+	FORCE_INLINE inline bool set_rel_pos(math::vec2 p) noexcept{
+		return util::try_modify(relative_pos_, p);
 	}
 
-	FORCE_INLINE inline void set_rel_pos(math::vec2 p, float lerp_alpha) noexcept{
-		if(lerp_alpha <= 0)return;
+	FORCE_INLINE inline bool set_rel_pos(math::vec2 p, float lerp_alpha) noexcept{
+		if(lerp_alpha <= 0)return false;
 		const auto approch = p - relative_pos_;
 		if(approch.is_zero(std::numeric_limits<float>::epsilon() * 16) || lerp_alpha >= 1.f){
 			relative_pos_ = p;
+			return false;
 		}else{
 			relative_pos_ = math::fma(approch, lerp_alpha, relative_pos_);
+			return true;
 		}
 	}
 
@@ -879,8 +930,7 @@ void dfs_record_inbound_element(
 
 	if(current->touch_blocked() || !current->has_children()) return;
 
-	//TODO transform?
-	auto transformed = current->transform_to_children(cursorPos);
+	auto transformed = current->transform_to_content_space(cursorPos);
 
 	for(const auto& child : current->children()/* | std::views::reverse*/){
 		if(!child->is_visible())continue;
@@ -940,67 +990,130 @@ bool set_fill_parent(
 }
 
 export
-[[nodiscard]] math::vec2 transform_from_root_to_current(const elem& where, math::vec2 inPos) noexcept{
-	return where.transform_to_children([&]{
-		if(auto p = where.parent()){
-			return transform_from_root_to_current(*p, inPos);
-		} else{
-			return inPos;
-		}
-	}());
-}
-
-/**
- *
- * @param where target element
- * @param inPos position in scene space
- * @return position in target CONTENT space
- */
-export
-[[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(const elem* where, math::vec2 inPos) noexcept{
-	if(!where) return inPos;
-	return where->transform_to_children(transform_from_root_to_current(where->parent(), inPos));
-}
-
-
-/**
- *
- * @param where target element
- * @param inPos position in target CONTENT space
- * @return position in scene space
- */
-export
-[[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(std::span<const elem* const> range, math::vec2 inPos) noexcept{
-	for (auto elem : range){
-		assert(elem);
-		inPos = elem->transform_to_children(inPos);
-	}
-	return inPos;
-}
-
-export
-[[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_current_to_root(const elem* where, math::vec2 pos_in_children) noexcept{
+unsigned inline get_nest_depth(const elem* where) noexcept{
+	unsigned cur{};
 	while(where){
-		pos_in_children = where->transform_from_children(pos_in_children);
 		where = where->parent();
+		cur++;
 	}
-	return pos_in_children;
+	return cur;
+}
+
+math::vec2 inline helper_transform_scene2content(const elem* where, math::vec2 inPos) noexcept{
+	if(where){
+		return where->transform_to_content_space(helper_transform_scene2content(where->parent(), inPos));
+	}else{
+		return inPos;
+	}
 }
 
 export
-[[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_current_to_root(std::span<const elem* const> range, math::vec2 inPos) noexcept{
-	for (auto elem : range){
-		assert(elem);
-		inPos = elem->transform_from_children(inPos);
+[[nodiscard]] math::vec2 inline transform_scene2local(const elem& where, math::vec2 inPos) noexcept{
+	const auto position_in_current_relative_space = helper_transform_scene2content(where.parent(), inPos);
+	return position_in_current_relative_space - where.pos_rel();
+}
+
+export
+[[nodiscard]] math::vec2 inline transform_scene2local(std::span<const elem* const> elems, math::vec2 inPos) noexcept{
+	auto cur = elems.begin();
+	const auto end = elems.end();
+	if(cur == end) return inPos;
+	const auto prev = --elems.end();
+
+	math::vec2 pos = inPos;
+	for(; cur != prev; ++cur){
+		pos = (*cur)->transform_to_content_space(pos);
 	}
+
+	return pos - (*cur)->pos_rel();
+}
+export
+[[nodiscard]] math::vec2 inline transform_local2scene(const elem& where, math::vec2 inPos) noexcept{
+	inPos += where.pos_rel();
+
+	auto parent = where.parent();
+	while(parent){
+		inPos = parent->transform_from_content_space(inPos);
+		parent = parent->parent();
+	}
+
 	return inPos;
 }
+
+export
+[[nodiscard]] math::vec2 inline transform_current2parent(const elem& where, math::vec2 pos_in_local_space) noexcept{
+	pos_in_local_space += where.pos_rel();
+	if(auto p = where.parent()){
+		pos_in_local_space = p->transform_from_content_space(pos_in_local_space) - p->pos_rel();
+	}
+
+	return pos_in_local_space;
+}
+
+// export
+// [[nodiscard]] math::vec2 inline transform_from_root_to_current(const elem& where, math::vec2 inPos) noexcept{
+// 	return where.transform_to_content_space([&]{
+// 		if(auto p = where.parent()){
+// 			return transform_from_root_to_current(*p, inPos);
+// 		} else{
+// 			return inPos;
+// 		}
+// 	}());
+// }
+//
+// /**
+//  *
+//  * @param where target element
+//  * @param inPos position in scene space
+//  * @return position in target CONTENT space
+//  */
+// export
+// [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(const elem* where, math::vec2 inPos) noexcept{
+// 	if(!where) return inPos;
+// 	return where->transform_to_content_space(transform_from_root_to_current(where->parent(), inPos));
+// }
+//
+//
+// /**
+//  *
+//  * @param where target element
+//  * @param inPos position in scene space
+//  * @return position in target CONTENT space
+//  */
+// export
+// [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(std::span<const elem* const> range, math::vec2 inPos) noexcept{
+// 	for (auto elem : range){
+// 		assert(elem);
+// 		inPos = elem->transform_to_content_space(inPos);
+// 	}
+// 	return inPos;
+// }
+//
+// export
+// [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_current_to_root(const elem* where, math::vec2 pos_in_children) noexcept{
+// 	while(where){
+// 		pos_in_children = where->transform_from_content_space(pos_in_children);
+// 		where = where->parent();
+// 	}
+// 	return pos_in_children;
+// }
+//
+// export
+// [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_current_to_root(std::span<const elem* const> range, math::vec2 inPos) noexcept{
+// 	for (auto elem : range){
+// 		assert(elem);
+// 		inPos = elem->transform_from_content_space(inPos);
+// 	}
+// 	return inPos;
+// }
 
 events::op_afterwards thoroughly_esc(elem* where) noexcept;
 
 FORCE_INLINE inline events::op_afterwards thoroughly_esc(elem& where) noexcept{
 	return thoroughly_esc(std::addressof(where));
 }
+
+
 }
 
 export
@@ -1044,8 +1157,12 @@ void elem_ptr::delete_elem(elem* ptr) noexcept{
 
 
 namespace mo_yanxi::gui::events{
+math::vec2 click::get_content_pos(const elem& elem) const noexcept{
+	return pos - elem.content_src_offset();
+}
+
 bool click::within_elem(const elem& elem, float margin) const noexcept{
-	auto p = pos + elem.content_src_offset();
+	auto p = pos;
 	p.x += margin;
 	p.y += margin;
 	return p.axis_greater(0, 0) && p.axis_less(elem.extent().add(margin * 2));

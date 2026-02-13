@@ -21,8 +21,17 @@ protected:
 	mr::heap_vector<elem_ptr> children_{get_heap_allocator<elem_ptr>()};
 
 	void update_children(const float delta_in_ticks) const{
-		for(const auto& element : children_){
-			element->update(delta_in_ticks);
+		if(!update_flag.is_children_update_required())return;
+
+		if(update_flag.is_cache_holdable()){
+			update_flag.get_marked().for_each([&](elem* element){
+				element->update(delta_in_ticks);
+			});
+		}else{
+			for(const auto& element : children_){
+				if(!element->update_flag.is_update_required())continue;
+				element->update(delta_in_ticks);
+			}
 		}
 	}
 
@@ -49,9 +58,16 @@ public:
 	}
 
 #pragma region Erase
+private:
+
+public:
 	virtual void clear(){
 		expired_.clear();
 		children_.clear();
+		if(auto rst = update_flag.clear_children_update_requirement()){
+			propagate_update_requirement_since_self(rst.is_required());
+		}
+
 		notify_layout_changed_on_element_change();
 	}
 
@@ -59,6 +75,7 @@ public:
 		assert(where < children().size());
 
 		const auto itr = children_.begin() + where;
+		clear_children_update_required(itr->get());
 		expired_.push_back(std::move(*itr));
 		children_.erase(itr);
 
@@ -69,7 +86,9 @@ public:
 		assert(where < children().size());
 
 		const auto itr = children_.begin() + where;
+		clear_children_update_required(itr->get());
 		children_.erase(itr);
+
 		notify_layout_changed_on_element_change();
 	}
 

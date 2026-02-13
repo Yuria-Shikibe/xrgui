@@ -56,7 +56,7 @@ public:
 		const auto cursorlocal = event.src;
 		const auto region = get_seperator_region_contnet_local();
 
-		if(!region.contains_loose(cursorlocal))return events::op_afterwards::fall_through;
+		if(!region.contains_loose(cursorlocal - content_src_offset()))return events::op_afterwards::fall_through;
 
 		auto [major_p, minor_p] = layout::get_vec_ptr(get_layout_policy());
 		auto offset_in_minor = event.delta().*minor_p;
@@ -71,7 +71,7 @@ public:
 		head_body::draw_layer(clipSpace, param);
 		if(param == 0){
 			auto region = get_seperator_region_contnet_local();
-			auto cursorlocal = util::transform_from_root_to_current(this, get_scene().get_cursor_pos());
+			auto cursorlocal = util::transform_scene2local(*this, get_scene().get_cursor_pos()) - content_src_offset();
 			auto color = region.contains_loose(cursorlocal) ? graphic::colors::pale_green : graphic::colors::YELLOW;
 			region.move(content_src_pos_abs());
 

@@ -279,7 +279,7 @@ public:
 			drag_src_ = bar.get_temp_progress();
 
 			if(mode == input_handle::mode::ctrl){
-				const auto move = (event.pos - content_src_pos_rel() - get_progress() * content_extent()) /
+				const auto move = (event.get_content_pos(*this) - get_progress() * content_extent()) /
 					content_extent();
 				bar.move_progress(move * sensitivity.sign_or_zero());
 				if(!smooth_jump_)check_apply();

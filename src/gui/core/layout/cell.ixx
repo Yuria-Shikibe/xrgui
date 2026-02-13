@@ -78,14 +78,16 @@ namespace mo_yanxi::gui::layout{
 			elem.try_layout();
 		}
 
-		void update_relative_src(elem& elem, math::vec2 parent_content_src) const{
-			elem.set_rel_pos(get_relative_src(allocated_region.extent()));
-			elem.update_abs_src(parent_content_src);
+		bool update_relative_src(elem& elem, math::vec2 parent_content_src) const{
+			const auto r1 = elem.set_rel_pos(get_relative_src(allocated_region.extent()));
+			const auto r2 = elem.update_abs_src(parent_content_src);
+			return r1 || r2;
 		}
 
-		void update_relative_src(elem& elem, math::vec2 parent_content_src, float lerp_alpha) const{
-			elem.set_rel_pos(get_relative_src(allocated_region.extent()), lerp_alpha);
-			elem.update_abs_src(parent_content_src);
+		bool update_relative_src(elem& elem, math::vec2 parent_content_src, float lerp_alpha) const{
+			const auto r1 = elem.set_rel_pos(get_relative_src(allocated_region.extent()), lerp_alpha);
+			const auto r2 = elem.update_abs_src(parent_content_src);
+			return r1 || r2;
 		}
 
 	};

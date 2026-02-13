@@ -127,6 +127,16 @@ protected:
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override;
 
+	void on_inbound_changed(bool is_inbounded, bool changed) override{
+		two_segment_elem::on_inbound_changed(is_inbounded, changed);
+		if(changed && expand_cond_ == collapser_expand_cond::inbound)set_update_required(update_channel::layout);
+	}
+
+	void on_focus_changed(bool is_focused) override{
+		two_segment_elem::on_focus_changed(is_focused);
+		if(expand_cond_ == collapser_expand_cond::focus)set_update_required(update_channel::layout);
+	}
+
 	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override;
 
 

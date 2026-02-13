@@ -27,6 +27,7 @@ XRGUI(mo_yanXi's Retaine mode GUI)是一个**每帧重绘和更新**的带有**�
 * [ ] 更多基础控件和布局
 * [ ] 更多基于事件的操作
 * [ ] 支持非硬编码的Key Mapping
+* [ ] 视情况实现按需重绘和更新
 
 ### Extension
 * [ ] 提供基于HB的平凡字体排版

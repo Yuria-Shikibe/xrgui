@@ -420,8 +420,12 @@ public:
 		viewports_.pop_back();
 	}
 
-	void push_scissor(const scissor_raw& scissor_in_screen_space){
-		top_viewport().push_scissor(scissor_in_screen_space);
+	void push_scissor(scissor_raw scissor_in_layer_space){
+		auto& vp = top_viewport();
+
+		scissor_in_layer_space.uniform(vp.get_element_to_root_screen());
+
+		top_viewport().push_scissor(scissor_in_layer_space);
 	}
 
 	void pop_scissor() noexcept {
