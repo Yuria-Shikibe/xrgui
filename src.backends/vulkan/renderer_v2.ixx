@@ -69,7 +69,7 @@ private:
 	vk::command_seq<> command_seq_draw_{};
 	vk::command_seq<> command_seq_blit_{};
 
-	//TODO optimize the fence
+
 	struct frame_data {
 		vk::fence fence{};
 		vk::command_buffer main_command_buffer{};
@@ -124,18 +124,7 @@ public:
 			VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 		, sampler_(create_info.sampler){
 
-		for(std::size_t i = 0; i < frames_in_flight; ++i){
-			frames_[i] = frame_data(allocator_usage_.get_device(), create_info.command_pool);
-		}
-
-		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{allocator_usage_.get_device(), create_info.command_pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY};
-
 		cache_attachment_enter_mark_.resize(attachment_manager_.get_draw_attachments().size());
-
-
-		blit_pipeline_manager_ = compute_pipeline_manager( allocator_usage_, create_info.blit_pipe_config);
-
-
         initialize_frames(create_info.command_pool);
         initialize_blit_resources(create_info);
     }
@@ -190,9 +179,7 @@ public:
         return gui::renderer_frontend{table, table_non_vertex, {
             *this,
             [](renderer& r, auto h, const std::byte* d) static { return r.batch_host.push_instr(h, d); },
-            [](renderer&) static {},
-        	[](renderer&) static {},
-            [](renderer& r, auto cfg, auto f, auto p) static { r.batch_host.push_state(cfg, f, p); }
+            [](renderer& r, auto cfg, auto f, auto ecfg, auto p) static { r.batch_host.push_state(cfg, f, ecfg, p); }
         }};
     }
 
@@ -291,8 +278,8 @@ private:
         auto& pc = draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
         pc.pipeline.bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-        struct { std::uint32_t flag; } push{ std::to_underlying(arg.mode) };
-        vkCmdPushConstants(cmd, pc.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        // struct { std::uint32_t flag; } push{ std::to_underlying(arg.mode) };
+        // vkCmdPushConstants(cmd, pc.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
 
         const VkRect2D area = attachment_manager_.get_screen_area();
         vk::cmd::set_viewport(cmd, area);

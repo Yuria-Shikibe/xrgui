@@ -3,15 +3,11 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
-#if __has_include(<vulkan/vulkan.h>)
-#include <vulkan/vulkan.h>
-#define BACKEND_HAS_VULKAN
-#endif
 
 
 export module mo_yanxi.graphic.draw.instruction.batch.common;
 
-import mo_yanxi.graphic.draw.instruction.general;
+export import mo_yanxi.graphic.draw.instruction.general;
 
 import std;
 
@@ -28,96 +24,6 @@ struct dispatch_group_info{
 	std::uint32_t primitive_offset;
 	std::uint32_t primitive_count;
 };
-
-
-/**
- * @brief All flag < 0 is reserved for builtin usage.
- */
-export
-using state_transition_entry_flag_t = std::int32_t;
-
-export
-enum struct builtin_transition_flag : state_transition_entry_flag_t{
-	push_constant
-};
-
-export
-constexpr builtin_transition_flag make_builtin_flag_from(state_transition_entry_flag_t flag) noexcept{
-	assert(flag < 0);
-	return builtin_transition_flag{flag & (~(1 << (sizeof(state_transition_entry_flag_t) * 8 - 1)))};
-}
-
-
-export
-constexpr state_transition_entry_flag_t make_builtin_flag_from(builtin_transition_flag flag) noexcept{
-	return std::to_underlying(flag) | (1 << (sizeof(state_transition_entry_flag_t) * 8 - 1));
-}
-
-#ifdef BACKEND_HAS_VULKAN
-export
-struct push_constant_config_vulkan{
-	VkShaderStageFlags  stage_flags;
-	std::uint32_t       device_offset;
-};
-#endif
-
-export
-union push_constant_config{
-#ifdef BACKEND_HAS_VULKAN
-	push_constant_config_vulkan vk;
-#endif
-
-};
-
-export
-union entry_config{
-	push_constant_config push_constant;
-	std::array<std::byte, 8> user_data;
-};
-
-
-export
-struct state_transition_entry{
-	state_transition_entry_flag_t flag;
-	entry_config config;
-
-	std::span<const std::byte> data;
-
-	template <typename T>
-		requires (std::is_trivially_copyable_v<T>)
-	const T& as() const noexcept{
-		assert(sizeof(T) == data.size());
-		return *reinterpret_cast<const T*>(data.data());
-	}
-
-	constexpr bool is_builtin() const noexcept{
-		return flag < 0;
-	}
-
-#ifdef BACKEND_HAS_VULKAN
-	void cmd_push(VkCommandBuffer cmdbuf, VkPipelineLayout layout) const{
-		assert(make_builtin_flag_from(flag) == builtin_transition_flag::push_constant);
-		vkCmdPushConstants(cmdbuf, layout, config.push_constant.vk.stage_flags, config.push_constant.vk.device_offset,
-			data.size(), data.data());
-	}
-
-
-	constexpr bool process_builtin(VkCommandBuffer cmdbuf, VkPipelineLayout layout) const{
-		if(!is_builtin())return false;
-
-		switch(make_builtin_flag_from(flag)){
-		case builtin_transition_flag::push_constant:
-			cmd_push(cmdbuf, layout);
-		default: std::unreachable();
-		}
-
-		return true;
-	}
-
-#endif
-
-};
-
 
 export
 struct state_transition_config{
@@ -169,22 +75,6 @@ public:
 	void push(state_transition_entry_flag_t flag, entry_config config, const T& payload){
 		this->push(flag, config, std::span{reinterpret_cast<const std::byte*>(std::addressof(payload)), sizeof(T)});
 	}
-
-	void push(state_transition_entry_flag_t flag, std::span<const std::byte> payload){
-		push(flag, {.user_data = {}}, payload);
-	}
-
-	template <typename T>
-		requires (std::is_trivially_copyable_v<T>)
-	void push(state_transition_entry_flag_t flag, const T& payload){
-		this->push(flag, {.user_data = {}}, std::span{reinterpret_cast<const std::byte*>(std::addressof(payload)), sizeof(T)});
-	}
-
-
-	void push_constant(push_constant_config config, std::span<const std::byte> payload){
-		push(make_builtin_flag_from(builtin_transition_flag::push_constant), {.push_constant = config}, payload);
-	}
-
 
 	void append(const state_transition_config& other){
 		clear_draw_after_break = clear_draw_after_break || other.clear_draw_after_break;

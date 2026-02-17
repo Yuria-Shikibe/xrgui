@@ -436,7 +436,7 @@ public:
 		return dynamic_image_view_history_.get<T>();
 	}
 
-	void push_state(state_push_config config, std::uint32_t flag, std::span<const std::byte> payload){
+	void push_state(state_push_config config, state_transition_entry_flag_t flag, entry_config entry_cfx, std::span<const std::byte> payload){
 		switch(config.target){
 		case state_push_target::immediate :{
 			//TODO pending check
@@ -452,15 +452,15 @@ public:
 				breakpoint = &submit_transitions_.back();
 			}
 
-			breakpoint->config.push(flag, payload);
+			breakpoint->config.push(flag, entry_cfx, payload);
 			break;
 		}
 		case state_push_target::defer_pre :{
-			defer_transition_config_front_.push(flag, payload);
+			defer_transition_config_front_.push(flag, entry_cfx, payload);
 			break;
 		}
 		case state_push_target::defer_post :{
-			defer_transition_config_back_.push(flag, payload);
+			defer_transition_config_back_.push(flag, entry_cfx, payload);
 			break;
 		}
 		default : std::unreachable();

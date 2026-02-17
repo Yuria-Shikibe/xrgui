@@ -9,6 +9,7 @@ export import mo_yanxi.gui.fx.config;
 
 
 export import mo_yanxi.graphic.draw.instruction.general;
+export import mo_yanxi.graphic.draw.instruction.batch.common;
 export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.gui.alloc;
@@ -266,6 +267,7 @@ public:
 
 		batch_backend_interface_.update_state(config,
 			flag,
+			{},
 			std::span{
 				reinterpret_cast<const std::byte*>(std::addressof(instr)),
 				sizeof(Instr)
@@ -291,10 +293,18 @@ public:
 
 		return true;
 	}
-	//
-	// void push_instr(const std::span<const std::byte> raw_instr) const{
-	// 	// batch_backend_interface_.push(raw_instr);
-	// }
+
+	void push_constant(const graphic::draw::instruction::state_push_config& config, graphic::draw::instruction::push_constant_config push_constant_config, std::span<const std::byte> payload){
+		using namespace graphic::draw::instruction;
+		batch_backend_interface_.update_state(config, make_builtin_flag_from(builtin_transition_flag::push_constant), {.push_constant = push_constant_config}, payload);
+	}
+
+	template <typename T>
+		requires (std::is_trivially_copyable_v<T>)
+	void push_constant(const graphic::draw::instruction::state_push_config& config, graphic::draw::instruction::push_constant_config push_constant_config, const T& payload){
+		this->push_constant(config, push_constant_config, std::span{reinterpret_cast<const std::byte*>(std::addressof(payload)), sizeof(T)});
+	}
+
 
 	void resize(const math::frect region){
 		if(region_ == region)return;
@@ -308,14 +318,6 @@ public:
 
 		push(ubo_screen_info{uniform_proj_});
 		notify_viewport_changed();
-	}
-
-	void flush() const{
-		batch_backend_interface_.flush();
-	}
-
-	void consume() const{
-		batch_backend_interface_.consume_all();
 	}
 
 	void notify_viewport_changed() {

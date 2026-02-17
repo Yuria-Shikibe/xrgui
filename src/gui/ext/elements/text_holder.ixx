@@ -83,6 +83,10 @@ protected:
 		draw_instr_buffer_ = {alloc};
 	}
 
+	bool has_drawable_text() const noexcept{
+		return !draw_instr_buffer_.heads().empty();
+	}
+
 public:
 	align::pos text_entire_align{align::pos::top_left};
 

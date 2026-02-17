@@ -2,11 +2,14 @@ module;
 
 #if defined(__has_include) && __has_include(<vulkan/vulkan.h>)
 #include <vulkan/vulkan.h>
+#define BACKEND_HAS_VULKAN
 #endif
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
 export module mo_yanxi.graphic.draw.instruction.general;
+
+
 import std;
 
 import mo_yanxi.meta_programming;
@@ -441,20 +444,112 @@ FORCE_INLINE [[nodiscard]] instruction_head place_ubo_update_at(
 
 }
 
+
+/**
+ * @brief All flag < 0 is reserved for builtin usage.
+ */
+export
+using state_transition_entry_flag_t = std::int32_t;
+
+export
+enum struct builtin_transition_flag : state_transition_entry_flag_t{
+	undo_last_operation,
+	push_constant
+};
+
+export
+constexpr builtin_transition_flag make_builtin_flag_from(state_transition_entry_flag_t flag) noexcept{
+	assert(flag < 0);
+	return builtin_transition_flag{static_cast<std::int32_t>(flag & ~0U >> 1U)};
+}
+
+
+export
+constexpr state_transition_entry_flag_t make_builtin_flag_from(builtin_transition_flag flag) noexcept{
+	return static_cast<std::int32_t>(std::to_underlying(flag) | ~(~0U >> 1U));
+}
+
+
+
+#ifdef BACKEND_HAS_VULKAN
+export
+struct push_constant_config_vulkan{
+	VkShaderStageFlags  stage_flags;
+	std::uint32_t       device_offset;
+};
+#endif
+
+export
+union push_constant_config{
+	std::monostate none;
+#ifdef BACKEND_HAS_VULKAN
+	push_constant_config_vulkan vk;
+#endif
+
+};
+
+export
+union entry_config{
+	push_constant_config push_constant;
+	std::array<std::byte, 8> user_data;
+};
+
+export
+struct state_transition_entry{
+	state_transition_entry_flag_t flag;
+	entry_config config;
+
+	std::span<const std::byte> data;
+
+	template <typename T>
+		requires (std::is_trivially_copyable_v<T>)
+	const T& as() const noexcept{
+		assert(sizeof(T) == data.size());
+		return *reinterpret_cast<const T*>(data.data());
+	}
+
+	constexpr bool is_builtin() const noexcept{
+		return flag < 0;
+	}
+
+#ifdef BACKEND_HAS_VULKAN
+	void cmd_push(VkCommandBuffer cmdbuf, VkPipelineLayout layout) const{
+		assert(make_builtin_flag_from(flag) == builtin_transition_flag::push_constant);
+		vkCmdPushConstants(cmdbuf,
+			layout,
+			config.push_constant.vk.stage_flags,
+			config.push_constant.vk.device_offset,
+			data.size(), data.data());
+	}
+
+
+	constexpr bool process_builtin(VkCommandBuffer cmdbuf, VkPipelineLayout layout) const{
+		if(!is_builtin())return false;
+
+		switch(make_builtin_flag_from(flag)){
+		case builtin_transition_flag::push_constant:
+			cmd_push(cmdbuf, layout);
+		default: std::unreachable();
+		}
+
+		return true;
+	}
+
+#endif
+
+};
+
+
 export
 struct batch_backend_interface{
 	using host_impl_ptr = void*;
 
 	using function_signature_buffer_acquire = void(host_impl_ptr, instruction_head, const std::byte* payload);
-	using function_signature_consume_all = void(host_impl_ptr);
-	using function_signature_wait_idle = void(host_impl_ptr);
-	using function_signature_update_state_entry = void(host_impl_ptr, state_push_config config, std::uint32_t flag, std::span<const std::byte> payload);
+	using function_signature_update_state_entry = void(host_impl_ptr, state_push_config config, state_transition_entry_flag_t flag, entry_config entry_cfx, std::span<const std::byte> payload);
 
 private:
 	host_impl_ptr host;
 	std::add_pointer_t<function_signature_buffer_acquire> fptr_push;
-	std::add_pointer_t<function_signature_consume_all> fptr_consume;
-	std::add_pointer_t<function_signature_wait_idle> fptr_wait_idle;
 	std::add_pointer_t<function_signature_update_state_entry> state_handle;
 
 
@@ -463,24 +558,16 @@ public:
 
 	template <typename HostT,
 	std::invocable<HostT&, instruction_head, const std::byte*> AcqFn,
-	std::invocable<HostT&> ConsumeFn,
-	std::invocable<HostT&> WaitIdleFn,
-	std::invocable<HostT&, state_push_config, std::uint32_t, std::span<const std::byte>> StateHandleFn
+	std::invocable<HostT&, state_push_config, state_transition_entry_flag_t, entry_config, std::span<const std::byte>> StateHandleFn
 	>
 	[[nodiscard]] constexpr batch_backend_interface(
 		HostT& host,
 		AcqFn,
-		ConsumeFn,
-		WaitIdleFn,
 		StateHandleFn
 	) noexcept : host(std::addressof(host)), fptr_push(+[](host_impl_ptr host, instruction_head head, const std::byte* instr){
 		return AcqFn::operator()(*static_cast<HostT*>(host), head, instr);
-	}), fptr_consume(+[](host_impl_ptr host) static {
-		ConsumeFn::operator()(*static_cast<HostT*>(host));
-	}), fptr_wait_idle(+[](host_impl_ptr host) static {
-		WaitIdleFn::operator()(*static_cast<HostT*>(host));
-	}), state_handle(+[](host_impl_ptr host, state_push_config config, std::uint32_t flag, std::span<const std::byte> payload) static {
-		StateHandleFn::operator()(*static_cast<HostT*>(host), config, flag, payload);
+	}), state_handle(+[](host_impl_ptr host, state_push_config config, state_transition_entry_flag_t flag, entry_config entry_cfx, std::span<const std::byte> payload) static {
+		StateHandleFn::operator()(*static_cast<HostT*>(host), config, flag, entry_cfx, payload);
 	}){
 
 	}
@@ -500,24 +587,9 @@ public:
 		fptr_push(host, head, instr);
 	}
 
-	void consume_all() const{
-		CHECKED_ASSUME(fptr_consume != nullptr);
-		fptr_consume(host);
-	}
 
-	void wait_idle() const{
-		CHECKED_ASSUME(fptr_wait_idle != nullptr);
-		fptr_wait_idle(host);
-	}
-
-	void flush() const{
-		consume_all();
-		wait_idle();
-	}
-
-
-	void update_state(state_push_config defer, std::uint32_t index, std::span<const std::byte> payload) const{
-		state_handle(host, defer, index, payload);
+	void update_state(state_push_config defer, state_transition_entry_flag_t flag, entry_config entry_cfx, std::span<const std::byte> payload) const{
+		state_handle(host, defer, flag, entry_cfx, payload);
 	}
 
 };

@@ -141,7 +141,7 @@ enum global_draw_mode_type {
 }
 
 struct pipeline_flags {
-    uint mode_sdf;
+    uint mode;
 }
 
 [[vk::push_constant]]
@@ -156,7 +156,7 @@ FragOut main_frag(
     let no_tex = bool(primit.texture_index == ~0U);
     float4 out_color_base;
 
-    switch (global_draw_mode_type(constant_flags.mode_sdf)) {
+    switch (global_draw_mode_type(constant_flags.mode)) {
     case global_draw_mode_type::def:
         let tex_color = (no_tex ? float4(1) : textures[primit.texture_index].Sample(vtx.uv)) * vtx.color;
         out_color_base = tex_color;

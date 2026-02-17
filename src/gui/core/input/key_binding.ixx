@@ -222,9 +222,6 @@ export
 
 
     private:
-        template <typename ...Args>
-        friend struct input_managerv;
-
         std::pmr::memory_resource* memory_pool_{std::pmr::new_delete_resource()};
         sparse_pool states_{memory_pool_};
         std::pmr::vector<key_index> keys_{memory_pool_};

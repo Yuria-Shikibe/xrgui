@@ -151,7 +151,7 @@ enum struct state_type{
 };
 
 export
-enum struct draw_mode : std::uint16_t{
+enum struct draw_mode : std::uint32_t{
 	def,
 	msdf,
 

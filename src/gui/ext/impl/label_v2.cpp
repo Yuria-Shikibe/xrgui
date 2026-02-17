@@ -1,3 +1,7 @@
+module;
+
+#include <vulkan/vulkan.h>
+
 module mo_yanxi.gui.elem.label_v2;
 
 import mo_yanxi.gui.renderer.frontend;
@@ -47,6 +51,8 @@ void label_v2::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) co
 }
 
 void label_v2::draw_text() const{
+	if(!has_drawable_text())return;
+
 	math::mat3 mat;
 	math::vec2 reg_ext = get_glyph_draw_extent();
 	if(fit_){
@@ -56,52 +62,12 @@ void label_v2::draw_text() const{
 		mat.set_translation(get_glyph_src_abs());
 	}
 
-	auto& renderer = get_scene().renderer();
+	renderer().push_constant({}, {.vk = {VK_SHADER_STAGE_FRAGMENT_BIT}}, fx::draw_mode::msdf);
+
 	{
-		transform_guard _t{renderer, mat};
+		transform_guard _t{renderer(), mat};
 		push_text_draw_buffer();
 	}
 }
-//
-// void async_label_terminal::on_update(const exclusive_glyph_layout& data){
-// 	terminal<exclusive_glyph_layout>::on_update(data);
-// 	if(!data->extent().equals(label->content_extent(), 1)){
-// 		label->extent_state_ = async_label::layout_extent_state::waiting_correction;
-// 		label->notify_layout_changed(propagate_mask::local | propagate_mask::force_upper);
-// 	}else{
-// 		label->extent_state_ = async_label::layout_extent_state::valid;
-// 	}
-//
-// 	label->last_layout_extent_ = data->extent();
-// 	label->update_draw_buffer(*data);
-// }
-//
-// void label::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
-// 	draw_style(param);
-// 	if(param == 0)draw_text();
-// }
-//
-//
-// void async_label::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
-// 	draw_style(param);
-//
-// 	if(!terminal)return;
-// 	if(extent_state_ != async_label::layout_extent_state::valid)return;
-//
-// 	auto& renderer = get_scene().renderer();
-//
-// 	using namespace graphic;
-// 	using namespace graphic::draw::instruction;
-//
-// 	math::mat3 mat;
-// 	const auto reg_ext = align::embed_to(align::scale::fit, last_layout_extent_, content_extent());
-// 	mat.set_rect_transform({}, last_layout_extent_, content_src_pos_abs(), reg_ext);
-//
-// 	{
-// 		transform_guard _t{renderer, mat};
-// 		push_text_draw_buffer();
-// 	}
-// }
-
 
 }
