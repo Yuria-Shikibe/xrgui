@@ -154,7 +154,7 @@ protected:
 		return glyph_layout.get_text();
 	}
 
-	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override;
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 
 
 	bool resize_impl(const math::vec2 size) override{

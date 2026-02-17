@@ -176,7 +176,7 @@ public:
 export
 struct graphic_pipeline_option{
 	bool enables_multisample{};
-	gfx_config::render_target_mask default_target_attachments{};
+	fx::render_target_mask default_target_attachments{};
 	std::variant<std::monostate, std::vector<VkPipelineColorBlendAttachmentState>, dynamic_blending_config> blending{};
 	std::vector<descriptor_use_entry> used_descriptor_sets{};
 

@@ -4,7 +4,7 @@ import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
 void style::default_progress_drawer::draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl,
-	gfx_config::layer_param layer_param) const{
+	fx::layer_param layer_param) const{
 	if(layer_param == 0){
 		using namespace graphic;
 

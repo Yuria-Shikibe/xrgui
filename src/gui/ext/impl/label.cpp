@@ -146,7 +146,7 @@ void label::draw_text() const{
 	}
 }
 
-void label::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+void label::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
 	draw_style(param);
 	if(param == 0)draw_text();
 }

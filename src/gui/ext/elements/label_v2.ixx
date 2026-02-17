@@ -117,7 +117,7 @@ protected:
 		return raw_string_;
 	}
 
-	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override;
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 
 	bool resize_impl(const math::vec2 size) override{
 		if(elem::resize_impl(size)){

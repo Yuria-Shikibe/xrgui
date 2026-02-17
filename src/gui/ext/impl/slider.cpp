@@ -5,7 +5,7 @@ import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
 	void style::default_slider_drawer::draw_layer_impl(const slider& element, math::frect region, float opacityScl,
-		gfx_config::layer_param layer_param) const{
+		fx::layer_param layer_param) const{
 
 		const auto extent = element.get_bar_handle_extent();
 		auto pos1 = element.content_src_pos_abs() + element.bar.get_progress() * element.content_extent().fdim(extent);
@@ -47,7 +47,7 @@ void style::default_slider_drawer::draw(const slider& element, math::frect regio
 }
 
 
-void slider::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+void slider::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
 	elem::draw_layer(clipSpace, param);
 
 	draw_style(param);

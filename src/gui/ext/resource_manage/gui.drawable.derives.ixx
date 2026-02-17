@@ -60,7 +60,7 @@ using namespace graphic::draw::instruction;
 template <typename ... Components>
 void drawable_image<Components...>::draw(renderer_frontend& renderer, const math::raw_frect& region,
 	const graphic::color& color_scl) const{
-	const primitive_draw_mode mode = components;
+	const fx::primitive_draw_mode mode = components;
 	graphic::draw::quad_group<graphic::color> vcolor = components;
 	vcolor *= color_scl;
 
@@ -81,7 +81,7 @@ void drawable_image<Components...>::draw(renderer_frontend& renderer, const math
 template <typename ... Components>
 void drawable_row_patch<Components...>::draw(renderer_frontend& renderer, const math::raw_frect& region,
 	const graphic::color& color_scl) const{
-	const primitive_draw_mode mode = components;
+	const fx::primitive_draw_mode mode = components;
 	graphic::draw::quad_group<graphic::color> vcolor = components;
 	vcolor *= color_scl;
 

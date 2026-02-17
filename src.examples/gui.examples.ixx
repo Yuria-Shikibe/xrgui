@@ -42,16 +42,16 @@ namespace mo_yanxi::gui::example{
 export
 void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
 	scene.set_pass_config({
-		gfx_config::scene_render_pass_config::value_type{
+		fx::scene_render_pass_config::value_type{
 			.begin_config = {
-				.mode = draw_mode::msdf,
+				.mode = fx::draw_mode::msdf,
 				.draw_targets = 0b1,
 			},
 			.end_config = {}
 		},
 		{
 			.begin_config = {
-				.mode = draw_mode::msdf,
+				.mode = fx::draw_mode::msdf,
 				.draw_targets = 0b10,
 			},
 			.end_config = {}

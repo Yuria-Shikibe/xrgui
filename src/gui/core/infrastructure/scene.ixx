@@ -17,7 +17,7 @@ import mo_yanxi.math.rect_ortho;
 import mo_yanxi.gui.util;
 export import mo_yanxi.input_handle;
 export import mo_yanxi.gui.alloc;
-export import mo_yanxi.gui.gfx_config;
+export import mo_yanxi.gui.fx.config;
 
 export import mo_yanxi.react_flow;
 
@@ -26,7 +26,7 @@ import mo_yanxi.flat_set;
 
 namespace mo_yanxi::gui{
 
-namespace gfx_config{
+namespace fx{
 export
 struct layer_config{
 	draw_config begin_config;
@@ -298,15 +298,15 @@ protected:
 		Args&& ...args
 		);
 
-	gfx_config::scene_render_pass_config pass_config_{};
+	fx::scene_render_pass_config pass_config_{};
 
 public:
 
-	void set_pass_config(const gfx_config::scene_render_pass_config& cfg){
+	void set_pass_config(const fx::scene_render_pass_config& cfg){
 		pass_config_ = cfg;
 	}
 
-	const gfx_config::scene_render_pass_config& get_pass_config() const noexcept{
+	const fx::scene_render_pass_config& get_pass_config() const noexcept{
 		return pass_config_;
 	}
 

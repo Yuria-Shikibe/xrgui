@@ -67,7 +67,7 @@ public:
 		return events::op_afterwards::intercepted;
 	}
 
-	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override{
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		head_body::draw_layer(clipSpace, param);
 		if(param == 0){
 			auto region = get_seperator_region_contnet_local();

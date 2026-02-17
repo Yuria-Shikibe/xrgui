@@ -84,7 +84,7 @@ public:
 		// return current_frame_index_;
 	}
 
-	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override{
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		elem::draw_layer(clipSpace, param);
 		if(param == 0){
 			draw_content_impl();
@@ -210,7 +210,7 @@ public:
 		drawable_ = std::move(icon);
 	}
 
-	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override{
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		draw_style(param);
 		if(param == 0){
 			auto sz = gui::get_expected_size(drawable_, style, content_extent());

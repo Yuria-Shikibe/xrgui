@@ -137,7 +137,7 @@ protected:
 		if(expand_cond_ == collapser_expand_cond::focus)set_update_required(update_channel::layout);
 	}
 
-	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override;
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 
 
 	bool update(float delta_in_ticks) override{

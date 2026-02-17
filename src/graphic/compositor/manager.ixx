@@ -393,25 +393,78 @@ struct std::hash<mo_yanxi::graphic::compositor::pass_identity>{
 
 namespace mo_yanxi::graphic::compositor{
 export
-constexpr VkPipelineStageFlags2 deduce_stage(VkImageLayout layout) noexcept{
-	switch(layout){
-	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : return VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-	case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL :[[fallthrough]];
-	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : return VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-	case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : return VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+constexpr VkPipelineStageFlags2 deduce_stage(VkImageLayout layout) noexcept {
+	switch (layout) {
+		// 渲染目标相关
+	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+		return VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-	default : return VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+	case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
+	case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL:
+		return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+			   VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+
+		// 只读/采样相关
+	case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+	case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:
+	case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL:
+		// 通常涵盖所有着色器阶段，也可以细化为特定阶段
+		return VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+
+		// 传输相关
+	case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+	case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+		return VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+
+		// 通用/存储图像
+	case VK_IMAGE_LAYOUT_GENERAL:
+		return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+		// 呈现相关
+	case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+		return VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+
+	default:
+		return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 	}
 }
 
 export
-constexpr VkAccessFlags2 deduce_external_image_access(VkPipelineStageFlags2 stage) noexcept{
-	//TODO use bit_or to merge, instead of individual test?
-	switch(stage){
-	case VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT : return VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-	case VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT : return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-	default : return VK_ACCESS_2_NONE;
+constexpr VkAccessFlags2 deduce_access(VkImageLayout layout, VkPipelineStageFlags2 stage) noexcept {
+	switch (layout) {
+	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+		return VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+
+	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+	case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
+	case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL:
+		return VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+			   VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+	case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+		return VK_ACCESS_2_SHADER_READ_BIT;
+
+	case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+		return VK_ACCESS_2_TRANSFER_READ_BIT;
+
+	case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+		return VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+	case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+		return VK_ACCESS_2_NONE;
+
+	case VK_IMAGE_LAYOUT_GENERAL:
+		// GENERAL 布局通常用于 Storage Image 或特定硬件优化
+		if (stage & (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)) {
+			return VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+		}
+		return VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+
+	default:
+		return VK_ACCESS_2_NONE;
 	}
 }
 
@@ -1188,12 +1241,6 @@ private:
 							VkImageLayout target_layout = r.get_expected_layout_on_output();
 							VkPipelineStageFlags2 dst_stage = deduce_stage(target_layout);
 							VkAccessFlags2 dst_access = req_obj.get_access_flags(dst_stage);
-
-							// [Fix] Storage Check
-							if (dst_access & (VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) {
-								if (target_layout != VK_IMAGE_LAYOUT_GENERAL) target_layout = VK_IMAGE_LAYOUT_GENERAL;
-							}
-
 							process_barrier_or_event(identity, current_state,
 													 dst_stage, dst_access, target_layout,
 													 &r, nullptr, entity.handle.image, VK_NULL_HANDLE);
@@ -1257,7 +1304,7 @@ private:
 																   deduce_stage(target_layout),
 																   VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT);
 						VkAccessFlags2 dst_access = value_or(res.resource->dependency.dst_access,
-															 deduce_external_image_access(dst_stage),
+															 deduce_access(target_layout, dst_stage),
 															 VK_ACCESS_2_NONE);
 
 						sync.immediate_image_barriers_out.push_back({

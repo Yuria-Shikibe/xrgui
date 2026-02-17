@@ -56,8 +56,8 @@ struct base{
 		return graphic::draw::quad_group{graphic::colors::white};
 	}
 
-	[[nodiscard]] constexpr explicit(false) operator primitive_draw_mode() const noexcept  requires(!any_convertible_to<primitive_draw_mode, Ts...>){
-		return primitive_draw_mode{};
+	[[nodiscard]] constexpr explicit(false) operator fx::primitive_draw_mode() const noexcept  requires(!any_convertible_to<fx::primitive_draw_mode, Ts...>){
+		return fx::primitive_draw_mode{};
 	}
 
 };
@@ -75,9 +75,9 @@ struct EMPTY_BASE vertex_color{
 
 export
 struct EMPTY_BASE draw_mode{
-	primitive_draw_mode mode;
+	fx::primitive_draw_mode mode;
 
-	[[nodiscard]] constexpr explicit(false) operator primitive_draw_mode() const noexcept{
+	[[nodiscard]] constexpr explicit(false) operator fx::primitive_draw_mode() const noexcept{
 		return mode;
 	}
 };

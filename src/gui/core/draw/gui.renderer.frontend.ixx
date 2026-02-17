@@ -2,29 +2,32 @@ module;
 
 #include <cassert>
 #include <vulkan/vulkan.h>
-#include <mo_yanxi/enum_operator_gen.hpp>
 
 export module mo_yanxi.gui.renderer.frontend;
 
-import mo_yanxi.math.rect_ortho;
-import mo_yanxi.math.vector2;
-import mo_yanxi.math.matrix3;
+export import mo_yanxi.gui.fx.config;
+
 
 export import mo_yanxi.graphic.draw.instruction.general;
 export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.gui.alloc;
-export import mo_yanxi.gui.gfx_config;
 import mo_yanxi.type_register;
-//TODO move this to other namespace
+
 import mo_yanxi.vk.util.uniform;
 import mo_yanxi.byte_pool;
 
-import mo_yanxi.meta_programming;
 
+import mo_yanxi.math.rect_ortho;
+import mo_yanxi.math.vector2;
+import mo_yanxi.math.matrix3;
+
+import mo_yanxi.meta_programming;
 import std;
 
 namespace mo_yanxi::gui{
+
+#pragma region VBO_config
 
 struct scissor{
 	math::vec2 src{};
@@ -66,7 +69,6 @@ struct scissor_raw{
 	}
 };
 
-export
 struct layer_viewport{
 	struct transform_pair{
 		math::mat3 current;
@@ -136,7 +138,6 @@ struct layer_viewport{
 	}
 };
 
-
 struct alignas(16) ubo_screen_info{
 	using tag_vertex_only = void;
 	vk::padded_mat3 screen_to_uniform;
@@ -149,87 +150,10 @@ struct alignas(16) ubo_layer_info{
 
 };
 
-export
-template <typename T>
-constexpr inline bool is_vertex_stage_only = requires{
-	typename T::tag_vertex_only;
-};
-
-
-export
-enum struct state_type{
-	blit,
-	mode,
-	reserved_count
-};
-
-export
-enum struct draw_mode : std::uint16_t{
-	def,
-	msdf,
-
-	COUNT_or_fallback,
-};
-
-export
-enum struct blending_type : std::uint16_t{
-	alpha,
-	add,
-	reverse,
-	lock_alpha,
-	SIZE,
-};
-
-
-export
-struct draw_config{
-	draw_mode mode{};
-	blending_type blending{};
-	gfx_config::render_target_mask draw_targets{};
-	std::uint32_t pipeline_index{std::numeric_limits<std::uint32_t>::max()};
-
-	constexpr bool use_fallback_pipeline() const noexcept{
-		return pipeline_index == std::numeric_limits<std::uint32_t>::max();
-	}
-};
-
-export
-enum struct primitive_draw_mode : std::uint32_t{
-	none,
-
-	draw_slide_line = 1 << 0,
-};
-
-BITMASK_OPS(export , primitive_draw_mode);
-
-export
-template <typename T>
-struct draw_state_config_deduce{};
-
-template <typename T>
-concept draw_state_config_deduceable = requires{
-	requires std::same_as<typename draw_state_config_deduce<T>::value_type, std::uint32_t>;
-};
-
-template <>
-struct draw_state_config_deduce<gfx_config::blit_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::blit)>{
-};
-
-template <>
-struct draw_state_config_deduce<draw_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::mode)>{
-};
-
-
-export
-template <typename T>
-constexpr inline std::uint32_t draw_state_index_deduce_v = draw_state_config_deduce<T>::value;
+#pragma endregion
 
 export
 using gui_reserved_user_data_tuple = std::tuple<ubo_screen_info, ubo_layer_info>;
-
-template <typename T>
-constexpr inline graphic::draw::data_layout_table<> reserved_data_index_of{tuple_index_v<T, gui_reserved_user_data_tuple>, 0};
-
 
 export
 struct renderer_frontend{
@@ -271,7 +195,6 @@ public:
 	}
 
 	auto& top_viewport(this auto& self) noexcept{
-		assert(!self.viewports_.empty());
 		return self.viewports_.back();
 	}
 
@@ -288,7 +211,7 @@ public:
 			batch_backend_interface_.push(instruction::make_instruction_head(instr), reinterpret_cast<const std::byte*>(&instr));
 		}else{
 			static constexpr type_identity_index tidx = unstable_type_identity_of<Instr>();
-			static constexpr bool vtx_only = is_vertex_stage_only<Instr>;
+			static constexpr bool vtx_only = fx::is_vertex_stage_only<Instr>;
 
 			std::uint32_t idx;
 			if constexpr (vtx_only){
@@ -349,14 +272,14 @@ public:
 			});
 	}
 
-	template <draw_state_config_deduceable Instr>
+	template <fx::draw_state_config_deduceable Instr>
 	void update_state(const graphic::draw::instruction::state_push_config& config, const Instr& instr){
-		this->update_state(config, draw_state_index_deduce_v<Instr>, instr);
+		this->update_state(config, fx::draw_state_index_deduce_v<Instr>, instr);
 	}
 
-	template <draw_state_config_deduceable Instr>
+	template <fx::draw_state_config_deduceable Instr>
 	void update_state(const Instr& instr){
-		this->update_state(graphic::draw::instruction::state_push_config{}, draw_state_index_deduce_v<Instr>, instr);
+		this->update_state(graphic::draw::instruction::state_push_config{}, fx::draw_state_index_deduce_v<Instr>, instr);
 	}
 
 	bool push(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
@@ -368,10 +291,10 @@ public:
 
 		return true;
 	}
-
-	void push_instr(const std::span<const std::byte> raw_instr) const{
-		// batch_backend_interface_.push(raw_instr);
-	}
+	//
+	// void push_instr(const std::span<const std::byte> raw_instr) const{
+	// 	// batch_backend_interface_.push(raw_instr);
+	// }
 
 	void resize(const math::frect region){
 		if(region_ == region)return;
@@ -439,6 +362,12 @@ public:
 		return reinterpret_cast<T*>(cache_instr_buffer_external_usage_.data());
 	}
 };
+
+}
+
+#pragma region Guards
+
+namespace mo_yanxi::gui{
 
 template <typename D>
 struct guard_base{
@@ -536,17 +465,18 @@ public:
 	}
 
 };
+
 export
 struct mode_guard : guard_base<mode_guard>{
 private:
 	friend guard_base;
 
 	void pop() const{
-		renderer_->update_state(draw_config{draw_mode::COUNT_or_fallback});
+		renderer_->update_state(fx::draw_config{fx::draw_mode::COUNT_or_fallback});
 	}
 
 public:
-	[[nodiscard]] mode_guard(renderer_frontend& renderer, const draw_config& param) :
+	[[nodiscard]] mode_guard(renderer_frontend& renderer, const fx::draw_config& param) :
 	guard_base(renderer){
 		renderer.update_state(param);
 	}
@@ -554,3 +484,5 @@ public:
 };
 
 }
+
+#pragma endregion

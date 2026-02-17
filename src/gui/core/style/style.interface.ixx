@@ -7,7 +7,7 @@ export module mo_yanxi.gui.style.interface;
 import mo_yanxi.math.rect_ortho;
 import mo_yanxi.graphic.color;
 export import mo_yanxi.referenced_ptr;
-export import mo_yanxi.gui.gfx_config;
+export import mo_yanxi.gui.fx.config;
 
 import std;
 
@@ -21,7 +21,7 @@ struct style_config{
 	 */
 	std::bitset<max_mask_width> used_layer{};
 
-	FORCE_INLINE constexpr bool has_layer(const gfx_config::layer_param& param) const noexcept{
+	FORCE_INLINE constexpr bool has_layer(const fx::layer_param& param) const noexcept{
 		if(used_layer.none()) [[unlikely]] {
 			return true;
 		}else [[likely]] {
@@ -66,7 +66,7 @@ public:
 
 	FORCE_INLINE void draw_layer(const T& element,
 		math::frect region, float opacityScl,
-		gfx_config::layer_param layer_param) const{
+		fx::layer_param layer_param) const{
 		if(config.has_layer(layer_param)){
 			this->draw_layer_impl(element, region, opacityScl, layer_param);
 		}
@@ -88,7 +88,7 @@ protected:
 	virtual void draw_layer_impl(
 		const T& element,
 		math::frect region, float opacityScl,
-		gfx_config::layer_param layer_param
+		fx::layer_param layer_param
 	) const = 0;
 
 };

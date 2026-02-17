@@ -22,7 +22,7 @@ void cursor_collection::draw(scene& scene) const{
 
 	scene.renderer().update_state(graphic::draw::instruction::state_push_config{
 			graphic::draw::instruction::state_push_target::immediate
-	}, gui::gfx_config::blit_config{
+	}, gui::fx::blit_config{
 		{
 			.src = region.src.as<int>(),
 			.extent = region.extent().as<int>()

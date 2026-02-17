@@ -79,7 +79,7 @@ bool scroll_pane::update(const float delta_in_ticks){
 	return true;
 }
 
-void scroll_pane::draw_layer(rect clipSpace, gfx_config::layer_param_pass_t param) const{
+void scroll_pane::draw_layer(rect clipSpace, fx::layer_param_pass_t param) const{
 	elem::draw_layer(clipSpace, param);
 
 	auto& r = get_scene().renderer();

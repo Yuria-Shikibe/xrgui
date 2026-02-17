@@ -9,8 +9,8 @@ module;
 module mo_yanxi.gui.infrastructure;
 
 import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.gui.draw.compound;
-import mo_yanxi.gui.draw.fringe;
+import mo_yanxi.gui.fx.compound;
+import mo_yanxi.gui.fx.fringe;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 import <beman/inplace_vector.hpp>;
@@ -18,7 +18,7 @@ import <beman/inplace_vector.hpp>;
 
 namespace mo_yanxi::gui{
 void style::debug_elem_drawer::draw_layer_impl(const elem& element, math::frect region, float opacityScl,
-	gfx_config::layer_param layer_param) const{
+	fx::layer_param layer_param) const{
 	switch(layer_param.layer_index){
 	case 0 : draw(element, region, opacityScl);
 		break;
@@ -162,7 +162,7 @@ bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
 	return rect{extent()}.contains_loose(util::transform_scene2local(*this, cursorPos));
 }
 
-void elem::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+void elem::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
 	draw_style(param);
 }
 

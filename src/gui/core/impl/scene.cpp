@@ -41,7 +41,7 @@ void scene::draw_at(const elem& elem){
 
 		elem.draw_layer(c, {i});
 
-		renderer().update_state(gfx_config::blit_config{
+		renderer().update_state(fx::blit_config{
 				.blit_region = {bound.src, bound.extent()},
 				.pipe_info = pass_config_[i].end_config
 			});
@@ -81,8 +81,8 @@ void scene::draw(rect clip){
 	// renderer().update_state(pass_config_[i].begin_config);
 
 	if(inputs_.is_cursor_inbound()){
-		renderer().update_state(draw_config{
-				.mode = draw_mode::def,
+		renderer().update_state(fx::draw_config{
+				.mode = fx::draw_mode::def,
 				.draw_targets = {0b1},
 				.pipeline_index = 0
 			});

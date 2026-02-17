@@ -107,7 +107,7 @@ struct default_progress_drawer : progress_drawer{
 
 
 protected:
-	void draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl, gfx_config::layer_param layer_param) const override;
+	void draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override;
 };
 
 export inline constexpr default_progress_drawer default_progress_drawer;
@@ -152,7 +152,7 @@ public:
 	}
 
 public:
-	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override{
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		draw_style(param);
 		if(drawer){
 			drawer->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);

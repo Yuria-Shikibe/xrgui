@@ -124,7 +124,7 @@ namespace mo_yanxi::gui{
 
 
 	public:
-		void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override;
+		void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 
 		template <elem_init_func Fn, typename ...Args>
 		auto& create(Fn&& init, Args&& ...args){

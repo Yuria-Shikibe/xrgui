@@ -2,7 +2,7 @@
 // Created by Matrix on 2026/2/13.
 //
 
-export module mo_yanxi.gui.draw.compound;
+export module mo_yanxi.gui.fx.compound;
 
 import std;
 export import mo_yanxi.math;

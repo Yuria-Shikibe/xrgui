@@ -23,9 +23,9 @@ import mo_yanxi.graphic.compositor.bloom;
 import mo_yanxi.gui.examples;
 import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.gui.gfx_config;
+import mo_yanxi.gui.fx.config;
 
-import mo_yanxi.gui.draw.fringe;
+import mo_yanxi.gui.fx.fringe;
 
 import mo_yanxi.math.rand;
 
@@ -148,10 +148,10 @@ Edge Cases:
 		gui::global::manager.layout();
 
 		renderer.batch_host.begin_rendering();
-		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::gfx_config::ui_state(
+		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::ui_state(
 			timer.global_time()
 		));
-		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::gfx_config::slide_line_config{});
+		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::slide_line_config{});
 
 		auto& r = gui::global::manager.get_current_focus().renderer();
 		r.init_projection();
@@ -161,8 +161,8 @@ Edge Cases:
 
 			math::vec2 offset{50, 50};
 
-			r.update_state(gui::draw_config{
-					.mode = gui::draw_mode::msdf,
+			r.update_state(gui::fx::draw_config{
+					.mode = gui::fx::draw_mode::msdf,
 					.draw_targets = {0b1},
 					.pipeline_index = 0
 				});
@@ -209,7 +209,7 @@ Edge Cases:
 
 			r.update_state(state_push_config{
 				state_push_target::defer_pre
-			}, gui::gfx_config::blit_config{
+			}, gui::fx::blit_config{
 				{
 					.src = {},
 					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
@@ -372,7 +372,7 @@ Edge Cases:
 			//
 			r.update_state(state_push_config{
 				state_push_target::defer_pre
-			}, gui::gfx_config::blit_config{
+			}, gui::fx::blit_config{
 				{
 					.src = {},
 					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()

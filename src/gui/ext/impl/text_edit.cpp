@@ -3,7 +3,7 @@ module mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
-void text_edit::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+void text_edit::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
 	draw_style(param);
 
 	if(param != 0)return;

@@ -2,7 +2,7 @@ module;
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.gui.draw.fringe;
+export module mo_yanxi.gui.fx.fringe;
 
 export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.graphic.draw.instruction;

@@ -48,7 +48,7 @@ export struct debug_elem_drawer final : elem_style_drawer{
 		return default_boarder;
 	}
 
-	void draw_layer_impl(const elem& element, math::frect region, float opacityScl, gfx_config::layer_param layer_param) const override;
+	void draw_layer_impl(const elem& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override;
 
 	void draw(const elem& element, rect region, float opacityScl) const;
 
@@ -62,7 +62,7 @@ export struct empty_drawer final : elem_style_drawer{
 		const elem& element,
 		math::frect region,
 		float opacityScl,
-		gfx_config::layer_param layer_param) const override{
+		fx::layer_param layer_param) const override{
 
 	}
 };
@@ -407,10 +407,10 @@ public:
 		style_boarder_cache_ = {};
 	}
 
-	virtual void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const;
+	virtual void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const;
 
 
-	FORCE_INLINE void try_draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param){
+	FORCE_INLINE void try_draw_layer(const rect clipSpace, fx::layer_param_pass_t param){
 		if(invisible) return;
 		if(!clipSpace.overlap_inclusive(bound_abs())) return;
 		if(param.layer_index == 0)draw_flag.update_debug_count();
@@ -423,7 +423,7 @@ protected:
 	virtual void on_opacity_changed(float previous){
 	}
 
-	FORCE_INLINE void draw_style(gfx_config::layer_param param) const{
+	FORCE_INLINE void draw_style(fx::layer_param param) const{
 		if(style)style->draw_layer(*this, bound_abs(), get_draw_opacity(), param);
 	}
 	// void draw_style_background() const;

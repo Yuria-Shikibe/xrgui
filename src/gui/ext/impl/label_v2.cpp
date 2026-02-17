@@ -40,7 +40,7 @@ void layout_record<typesetting::glyph_layout>::record_glyph_draw_instructions(
 	}
 }
 
-void label_v2::draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+void label_v2::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
 	text_holder::draw_layer(clipSpace, param);
 	draw_style(param);
 	if(param == 0)draw_text();

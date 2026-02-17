@@ -1,14 +1,15 @@
 module;
 
 #include <cassert>
+#include <mo_yanxi/enum_operator_gen.hpp>
 
-export module mo_yanxi.gui.gfx_config;
+export module mo_yanxi.gui.fx.config;
 
 import std;
 
 import mo_yanxi.math.rect_ortho;
 
-namespace mo_yanxi::gui::gfx_config{
+namespace mo_yanxi::gui::fx{
 
 export
 struct blit_pipeline_config{
@@ -133,4 +134,84 @@ struct slide_line_config{
 
 	float opacity{0};
 };
+
+
+export
+template <typename T>
+constexpr inline bool is_vertex_stage_only = requires{
+	typename T::tag_vertex_only;
+};
+
+
+export
+enum struct state_type{
+	blit,
+	mode,
+	reserved_count
+};
+
+export
+enum struct draw_mode : std::uint16_t{
+	def,
+	msdf,
+
+	COUNT_or_fallback,
+};
+
+export
+enum struct blending_type : std::uint16_t{
+	alpha,
+	add,
+	reverse,
+	lock_alpha,
+	SIZE,
+};
+
+export
+constexpr inline std::uint32_t use_default_pipeline = std::numeric_limits<std::uint32_t>::max();
+
+export
+struct draw_config{
+	draw_mode mode{};
+	blending_type blending{};
+	render_target_mask draw_targets{};
+	std::uint32_t pipeline_index{use_default_pipeline};
+
+	constexpr bool use_fallback_pipeline() const noexcept{
+		return pipeline_index == use_default_pipeline;
+	}
+};
+
+export
+enum struct primitive_draw_mode : std::uint32_t{
+	none,
+
+	draw_slide_line = 1 << 0,
+};
+
+BITMASK_OPS(export , primitive_draw_mode);
+
+export
+template <typename T>
+struct draw_state_config_deduce{};
+
+export
+template <typename T>
+concept draw_state_config_deduceable = requires{
+	requires std::same_as<typename draw_state_config_deduce<T>::value_type, std::uint32_t>;
+};
+
+template <>
+struct draw_state_config_deduce<fx::blit_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::blit)>{
+};
+
+template <>
+struct draw_state_config_deduce<draw_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::mode)>{
+};
+
+
+export
+template <typename T>
+constexpr inline std::uint32_t draw_state_index_deduce_v = draw_state_config_deduce<T>::value;
+
 }

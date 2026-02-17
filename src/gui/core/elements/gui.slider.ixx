@@ -147,7 +147,7 @@ struct default_slider_drawer : slider_drawer{
 		const slider& element,
 		math::frect region,
 		float opacityScl,
-		gfx_config::layer_param layer_param) const override;
+		fx::layer_param layer_param) const override;
 
 	void draw(const slider& element, math::frect region, float opacityScl) const ;
 };
@@ -255,7 +255,7 @@ protected:
 		set_focused_scroll(is_inbounded);
 	}
 
-	void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const override;
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 
 public:
 	events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override{
