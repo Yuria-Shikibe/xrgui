@@ -204,8 +204,12 @@ public:
 
 	void upload(){
 		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
-		frames_[current_frame_index_].fence.wait_and_reset();
-		batch_device.upload(batch_host, sampler_, current_frame_index_);
+		try{
+			frames_[current_frame_index_].fence.wait_and_reset();
+			batch_device.upload(batch_host, sampler_, current_frame_index_);
+		}catch(...){
+			frames_[current_frame_index_].fence.reset();
+		}
 	}
 
 	VkCommandBuffer get_valid_cmd_buf() const noexcept{

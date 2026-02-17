@@ -193,17 +193,20 @@ struct triangle_draw : instr_resolver
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
     {
-        //A triangle never needs patch
+        if (param.vtx_skip > 1) {
+            let idc_idx = param.get_primitive_index();
+            primits[idc_idx] = Primitive(generic, param);
+            indices[idc_idx] = param.getTrivialIndicies();
+        }
+
         switch (param.vtx_skip) {
         case 0: 
             return Vertex(float3(p0, generic.depth), c0, uv0);
 
         case 1:
-            primits[param.prm_skip] = Primitive(generic, param);
             return Vertex(float3(p1, generic.depth), c1, uv1);
 
         case 2:
-            indices[param.prm_skip] = param.getTrivialIndicies();
             return Vertex(float3(p2, generic.depth), c2, uv2);
 
         default:
@@ -302,19 +305,20 @@ struct rectangle_ortho : instr_resolver {
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, 
     ) {
-        const uint isPatch = param.isPatch();
+        if (param.vtx_skip > 1) {
+            let idc_idx = param.get_primitive_index();
+            primits[idc_idx] = Primitive(generic, param);
+            indices[idc_idx] = param.getTrivialIndicies();
+        }
+
         switch (param.vtx_skip) {
         case 0:
-            primits[param.prm_skip] = Primitive(generic, param);
             return Vertex(float3(v00, generic.depth), vert_color.c00, uv00);
         case 1:
-            primits[param.prm_skip + 1 - isPatch] = Primitive(generic, param);
             return Vertex(float3(float2(v11.x, v00.y), generic.depth), vert_color.c10, float2(uv11.x, uv00.y));
         case 2:
-            indices[param.prm_skip - isPatch] = param.getTrivialIndicies();
             return Vertex(float3(float2(v00.x, v11.y), generic.depth), vert_color.c01, float2(uv00.x, uv11.y));
         case 3:
-            indices[param.prm_skip + 1 - isPatch] = param.getTrivialIndicies();
             return Vertex(float3(v11, generic.depth), vert_color.c11, uv11);
         default: return Vertex();
         }

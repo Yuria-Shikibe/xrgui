@@ -295,6 +295,8 @@ public:
 		if(util::try_modify(has_smooth_pos_animation_, has_smooth_pos_animation)){
 			if(!has_smooth_pos_animation){
 				notify_isolated_layout_changed();
+				update_children_src_instantly();
+				set_update_disabled(update_channel::position);
 			}else{
 				set_update_required(update_channel::position);
 			}

@@ -108,6 +108,7 @@ namespace mo_yanxi::gui{
 		void on_inbound_changed(bool is_inbounded, bool changed) override{
 			elem::on_inbound_changed(is_inbounded, changed);
 			set_focused_scroll(is_inbounded);
+			if(changed && overlay_scroll_bars_)set_update_required(update_channel::draw);
 		}
 
 		void on_focus_changed(bool is_focused) override{
@@ -177,6 +178,8 @@ namespace mo_yanxi::gui{
 		};
 
 		events::op_afterwards on_drag(const events::drag e) override;
+
+
 #pragma endregion
 
 		bool is_cursor_pos_in_scroll_bar_region() const noexcept{

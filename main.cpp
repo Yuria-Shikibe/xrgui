@@ -570,10 +570,10 @@ void prepare(){
 	pass_filter_high_light.id()->add_input({{ui_input, 0}});
 
 
-	// auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
-	// pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
-	// pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
-	// pass_bloom.pass.add_local({1, compositor::no_slot});
+	auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
+	pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
+	pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
+	pass_bloom.pass.add_local({1, compositor::no_slot});
 
 
 	compositor::post_process_meta meta{
@@ -585,7 +585,7 @@ void prepare(){
 	meta.sockets.at_out(0).get<compositor::image_requirement>().usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
 	auto pass_h2s = manager.add_pass<compositor::post_process_stage>(meta);
-	pass_h2s.id()->add_dep({pass_filter_high_light.id(), 0, 0});
+	pass_h2s.id()->add_dep({pass_bloom.id(), 0, 0});
 	pass_h2s.id()->add_local({compositor::no_slot, 0});
 
 	manager.sort();
@@ -599,9 +599,9 @@ void prepare(){
 		ui_input.resource = compositor::image_entity{.handle = renderer.get_base()};
 		manager.resize(event.size, true);
 		//
-		// pass_bloom.meta.set_scale(.5f);
-		// pass_bloom.meta.set_mix_factor(0.f);
-		// pass_bloom.meta.set_strength(.8f, .8f);
+		pass_bloom.meta.set_scale(.5f);
+		pass_bloom.meta.set_mix_factor(0.f);
+		pass_bloom.meta.set_strength(.8f, .8f);
 
 		{
 			vk::scoped_recorder r{post_process_cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};

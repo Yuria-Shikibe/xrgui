@@ -3,8 +3,7 @@ module;
 #include <vulkan/vulkan.h>
 #include <mo_yanxi/enum_operator_gen.hpp>
 
-
-#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#if !defined(XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE) || defined(__RESHARPER__)
 #include <gch/small_vector.hpp>
 #endif
 
@@ -407,6 +406,8 @@ struct buffer_entity{
 export
 struct resource_handle;
 
+
+
 export
 struct
 resource_entity{
@@ -432,13 +433,20 @@ resource_entity{
 		  resource(resource){
 	}
 
-	const resource_handle* get_identity() const noexcept{
+
+	static const resource_handle* get_identity(const variant_t& res) noexcept{
 		return static_cast<const resource_handle*>(std::visit<const void*>(overload_def_noop{
-			                                                   std::in_place_type<const void*>,
-			                                                   [](const image_entity& l) -> const void* {return l.handle.image;},
-			                                                   [](const buffer_entity& l) -> const void* {return l.handle.buffer;},
-		                                                   }, resource));
+															   std::in_place_type<const void*>,
+															   [](const image_entity& l) -> const void* {return l.handle.image;},
+															   [](const buffer_entity& l) -> const void* {return l.handle.buffer;},
+														   }, res));
 	}
+
+	const resource_handle* get_identity() const noexcept{
+		return get_identity(resource);
+	}
+
+
 
 	bool operator==(std::nullptr_t) const noexcept{
 		return !static_cast<bool>(*this);
