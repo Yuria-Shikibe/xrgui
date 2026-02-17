@@ -20,8 +20,8 @@ import align;
 import :events;
 import :scene;
 import :tooltip_interface;
-import :type_def;
-import :update_flag;
+import :defines;
+import :flags;
 
 export import :elem_ptr;
 
@@ -129,16 +129,22 @@ struct cursor_states{
 	}
 
 	void update(const float delta_in_ticks) noexcept {
+		constexpr static auto lerp_zero = [](float& v){
+			if(v <  0.0015f)v = 0;
+		};
 		if(pressed){
 			math::approach_inplace(time_pressed, maximum_duration, delta_in_ticks);
 		} else{
 			math::lerp_inplace(time_pressed, 0.f, delta_in_ticks* .075f);
+			lerp_zero(time_pressed);
 		}
 
 		if(inbound){
 			math::approach_inplace(time_inbound, maximum_duration, delta_in_ticks);
 		} else{
 			math::lerp_inplace(time_inbound, 0.f, delta_in_ticks * .075f);
+			lerp_zero(time_inbound);
+
 		}
 
 		if(focused){
@@ -147,6 +153,7 @@ struct cursor_states{
 			time_tooltip += delta_in_ticks;
 		} else{
 			math::lerp_inplace(time_focus, 0.f, delta_in_ticks * .075f);
+			lerp_zero(time_focus);
 			time_tooltip = time_stagnate = 0.f;
 		}
 	}
@@ -157,7 +164,6 @@ struct cursor_states{
 		if(time_focus > 0.f) [[unlikely]] return false;
 		if(time_stagnate > 0.f) [[unlikely]] return false;
 		if(time_pressed > 0.f) [[unlikely]] return false;
-		if(time_tooltip > 0.f) [[unlikely]] return false;
 		return true;
 	}
 
@@ -210,7 +216,9 @@ public:
 	bool invisible{};
 	bool sleep{};
 
-	update_flag update_flag{};
+	draw_flag draw_flag{};
+
+	update_flags update_flag{};
 
 	// bool is_transparent_in_inbound_filter{};
 
@@ -347,6 +355,27 @@ public:
 
 #pragma region Draw
 public:
+	void propagate_draw_requirement_since_self(bool required){
+		auto last = this;
+		auto cur = parent();
+		requirement_set_result cur_rst{true, required};
+		while(cur){
+			if((cur_rst = cur->draw_flag.set_children_draw_required(cur_rst.is_required()))){
+				last = cur;
+				cur = cur->parent();
+			}else{
+				break;
+			}
+		}
+	}
+
+public:
+	void set_draw_required(draw_flag::flag_type val, draw_flag::flag_type mask) noexcept{
+		if(const auto rst = draw_flag.set_self_draw_required(val, mask)){
+			propagate_draw_requirement_since_self(rst.is_required());
+		}
+	}
+
 	// void try_draw(const rect clipSpace) const{
 	// 	if(invisible) return;
 	// 	//TODO fix this
@@ -381,10 +410,13 @@ public:
 	virtual void draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const;
 
 
-	FORCE_INLINE void try_draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param) const{
+	FORCE_INLINE void try_draw_layer(const rect clipSpace, gfx_config::layer_param_pass_t param){
 		if(invisible) return;
 		if(!clipSpace.overlap_inclusive(bound_abs())) return;
+		if(param.layer_index == 0)draw_flag.update_debug_count();
+		// set_draw_required(0, 1 << param.layer_index);
 		draw_layer(clipSpace, param);
+		draw_flag.clear();
 	}
 
 protected:
@@ -417,7 +449,7 @@ protected:
 	void propagate_update_requirement_since_self(bool required){
 		auto last = this;
 		auto cur = parent();
-		update_requirement_set_result cur_rst{true, required};
+		requirement_set_result cur_rst{true, required};
 		while(cur){
 			if((cur_rst = cur->update_flag.set_child_mark_update_changed(last, cur_rst.is_required()))){
 				last = cur;
@@ -428,7 +460,7 @@ protected:
 		}
 	}
 
-	void clear_children_update_required( elem* children_of_self) noexcept{
+	void clear_children_update_required(elem* children_of_self) noexcept{
 		if(children_of_self->update_flag.is_update_required()){
 			if(const auto rst = update_flag.set_child_mark_update_changed(children_of_self, false)){
 				propagate_update_requirement_since_self(rst.is_required());

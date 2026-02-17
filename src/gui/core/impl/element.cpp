@@ -113,6 +113,21 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 			.color = {colors::aqua}
 		});
 	}
+
+	region.scl_size(.25f, .25f);
+
+	// if(element.draw_flag.is_draw_required()){
+	auto opct = element.draw_flag.get_debug_count();
+		element.renderer().push(triangle{
+			.p0 = region.vert_00(),
+			.p1 = region.vert_10(),
+			.p2 = region.vert_01(),
+			.c0 = colors::pale_green.copy_set_a(opct * .25f),
+			.c1 = colors::pale_green.copy_set_a(opct * .25f),
+			.c2 = colors::pale_green.copy_set_a(opct * .25f)
+
+		});
+	// }
 }
 
 void style::debug_elem_drawer::draw_background(const elem& element, math::frect region, float opacityScl) const{

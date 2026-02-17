@@ -4,7 +4,7 @@ module;
 
 export module mo_yanxi.gui.infrastructure:scene;
 
-import :type_def;
+import :defines;
 import :elem_ptr;
 import :tooltip_manager;
 import :dialog_manager;
@@ -42,11 +42,10 @@ struct layer_config{
 export
 struct scene_render_pass_config{
 
-	static constexpr std::size_t max_pass_capacity = 8;
 	using value_type = layer_config;
 
 private:
-	std::array<value_type, max_pass_capacity> masks{};
+	std::array<value_type, draw_pass_max_capacity> masks{};
 	unsigned pass_count{};
 
 public:
@@ -57,7 +56,7 @@ public:
 	}
 
 	inline constexpr const value_type& operator[](unsigned idx) const noexcept{
-		assert(idx < max_pass_capacity);
+		assert(idx < draw_pass_max_capacity);
 		return masks[idx];
 	}
 

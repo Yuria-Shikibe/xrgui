@@ -379,6 +379,7 @@ void scene::drop_(const elem* target) noexcept{
 void scene::update_elem_cursor_state_(float delta_in_tick) noexcept{
 	cursor_event_active_elems_.modify_and_erase([=](elem* e){
 		e->cursor_states_.update(delta_in_tick);
+		e->draw_flag.set_self_draw_required(1);
 
 		if(e->cursor_states_.focused){
 			tooltip_manager_.try_append_tooltip(*e, false);

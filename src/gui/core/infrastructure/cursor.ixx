@@ -4,7 +4,7 @@
 
 export module mo_yanxi.gui.infrastructure:cursor;
 
-import :type_def;
+import :defines;
 import :elem_ptr;
 
 export import mo_yanxi.gui.renderer.frontend;

@@ -67,7 +67,6 @@ bool scroll_pane::update(const float delta_in_ticks){
 			scroll_.resume();
 			updateChildrenAbsSrc();
 
-            // [新增] 只要发生位置变化，就视为活跃
             activity_timer_ = 0.f;
 			set_update_required(update_channel::position);
 		}else{

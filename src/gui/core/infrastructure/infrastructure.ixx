@@ -2,7 +2,7 @@ module;
 
 export module mo_yanxi.gui.infrastructure;
 
-export import :type_def;
+export import :defines;
 export import :elem_ptr;
 export import :element;
 export import :events;
@@ -12,7 +12,7 @@ export import :tooltip_interface;
 export import :tooltip_manager;
 export import :dialog_manager;
 export import :cursor;
-export import :update_flag;
+export import :flags;
 
 export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.input_handle;

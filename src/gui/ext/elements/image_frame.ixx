@@ -131,7 +131,7 @@ public:
 	}
 
 protected:
-	void on_update(react_flow::data_pass_t<std::size_t> data) override;
+	void on_update(react_flow::data_carrier<std::size_t>& data) override;
 };
 
 struct check_box : image_frame{
@@ -185,8 +185,8 @@ protected:
 	}
 };
 
-void check_box_receiver::on_update(react_flow::data_pass_t<std::size_t> data){
-	this->check_box_->set_index(data);
+void check_box_receiver::on_update(react_flow::data_carrier<std::size_t>& data){
+	this->check_box_->set_index(data.get());
 }
 
 export

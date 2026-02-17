@@ -4,7 +4,7 @@ module;
 
 export module mo_yanxi.gui.infrastructure:dialog_manager;
 
-import :type_def;
+import :defines;
 import :elem_ptr;
 import :events;
 import mo_yanxi.gui.layout.policies;
