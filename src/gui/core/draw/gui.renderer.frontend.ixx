@@ -260,28 +260,33 @@ public:
 	}
 
 	template <typename Instr>
-	void update_state(const graphic::draw::instruction::state_push_config& config, std::uint32_t flag,
-		const Instr& instr){
+	void update_state(
+		const graphic::draw::instruction::state_push_config& config,
+		binary_diff_trace::tag tag,
+		const Instr& instr, unsigned offset = 0){
 		using namespace graphic::draw;
 		static_assert(!instruction::known_instruction<Instr>);
 
 		batch_backend_interface_.update_state(config,
-			flag,
-			{},
+			tag,
 			std::span{
 				reinterpret_cast<const std::byte*>(std::addressof(instr)),
 				sizeof(Instr)
-			});
+			}, offset);
 	}
 
 	template <fx::draw_state_config_deduceable Instr>
 	void update_state(const graphic::draw::instruction::state_push_config& config, const Instr& instr){
-		this->update_state(config, fx::draw_state_index_deduce_v<Instr>, instr);
+		this->update_state(config, graphic::draw::instruction::state_tag{fx::draw_state_index_deduce_v<Instr>}, instr);
 	}
 
 	template <fx::draw_state_config_deduceable Instr>
 	void update_state(const Instr& instr){
-		this->update_state(graphic::draw::instruction::state_push_config{}, fx::draw_state_index_deduce_v<Instr>, instr);
+		this->update_state(graphic::draw::instruction::state_push_config{}, {fx::draw_state_index_deduce_v<Instr>}, instr);
+	}
+
+	void undo_state(graphic::draw::instruction::state_tag tag){
+		this->update_state(graphic::draw::instruction::state_push_config{.type = graphic::draw::instruction::state_push_type::undo}, tag, std::span<const std::byte>{});
 	}
 
 	bool push(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
@@ -292,17 +297,6 @@ public:
 		}
 
 		return true;
-	}
-
-	void push_constant(const graphic::draw::instruction::state_push_config& config, graphic::draw::instruction::push_constant_config push_constant_config, std::span<const std::byte> payload){
-		using namespace graphic::draw::instruction;
-		batch_backend_interface_.update_state(config, make_builtin_flag_from(builtin_transition_flag::push_constant), {.push_constant = push_constant_config}, payload);
-	}
-
-	template <typename T>
-		requires (std::is_trivially_copyable_v<T>)
-	void push_constant(const graphic::draw::instruction::state_push_config& config, graphic::draw::instruction::push_constant_config push_constant_config, const T& payload){
-		this->push_constant(config, push_constant_config, std::span{reinterpret_cast<const std::byte*>(std::addressof(payload)), sizeof(T)});
 	}
 
 

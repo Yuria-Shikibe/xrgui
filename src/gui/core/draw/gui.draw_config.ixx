@@ -147,6 +147,9 @@ export
 enum struct state_type{
 	blit,
 	mode,
+	push_constant,
+	blend_switch,
+	//TODO other states...
 	reserved_count
 };
 

@@ -3,18 +3,17 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
-
-
 export module mo_yanxi.graphic.draw.instruction.batch.common;
 
 export import mo_yanxi.graphic.draw.instruction.general;
+export import binary_trace; // 引入 binary_trace 模块以使用 binary_diff_trace::tag
 
 import std;
 
 namespace mo_yanxi::graphic::draw::instruction{
+
 /**
  * @brief GPU端 Storage Buffer 中每个 Dispatch Group 的元数据布局
- *
  */
 export
 struct dispatch_group_info{
@@ -25,113 +24,109 @@ struct dispatch_group_info{
 	std::uint32_t primitive_count;
 };
 
+/**
+ * @brief 状态切换配置，用于在 Draw Call 之间注入状态变更
+ * 现已简化为 Tag + Payload 的扁平结构
+ */
 export
 struct state_transition_config{
+	using tag_type = mo_yanxi::binary_diff_trace::tag;
+
 	struct entry{
-		state_transition_entry_flag_t flag;
-
-		//TODO move config into data section?
-		entry_config config;
-
-		std::uint32_t offset;
-		std::uint32_t size;
+		tag_type tag;
+		std::uint32_t offset;         // 在 payload_storage 中的物理偏移
+		std::uint32_t size;           // 数据大小
+		std::uint32_t logical_offset; // [新增] 数据在目标资源中的逻辑起始偏移
 
 		constexpr std::span<const std::byte> get_payload(const std::byte* basePtr) const noexcept{
 			return {basePtr + offset, size};
 		}
 	};
 
+	struct exported_entry{
+		std::span<const std::byte> payload;
+		tag_type tag;
+		std::uint32_t logical_offset;
+
+		template <typename T>
+		const T& as() const noexcept{
+			assert(sizeof(T) <= payload.size());
+			return *start_lifetime_as<T>(payload.data());
+		}
+	};
+
 	/**
 	 * @brief determine the LOAD_OP after this call
-	 *
 	 */
 	bool clear_draw_after_break{};
 
 private:
-	std::vector<entry> user_defined_flags{};
+	std::vector<entry> entries_{};
 	std::vector<std::byte> payload_storage{};
 
 public:
 
 	[[nodiscard]] auto get_entries() const noexcept{
-		return user_defined_flags | std::views::transform([base = payload_storage.data()](const entry& e){
-			return state_transition_entry{e.flag, e.config, e.get_payload(base)};
+		return entries_ | std::views::transform([base = payload_storage.data()](const entry& e){
+			return exported_entry{e.get_payload(base), e.tag, e.logical_offset, };
 		});
 	}
 
-	void push(state_transition_entry_flag_t flag, entry_config config, std::span<const std::byte> payload){
-		entry e{flag, config};
-		if(!payload.empty()){
-			e.offset = static_cast<std::uint32_t>(payload_storage.size());
-			e.size = static_cast<std::uint32_t>(payload.size());
-			payload_storage.resize(e.offset + e.size);
-			std::memcpy(payload_storage.data() + e.offset, payload.data(), e.size);
-		}
-		user_defined_flags.push_back(e);
+	// 支持带 offset 的 push
+	void push(tag_type tag, std::span<const std::byte> payload, std::uint32_t logical_offset = 0){
+		if(payload.empty()) return;
+
+		entry e{tag};
+		e.offset = static_cast<std::uint32_t>(payload_storage.size());
+		e.size = static_cast<std::uint32_t>(payload.size());
+		e.logical_offset = logical_offset; // 记录逻辑偏移
+
+		payload_storage.resize(e.offset + e.size);
+		std::memcpy(payload_storage.data() + e.offset, payload.data(), e.size);
+
+		entries_.push_back(e);
 	}
 
 	template <typename T>
 		requires (std::is_trivially_copyable_v<T>)
-	void push(state_transition_entry_flag_t flag, entry_config config, const T& payload){
-		this->push(flag, config, std::span{reinterpret_cast<const std::byte*>(std::addressof(payload)), sizeof(T)});
+	void push(tag_type tag, const T& payload, std::uint32_t logical_offset = 0){
+		this->push(tag, std::span{reinterpret_cast<const std::byte*>(std::addressof(payload)), sizeof(T)}, logical_offset);
 	}
 
 	void append(const state_transition_config& other){
 		clear_draw_after_break = clear_draw_after_break || other.clear_draw_after_break;
-		const auto curOff = payload_storage.size();
-		const auto curEntrySz = user_defined_flags.size();
+		const auto curOff = static_cast<std::uint32_t>(payload_storage.size());
+		const auto curEntrySz = entries_.size();
 
 		payload_storage.append_range(other.payload_storage);
-		user_defined_flags.append_range(other.user_defined_flags);
+		entries_.append_range(other.entries_);
 
-		for(std::size_t i = curEntrySz; i < user_defined_flags.size(); ++i){
-			user_defined_flags[i].offset += curOff;
-		}
-	}
-
-	void append_front(const state_transition_config& other){
-		clear_draw_after_break = clear_draw_after_break || other.clear_draw_after_break;
-		const auto curOff = other.payload_storage.size();
-		const auto curEntrySz = other.user_defined_flags.size();
-
-		payload_storage.insert_range(payload_storage.begin(), other.payload_storage);
-		user_defined_flags.insert_range(user_defined_flags.begin(), other.user_defined_flags);
-
-		for(std::size_t i = curEntrySz; i < user_defined_flags.size(); ++i){
-			user_defined_flags[i].offset += curOff;
+		for(std::size_t i = curEntrySz; i < entries_.size(); ++i){
+			entries_[i].offset += curOff;
 		}
 	}
 
 	void clear() noexcept{
 		clear_draw_after_break = false;
-		user_defined_flags.clear();
+		entries_.clear();
 		payload_storage.clear();
 	}
 
-
-	bool operator==(const state_transition_config&) const noexcept = default;
+	bool empty() const noexcept {
+		return entries_.empty();
+	}
 };
 
 export
 struct state_transition{
-	/**
-	 * @brief before which submit group should this breakpoint occur
-	 */
 	unsigned break_before_index{};
-
-	//
 	std::vector<std::uint32_t> uniform_buffer_marching_indices{};
-
 	state_transition_config config{};
 
 	[[nodiscard]] state_transition() = default;
-
-	//
 	[[nodiscard]] explicit state_transition(unsigned break_before_index)
 		: break_before_index(break_before_index){
 	}
-
-	bool operator==(const state_transition&) const noexcept = default;
 };
 
 export
@@ -168,11 +163,6 @@ struct draw_uniform_data_entry{
 		push_default(static_cast<const void*>(std::addressof(v)));
 	}
 
-	/**
-	 * @brief check if the pending ubo object is different from the last one, if so, accept it and return True
-	 * @return true if accepted(acquires timeline marching)
-	 *
-	 */
 	[[nodiscard]] FORCE_INLINE inline bool collapse() noexcept{
 		if(!pending) return false;
 		auto count = get_count();
@@ -184,8 +174,6 @@ struct draw_uniform_data_entry{
 		} else{
 			auto p_base = (count - 2) * unit_size + data_.data();
 			if(std::memcmp(std::to_address(p), p_base, unit_size) == 0){
-				// Fix: use unit_size instead of data_.size() for comparison
-				//equal, do not marching and pop back
 				data_.erase(p, data_.end());
 				return false;
 			}
@@ -329,7 +317,7 @@ public:
 
 	FORCE_INLINE void reset(draw_list_inheritance_param param){
 		std::memset(dispatch_config_storage.data(), 0, dispatch_config_storage.size() * sizeof(dispatch_group_info));
-		ptr_to_head = instruction_buffer_.data(); // Fix: use .data()
+		ptr_to_head = instruction_buffer_.data();
 		offset_to_last_chunk_head_ = 0;
 		index_to_last_chunk_head_ = 0;
 		verticesBreakpoint = param.verticesBreakpoint;
@@ -360,7 +348,6 @@ public:
 		PrimitiveRemainFn fn_get_primitive_count = {}
 		){
 		assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
-
 		auto instruction_offset = ptr_to_head - instruction_buffer_.data();
 		if(head.payload_size){
 			assert(data != nullptr);
@@ -376,7 +363,6 @@ public:
 		}
 
 		instruction_heads_.push_back(head);
-
 		switch(head.type){
 		case instr_type::noop :
 		case instr_type::uniform_update : return true;

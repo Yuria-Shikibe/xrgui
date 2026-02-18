@@ -12,103 +12,14 @@ export module mo_yanxi.graphic.draw.instruction.batch.frontend;
 
 export import mo_yanxi.graphic.draw.instruction.batch.common;
 export import mo_yanxi.graphic.draw.instruction.general;
+export import mo_yanxi.graphic.draw.instruction.state_tracker; // Import the tracker
 export import mo_yanxi.graphic.draw.instruction.util;
 export import mo_yanxi.user_data_entry;
-
 import mo_yanxi.type_register;
 import mo_yanxi.aligned_allocator;
 import std;
 
 namespace mo_yanxi::graphic::draw::instruction{
-
-#pragma region Legacy
-
-/*
-//TODO support user defined size?
-export
-template <std::size_t CacheCount = 4>
-struct image_view_history{
-	static constexpr std::size_t max_cache_count = (CacheCount + 3) / 4 * 4;
-	static_assert(max_cache_count % 4 == 0);
-	static_assert(sizeof(void*) == sizeof(std::uint64_t));
-	using handle_t = image_handle_t;
-
-private:
-	alignas(32) std::array<handle_t, max_cache_count> images{};
-	handle_t latest{};
-	std::uint32_t latest_index{};
-	std::uint32_t count{};
-	bool changed{};
-
-public:
-	bool check_changed() noexcept{
-		return std::exchange(changed, false);
-	}
-
-	FORCE_INLINE void clear(this image_view_history& self) noexcept{
-		self = {};
-	}
-
-	[[nodiscard]] FORCE_INLINE std::span<const handle_t> get() const noexcept{
-		return {images.data(), count};
-	}
-
-	[[nodiscard]] FORCE_INLINE /*constexpr#1# std::uint32_t try_push(handle_t image) noexcept{
-		if(!image) return std::numeric_limits<std::uint32_t>::max(); //directly vec4(1)
-		if(image == latest) return latest_index;
-
-#ifndef __AVX2__
-		for(std::size_t i = 0; i < images.size(); ++i){
-			auto& cur = images[i];
-			if(image == cur){
-				latest = image;
-				latest_index = i;
-				return i;
-			}
-
-			if(cur == nullptr){
-				latest = cur = image;
-				latest_index = i;
-				count = i + 1;
-				changed = true;
-				return i;
-			}
-		}
-#else
-
-		const __m256i target = _mm256_set1_epi64x(std::bit_cast<std::int64_t>(image));
-		const __m256i zero = _mm256_setzero_si256();
-
-		for(std::uint32_t group_idx = 0; group_idx != max_cache_count; group_idx += 4){
-			const auto group = _mm256_load_si256(reinterpret_cast<const __m256i*>(images.data() + group_idx));
-
-			const auto eq_mask = _mm256_cmpeq_epi64(group, target);
-			if(const auto eq_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(eq_mask))){
-				const auto idx = group_idx + /*local offset#1#std::countr_zero(eq_bits) / 8;
-				latest = image;
-				latest_index = idx;
-				return idx;
-			}
-
-			const auto null_mask = _mm256_cmpeq_epi64(group, zero);
-			if(const auto null_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(null_mask))){
-				const auto idx = group_idx + /*local offset#1#std::countr_zero(null_bits) / 8;
-				images[idx] = image;
-				latest = image;
-				latest_index = idx;
-				count = idx + 1;
-				changed = true;
-				return idx;
-			}
-		}
-#endif
-
-		return max_cache_count;
-	}
-};*/
-
-#pragma endregion
-
 export
 struct image_view_history_dynamic{
 	using handle_t = void*;
@@ -118,6 +29,7 @@ struct image_view_history_dynamic{
 		handle_t handle;
 		std::uint32_t use_count;
 	};
+
 private:
 	std::vector<handle_t, aligned_allocator<handle_t, 32>> images{};
 	std::vector<use_record> use_count{};
@@ -184,7 +96,6 @@ public:
 		latest_index = 0;
 		count_ = 0;
 		changed = false;
-
 	}
 
 	template <typename T>
@@ -193,10 +104,9 @@ public:
 		return {reinterpret_cast<const T*>(images.data()), count_};
 	}
 
-	[[nodiscard]] FORCE_INLINE /*constexpr*/ std::uint32_t try_push(handle_t image) noexcept{
-		if(!image) return std::numeric_limits<std::uint32_t>::max(); //directly vec4(1)
+	[[nodiscard]] FORCE_INLINE std::uint32_t try_push(handle_t image) noexcept{
+		if(!image) return std::numeric_limits<std::uint32_t>::max();
 		if(image == latest) return latest_index;
-
 #ifndef __AVX2__
 		for(std::size_t idx = 0; idx < images.size(); ++idx){
 			auto& cur = images[idx];
@@ -217,16 +127,13 @@ public:
 			}
 		}
 #else
-
 		const __m256i target = _mm256_set1_epi64x(std::bit_cast<std::int64_t>(image));
 		const __m256i zero = _mm256_setzero_si256();
-
 		for(std::uint32_t group_idx = 0; group_idx != images.size(); group_idx += 4){
 			const auto group = _mm256_load_si256(reinterpret_cast<const __m256i*>(images.data() + group_idx));
-
 			const auto eq_mask = _mm256_cmpeq_epi64(group, target);
 			if(const auto eq_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(eq_mask))){
-				const auto idx = group_idx + /*local offset*/std::countr_zero(eq_bits) / 8;
+				const auto idx = group_idx + std::countr_zero(eq_bits) / 8;
 				latest = image;
 				latest_index = idx;
 				count_ = std::max(count_, idx + 1);
@@ -236,7 +143,7 @@ public:
 
 			const auto null_mask = _mm256_cmpeq_epi64(group, zero);
 			if(const auto null_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(null_mask))){
-				const auto idx = group_idx + /*local offset*/std::countr_zero(null_bits) / 8;
+				const auto idx = group_idx + std::countr_zero(null_bits) / 8;
 				images[idx] = image;
 				latest = image;
 				latest_index = idx;
@@ -247,8 +154,7 @@ public:
 			}
 		}
 #endif
-
-		const auto idx =  images.size();
+		const auto idx = images.size();
 		set_capacity(idx * 2);
 		images[idx] = image;
 		++use_count[idx].use_count;
@@ -262,9 +168,8 @@ public:
 namespace mo_yanxi::graphic::draw::instruction{
 constexpr inline std::uint32_t MaxVerticesPerMesh = 64;
 
-//
-inline void check_size(std::size_t size) {
-	if (size % 16 != 0) {
+inline void check_size(std::size_t size){
+	if(size % 16 != 0){
 		throw std::invalid_argument("instruction size must be a multiple of 16");
 	}
 }
@@ -294,7 +199,6 @@ private:
 public:
 	data_layout_table<> table{};
 	std::vector<draw_uniform_data_entry> entries{};
-
 	[[nodiscard]] data_entry_group() = default;
 
 	[[nodiscard]] explicit data_entry_group(const data_layout_table<>& table)
@@ -332,25 +236,26 @@ public:
 	}
 };
 
-
-// (Logic extracted to Host Context)
 export
 struct draw_list_context{
+	using tag_type = mo_yanxi::binary_diff_trace::tag;
+
 private:
 	hardware_limit_config hardware_limit_{};
 
 	std::vector<contiguous_draw_list> submit_groups_{};
 	std::vector<state_transition> submit_transitions_{};
 
-	state_transition_config defer_transition_config_front_{};
-	state_transition_config defer_transition_config_back_{};
+	// --- New State Tracker ---
+	state_tracker tracker_{};
+	// -------------------------
 
 	data_entry_group data_group_sustained_info_{};
 	data_entry_group data_group_volatile_info_{};
-
 	image_view_history_dynamic dynamic_image_view_history_{16};
 
 	contiguous_draw_list* current_group{};
+
 	std::uint32_t get_mesh_dispatch_limit() const noexcept{
 		return 32;
 	}
@@ -372,8 +277,7 @@ public:
 		submit_groups_.clear();
 		submit_transitions_.clear();
 		current_group = nullptr;
-		defer_transition_config_front_ = {};
-		defer_transition_config_back_ = {};
+		tracker_.reset();
 		data_group_sustained_info_.reset();
 		data_group_volatile_info_.reset();
 	}
@@ -387,6 +291,7 @@ public:
 
 		data_group_volatile_info_.reset();
 		data_group_sustained_info_.reset();
+		tracker_.reset();
 
 		submit_groups_.front().reset({});
 		current_group = submit_groups_.data();
@@ -399,9 +304,7 @@ public:
 
 		if(current_group->empty()){
 		} else{
-			current_group++;
-			auto& trans = submit_transitions_.emplace_back(static_cast<unsigned>(get_current_submit_group_index()));
-			apply_deferred_transition_(trans);
+			// Logic to handle trailing transitions if any (usually handled before draw)
 		}
 
 		const auto submit_group_subrange = get_valid_submit_groups();
@@ -436,36 +339,34 @@ public:
 		return dynamic_image_view_history_.get<T>();
 	}
 
-	void push_state(state_push_config config, state_transition_entry_flag_t flag, entry_config entry_cfx, std::span<const std::byte> payload){
-		switch(config.target){
-		case state_push_target::immediate :{
-			//TODO pending check
-			//TODO lazy check
-			state_transition* breakpoint;
-			if(current_group->get_pushed_instruction_size() != 0 || submit_transitions_.empty()){
-				current_group->finalize();
-				advance_current_group();
-				if(!submit_transitions_.empty()) apply_deferred_transition_(submit_transitions_.back());
-
-				breakpoint = &submit_transitions_.emplace_back(static_cast<unsigned>(get_current_submit_group_index()));
-			} else{
-				breakpoint = &submit_transitions_.back();
+	/**
+	 * @brief 提交状态变更
+	 * @param config 状态配置 (指定是否为幂等)
+	 * @param tag 状态标签 (Major + Minor)
+	 * @param payload 数据
+	 * @param offset 数据偏移
+	 */
+	void push_state(state_push_config config, tag_type tag, std::span<const std::byte> payload, unsigned offset = 0){
+		switch(config.type){
+		case state_push_type::idempotent : tracker_.update(tag, payload, offset);
+			break;
+		case state_push_type::undo : tracker_.undo(tag);
+			break;
+		case state_push_type::non_idempotent :{
+			state_transition_config temp_config;
+			if(tracker_.flush(temp_config)){
+				force_break_and_insert(std::move(temp_config));
 			}
 
-			breakpoint->config.push(flag, entry_cfx, payload);
-			break;
+			state_transition_config non_idempotent_config;
+			// 非幂等操作也需要支持 offset
+			non_idempotent_config.push(tag, payload, offset);
+			force_break_and_insert(std::move(non_idempotent_config));
 		}
-		case state_push_target::defer_pre :{
-			defer_transition_config_front_.push(flag, entry_cfx, payload);
-			break;
-		}
-		case state_push_target::defer_post :{
-			defer_transition_config_back_.push(flag, entry_cfx, payload);
-			break;
-		}
-		default : std::unreachable();
+		default: std::unreachable();
 		}
 	}
+
 
 	void push_instr(const instruction_head instr_head, const std::byte* instr){
 		assert(current_group);
@@ -474,18 +375,28 @@ public:
 		assert(std::to_underlying(instr_head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
 		if(instr_head.type == instr_type::uniform_update){
+			// UBO update logic (unchanged mostly, but could interact with breaks)
 			const auto payload = std::span{instr, instr_head.payload_size};
 			const auto targetIndex = instr_head.payload.ubo.index;
-			//TODO use other name to replace group index
 			if(instr_head.payload.ubo.group_index){
 				data_group_volatile_info_.push(targetIndex, payload);
 			} else{
 				data_group_sustained_info_.push(targetIndex, payload);
 			}
-
 			return;
 		}
 
+		// --- Check for State Changes (Lazy Evaluation) ---
+		{
+			state_transition_config diff_config;
+			if(tracker_.flush(diff_config)){
+				// State has changed since last draw, force a break to inject state transition
+				force_break_and_insert(std::move(diff_config));
+			}
+		}
+		// -------------------------------------------------
+
+		// Handle Uniform Data Marching (Volatile)
 		for(auto&& [idx, vertex_data_entry] : data_group_sustained_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				const instruction_head instruction_head{
@@ -500,17 +411,19 @@ public:
 		for(auto&& [idx, vertex_data_entry] : data_group_volatile_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				if(!breakpoint){
-					const auto cur_idx = get_current_submit_group_index() + 1;
-					if(!submit_transitions_.empty())apply_deferred_transition_(submit_transitions_.back());
-					breakpoint = &submit_transitions_.emplace_back(static_cast<unsigned>(cur_idx));
+					// If we need to break for UBO, we use the logic similar to state break
+					// But here we might attach to an existing transition if one exists at this boundary?
+					// Simplify: Force finalize current and create new transition.
+
+					current_group->finalize();
+					advance_current_group();
+
+					const auto cur_idx = static_cast<unsigned>(get_current_submit_group_index());
+					breakpoint = &submit_transitions_.emplace_back(cur_idx);
 				}
 
 				breakpoint->uniform_buffer_marching_indices.push_back(static_cast<std::uint32_t>(idx));
 			}
-		}
-		if(breakpoint){
-			current_group->finalize();
-			advance_current_group();
 		}
 
 		try_push_(instr_head, instr);
@@ -540,7 +453,6 @@ public:
 	}
 
 private:
-	//
 	void advance_current_group(){
 		auto last_param = current_group->get_extend_able_params();
 		if(current_group == std::to_address(submit_groups_.rbegin())){
@@ -553,6 +465,26 @@ private:
 		current_group->reset(last_param);
 	}
 
+	// Helper to force a break and insert configuration
+	void force_break_and_insert(state_transition_config&& config){
+		if(current_group->get_pushed_instruction_size() > 0){
+			current_group->finalize();
+			advance_current_group();
+		}
+
+		// Create transition before the new group
+		auto idx = static_cast<unsigned>(get_current_submit_group_index());
+
+		// Check if we already have a transition for this slot (could happen if consecutive breaks occur)
+		// Usually we append to the existing one if it's the same boundary.
+		if(!submit_transitions_.empty() && submit_transitions_.back().break_before_index == idx){
+			submit_transitions_.back().config.append(config);
+		} else{
+			auto& t = submit_transitions_.emplace_back(idx);
+			t.config = std::move(config);
+		}
+	}
+
 	bool try_push_(const instruction_head& instr_head, const std::byte* instr){
 		//Check hardware limit
 		while(!current_group->push(instr_head, instr, MaxVerticesPerMesh)){
@@ -563,13 +495,6 @@ private:
 
 	bool try_push_(const instruction_head& instr_head){
 		return try_push_(instr_head, nullptr);
-	}
-
-	void apply_deferred_transition_(state_transition& transition){
-		transition.config.append_front(defer_transition_config_front_);
-		transition.config.append(defer_transition_config_back_);
-		defer_transition_config_front_.clear();
-		defer_transition_config_back_.clear();
 	}
 };
 }

@@ -522,6 +522,10 @@ public:
 		record_context.push(1, frame.volatile_descriptor_buffer, frame.volatile_descriptor_buffer.get_chunk_size());
 	}
 
+	bool is_section_empty(std::uint32_t frame_index) const noexcept{
+		return submit_info_[frame_index].groupCountX == 0;
+	}
+
 	void cmd_draw(VkCommandBuffer cmd, std::uint32_t dispatch_group_index, std::uint32_t frame_index) const{
 		vk::cmd::drawMeshTasksIndirect(cmd, frames_[frame_index].buffer_indirect,
 			dispatch_group_index * sizeof(VkDrawMeshTasksIndirectCommandEXT), 1);

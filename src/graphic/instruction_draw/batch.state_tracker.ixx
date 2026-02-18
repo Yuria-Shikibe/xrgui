@@ -5,17 +5,14 @@ module;
 
 export module mo_yanxi.graphic.draw.instruction.state_tracker;
 
-export import mo_yanxi.graphic.draw.instruction.batch.common;
 import std;
-import binary_trace; // 引入 binary_trace 模块以使用 binary_diff_trace
+import binary_trace;
+export import mo_yanxi.graphic.draw.instruction.batch.common;
 
 namespace mo_yanxi::graphic::draw::instruction {
 
 /**
  * @brief 惰性状态追踪器
- * * 维护两份状态：
- * 1. Committed State: GPU 当前已知的状态（影子状态），扁平化存储。
- * 2. Pending State: 当前 Batch 累积的修改，使用 binary_diff_trace 记录，支持 Undo。
  */
 export
 struct state_tracker {
@@ -24,43 +21,38 @@ struct state_tracker {
 private:
     struct committed_entry {
         tag_type tag;
+        std::uint32_t logical_offset; // 该段数据的起始逻辑偏移
         std::vector<std::byte> data;
     };
 
-    // 扁平化存储 Committed 状态，按 Tag 排序以支持二分查找
+    // GPU 影子状态
     std::vector<committed_entry> committed_state_;
 
-    // 追踪 Pending 状态变更，支持 Undo
+    // 当前 Batch 的 Pending 状态
     mo_yanxi::binary_diff_trace pending_state_;
 
 public:
     [[nodiscard]] state_tracker() = default;
 
     /**
-     * @brief 更新状态 (Pending)
-     * 如果这是该 Tag 在当前 Batch 的首次修改，会自动从 Committed 状态加载基准数据。
+     * @brief 更新状态
+     * @param offset 数据的逻辑起始偏移量
      */
     void update(tag_type tag, std::span<const std::byte> payload, unsigned offset = 0) {
-        // 确保 Pending 状态中有该 Tag 的基准数据，以便正确应用 Diff
+        // 在写入新数据前，必须确保 Pending Trace 包含该 Tag 的基准数据。
+        // 如果 committed 状态中有数据，将其加载进去，这样 binary_trace 才能正确处理
+        // "在现有数据中间挖洞/修改" 或 "扩展现有数据" 的逻辑，而不是简单地把未覆盖区域填零。
         ensure_base_loaded(tag);
+
         pending_state_.push(tag, payload, offset);
     }
 
-    /**
-     * @brief 撤销最近一次对指定 Tag 的修改
-     */
     void undo(tag_type tag) {
         pending_state_.undo(tag);
     }
 
     /**
-     * @brief 将 Pending 状态的差异刷新到输出配置中
-     * * 对比 Pending State 和 Committed State：
-     * - 如果无差异，不生成输出。
-     * - 如果有差异，生成输出并更新 Committed State。
-     * - 清空 Pending State 以开始下一轮追踪。
-     * * @param out_config 接收差异的状态配置对象
-     * @return true 如果产生了实际的状态变更输出
+     * @brief 刷新差异
      */
     bool flush(state_transition_config& out_config) {
         if (pending_state_.empty()) {
@@ -68,72 +60,85 @@ public:
         }
 
         bool has_changes = false;
+        auto pending_view = pending_state_.get_records();
 
-        // 获取 Pending 状态的最终视图 (Consolidated View)
-        auto pending_records = pending_state_.get_records();
-
-        for (const auto& record : pending_records) {
+        for (const auto& record : pending_view) {
             auto it = std::ranges::lower_bound(committed_state_, record.tag, {}, &committed_entry::tag);
 
-            bool needs_update = false;
+            bool needs_emit = false;
 
             if (it != committed_state_.end() && it->tag == record.tag) {
-                // Tag 存在，检查数据内容是否一致
-                if (!std::ranges::equal(it->data, record.range)) {
-                    // 数据变更
+                // === 现有 Tag: 比较并合并 ===
+
+                // 1. 计算新的逻辑范围
+                std::uint32_t new_start = std::min(it->logical_offset, record.offset);
+                std::uint32_t new_end = std::max(
+                    it->logical_offset + static_cast<std::uint32_t>(it->data.size()),
+                    record.offset + static_cast<std::uint32_t>(record.range.size())
+                );
+                std::uint32_t new_size = new_end - new_start;
+
+                bool is_range_changed = (it->logical_offset != record.offset) || (it->data.size() != record.range.size());
+
+                if (is_range_changed || !std::ranges::equal(it->data, record.range)) {
+                    // 数据有变更
+                    // 注意：binary_trace 已经帮我们处理了 merge (A + B + Gap)，
+                    // 所以 record.range 包含了该 Tag 下所有的 Pending 数据（包括从 Committed 加载的 Base）。
+                    // 我们直接用 Pending 的结果覆盖 Committed 对应的部分。
+
+                    // 这里有一个细微点：如果 Committed 原来是 [0, 100)，Pending 只是修改了 [50, 60)。
+                    // 因为 ensure_base_loaded，Pending 变成了 [0, 100) (含新修改)。
+                    // Record 就是 [0, 100)。
+                    // 我们直接更新 Committed 为 [0, 100)，并输出整个 [0, 100) 指令。
+                    // 优化：虽然带宽可能浪费，但保证了逻辑简单且绝对正确。
+
+                    it->logical_offset = record.offset;
                     it->data.assign(record.range.begin(), record.range.end());
-                    needs_update = true;
+                    needs_emit = true;
                 }
             } else {
-                // Tag 不存在，新增
-                it = committed_state_.insert(it, {record.tag, {record.range.begin(), record.range.end()}});
-                needs_update = true;
+                // === 新 Tag ===
+                it = committed_state_.insert(it, {
+                    record.tag,
+                    record.offset,
+                    {record.range.begin(), record.range.end()}
+                });
+                needs_emit = true;
             }
 
-            if (needs_update) {
-                out_config.push(record.tag, record.range);
+            if (needs_emit) {
+                // 输出指令时携带逻辑偏移
+                out_config.push(record.tag, record.range, record.offset);
                 has_changes = true;
             }
         }
 
-        // 清空 Pending 状态，准备下一个 Batch
-        // 注意：Committed State 保持不变，作为 GPU 当前状态的快照
         pending_state_.clear();
-
         return has_changes;
     }
 
-    /**
-     * @brief 重置所有状态 (通常在帧开始或 EndRendering 时调用)
-     */
     void reset() noexcept {
         committed_state_.clear();
         pending_state_.clear();
     }
 
 private:
-    /**
-     * @brief 确保 Pending State 包含该 Tag 的基准数据
-     * 如果 Pending 中没有该 Tag，尝试从 Committed 中复制一份作为起点。
-     * 这是为了让 binary_trace 在空基准上正确应用 offset 和 diff。
-     */
     void ensure_base_loaded(tag_type tag) {
-        // 检查 binary_trace 中是否已有记录
         if (pending_state_.contains(tag)) {
             return;
         }
 
-        // 如果 Pending 中没有，查找 Committed
         auto it = std::ranges::lower_bound(committed_state_, tag, {}, &committed_entry::tag);
         if (it != committed_state_.end() && it->tag == tag) {
-            // 将 Committed 数据作为初始值推入 Pending (Offset 0)
-            // 这样后续的 update(offset > 0) 才能基于正确的数据修改
-            pending_state_.push(tag, it->data, 0);
+            // 将 Committed 的现有数据作为 Base 推入 Pending。
+            // 这一点至关重要：
+            // 假设 Committed 有 [0, 100)。我们现在要 Update [120, 130)。
+            // 如果不 Load Base，binary_trace 会认为 Pending 只有 [120, 130)，
+            // 或者是 [0, 130) 但 [0, 120) 全是 0 (取决于 binary_trace 内部实现细节，
+            // 但根据你的代码，它倾向于 merge)。
+            // 通过 Push Base，我们保证 Pending 状态正确地反映了 "旧数据 + 新修改"。
 
-            // 注意：这里我们利用 binary_trace 作为临时草稿本。
-            // 虽然这会增加一条 history entry，但只要 flush 时只看最终结果即可。
-            // Undo 逻辑需要注意：如果用户 undo 到了这个 base load 操作，
-            // 实际上 pending 会变回空，这在 flush 时会被视为 "无变更" (相对于 committed)，逻辑是正确的。
+            pending_state_.push(tag, it->data, it->logical_offset);
         }
     }
 };

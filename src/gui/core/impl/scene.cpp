@@ -39,9 +39,17 @@ void scene::draw_at(const elem& elem){
 	for(unsigned i = 0; i < pass_config_.size(); ++i){
 		renderer().update_state(pass_config_[i].begin_config);
 
+		renderer().update_state(
+			{},
+		graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010),
+			fx::draw_mode::def);
+
+
 		elem.draw_layer(c, {i});
 
-		renderer().update_state(fx::blit_config{
+		renderer().update_state({
+			.type = graphic::draw::instruction::state_push_type::non_idempotent
+		}, fx::blit_config{
 				.blit_region = {bound.src, bound.extent()},
 				.pipe_info = pass_config_[i].end_config
 			});

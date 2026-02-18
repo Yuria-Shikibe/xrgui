@@ -21,7 +21,7 @@ void cursor_collection::draw(scene& scene) const{
 
 
 	scene.renderer().update_state(graphic::draw::instruction::state_push_config{
-			graphic::draw::instruction::state_push_target::immediate
+		.type = graphic::draw::instruction::state_push_type::non_idempotent
 	}, gui::fx::blit_config{
 		{
 			.src = region.src.as<int>(),

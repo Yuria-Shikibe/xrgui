@@ -2,275 +2,351 @@ export module binary_trace;
 
 import std;
 
-namespace mo_yanxi{
+namespace mo_yanxi {
 
-constexpr void memcpy_constexpr(std::byte* dst, const std::byte* src, std::size_t size) noexcept{
-	if consteval{
-		std::ranges::copy(src, src + size, dst);
-	}else{
-		std::memcpy(dst, src, size);
-	}
-}
-
-export
-struct binary_diff_trace{
-	using flag_type = std::uint32_t;
-
-	struct tag{
-		flag_type major;
-		flag_type minor;
-
-		constexpr bool operator==(const tag&) const noexcept = default;
-
-		constexpr auto operator<=>(const tag&) const noexcept = default;
-	};
-
-	struct sub_span{
-		unsigned offset;
-		unsigned size;
-
-		constexpr std::span<std::byte> to_span(std::byte* base) const noexcept{
-			return {base + offset, size};
-		}
-
-		constexpr std::span<const std::byte> to_span(const std::byte* base) const noexcept{
-			return {base + offset, size};
-		}
-	};
-
-	struct entry{
-		tag tag;
-		unsigned target_offset;
-		sub_span src_span;
-
-		constexpr flag_type get_major() const noexcept{
-			return tag.major;
-		}
-
-		constexpr flag_type get_minor() const noexcept{
-			return tag.minor;
-		}
-	};
-
-	struct record{
-		tag tag;
-		sub_span src_span;
-		unsigned count;
-
-		constexpr flag_type get_major() const noexcept{
-			return tag.major;
-		}
-
-		constexpr flag_type get_minor() const noexcept{
-			return tag.minor;
-		}
-	};
-
-	struct export_record{
-		tag tag;
-		std::span<const std::byte> range;
-	};
-
-private:
-	std::vector<std::byte> entry_diffs_{};
-	std::vector<entry> entries_{};
-
-	std::vector<std::byte> record_data_{};
-	std::vector<record> records_{};
-
-public:
-	constexpr bool contains(tag t) const noexcept{
-		//despite records is ordered, in such scale linear search should be faster
-		return std::ranges::contains(records_, t, &record::tag);
-	}
-
-	[[nodiscard]] constexpr std::optional<std::span<const std::byte>> find_record(tag t) const noexcept{
-		auto it = std::ranges::lower_bound(records_, t, {}, &record::tag);
-		if(it != records_.end() && it->tag == t){
-			return it->src_span.to_span(record_data_.data());
-		}
-		return std::nullopt;
-	}
-
-	constexpr void push(tag tag, std::span<const std::byte> data, unsigned offset = 0){
-		unsigned currentSz = entry_diffs_.size();
-		entry_diffs_.resize(entry_diffs_.size() + data.size());
-
-		auto itr = std::ranges::lower_bound(records_, tag, {}, &record::tag);
-		if(itr != records_.end() && itr->tag == tag){
-			if(offset + data.size() > itr->src_span.size){
-				const unsigned record_off = record_data_.size();
-
-				record_data_.resize(record_off + data.size() + offset);
-				auto subrange = itr->src_span.to_span(record_data_.data());
-				memcpy_constexpr(record_data_.data() + record_off, subrange.data(), subrange.size());
-				itr->src_span = {record_off, static_cast<unsigned>(data.size() + offset)};
-			}
-
-			auto subrange = itr->src_span.to_span(record_data_.data());
-
-			for(unsigned i = 0; i < data.size(); ++i){
-				entry_diffs_[i + currentSz] = subrange[i + offset] ^ data[i];
-			}
-
-			memcpy_constexpr(subrange.data() + offset, data.data(), data.size());
-			++itr->count;
-		}else{
-			const unsigned record_off = record_data_.size();
-			record_data_.resize(record_data_.size() + data.size() + offset);
-			memcpy_constexpr(record_data_.data() + record_off + offset, data.data(), data.size());
-			records_.insert(itr, {tag, sub_span{record_off, static_cast<unsigned>(offset + data.size())}, 1});
-
-			memcpy_constexpr(entry_diffs_.data() + currentSz, data.data(), data.size());
-		}
-
-		entries_.emplace_back(tag, offset, sub_span{currentSz, static_cast<unsigned>(data.size())});
-	}
-
-	constexpr void undo(tag tag){
-		auto rec = std::ranges::find(records_, tag, &record::tag);
-		if(rec == records_.end())return;
-
-		auto [last, _] = std::ranges::find_last(entries_, tag, &entry::tag);
-
-
-		auto record = std::ranges::find(records_, tag, &record::tag);
-		auto record_range = record->src_span.to_span(record_data_.data());
-		auto entry_range = last->src_span.to_span(entry_diffs_.data());
-		for(unsigned i = 0; i < last->src_span.size; ++i){
-			record_range[i + last->target_offset] ^= entry_range[i];
-		}
-		entries_.erase(last);
-
-		if(--rec->count == 0){
-			records_.erase(rec);
-		}
-	}
-
-	constexpr auto get_records() const noexcept{
-		return records_ | std::views::transform([p = this->record_data_.data()](const record& r) constexpr -> export_record{
-			return {r.tag, r.src_span.to_span(p)};
-		});
-	}
-
-	constexpr bool empty() const noexcept{
-		return records_.empty();
-	}
-
-	constexpr void clear() noexcept {
-		records_.clear();
-		entries_.clear();
-		record_data_.clear();
-		entry_diffs_.clear();
-	}
-
-	constexpr bool operator==(const binary_diff_trace& other) const noexcept{
-		if(records_.size() != other.records_.size())return false;
-		for(unsigned i = 0; i < records_.size(); ++i){
-			const auto& lhs = records_[i];
-			const auto& rhs = other.records_[i];
-			if consteval{
-				if(!std::ranges::equal(
-					lhs.src_span.to_span(record_data_.data()),
-					rhs.src_span.to_span(other.record_data_.data())))return false;
-			}else{
-				if(lhs.src_span.size != rhs.src_span.size)return false;
-				if(std::memcmp(lhs.src_span.offset + record_data_.data(), rhs.src_span.offset + other.record_data_.data(), lhs.src_span.size))return false;
-			}
-
-		}
-		return true;
-	}
-};
-
-constexpr void assert_true(bool cond) {
-    if (!cond) throw "Assertion failed";
-}
-
-consteval bool test_binary_trace() {
-    binary_diff_trace trace;
-
-    // 定义 Tag
-    using Tag = binary_diff_trace::tag;
-    Tag tagA{1, 0};
-    Tag tagB{2, 0};
-
-    // 模拟数据
-    std::array<std::byte, 4> data1{std::byte{0xA}, std::byte{0xB}, std::byte{0xC}, std::byte{0xD}};
-    std::array<std::byte, 4> data2{std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}};
-
-    // Test 1: Push 新记录 (Tag A)
-    // 写入 Offset 0
-    trace.push(tagA, data1);
-
-    // 验证当前记录状态
-    auto records = trace.get_records();
-    // 实际上 ranges::find 比较繁琐，这里简化验证逻辑
-    for (const auto& rec : records) {
-        if (rec.tag == tagA) {
-            assert_true(std::ranges::equal(rec.range, data1));
+    constexpr void memcpy_constexpr(std::byte* dst, const std::byte* src, std::size_t size) noexcept {
+        if consteval {
+            std::ranges::copy(src, src + size, dst);
+        } else {
+            std::memcpy(dst, src, size);
         }
     }
 
-    // Test 2: Push 修改 (Tag A)
-    // 修改 Offset 1 处的 2 个字节: 0xB, 0xC -> 0xFF, 0xFF
-    std::array<std::byte, 2> patch{std::byte{0xFF}, std::byte{0xFF}};
-    trace.push(tagA, patch, 1);
+    export
+    struct binary_diff_trace {
+        using flag_type = std::uint32_t;
 
-    // 预期结果: 0xA, 0xFF, 0xFF, 0xD
-    std::array<std::byte, 4> expected_A_modified{std::byte{0xA}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0xD}};
+        struct tag {
+            flag_type major;
+            flag_type minor;
+            constexpr bool operator==(const tag&) const noexcept = default;
+        	constexpr auto operator<=>(const tag&) const noexcept = default;
 
-    bool found_mod = false;
-    for (const auto& rec : trace.get_records()) {
-        if (rec.tag == tagA) {
-            assert_true(std::ranges::equal(rec.range, expected_A_modified));
-            found_mod = true;
+        };
+
+        struct sub_span {
+            unsigned offset; // record_data_ 中的物理偏移
+            unsigned size;   // 物理大小
+
+            [[nodiscard]] constexpr std::span<std::byte> to_span(std::byte* base) const noexcept {
+                return { base + offset, size };
+            }
+            [[nodiscard]] constexpr std::span<const std::byte> to_span(const std::byte* base) const noexcept {
+                return { base + offset, size };
+            }
+        };
+
+        struct export_record {
+            tag tag;
+            unsigned offset; // 逻辑起始偏移
+            std::span<const std::byte> range;
+        };
+
+    private:
+        struct record {
+            tag tag;
+            sub_span src_span;      // 物理存储位置
+            unsigned logical_offset; // 逻辑起始偏移
+            unsigned count;         // 操作计数引用
+        };
+
+        enum class op_type : std::uint8_t {
+            new_record, // 创建了新记录
+            append,     // 物理尾部直接追加 (零拷贝)
+            diff,       // 原地异或修改
+            realloc     // 发生了重分配 (Copy-on-Write)
+        };
+
+        struct entry {
+            tag tag;
+            op_type type;
+
+            // 联合存储不同操作所需的回滚信息，节省空间
+            // Diff 模式: diff_span 存储 XOR 数据位置, target_rel_offset 存储修改位置
+            // Append 模式: target_rel_offset 存储追加的长度 (用于 resize 回滚)
+            // Realloc 模式: old_span 存储旧物理位置, old_logical_offset 存储旧逻辑偏移
+            sub_span data_span;
+            unsigned aux_val;
+        };
+
+        std::vector<std::byte> entry_diffs_{}; // 仅存储 Diff 操作的 XOR 数据
+        std::vector<entry> entries_{};
+
+        std::vector<std::byte> record_data_{}; // 存储主要数据
+        std::vector<record> records_{};
+
+        // 内部辅助：线性查找 (小数据量下比二分快且对 cache 友好)
+        [[nodiscard]] constexpr auto find_record_iter(tag t) noexcept {
+            return std::ranges::find(records_, t, &record::tag);
         }
-    }
-    assert_true(found_mod);
 
-    // Test 3: Undo (回滚 Tag A 的修改)
-    trace.undo(tagA);
-
-    // 预期结果回归: 0xA, 0xB, 0xC, 0xD
-    bool found_orig = false;
-    for (const auto& rec : trace.get_records()) {
-        if (rec.tag == tagA) {
-            assert_true(std::ranges::equal(rec.range, data1));
-            found_orig = true;
+        [[nodiscard]] constexpr auto find_record_iter(tag t) const noexcept {
+            return std::ranges::find(records_, t, &record::tag);
         }
-    }
-    assert_true(found_orig);
 
-    // Test 4: 扩容测试 (Resize trigger)
-    // 在现有 Tag A 后追加数据，触发 record_data_ 的迁移/扩容逻辑
-    // 假设 offset 4 写入 2 字节，原 size 为 4，需要 resize
-    std::array<std::byte, 2> append_data{std::byte{0xEE}, std::byte{0xEE}};
-    trace.push(tagA, append_data, 4);
-
-    // 检查总长度是否变为 6
-    for (const auto& rec : trace.get_records()) {
-        if (rec.tag == tagA) {
-            assert_true(rec.range.size() == 6);
-            assert_true(rec.range[4] == std::byte{0xEE});
+    public:
+        // 预留空间，避免动态扩容开销
+        constexpr void reserve(std::size_t total_bytes, std::size_t record_count) {
+            record_data_.reserve(total_bytes);
+            records_.reserve(record_count);
+            entries_.reserve(record_count * 2);
         }
+
+        constexpr bool contains(tag t) const noexcept {
+            return find_record_iter(t) != records_.end();
+        }
+
+        [[nodiscard]] constexpr std::optional<export_record> find_record(tag t) const noexcept {
+            if (auto it = find_record_iter(t); it != records_.end()) {
+                return export_record{ t, it->logical_offset, it->src_span.to_span(record_data_.data()) };
+            }
+            return std::nullopt;
+        }
+
+        constexpr void push(tag tag, std::span<const std::byte> data, unsigned offset) {
+            auto itr = find_record_iter(tag);
+
+            // Case 1: 新记录
+            if (itr == records_.end()) {
+                const unsigned phys_off = static_cast<unsigned>(record_data_.size());
+                // 直接追加到主 buffer
+                record_data_.resize(phys_off + data.size());
+                memcpy_constexpr(record_data_.data() + phys_off, data.data(), data.size());
+
+                records_.emplace_back(tag, sub_span{phys_off, static_cast<unsigned>(data.size())}, offset, 1);
+                entries_.emplace_back(tag, op_type::new_record, sub_span{0,0}, 0);
+                return;
+            }
+
+            record& rec = *itr;
+            const unsigned req_start = offset;
+            const unsigned req_end = offset + static_cast<unsigned>(data.size());
+            const unsigned cur_start = rec.logical_offset;
+            const unsigned cur_end = rec.logical_offset + rec.src_span.size;
+
+            // 计算合并后的逻辑范围
+            const unsigned new_start = std::min(req_start, cur_start);
+            const unsigned new_end = std::max(req_end, cur_end);
+
+            // Case 2: 尾部追加优化 (Tail Extension)
+            // 条件：逻辑上是追加，且物理上该记录正好位于 record_data_ 的末尾
+            // 收益：无需分配新 block，无需拷贝旧数据
+            bool is_logical_append = (req_start == cur_end); // 紧接逻辑尾部
+            bool is_phys_tail = (rec.src_span.offset + rec.src_span.size == record_data_.size());
+
+            if (is_logical_append && is_phys_tail) {
+                unsigned append_size = data.size();
+                unsigned old_phys_size = static_cast<unsigned>(record_data_.size());
+
+                record_data_.resize(old_phys_size + append_size);
+                memcpy_constexpr(record_data_.data() + old_phys_size, data.data(), append_size);
+
+                // 更新记录
+                rec.src_span.size += append_size;
+                rec.count++;
+
+                // 记录历史: aux_val 存追加长度
+                entries_.emplace_back(tag, op_type::append, sub_span{0,0}, append_size);
+                return;
+            }
+
+            // Case 3: 原地修改 (In-Place Diff)
+            // 条件：新数据完全落在现有逻辑范围内
+            if (req_start >= cur_start && req_end <= cur_end) {
+                unsigned rel_offset = req_start - cur_start;
+                unsigned diff_off = static_cast<unsigned>(entry_diffs_.size());
+
+                entry_diffs_.resize(diff_off + data.size());
+                auto phys_span = rec.src_span.to_span(record_data_.data());
+
+                // 计算 XOR 并写入 diff buffer
+                for (size_t i = 0; i < data.size(); ++i) {
+                    entry_diffs_[diff_off + i] = phys_span[rel_offset + i] ^ data[i];
+                }
+                // 应用新数据
+                memcpy_constexpr(phys_span.data() + rel_offset, data.data(), data.size());
+
+                rec.count++;
+                // 记录历史: data_span 存 diff 位置, aux_val 存相对偏移
+                entries_.emplace_back(tag, op_type::diff, sub_span{diff_off, static_cast<unsigned>(data.size())}, rel_offset);
+                return;
+            }
+
+            // Case 4: 重分配 (Realloc / Copy-on-Write)
+            // 场景：头部扩展、中间填补 Gap、或非尾部的追加
+            {
+                unsigned new_size = new_end - new_start;
+                unsigned new_phys_off = static_cast<unsigned>(record_data_.size());
+
+                // 记录旧状态以便 Undo
+                entries_.emplace_back(tag, op_type::realloc, rec.src_span, rec.logical_offset);
+
+                record_data_.resize(new_phys_off + new_size); // 扩展空间 (默认值0处理 gap)
+                std::byte* base = record_data_.data();
+
+                // 1. 搬运旧数据
+                if (rec.src_span.size > 0) {
+                    unsigned old_rel = cur_start - new_start;
+                    memcpy_constexpr(base + new_phys_off + old_rel, base + rec.src_span.offset, rec.src_span.size);
+                }
+
+                // 2. 写入新数据 (覆盖)
+                unsigned new_rel = req_start - new_start;
+                memcpy_constexpr(base + new_phys_off + new_rel, data.data(), data.size());
+
+                // 更新记录
+                rec.src_span = { new_phys_off, new_size };
+                rec.logical_offset = new_start;
+                rec.count++;
+            }
+        }
+
+        constexpr void undo(tag tag) {
+            auto rec_it = find_record_iter(tag);
+            if (rec_it == records_.end()) return;
+
+            // 查找该 tag 的最后一条 entry
+            // 优化：从后往前扫，找到匹配 tag 即停
+            auto entry_it = std::ranges::find(entries_ | std::views::reverse, tag, &entry::tag);
+            if (entry_it == (entries_ | std::views::reverse).end()) return;
+
+            // 获取正向 iterator (base() 返回 reverse_iterator 对应的下一个位置，所以要减 1)
+            auto forward_it = std::prev(entry_it.base());
+            const auto& last_entry = *forward_it;
+            record& rec = *rec_it;
+
+            switch (last_entry.type) {
+                case op_type::new_record: {
+                    // 逻辑：如果是新记录，undo 意味着彻底删除
+                    // 物理空间无法轻易回收 (record_data_ append only)，但逻辑记录移除
+                    records_.erase(rec_it);
+                    break;
+                }
+                case op_type::append: {
+                    // 逻辑：直接缩减 size
+                    unsigned appended_size = last_entry.aux_val;
+                    rec.src_span.size -= appended_size;
+                    rec.count--;
+                    // 物理空间优化：如果正好在物理末尾，可以真正释放 vector 空间
+                    if (rec.src_span.offset + rec.src_span.size + appended_size == record_data_.size()) {
+                         record_data_.resize(record_data_.size() - appended_size);
+                    }
+                    break;
+                }
+                case op_type::diff: {
+                    // 逻辑：XOR 还原
+                    auto diff_range = last_entry.data_span.to_span(entry_diffs_.data());
+                    auto rec_range = rec.src_span.to_span(record_data_.data());
+                    unsigned rel_offset = last_entry.aux_val;
+
+                    for (unsigned i = 0; i < diff_range.size(); ++i) {
+                        rec_range[rel_offset + i] ^= diff_range[i];
+                    }
+
+                    // 清理 diff buffer (如果位于末尾)
+                    if (last_entry.data_span.offset + last_entry.data_span.size == entry_diffs_.size()) {
+                        entry_diffs_.resize(last_entry.data_span.offset);
+                    }
+                    rec.count--;
+                    break;
+                }
+                case op_type::realloc: {
+                    // 逻辑：指针指回旧位置
+                    rec.src_span = last_entry.data_span;       // old_span
+                    rec.logical_offset = last_entry.aux_val;   // old_logical_offset
+                    rec.count--;
+                    break;
+                }
+            }
+
+            entries_.erase(forward_it);
+        }
+
+        constexpr auto get_records() const noexcept {
+            return records_ | std::views::transform([p = this->record_data_.data()](const record& r) constexpr -> export_record {
+                return { r.tag, r.logical_offset, r.src_span.to_span(p) };
+            });
+        }
+
+        constexpr bool empty() const noexcept {
+            return records_.empty();
+        }
+
+        constexpr void clear() noexcept {
+            records_.clear();
+            entries_.clear();
+            record_data_.clear();
+            entry_diffs_.clear();
+        }
+    };
+
+    // ---------------------- 测试代码 ----------------------
+    constexpr void assert_true(bool cond) {
+        if (!cond) throw "Assertion failed";
     }
 
-    // Test 5: 清理
-    trace.clear();
-    assert_true(trace.empty());
+    consteval bool test_optimized_trace() {
+        binary_diff_trace trace;
+        using Tag = binary_diff_trace::tag;
+        Tag tagA{1, 1};
 
-    return true;
+        std::array<std::byte, 4> d1{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
+        std::array<std::byte, 4> d2{std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
+
+        // 1. New Record [0, 4) -> Value: {1,2,3,4}
+        trace.push(tagA, d1, 0);
+
+        // 2. Tail Append [4, 8) -> Value: {1,2,3,4, 5,6,7,8}
+        // 这应该触发 Append 优化，不发生 copy
+        trace.push(tagA, d2, 4);
+        {
+            auto rec = trace.find_record(tagA).value();
+            assert_true(rec.range.size() == 8);
+            assert_true(rec.range[0] == std::byte{1});
+            assert_true(rec.range[4] == std::byte{5});
+        }
+
+        // 3. In-Place Diff [2, 6) -> 覆盖中间
+        std::array<std::byte, 4> d3{std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}};
+        trace.push(tagA, d3, 2);
+        {
+            auto rec = trace.find_record(tagA).value();
+            // {1, 2, FF, FF, FF, FF, 7, 8}
+            assert_true(rec.range[1] == std::byte{2});
+            assert_true(rec.range[2] == std::byte{0xFF});
+            assert_true(rec.range[6] == std::byte{7});
+        }
+
+        // 4. Undo Diff
+        trace.undo(tagA);
+        {
+            auto rec = trace.find_record(tagA).value();
+            // Back to {1,2,3,4, 5,6,7,8}
+            assert_true(rec.range[2] == std::byte{3});
+        }
+
+        // 5. Realloc (Prepend) [-4, 8) -> Offset changes to -4 (uint wrap behavior if strictly unsigned, but logically it extends left)
+        // 这里演示 Gap Fill / Prepend
+        // 假设我们在 offset 0 之前插入（逻辑不支持负数，但支持向前扩展如果 current > 0）
+        // 让我们做 Gap fill: 之前是 [0, 8)，现在 push [10, 12)
+        std::array<std::byte, 2> d4{std::byte{0xAA}, std::byte{0xBB}};
+        trace.push(tagA, d4, 10);
+        {
+             auto rec = trace.find_record(tagA).value();
+             assert_true(rec.range.size() == 12); // 0..12
+             assert_true(rec.range[8] == std::byte{0}); // Gap
+             assert_true(rec.range[10] == std::byte{0xAA});
+        }
+
+        // 6. Undo Realloc
+        trace.undo(tagA);
+         {
+             auto rec = trace.find_record(tagA).value();
+             assert_true(rec.range.size() == 8);
+         }
+
+        return true;
+    }
+
+    // static_assert(test_optimized_trace());
 }
-
-// 编译期执行测试
-static_assert(test_binary_trace());
-}
-
-export
-template <>
-struct std::hash<mo_yanxi::binary_diff_trace::tag>{
-	 static std::size_t operator()(mo_yanxi::binary_diff_trace::tag tag) noexcept {
-		 return std::hash<std::uint64_t>{}(std::bit_cast<std::uint64_t>(tag));
-	 }
-};

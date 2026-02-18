@@ -6,6 +6,7 @@ module mo_yanxi.gui.elem.label_v2;
 
 import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.draw.instruction.general;
 import mo_yanxi.math.matrix3;
 import mo_yanxi.math.vector2;
 import mo_yanxi.math;
@@ -62,12 +63,19 @@ void label_v2::draw_text() const{
 		mat.set_translation(get_glyph_src_abs());
 	}
 
-	renderer().push_constant({}, {.vk = {VK_SHADER_STAGE_FRAGMENT_BIT}}, fx::draw_mode::msdf);
+	renderer().update_state(
+		{},
+		graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT),
+		fx::draw_mode::msdf);
 
 	{
 		transform_guard _t{renderer(), mat};
 		push_text_draw_buffer();
 	}
+
+
+	renderer().undo_state(graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
+
 }
 
 }

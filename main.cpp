@@ -208,7 +208,7 @@ Edge Cases:
 			// });
 
 			r.update_state(state_push_config{
-				state_push_target::defer_pre
+				// state_push_target::defer_pre
 			}, gui::fx::blit_config{
 				{
 					.src = {},
@@ -371,7 +371,7 @@ Edge Cases:
 			// });
 			//
 			r.update_state(state_push_config{
-				state_push_target::defer_pre
+				// state_push_target::defer_pre
 			}, gui::fx::blit_config{
 				{
 					.src = {},

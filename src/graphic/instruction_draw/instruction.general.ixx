@@ -9,10 +9,9 @@ module;
 
 export module mo_yanxi.graphic.draw.instruction.general;
 
-
 import std;
-
 import mo_yanxi.meta_programming;
+import binary_trace;
 
 namespace mo_yanxi::graphic::draw::instruction{
 
@@ -22,16 +21,11 @@ concept contiguous_range_of = std::ranges::contiguous_range<Rng> && std::same_as
 export constexpr inline std::size_t instr_required_align = 16;
 
 static_assert(std::has_single_bit(instr_required_align));
-
 export FORCE_INLINE std::byte* find_aligned_on(std::byte* where) noexcept{
 	const auto A = std::bit_cast<std::uintptr_t>(where);
 	static constexpr std::size_t M = instr_required_align;
 	static constexpr std::size_t Mask = M - 1;
-
-	// A + Mask: 确保至少跨越到下一个 M 的倍数
-	// & ~Mask: 清零低位，实现向下取整到 M 的倍数
 	const auto next = (A + Mask) & (~Mask);
-
 	return std::bit_cast<std::byte*>(next);
 }
 
@@ -39,18 +33,14 @@ export FORCE_INLINE const std::byte* find_aligned_on(const std::byte* where) noe
 	return find_aligned_on(const_cast<std::byte*>(where));
 }
 
-
-
 export struct instruction_buffer{
  	static constexpr std::size_t align = 32;
-
 private:
 	std::byte* src{};
 	std::byte* dst{};
 
 public:
 	[[nodiscard]] constexpr instruction_buffer() noexcept = default;
-
 	[[nodiscard]] explicit instruction_buffer(std::size_t byte_size){
 		const auto actual_size = ((byte_size + (align - 1)) / align) * align;
 		const auto p = ::operator new(actual_size, std::align_val_t{align});
@@ -59,8 +49,10 @@ public:
 	}
 
 	~instruction_buffer(){
-		std::destroy_n(src, size());
-		::operator delete(src, size(), std::align_val_t{align});
+		if(src) {
+			std::destroy_n(src, size());
+			::operator delete(src, size(), std::align_val_t{align});
+		}
 	}
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::size_t size() const noexcept{
@@ -101,9 +93,10 @@ public:
 
 	constexpr instruction_buffer& operator=(instruction_buffer&& other) noexcept{
 		if(this == &other) return *this;
-		std::destroy_n(src, size());
-		::operator delete(src, size(), std::align_val_t{align});
-
+		if(src) {
+			std::destroy_n(src, size());
+			::operator delete(src, size(), std::align_val_t{align});
+		}
 		src = std::exchange(other.src, {});
 		dst = std::exchange(other.dst, {});
 		return *this;
@@ -116,8 +109,6 @@ public:
 				return;
 			}
 		}
-
-
 		const auto p = ::operator new(new_size, std::align_val_t{align});
 		auto* next = new(p) std::byte[new_size];
 		std::memcpy(next, src, size());
@@ -130,17 +121,16 @@ public:
 		if(size() == new_size){
 			return;
 		}
-
 		const auto p = ::operator new(new_size, std::align_val_t{align});
 		auto* next = new(p) std::byte[new_size];
 		::operator delete(src, size(), std::align_val_t{align});
 		src = next;
 		dst = src + new_size;
 	}
-
 };
 
 
+export
 template <typename T>
 constexpr std::size_t get_size(const T& arg){
 	if constexpr (std::ranges::input_range<T>){
@@ -197,7 +187,6 @@ template <typename T>
 	requires (sizeof(T) <= 8)
 union dispatch_info_payload{
 	T draw;
-
 	user_data_indices ubo;
 	gpu_vertex_data_advance_data marching_data;
 };
@@ -211,24 +200,25 @@ struct alignas(instr_required_align) generic_instruction_head{
 	dispatch_info_payload<DrawInfoTy> payload;
 };
 
+// --- Changed Section ---
 
 export
-enum struct state_push_target{
-	immediate,
-	defer_pre,
-	defer_post,
+enum struct state_push_type{
+	idempotent,
+	undo,
+	non_idempotent
 };
 
 export
 struct state_push_config{
-	state_push_target target{};
+	state_push_type type;
 };
+// -----------------------
 
 }
 
 
 namespace mo_yanxi::graphic::draw{
-
 namespace instruction{
 
 #ifndef MO_YANXI_GRAPHIC_DRAW_INSTRUCTION_IMAGE_HANDLE_TYPE
@@ -237,7 +227,6 @@ namespace instruction{
 #else
 	export using image_handle_t = void*;
 #endif
-
 #else
 export using image_handle_t = MO_YANXI_GRAPHIC_DRAW_INSTRUCTION_IMAGE_HANDLE_TYPE;
 static_assert(sizeof(image_handle_t) == 8)
@@ -273,25 +262,18 @@ export struct alignas(instr_required_align) primitive_generic{
 export enum struct instr_type : std::uint32_t{
 	noop,
 	uniform_update,
-
 	triangle,
 	quad,
 	rectangle,
-
 	line,
 	line_segments,
 	line_segments_closed,
-
 	poly,
 	poly_partial,
-
 	constrained_curve,
-
-
 	rect_ortho,
 	rect_ortho_outline,
 	row_patch,
-
 	SIZE,
 };
 
@@ -444,108 +426,22 @@ FORCE_INLINE [[nodiscard]] instruction_head place_ubo_update_at(
 
 }
 
-
-/**
- * @brief All flag < 0 is reserved for builtin usage.
- */
 export
-using state_transition_entry_flag_t = std::int32_t;
+using state_tag = binary_diff_trace::tag;
 
 export
-enum struct builtin_transition_flag : state_transition_entry_flag_t{
-	undo_last_operation,
-	push_constant
-};
-
-export
-constexpr builtin_transition_flag make_builtin_flag_from(state_transition_entry_flag_t flag) noexcept{
-	assert(flag < 0);
-	return builtin_transition_flag{static_cast<std::int32_t>(flag & ~0U >> 1U)};
+template <typename L, typename R>
+	requires (sizeof(L) == sizeof(state_tag::major) && sizeof(R) == sizeof(state_tag::minor))
+constexpr state_tag make_state_tag(L major, R minor) noexcept {
+	return {std::bit_cast<decltype(state_tag::major)>(major), std::bit_cast<decltype(state_tag::minor)>(minor)};
 }
-
-
-export
-constexpr state_transition_entry_flag_t make_builtin_flag_from(builtin_transition_flag flag) noexcept{
-	return static_cast<std::int32_t>(std::to_underlying(flag) | ~(~0U >> 1U));
-}
-
-
-
-#ifdef BACKEND_HAS_VULKAN
-export
-struct push_constant_config_vulkan{
-	VkShaderStageFlags  stage_flags;
-	std::uint32_t       device_offset;
-};
-#endif
-
-export
-union push_constant_config{
-	std::monostate none;
-#ifdef BACKEND_HAS_VULKAN
-	push_constant_config_vulkan vk;
-#endif
-
-};
-
-export
-union entry_config{
-	push_constant_config push_constant;
-	std::array<std::byte, 8> user_data;
-};
-
-export
-struct state_transition_entry{
-	state_transition_entry_flag_t flag;
-	entry_config config;
-
-	std::span<const std::byte> data;
-
-	template <typename T>
-		requires (std::is_trivially_copyable_v<T>)
-	const T& as() const noexcept{
-		assert(sizeof(T) == data.size());
-		return *reinterpret_cast<const T*>(data.data());
-	}
-
-	constexpr bool is_builtin() const noexcept{
-		return flag < 0;
-	}
-
-#ifdef BACKEND_HAS_VULKAN
-	void cmd_push(VkCommandBuffer cmdbuf, VkPipelineLayout layout) const{
-		assert(make_builtin_flag_from(flag) == builtin_transition_flag::push_constant);
-		vkCmdPushConstants(cmdbuf,
-			layout,
-			config.push_constant.vk.stage_flags,
-			config.push_constant.vk.device_offset,
-			data.size(), data.data());
-	}
-
-
-	constexpr bool process_builtin(VkCommandBuffer cmdbuf, VkPipelineLayout layout) const{
-		if(!is_builtin())return false;
-
-		switch(make_builtin_flag_from(flag)){
-		case builtin_transition_flag::push_constant:
-			cmd_push(cmdbuf, layout);
-		default: std::unreachable();
-		}
-
-		return true;
-	}
-
-#endif
-
-};
-
 
 export
 struct batch_backend_interface{
 	using host_impl_ptr = void*;
 
 	using function_signature_buffer_acquire = void(host_impl_ptr, instruction_head, const std::byte* payload);
-	using function_signature_update_state_entry = void(host_impl_ptr, state_push_config config, state_transition_entry_flag_t flag, entry_config entry_cfx, std::span<const std::byte> payload);
+	using function_signature_update_state_entry = void(host_impl_ptr, state_push_config config, state_tag tag, std::span<const std::byte> payload, unsigned offset);
 
 private:
 	host_impl_ptr host;
@@ -558,7 +454,7 @@ public:
 
 	template <typename HostT,
 	std::invocable<HostT&, instruction_head, const std::byte*> AcqFn,
-	std::invocable<HostT&, state_push_config, state_transition_entry_flag_t, entry_config, std::span<const std::byte>> StateHandleFn
+	std::invocable<HostT&, state_push_config, state_tag, std::span<const std::byte>, unsigned> StateHandleFn
 	>
 	[[nodiscard]] constexpr batch_backend_interface(
 		HostT& host,
@@ -566,8 +462,8 @@ public:
 		StateHandleFn
 	) noexcept : host(std::addressof(host)), fptr_push(+[](host_impl_ptr host, instruction_head head, const std::byte* instr){
 		return AcqFn::operator()(*static_cast<HostT*>(host), head, instr);
-	}), state_handle(+[](host_impl_ptr host, state_push_config config, state_transition_entry_flag_t flag, entry_config entry_cfx, std::span<const std::byte> payload) static {
-		StateHandleFn::operator()(*static_cast<HostT*>(host), config, flag, entry_cfx, payload);
+	}), state_handle(+[](host_impl_ptr host, state_push_config config, state_tag tag, std::span<const std::byte> payload, unsigned offset) static {
+		StateHandleFn::operator()(*static_cast<HostT*>(host), config, tag, payload, offset);
 	}){
 
 	}
@@ -588,12 +484,14 @@ public:
 	}
 
 
-	void update_state(state_push_config defer, state_transition_entry_flag_t flag, entry_config entry_cfx, std::span<const std::byte> payload) const{
-		state_handle(host, defer, flag, entry_cfx, payload);
+	void update_state(state_push_config config, state_tag tag, std::span<const std::byte> payload, unsigned offset = 0) const{
+		state_handle(host, config, tag, payload, offset);
 	}
 
 };
+
 }
+
 
 export
 template <typename T>
