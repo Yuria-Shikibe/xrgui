@@ -47,7 +47,7 @@ constexpr inline std::array device_extensions{
 	// VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME,
 	VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
 	VK_EXT_MESH_SHADER_EXTENSION_NAME,
-	// VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
+	VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
 };
 
 
@@ -133,18 +133,22 @@ constexpr VkPhysicalDeviceDescriptorBufferFeaturesEXT DescriptorBufferFeatures{
 		.descriptorBufferPushDescriptors = false
 	};
 
-constexpr VkPhysicalDeviceExtendedDynamicState3FeaturesEXT PhysicalDeviceExtendedDynamicState3Features{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
-		.extendedDynamicState3ColorBlendEnable = true,
-		.extendedDynamicState3ColorBlendEquation = true
-	};
+constexpr VkPhysicalDeviceExtendedDynamicState3FeaturesEXT PhysicalDeviceExtendedDynamicState3Features = []{
+	VkPhysicalDeviceExtendedDynamicState3FeaturesEXT rst{
+			VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT
+		};
+	rst.extendedDynamicState3ColorBlendEnable = true;
+	rst.extendedDynamicState3ColorBlendEquation = true;
+	rst.extendedDynamicState3ColorWriteMask = true;
+	return rst;
+}();
 
 const extension_chain extChain{
 		PhysicalDeviceVulkan11Features,
 		PhysicalDeviceVulkan12Features,
 		PhysicalDeviceVulkan13Features,
 
-		// PhysicalDeviceExtendedDynamicState3Features,
+		PhysicalDeviceExtendedDynamicState3Features,
 		// PhysicalDeviceComputeShaderDerivativesFeaturesKHR,
 
 		DescriptorBufferFeatures,

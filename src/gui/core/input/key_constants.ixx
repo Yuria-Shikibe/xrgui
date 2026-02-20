@@ -265,6 +265,10 @@ struct key_set{
 		return key{key_code};
 	}
 
+	[[nodiscard]] constexpr mouse as_mouse() const noexcept{
+		return static_cast<mouse>(key_code);
+	}
+
 	[[nodiscard]] constexpr bool on_release() const noexcept{
 		return action == act::release;
 	}

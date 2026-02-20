@@ -4,12 +4,12 @@ module;
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
-
 export module mo_yanxi.backend.vulkan.pipeline_manager;
 
 export import mo_yanxi.backend.vulkan.attachment_manager;
 export import mo_yanxi.gui.renderer.frontend;
 
+import std;
 import mo_yanxi.utility;
 import mo_yanxi.graphic.draw.instruction.util;
 import mo_yanxi.graphic.draw.instruction;
@@ -18,7 +18,6 @@ import mo_yanxi.vk.util;
 import mo_yanxi.vk;
 import mo_yanxi.gui.alloc;
 
-import std;
 
 namespace mo_yanxi::backend::vulkan{
 using namespace gui;
@@ -136,6 +135,7 @@ struct graphic_pipeline_data;
 export
 struct dynamic_blending_config{
 private:
+
 	unsigned blending_state_count{};
 	std::vector<VkPipelineColorBlendAttachmentState> blend_states{};
 
@@ -174,39 +174,46 @@ public:
 };
 
 export
+struct option_blending_state{
+
+	std::vector<VkPipelineColorBlendAttachmentState> default_blending_settings{};
+	bool dynamic_blending_enable_states;
+	bool dynamic_blending_equation_states;
+	bool dynamic_blending_write_flag_states;
+
+	void apply_to_template(vk::graphic_pipeline_template& gtp) const{
+		if(default_blending_settings.size() != gtp.attachment_formats.size()){
+			throw std::invalid_argument("Invalid settings for default_blending_settings, blending setting count mismatch");
+		}
+
+		gtp.attachment_blend_states = default_blending_settings;
+
+		if(dynamic_blending_enable_states){
+			gtp.dynamic_states.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT);
+		}
+
+		if(dynamic_blending_equation_states){
+			gtp.dynamic_states.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT);
+		}
+
+		if(dynamic_blending_write_flag_states){
+			gtp.dynamic_states.push_back(VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT);
+		}
+
+	}
+};
+
+export
 struct graphic_pipeline_option{
 	bool enables_multisample{};
 	fx::render_target_mask default_target_attachments{};
-	std::variant<std::monostate, std::vector<VkPipelineColorBlendAttachmentState>, dynamic_blending_config> blending{};
+	option_blending_state blend_state{};
+
 	std::vector<descriptor_use_entry> used_descriptor_sets{};
+
 
 	bool is_partial_target() const noexcept{
 		return default_target_attachments.any() && !default_target_attachments.all();
-	}
-
-	template <std::invocable<std::size_t, const VkPipelineColorBlendAttachmentState&> Fn>
-	void for_each_attachment_blend_state(std::size_t attachments, Fn fn) const{
-		for(std::size_t i = 0; i < attachments; ++i){
-			std::visit(overload{
-				[&](std::monostate){
-					fn(i, vk::blending::alpha_blend);
-				},
-				[&](const std::vector<VkPipelineColorBlendAttachmentState>& vec){
-					if(i >= vec.size()){
-						fn(i, vk::blending::alpha_blend);
-					}else{
-						fn(i, vec[i]);
-					}
-				},
-				[&](const dynamic_blending_config&){
-					fn(i, vk::blending::overwrite);
-				},
-			}, blending);
-		}
-	}
-
-	bool is_dynamic_blending() const noexcept{
-		return std::holds_alternative<dynamic_blending_config>(blending);
 	}
 };
 
@@ -243,14 +250,13 @@ struct graphic_pipeline_create_config{
 					gtp.set_multisample(attachments.multisample, 1, option.enables_multisample);
 				}
 
-				option.for_each_attachment_blend_state(attachments.attachments.size(), [&](std::size_t idx, const VkPipelineColorBlendAttachmentState& state){
-					if(!option.default_target_attachments[idx])return;
-					gtp.push_color_attachment_format(attachments.attachments[idx].attachment.format, state);
-				});
-
-				if(option.is_dynamic_blending()){
-					gtp.set_blending_dynamic(true, true);
+				for(std::size_t idx = 0; idx < attachments.attachments.size(); ++idx){
+					if(!option.default_target_attachments[idx])continue;
+					gtp.push_color_attachment_format(attachments.attachments[idx].attachment.format);
 				}
+
+				option.blend_state.apply_to_template(gtp);
+
 
 				data.pipeline = vk::pipeline{
 					data.pipeline_layout.get_device(), data.pipeline_layout,

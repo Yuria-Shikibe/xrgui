@@ -20,9 +20,7 @@ void cursor_collection::draw(scene& scene) const{
 	}
 
 
-	scene.renderer().update_state(graphic::draw::instruction::state_push_config{
-		.type = graphic::draw::instruction::state_push_type::non_idempotent
-	}, gui::fx::blit_config{
+	scene.renderer().update_state(gui::fx::blit_config{
 		{
 			.src = region.src.as<int>(),
 			.extent = region.extent().as<int>()

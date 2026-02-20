@@ -1,12 +1,13 @@
 module;
 
 #include <vulkan/vulkan.h>
-#include <vk_mem_alloc.h>
+#include <cassert>
 
 export module mo_yanxi.backend.vulkan.renderer;
 
 import std;
-import mo_yanxi.graphic.draw.instruction.batch.frontend;
+import mo_yanxi.graphic_state_context;
+export import mo_yanxi.graphic.draw.instruction.batch.frontend;
 import mo_yanxi.graphic.draw.instruction.batch.backend.vulkan;
 import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
@@ -15,131 +16,533 @@ export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.gui.fx.config;
 export import mo_yanxi.backend.vulkan.attachment_manager;
 export import mo_yanxi.backend.vulkan.pipeline_manager;
-namespace mo_yanxi::backend::vulkan {
+
+namespace mo_yanxi::backend::vulkan{
+template <typename T>
+constexpr T mask(unsigned N) noexcept{
+	return N >= std::numeric_limits<std::make_unsigned_t<T>>::digits ? ~T{0} : (static_cast<T>(1) << N) - 1;
+}
 
 // --- 内部初始化与工具函数 ---
-graphic::draw::instruction::hardware_limit_config query_hardware_limits(vk::allocator_usage& usage) {
+graphic::draw::instruction::hardware_limit_config query_hardware_limits(vk::allocator_usage& usage){
 	VkPhysicalDeviceMeshShaderPropertiesEXT mesh_props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
 	VkPhysicalDeviceProperties2 prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &mesh_props};
 	vkGetPhysicalDeviceProperties2(usage.get_physical_device(), &prop);
-	return { mesh_props.maxTaskWorkGroupCount[0], mesh_props.maxTaskWorkGroupSize[0], mesh_props.maxMeshOutputVertices, mesh_props.maxMeshOutputPrimitives };
+	return {
+			mesh_props.maxTaskWorkGroupCount[0], mesh_props.maxTaskWorkGroupSize[0], mesh_props.maxMeshOutputVertices,
+			mesh_props.maxMeshOutputPrimitives
+		};
+}
+
+gui::fx::render_target_mask get_render_target(const gui::fx::pipeline_config& param,
+	const graphic_pipeline_option& data) noexcept{
+	if(param.draw_targets.any()) return param.draw_targets;
+	return data.default_target_attachments;
 }
 
 /** 预定义数据布局表 */
 const graphic::draw::data_layout_table table{
-    std::in_place_type<gui::gui_reserved_user_data_tuple>
-};
+		std::in_place_type<gui::gui_reserved_user_data_tuple>
+	};
 
 const graphic::draw::data_layout_table table_non_vertex{
-    std::in_place_type<std::tuple<gui::fx::ui_state, gui::fx::slide_line_config>>
-};
+		std::in_place_type<std::tuple<gui::fx::ui_state, gui::fx::slide_line_config>>
+	};
 
-export struct renderer_create_info {
-    vk::allocator_usage allocator_usage;
-    VkCommandPool command_pool;
-    VkSampler sampler;
-    draw_attachment_create_info attachment_draw_config;
-    blit_attachment_create_info attachment_blit_config;
-    graphic_pipeline_create_config draw_pipe_config;
-    compute_pipeline_create_config blit_pipe_config;
-};
-
-
-/**
- * @brief 内部辅助类：负责管理图形管线绑定和动态状态设置
- * 将状态追踪从 renderer 主逻辑中剥离，避免重复绑定
- */
-struct graphics_context_agent {
-	graphic_pipeline_manager& pipeline_manager;
-	const attachment_manager& attachment_mgr;
-	std::optional<std::size_t> current_pipeline_index{};
-
-	graphics_context_agent(graphic_pipeline_manager& pm, const attachment_manager& am)
-		: pipeline_manager(pm), attachment_mgr(am) {}
-
-	/**
-	 * @brief 如果目标管线与当前不一致，则绑定管线并重设视口/裁剪
-	 */
-	void bind_if_needed(VkCommandBuffer cmd, std::size_t new_pipeline_index) {
-		if (current_pipeline_index == new_pipeline_index) {
-			return;
-		}
-
-		// 1. 绑定 Pipeline
-		auto& pipe_data = pipeline_manager.get_pipelines()[new_pipeline_index];
-		pipe_data.pipeline.bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
-
-		// 2. 设置动态状态 (Viewport & Scissor)
-		// 每次切换管线或开始新的 Pass 时，确保 Viewport 正确
-		const VkRect2D area = attachment_mgr.get_screen_area();
-		vk::cmd::set_viewport(cmd, area);
-		vk::cmd::set_scissor(cmd, area);
-
-		// 3. 更新缓存
-		current_pipeline_index = new_pipeline_index;
-	}
-
-	/**
-	 * @brief 使当前状态无效（例如在 RenderPass 结束或 CommandBuffer 开始时调用）
-	 */
-	void invalidate() {
-		current_pipeline_index = std::nullopt;
-	}
+export struct renderer_create_info{
+	vk::allocator_usage allocator_usage;
+	VkCommandPool command_pool;
+	VkSampler sampler;
+	draw_attachment_create_info attachment_draw_config;
+	blit_attachment_create_info attachment_blit_config;
+	graphic_pipeline_create_config draw_pipe_config;
+	compute_pipeline_create_config blit_pipe_config;
 };
 
 /** 内部辅助：跟踪 Attachment 的当前状态以进行自动屏障转换 */
-struct attachment_state {
-    VkPipelineStageFlags2 stage_mask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    VkAccessFlags2 access_mask = VK_ACCESS_2_NONE;
-    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+struct attachment_state{
+	VkPipelineStageFlags2 stage_mask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+	VkAccessFlags2 access_mask = VK_ACCESS_2_NONE;
+	VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
-export struct renderer {
-    static constexpr std::size_t frames_in_flight = 3;
+export struct renderer{
+	static constexpr std::size_t frames_in_flight = 3;
+
+	/** 命令录制上下文：作为 renderer 的内部结构体，拥有访问外部私有成员的权限 */
+	struct command_recording_context{
+		// --- 缓存与持久化追踪状态 ---
+		std::vector<std::uint8_t> attachment_enter_mark;
+		graphic::draw::record_context<> descriptor_context;
+		std::vector<attachment_state> draw_attachment_states;
+		std::vector<attachment_state> blit_attachment_states;
+		vk::cmd::dependency_gen barrier_gen;
+		vk::dynamic_rendering rendering_config;
+
+		enum class blit_sync_state : std::uint8_t{
+			none,
+			pending_barrier, // 待决状态：刚被 Blit 修改，等待下一个操作决定同步策略
+			event_set // 跨管线状态：已确认中间有图形操作，并已写入 vkCmdSetEvent2
+		};
+
+		std::vector<blit_sync_state> blit_attachment_sync_states;
+
+		std::vector<VkClearAttachment> cache_clear_attachments_;
+		std::vector<VkClearRect> cache_clear_rects_;
+
+		command_recording_context() = default;
+
+		void resize(std::size_t draw_count, std::size_t blit_count){
+			attachment_enter_mark.resize(draw_count);
+			draw_attachment_states.resize(draw_count);
+			blit_attachment_states.resize(blit_count);
+			blit_attachment_sync_states.resize(blit_count, blit_sync_state::none);
+		}
+
+		void reset_barriers(){
+			for(auto& s : draw_attachment_states){
+				s = {
+						VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+						VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+					};
+			}
+			for(auto& s : blit_attachment_states){
+				s = {
+						VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
+						VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+						VK_IMAGE_LAYOUT_GENERAL
+					};
+			}
+			std::ranges::fill(blit_attachment_sync_states, blit_sync_state::none);
+		}
+
+		static void ensure_attachment_state(vk::cmd::dependency_gen& dep, attachment_state& state, VkImage image,
+			VkPipelineStageFlags2 next_stage, VkAccessFlags2 next_access, VkImageLayout next_layout){
+			const bool layout_changed = state.layout != next_layout;
+			// 优化：如果是连续的颜色附件写入且没有布局切换，可以利用栅格化顺序跳过屏障
+			const bool can_skip_color = !layout_changed &&
+				(state.stage_mask == VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT && next_stage ==
+					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT) &&
+				(state.access_mask == VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT && next_access ==
+					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+			if(can_skip_color) return;
+
+			// 优化：如果是只读到只读的转换，且没有布局切换，也可以跳过
+			auto is_write = [](VkAccessFlags2 a){
+				return a & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+					VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT |
+					VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+			};
+
+			if(!layout_changed && !is_write(state.access_mask) && !is_write(next_access)) return;
+
+			dep.push(image, state.stage_mask, state.access_mask, next_stage, next_access, state.layout, next_layout,
+				vk::image::default_image_subrange);
+			state = {next_stage, next_access, next_layout};
+		}
+
+		void commit_pending_blit_events(renderer& r, VkCommandBuffer cmd){
+			for(std::size_t idx = 0; idx < blit_attachment_sync_states.size(); ++idx){
+				if(blit_attachment_sync_states[idx] == blit_sync_state::pending_barrier){
+					VkImageMemoryBarrier2 set_barrier{
+							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+							.pNext = nullptr,
+							.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+							.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+							.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+							.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+							.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+							.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+							.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+							.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+							.image = r.attachment_manager_.get_blit_attachments()[idx].get_image(),
+							.subresourceRange = vk::image::default_image_subrange
+						};
+					VkDependencyInfo dep_info{
+							.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+							.pNext = nullptr,
+							.dependencyFlags = 0,
+							.imageMemoryBarrierCount = 1,
+							.pImageMemoryBarriers = &set_barrier
+						};
+					vkCmdSetEvent2(cmd, r.blit_events_[idx], &dep_info);
+					// 状态跃迁：已提交 Event
+					blit_attachment_sync_states[idx] = blit_sync_state::event_set;
+				}
+			}
+		}
+
+		/** 核心录制逻辑：将外部状态转换为局部临时变量 */
+		void record(renderer& r, VkCommandBuffer cmd){
+			vkCmdExecuteCommands(cmd, 1, r.blit_attachment_clear_and_init_command_buffer.as_data());
+			const auto section_count = r.batch_host.get_submit_sections_count();
+			if(r.batch_host.get_valid_submit_groups().empty()) return;
+
+			// --- 录制命令期的临时上下文全部转换为局部变量 ---
+			graphics_context_trace graphic_context{};
+			graphic_context.invalidate();
+			gui::fx::pipeline_config draw_cfg{.pipeline_index = 0};
+			bool is_rendering = false;
+			gui::fx::render_target_mask current_pass_mask{};
+			bool current_pass_msaa = false;
+
+			// 状态重置
+			reset_barriers();
+			std::ranges::fill(attachment_enter_mark, 0);
+			rendering_config.clear_color_attachments();
+
+			auto flush_pass = [&](){
+				if(is_rendering){
+					vkCmdEndRendering(cmd);
+					is_rendering = false;
+					graphic_context.set_rebind_required();
+				}
+			};
+
+			const bool global_msaa = r.attachment_manager_.enables_multisample();
+
+			for(unsigned i = 0; i < section_count; ++i){
+				const auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index].option;
+				const bool is_msaa = pipe_opt.enables_multisample && global_msaa;
+				const auto target_mask = get_render_target(draw_cfg, pipe_opt);
+
+				// 1. 自动同步检查：如果目标 Attachment 状态改变，则生成屏障
+				barrier_gen.clear();
+				target_mask.for_each_popbit([&](unsigned idx){
+					ensure_attachment_state(barrier_gen, draw_attachment_states[idx],
+						r.attachment_manager_.get_draw_attachments()[idx].get_image(),
+						VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+						VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+				});
+
+				// 2. 渲染通道切换判断：如果屏障生效、目标变更或 MSAA 切换，则必须重启 Rendering
+				if(is_rendering && (!barrier_gen.empty() || target_mask != current_pass_mask || is_msaa !=
+					current_pass_msaa)){
+					flush_pass();
+				}
+
+				if(!barrier_gen.empty()){
+					barrier_gen.apply(cmd);
+				}
+
+				// 3. 开始新的 Rendering Pass
+				if(!is_rendering){
+					// 【优化核心】：在启动图形管线前，将所有积累的待决 Blit 转换为 Event
+					commit_pending_blit_events(r, cmd);
+
+					r.attachment_manager_.configure_dynamic_rendering<32>(
+						rendering_config,
+						draw_cfg.draw_targets.none() ? pipe_opt.default_target_attachments : draw_cfg.draw_targets,
+						is_msaa
+					);
+
+					std::size_t slot = 0;
+					target_mask.for_each_popbit([&](unsigned idx){
+						auto& info = rendering_config.get_color_attachment_infos()[slot++];
+						info.loadOp = attachment_enter_mark[idx]
+							              ? VK_ATTACHMENT_LOAD_OP_LOAD
+							              : VK_ATTACHMENT_LOAD_OP_CLEAR;
+						attachment_enter_mark[idx] = true;
+					});
+
+					rendering_config.begin_rendering(cmd, r.attachment_manager_.get_screen_area());
+					is_rendering = true;
+					current_pass_mask = target_mask;
+					current_pass_msaa = is_msaa;
+				}
+
+				bool requires_clear = false;
+				if(r.batch_device.is_section_empty(i)){
+					for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
+						requires_clear |= process_breakpoints_(r, entry, graphic_context, draw_cfg, cmd, flush_pass);
+					}
+				} else{
+					graphic_context.apply(cmd, r.draw_pipeline_manager_);
+
+					// 5. 执行 Draw Call（仅包含描述符绑定和绘制）
+					cmd_draw_(r, cmd, i, draw_cfg);
+
+					// 6. 处理断点（如管线变更或触发 Blit）
+					for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
+						requires_clear |= process_breakpoints_(r, entry, graphic_context, draw_cfg, cmd, flush_pass);
+					}
+				}
+
+				if(requires_clear){
+					flush_pass();
+					std::ranges::fill(attachment_enter_mark, 0);
+				}
+			}
+
+			flush_pass();
+		}
+
+		void cmd_draw_(renderer& r, VkCommandBuffer cmd, std::uint32_t index, const gui::fx::pipeline_config& arg){
+			// 获取 Pipeline Layout 仅用于描述符绑定
+			const auto& pc = r.draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
+			descriptor_context.clear();
+			r.batch_device.load_descriptors(descriptor_context, r.current_frame_index_);
+			descriptor_context.prepare_bindings();
+			descriptor_context(pc.pipeline_layout, cmd, index, VK_PIPELINE_BIND_POINT_GRAPHICS);
+			r.batch_device.cmd_draw(cmd, index, r.current_frame_index_);
+		}
+
+		/** 处理 Blit 操作：Compute Shader 实现的图像处理 */
+		void blit_(renderer& r, gui::fx::blit_config cfg, VkCommandBuffer cmd){
+			cfg.get_clamped_to_positive();
+			const auto& inout = r.get_blit_inout_config(cfg);
+
+			barrier_gen.clear();
+
+			// 1. 处理来自 Draw Attachment (Graphic Pipeline) 的输入
+			for(const auto& e : inout.get_input_entries()){
+				ensure_attachment_state(barrier_gen, draw_attachment_states[e.resource_index],
+					r.attachment_manager_.get_draw_attachments()[e.resource_index].get_image(),
+					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+					VK_IMAGE_LAYOUT_GENERAL);
+			}
+
+			// 2. 消费阶段：为 Compute 独占的 Blit Attachment 处理依赖
+			std::vector<VkEvent> wait_events;
+			std::vector<VkImageMemoryBarrier2> wait_barriers;
+
+			for(const auto& e : inout.get_output_entries()){
+				const auto idx = e.resource_index;
+				if(blit_attachment_sync_states[idx] == blit_sync_state::event_set){
+					// 场景 A：中间经历了 Graphic 管线，Event 已被 Set，等待并复位
+					wait_events.push_back(r.blit_events_[idx]);
+					wait_barriers.push_back({
+							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+							.pNext = nullptr,
+							.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+							.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+							.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+							.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+							.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+							.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+							.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+							.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+							.image = r.attachment_manager_.get_blit_attachments()[idx].get_image(),
+							.subresourceRange = vk::image::default_image_subrange
+						});
+					blit_attachment_sync_states[idx] = blit_sync_state::none;
+				} else if(blit_attachment_sync_states[idx] == blit_sync_state::pending_barrier){
+					// 场景 B：两个 Blit 背靠背执行！直接降级为更轻量的 Pipeline Barrier
+					barrier_gen.push(r.attachment_manager_.get_blit_attachments()[idx].get_image(),
+						VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+						VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+						VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+						VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, vk::image::default_image_subrange);
+					blit_attachment_sync_states[idx] = blit_sync_state::none;
+				}
+			}
+
+			// 应用积累的常规屏障（这会一并提交输入附件的屏障和场景 B 降级的屏障）
+			if(!barrier_gen.empty()){
+				barrier_gen.apply(cmd);
+			}
+
+			if(!wait_events.empty()){
+				std::vector<VkDependencyInfo> dep_infos;
+				dep_infos.reserve(wait_events.size());
+
+				for(std::size_t i = 0; i < wait_events.size(); ++i){
+					dep_infos.push_back({
+							.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+							.pNext = nullptr,
+							.dependencyFlags = 0,
+							.memoryBarrierCount = 0,
+							.pMemoryBarriers = nullptr,
+							.bufferMemoryBarrierCount = 0,
+							.pBufferMemoryBarriers = nullptr,
+							.imageMemoryBarrierCount = 1,
+							.pImageMemoryBarriers = &wait_barriers[i]
+						});
+				}
+
+				vkCmdWaitEvents2(cmd, static_cast<std::uint32_t>(wait_events.size()), wait_events.data(),
+					dep_infos.data());
+
+				for(auto ev : wait_events){
+					vkCmdResetEvent2(cmd, ev, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+				}
+			}
+
+			// 3. 绑定管线、描述符并执行分发
+			auto& pc = r.blit_pipeline_manager_.get_pipelines()[cfg.pipe_info.pipeline_index];
+			pc.pipeline.bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+			math::upoint2 offset = cfg.blit_region.src.as<unsigned>();
+			vkCmdPushConstants(cmd, pc.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(offset), &offset);
+
+			VkDescriptorBufferBindingInfoEXT db_info = cfg.use_default_inouts()
+				                                           ? r.blit_default_inout_descriptors_[cfg.pipe_info.
+					                                           pipeline_index]
+				                                           : r.blit_specified_inout_descriptors_[cfg.pipe_info.
+					                                           inout_define_index];
+
+			descriptor_context.clear();
+			descriptor_context.push(0, db_info);
+			r.blit_pipeline_manager_.append_descriptor_buffers(descriptor_context, 0);
+			descriptor_context.prepare_bindings();
+			descriptor_context(pc.pipeline_layout, cmd, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+			auto dispatches = cfg.get_dispatch_groups();
+			vkCmdDispatch(cmd, dispatches.x, dispatches.y, 1);
+
+			// 4. 生产阶段：为刚修改过的 Blit Attachment 埋入“待决状态”
+			for(const auto& e : inout.get_output_entries()){
+				const auto idx = e.resource_index;
+				blit_attachment_sync_states[idx] = blit_sync_state::pending_barrier;
+			}
+		}
+
+		template <typename F>
+		bool process_breakpoints_(
+			renderer& r,
+			const graphic::draw::instruction::state_transition_config::exported_entry& entry,
+			graphics_context_trace& context_trace,
+			gui::fx::pipeline_config& draw_cfg,
+			VkCommandBuffer buffer,
+			F&& flush_callback){
+			auto& cur_pipe = r.draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index];
+			using namespace gui::fx;
+			switch(static_cast<state_type>(entry.tag.major)){
+			case state_type::blit :{
+				flush_callback();
+				// Blit 必须在渲染通道外
+				blit_(r, entry.as<blit_config>(), buffer);
+				//TODO separate clean request and blit?
+				return true;
+			}
+			case state_type::pipe :{
+				auto param = entry.as<pipeline_config>();
+				param.pipeline_index = draw_cfg.pipeline_index;
+				draw_cfg = param;
+				context_trace.update_pipeline(draw_cfg.pipeline_index);
+				return false;
+			}
+			case state_type::push_constant :{
+				const auto flags = static_cast<VkShaderStageFlags>(entry.tag.minor);
+				vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, entry.logical_offset, entry.payload.size(),
+					entry.payload.data());
+				break;
+			}
+			case state_type::set_color_blend_enable :{
+				auto param = entry.as<blend_enable_flag>();
+				auto mask = make_render_target_mask(cur_pipe.option, draw_cfg, entry.tag.minor);
+				mask.for_each_popbit([&](unsigned i){
+					context_trace.set_blend_enable(i, param);
+				});
+				break;
+			}
+			case state_type::set_color_blend_equation :{
+				auto param = entry.as<blend_equation>();
+				auto mask = make_render_target_mask(cur_pipe.option, draw_cfg, entry.tag.minor);
+				mask.for_each_popbit([&](unsigned i){
+					context_trace.set_blend_equation(i, param);
+				});
+				break;
+			}
+			case state_type::set_color_write_mask :{
+				auto param = entry.as<blend_write_mask_type>();
+				auto mask = make_render_target_mask(cur_pipe.option, draw_cfg, entry.tag.minor);
+				mask.for_each_popbit([&](unsigned i){
+					context_trace.set_blend_write_mask(entry.tag.minor, param);
+				});
+				break;
+			}
+			case state_type::set_scissor :{
+				auto param = entry.as<scissor>();
+				context_trace.set_scissor(param);
+				break;
+			}
+			case state_type::set_viewport :{
+				auto param = entry.as<viewport>();
+				context_trace.set_viewport(param);
+				break;
+			}
+			case state_type::fill_color :{
+				auto mask = make_render_target_mask(cur_pipe.option, draw_cfg, entry.tag.minor);
+				cache_clear_attachments_.clear();
+				cache_clear_rects_.clear();
+				if(entry.payload.size() == sizeof(color_clear_value)){
+					//only color clear value is set, make full screen clear.
+					auto param = entry.as<color_clear_value>();
+					// vkCmdClearAttachments()
+					mask.for_each_popbit([&](unsigned i){
+						cache_clear_attachments_.push_back({
+								.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+								.colorAttachment = i,
+								.clearValue = param
+							});
+					});
+					VkClearRect rect{
+							.rect = {
+								{},
+								r.attachment_manager_.get_extent()
+							},
+							.baseArrayLayer = 0,
+							.layerCount = 1
+						};
+					vkCmdClearAttachments(buffer, cache_clear_attachments_.size(), cache_clear_attachments_.data(), 1,
+						&rect);
+				} else{
+					throw std::runtime_error{"not impl"};
+					//TODO
+				}
+
+				break;
+			}
+			default : break;
+			}
+			return false;
+		}
+
+	private:
+		gui::fx::render_target_mask make_render_target_mask(graphic_pipeline_option& current_pipe_option,
+			const gui::fx::pipeline_config& config, unsigned bits) const noexcept{
+			return (bits ? gui::fx::render_target_mask{bits} : gui::fx::render_target_mask{~0U})
+				& gui::fx::render_target_mask{
+					mask<std::uint32_t>(get_render_target(config, current_pipe_option).popcount())
+				};
+		}
+	};
+
 private:
 	vk::allocator_usage allocator_usage_{};
 
 public:
-    /** 绘图指令批处理器 */
-    graphic::draw::instruction::draw_list_context batch_host{};
-    graphic::draw::instruction::batch_vulkan_executor batch_device{};
+	/** 绘图指令批处理器 */
+	graphic::draw::instruction::draw_list_context batch_host{};
+	graphic::draw::instruction::batch_vulkan_executor batch_device{};
 
 private:
-
 	attachment_manager attachment_manager_{};
-	vk::dynamic_rendering rendering_config_{};
 	graphic_pipeline_manager draw_pipeline_manager_{};
-
 	compute_pipeline_manager blit_pipeline_manager_{};
 	std::vector<vk::descriptor_buffer> blit_default_inout_descriptors_{};
 	std::vector<vk::descriptor_buffer> blit_specified_inout_descriptors_{};
 
-	vk::command_seq<> command_seq_draw_{};
-	vk::command_seq<> command_seq_blit_{};
+	vk::event_vector blit_events_{};
 
-
-	struct frame_data {
+	struct frame_data{
 		vk::fence fence{};
 		vk::command_buffer main_command_buffer{};
 		frame_data() = default;
 
 		frame_data(VkDevice device, VkCommandPool pool)
 			: fence(device, true)
-			, main_command_buffer(device, pool)
-		{}
+			, main_command_buffer(device, pool){
+		}
 	};
+
 	std::array<frame_data, frames_in_flight> frames_{};
 	std::uint32_t current_frame_index_{frames_in_flight - 1};
 
 	vk::command_buffer blit_attachment_clear_and_init_command_buffer{};
-	std::vector<gui::fx::draw_config> cache_draw_param_stack_{};
-	std::vector<std::uint8_t> cache_attachment_enter_mark_{};
-	graphic::draw::record_context<> cache_record_context_{};
 
-	std::vector<attachment_state> draw_attachment_states_{};
-	std::vector<attachment_state> blit_attachment_states_{};
-	vk::cmd::dependency_gen cache_barrier_gen_{};
-
+	command_recording_context record_ctx_{};
 	VkSampler sampler_{};
 
 public:
@@ -148,7 +551,9 @@ public:
 	)
 		: allocator_usage_(create_info.allocator_usage)
 		, batch_host([&]{
-			VkPhysicalDeviceMeshShaderPropertiesEXT meshProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
+			VkPhysicalDeviceMeshShaderPropertiesEXT meshProperties{
+					VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT
+				};
 			VkPhysicalDeviceProperties2 prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &meshProperties};
 			vkGetPhysicalDeviceProperties2(allocator_usage_.get_physical_device(), &prop);
 			return graphic::draw::instruction::hardware_limit_config{
@@ -160,367 +565,169 @@ public:
 		}(), table, table_non_vertex)
 		, batch_device(allocator_usage_, batch_host, frames_in_flight)
 		, attachment_manager_{
-			allocator_usage_, std::move(create_info.attachment_draw_config), std::move(create_info.attachment_blit_config)
+			allocator_usage_, std::move(create_info.attachment_draw_config),
+			std::move(create_info.attachment_blit_config)
 		}
-		, draw_pipeline_manager_(allocator_usage_, create_info.draw_pipe_config, batch_device.get_descriptor_set_layout(), attachment_manager_.get_draw_config())
-		, command_seq_draw_(allocator_usage_.get_device(), create_info.command_pool, 4,
-			VK_COMMAND_BUFFER_LEVEL_SECONDARY)
-		, command_seq_blit_(allocator_usage_.get_device(), create_info.command_pool, 4,
-			VK_COMMAND_BUFFER_LEVEL_SECONDARY)
+		, draw_pipeline_manager_(allocator_usage_, create_info.draw_pipe_config,
+			batch_device.get_descriptor_set_layout(), attachment_manager_.get_draw_config())
+		, blit_events_(allocator_usage_.get_device(), create_info.attachment_blit_config.attachments.size(), true)
 		, sampler_(create_info.sampler){
-
-		cache_attachment_enter_mark_.resize(attachment_manager_.get_draw_attachments().size());
+		record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
+			attachment_manager_.get_blit_attachments().size());
 		initialize_frames(create_info.command_pool);
-        initialize_blit_resources(create_info);
-    }
+		initialize_blit_resources(create_info);
+	}
 
-    /** 窗口缩放时重置附件与描述符绑定 */
-    void resize(VkExtent2D extent) {
-        attachment_manager_.resize(extent);
-        // 更新状态追踪数组大小
-        draw_attachment_states_.resize(attachment_manager_.get_draw_attachments().size());
-        blit_attachment_states_.resize(attachment_manager_.get_blit_attachments().size());
-        auto update_descriptor = [this](vk::descriptor_buffer& db, const compute_pipeline_blit_inout_config& cfg) {
-            vk::descriptor_mapper mapper{db};
-            for (const auto& in : cfg.get_input_entries()) {
-                (void)mapper.set_image(in.binding, {nullptr, attachment_manager_.get_draw_attachments()[in.resource_index].get_image_view(), VK_IMAGE_LAYOUT_GENERAL}, 0, in.type);
-            }
-            for (const auto& out : cfg.get_output_entries()) {
-                (void)mapper.set_image(out.binding, {nullptr, attachment_manager_.get_blit_attachments()[out.resource_index].get_image_view(), VK_IMAGE_LAYOUT_GENERAL}, 0, out.type);
-            }
-        };
+	/** 窗口缩放时重置附件与描述符绑定 */
+	void resize(VkExtent2D extent){
+		attachment_manager_.resize(extent);
+		// 更新状态追踪数组大小
+		record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
+			attachment_manager_.get_blit_attachments().size());
+		blit_events_.resize(attachment_manager_.get_blit_attachments().size(), true);
 
-        // 重新绑定所有 Blit 相关的描述符
-        for (auto&& [db, pipe] : std::views::zip(blit_default_inout_descriptors_, blit_pipeline_manager_.get_pipelines())) {
-            update_descriptor(db, pipe.option.inout);
-        }
-        for (auto&& [db, inout] : std::views::zip(blit_specified_inout_descriptors_, blit_pipeline_manager_.get_inout_defines())) {
-            update_descriptor(db, inout);
-        }
+		auto update_descriptor = [this](vk::descriptor_buffer& db, const compute_pipeline_blit_inout_config& cfg){
+			vk::descriptor_mapper mapper{db};
+			for(const auto& in : cfg.get_input_entries()){
+				(void)mapper.set_image(in.binding, {
+						nullptr, attachment_manager_.get_draw_attachments()[in.resource_index].get_image_view(),
+						VK_IMAGE_LAYOUT_GENERAL
+					}, 0, in.type);
+			}
+			for(const auto& out : cfg.get_output_entries()){
+				(void)mapper.set_image(out.binding, {
+						nullptr, attachment_manager_.get_blit_attachments()[out.resource_index].get_image_view(),
+						VK_IMAGE_LAYOUT_GENERAL
+					}, 0, out.type);
+			}
+		};
 
-        create_blit_clear_and_init_cmd();
-    }
+		// 重新绑定所有 Blit 相关的描述符
+		for(auto&& [db, pipe] : std::views::zip(blit_default_inout_descriptors_,
+			    blit_pipeline_manager_.get_pipelines())){
+			update_descriptor(db, pipe.option.inout);
+		}
+		for(auto&& [db, inout] : std::views::zip(blit_specified_inout_descriptors_,
+			    blit_pipeline_manager_.get_inout_defines())){
+			update_descriptor(db, inout);
+		}
 
-    /** 上传渲染数据并切换帧上下文 */
-    void upload() {
-        current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
-        try {
-            frames_[current_frame_index_].fence.wait_and_reset();
-            batch_device.upload(batch_host, sampler_, current_frame_index_);
-        } catch (...) {
-            frames_[current_frame_index_].fence.reset();
-        }
-    }
+		create_blit_clear_and_init_cmd();
+	}
 
-    /** 录制当前帧的主指令缓冲 */
-    void create_command() {
-        vk::scoped_recorder recorder{frames_[current_frame_index_].main_command_buffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-        record_cmd(recorder);
-    }
+	/** 上传渲染数据并切换帧上下文 */
+	void upload(){
+		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
+		try{
+			frames_[current_frame_index_].fence.wait_and_reset();
+			batch_device.upload(batch_host, sampler_, current_frame_index_);
+		} catch(...){
+			frames_[current_frame_index_].fence.reset();
+		}
+	}
 
-    gui::renderer_frontend create_frontend() noexcept {
-        return gui::renderer_frontend{table, table_non_vertex, {
-            *this,
-            [](renderer& r, auto h, const std::byte* d) static { return r.batch_host.push_instr(h, d);
-            },
-            [](renderer& r, auto cfg, auto f, auto ecfg, auto p) static { r.batch_host.push_state(cfg, f, ecfg, p);
-            }
-        }};
-    }
+	/** 录制当前帧的主指令缓冲 */
+	void create_command(){
+		vk::scoped_recorder recorder{
+				frames_[current_frame_index_].main_command_buffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+			};
+		record_ctx_.record(*this, recorder);
+	}
 
-    VkCommandBuffer get_valid_cmd_buf() const noexcept { return frames_[current_frame_index_].main_command_buffer;
-    }
-    VkFence get_fence() const noexcept { return frames_[current_frame_index_].fence; }
+	gui::renderer_frontend create_frontend() noexcept{
+		return gui::renderer_frontend{
+				table, table_non_vertex, {
+					*this,
+					[](renderer& r, auto h, const std::byte* d) static{ return r.batch_host.push_instr(h, d); },
+					[](renderer& r, auto cfg, auto f, auto ecfg, auto p) static{
+						r.batch_host.push_state(cfg, f, ecfg, p);
+					}
+				}
+			};
+	}
+
+	VkCommandBuffer get_valid_cmd_buf() const noexcept{ return frames_[current_frame_index_].main_command_buffer; }
+	VkFence get_fence() const noexcept{ return frames_[current_frame_index_].fence; }
 
 	vk::image_handle get_base() const noexcept{
-    	return attachment_manager_.get_blit_attachments()[0];
-    }
+		return attachment_manager_.get_blit_attachments()[0];
+	}
 
 	vk::image_handle get_draw_base() const noexcept{
-    	return attachment_manager_.get_blit_attachments()[0];
-    }
+		return attachment_manager_.get_blit_attachments()[0];
+	}
 
 private:
-    /** 核心录制逻辑：遍历指令流并处理状态切换 */
-    void record_cmd(VkCommandBuffer cmd) {
-        vkCmdExecuteCommands(cmd, 1, blit_attachment_clear_and_init_command_buffer.as_data());
-        reset_barrier_context();
+	void initialize_frames(VkCommandPool pool){
+		for(auto& f : frames_) f = frame_data(allocator_usage_.get_device(), pool);
+		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{
+				allocator_usage_.get_device(), pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY
+			};
+	}
 
-        const auto section_count = batch_host.get_submit_sections_count();
-        if (batch_host.get_valid_submit_groups().empty()) return;
+	void initialize_blit_resources(const renderer_create_info& info){
+		blit_pipeline_manager_ = compute_pipeline_manager(allocator_usage_, info.blit_pipe_config);
+		// 分配并初始化默认/特定 Blit 描述符缓冲
+		auto pipes = blit_pipeline_manager_.get_pipelines();
+		blit_default_inout_descriptors_.reserve(pipes.size());
+		for(std::size_t i = 0; i < pipes.size(); ++i){
+			auto& layout = blit_pipeline_manager_.get_inout_layouts()[i];
+			blit_default_inout_descriptors_.emplace_back(allocator_usage_, layout, layout.binding_count());
+		}
 
-        std::ranges::fill(cache_attachment_enter_mark_, false);
-        cache_draw_param_stack_.assign(1, {.pipeline_index = {}});
+		auto inouts = blit_pipeline_manager_.get_inout_defines();
+		blit_specified_inout_descriptors_.reserve(inouts.size());
+		for(const auto& def : inouts){
+			vk::descriptor_layout layout{
+					allocator_usage_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+					def.make_layout_builder()
+				};
+			blit_specified_inout_descriptors_.emplace_back(allocator_usage_, layout, layout.binding_count());
+		}
+	}
 
-        // 初始化状态管理 Agent
-        graphics_context_agent state_agent{draw_pipeline_manager_, attachment_manager_};
+	void create_blit_clear_and_init_cmd() const{
+		vk::scoped_recorder recorder{
+				blit_attachment_clear_and_init_command_buffer, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT, true
+			};
+		vk::cmd::dependency_gen dep;
 
-        bool is_rendering = false;
-        gui::fx::render_target_mask current_pass_mask{};
-        bool current_pass_msaa = false;
-        const bool global_msaa = attachment_manager_.enables_multisample();
-        auto flush_pass = [&]() {
-            if (is_rendering) {
-                vkCmdEndRendering(cmd);
-                is_rendering = false;
-                // RenderPass 结束后，管线动态状态（如 Viewport）可能需要重新设置，因此让 Agent 失效
-                state_agent.invalidate();
-            }
-        };
+		// 初始化所有附件到初始布局并清空 Blit 目标
+		for(const auto& img : attachment_manager_.get_blit_attachments()){
+			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
+				VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk::image::default_image_subrange);
+		}
+		dep.apply(recorder);
 
-        for (unsigned i = 0; i < section_count; ++i) {
-            const auto& draw_cfg = get_current_draw_config();
-            const auto& pipe_opt = draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index].option;
-            const bool is_msaa = pipe_opt.enables_multisample && global_msaa;
-            const auto target_mask = get_current_target(draw_cfg);
-            // 1. 自动同步检查：如果目标 Attachment 状态改变，则生成屏障
-            cache_barrier_gen_.clear();
-            target_mask.for_each_popbit([&](unsigned idx) {
-                ensure_attachment_state(cache_barrier_gen_, draw_attachment_states_[idx],
-                    attachment_manager_.get_draw_attachments()[idx].get_image(),
-                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-            });
+		VkClearColorValue black{};
+		for(const auto& img : attachment_manager_.get_blit_attachments()){
+			vkCmdClearColorImage(recorder, img.get_image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1,
+				&vk::image::default_image_subrange);
+			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+				VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, vk::image::default_image_subrange);
+		}
 
-            // 2. 渲染通道切换判断：如果屏障生效、目标变更或 MSAA 切换，则必须重启 Rendering
-            if (is_rendering && (!cache_barrier_gen_.empty() || target_mask != current_pass_mask || is_msaa != current_pass_msaa)) {
-                flush_pass();
-            }
+		// 初始化绘制附件
+		for(const auto& img : attachment_manager_.get_draw_attachments()){
+			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
+				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, vk::image::default_image_subrange);
+		}
+		for(const auto& img : attachment_manager_.get_multisample_attachments()){
+			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
+				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, vk::image::default_image_subrange);
+		}
+		dep.apply(recorder);
+	}
 
-            if (!cache_barrier_gen_.empty()) {
-                cache_barrier_gen_.apply(cmd);
-            }
-
-            // 3. 开始新的 Rendering Pass
-            if (!is_rendering) {
-                configure_rendering_info(draw_cfg);
-                std::size_t slot = 0;
-                target_mask.for_each_popbit([&](unsigned idx) {
-                    auto& info = rendering_config_.get_color_attachment_infos()[slot++];
-                    info.loadOp = cache_attachment_enter_mark_[idx] ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
-                    cache_attachment_enter_mark_[idx] = true;
-                });
-                rendering_config_.begin_rendering(cmd, attachment_manager_.get_screen_area());
-                is_rendering = true;
-                current_pass_mask = target_mask;
-                current_pass_msaa = is_msaa;
-            }
-
-        	if(batch_device.is_section_empty(i)){
-        		bool requires_clear = batch_host.get_break_config_at(i).clear_draw_after_break;
-        		for (const auto& entry : batch_host.get_break_config_at(i).get_entries()) {
-        			requires_clear |= process_breakpoints(entry, cmd, flush_pass);
-        		}
-
-        		if (requires_clear) {
-        			flush_pass();
-        			std::ranges::fill(cache_attachment_enter_mark_, 0);
-        		}
-        	}else{
-        		// 4. 应用管线状态（去重 + 动态状态设置）
-        		state_agent.bind_if_needed(cmd, draw_cfg.pipeline_index);
-
-        		// 5. 执行 Draw Call（仅包含描述符绑定和绘制）
-        		cmd_draw_(cmd, i, draw_cfg);
-
-        		// 6. 处理断点（如管线变更或触发 Blit）
-        		bool requires_clear = batch_host.get_break_config_at(i).clear_draw_after_break;
-        		for (const auto& entry : batch_host.get_break_config_at(i).get_entries()) {
-        			requires_clear |= process_breakpoints(entry, cmd, flush_pass);
-        		}
-
-        		if (requires_clear) {
-        			flush_pass();
-        			std::ranges::fill(cache_attachment_enter_mark_, 0);
-        		}
-        	}
-
-        }
-
-        flush_pass();
-    }
-
-    void cmd_draw_(VkCommandBuffer cmd, std::uint32_t index, const gui::fx::draw_config& arg) {
-        // 获取 Pipeline Layout 仅用于描述符绑定
-        const auto& pc = draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
-
-        cache_record_context_.clear();
-        batch_device.load_descriptors(cache_record_context_, current_frame_index_);
-        cache_record_context_.prepare_bindings();
-        cache_record_context_(pc.pipeline_layout, cmd, index, VK_PIPELINE_BIND_POINT_GRAPHICS);
-        batch_device.cmd_draw(cmd, index, current_frame_index_);
-    }
-
-    /** 处理 Blit 操作：Compute Shader 实现的图像处理 */
-    void blit(gui::fx::blit_config cfg, VkCommandBuffer cmd) {
-        cfg.get_clamped_to_positive();
-        const auto& inout = get_blit_inout_config(cfg);
-
-        // 自动处理读写屏障
-        cache_barrier_gen_.clear();
-        for (const auto& e : inout.get_input_entries()) {
-            ensure_attachment_state(cache_barrier_gen_, draw_attachment_states_[e.resource_index], attachment_manager_.get_draw_attachments()[e.resource_index].get_image(),
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_IMAGE_LAYOUT_GENERAL);
-        }
-        for (const auto& e : inout.get_output_entries()) {
-            ensure_attachment_state(cache_barrier_gen_, blit_attachment_states_[e.resource_index], attachment_manager_.get_blit_attachments()[e.resource_index].get_image(),
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_IMAGE_LAYOUT_GENERAL);
-        }
-        cache_barrier_gen_.apply(cmd);
-
-        auto& pc = blit_pipeline_manager_.get_pipelines()[cfg.pipe_info.pipeline_index];
-        pc.pipeline.bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
-
-        math::upoint2 offset = cfg.blit_region.src.as<unsigned>();
-        vkCmdPushConstants(cmd, pc.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(offset), &offset);
-
-        // 绑定预先准备好的描述符缓冲
-        VkDescriptorBufferBindingInfoEXT db_info = cfg.use_default_inouts()
-            ?
-            blit_default_inout_descriptors_[cfg.pipe_info.pipeline_index]
-            : blit_specified_inout_descriptors_[cfg.pipe_info.inout_define_index];
-
-        cache_record_context_.clear();
-        cache_record_context_.push(0, db_info);
-        blit_pipeline_manager_.append_descriptor_buffers(cache_record_context_, 0);
-        cache_record_context_.prepare_bindings();
-        cache_record_context_(pc.pipeline_layout, cmd, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
-
-        auto dispatches = cfg.get_dispatch_groups();
-        vkCmdDispatch(cmd, dispatches.x, dispatches.y, 1);
-
-        cache_barrier_gen_.apply(cmd);
-        // 提交后续可能的转换
-    }
-
-
-    void initialize_frames(VkCommandPool pool) {
-        for (auto& f : frames_) f = frame_data(allocator_usage_.get_device(), pool);
-        blit_attachment_clear_and_init_command_buffer = vk::command_buffer{allocator_usage_.get_device(), pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY};
-    }
-
-    void initialize_blit_resources(const renderer_create_info& info) {
-        blit_pipeline_manager_ = compute_pipeline_manager(allocator_usage_, info.blit_pipe_config);
-        // 分配并初始化默认/特定 Blit 描述符缓冲
-        auto pipes = blit_pipeline_manager_.get_pipelines();
-        blit_default_inout_descriptors_.reserve(pipes.size());
-        for (std::size_t i = 0; i < pipes.size(); ++i) {
-            auto& layout = blit_pipeline_manager_.get_inout_layouts()[i];
-            blit_default_inout_descriptors_.emplace_back(allocator_usage_, layout, layout.binding_count());
-        }
-
-        auto inouts = blit_pipeline_manager_.get_inout_defines();
-        blit_specified_inout_descriptors_.reserve(inouts.size());
-        for (const auto& def : inouts) {
-            vk::descriptor_layout layout{allocator_usage_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT, def.make_layout_builder()};
-            blit_specified_inout_descriptors_.emplace_back(allocator_usage_, layout, layout.binding_count());
-        }
-    }
-
-    static void ensure_attachment_state(vk::cmd::dependency_gen& dep, attachment_state& state, VkImage image,
-                                     VkPipelineStageFlags2 next_stage, VkAccessFlags2 next_access, VkImageLayout next_layout) {
-        const bool layout_changed = state.layout != next_layout;
-        // 优化：如果是连续的颜色附件写入且没有布局切换，可以利用栅格化顺序(Rasterization Order)跳过屏障
-        const bool can_skip_color = !layout_changed &&
-            (state.stage_mask == VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT && next_stage == VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT) &&
-            (state.access_mask == VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT && next_access == VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-        if (can_skip_color) return;
-
-        // 优化：如果是只读到只读的转换，且没有布局切换，也可以跳过
-        auto is_write = [](VkAccessFlags2 a) {
-            return a & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        };
-        if (!layout_changed && !is_write(state.access_mask) && !is_write(next_access)) return;
-
-        dep.push(image, state.stage_mask, state.access_mask, next_stage, next_access, state.layout, next_layout, vk::image::default_image_subrange);
-        state = {next_stage, next_access, next_layout};
-    }
-
-    void reset_barrier_context() {
-        for (auto& s : draw_attachment_states_) s = {VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        for (auto& s : blit_attachment_states_) s = {VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL};
-    }
-
-    void create_blit_clear_and_init_cmd() const {
-        vk::scoped_recorder recorder{blit_attachment_clear_and_init_command_buffer, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT, true};
-        vk::cmd::dependency_gen dep;
-
-        // 初始化所有附件到初始布局并清空 Blit 目标
-        for (const auto& img : attachment_manager_.get_blit_attachments()) {
-            dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk::image::default_image_subrange);
-        }
-        dep.apply(recorder);
-
-        VkClearColorValue black{};
-        for (const auto& img : attachment_manager_.get_blit_attachments()) {
-            vkCmdClearColorImage(recorder, img.get_image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &vk::image::default_image_subrange);
-            dep.push(img.get_image(), VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, vk::image::default_image_subrange);
-        }
-
-        // 初始化绘制附件
-        for (const auto& img : attachment_manager_.get_draw_attachments()) {
-            dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, vk::image::default_image_subrange);
-        }
-        for (const auto& img : attachment_manager_.get_multisample_attachments()) {
-            dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, vk::image::default_image_subrange);
-        }
-        dep.apply(recorder);
-    }
-
-    const gui::fx::draw_config& get_current_draw_config() const noexcept { return cache_draw_param_stack_.back();
-    }
-
-    gui::fx::render_target_mask get_current_target(const gui::fx::draw_config& param) const noexcept {
-        const auto& pipes = draw_pipeline_manager_.get_pipelines()[param.pipeline_index].option;
-        if (param.draw_targets.any()) return param.draw_targets;
-        return pipes.is_partial_target() ? pipes.default_target_attachments : gui::fx::render_target_mask{~0U};
-    }
-
-    void configure_rendering_info(const gui::fx::draw_config& param) {
-        const auto& pipes = draw_pipeline_manager_.get_pipelines()[param.pipeline_index].option;
-        attachment_manager_.configure_dynamic_rendering<32>(rendering_config_,
-            param.draw_targets.none() ? pipes.default_target_attachments : param.draw_targets,
-            pipes.enables_multisample && attachment_manager_.enables_multisample());
-    }
-
-    const compute_pipeline_blit_inout_config& get_blit_inout_config(const gui::fx::blit_config& cfg) {
-        return cfg.use_default_inouts()
-            ?
-            blit_pipeline_manager_.get_pipelines()[cfg.pipe_info.pipeline_index].option.inout
-            : blit_pipeline_manager_.get_inout_defines()[cfg.pipe_info.inout_define_index];
-    }
-
-    template<typename F>
-    bool process_breakpoints(const graphic::draw::instruction::state_transition_config::exported_entry& entry, VkCommandBuffer buffer, F&& flush_callback) {
-        // if (entry.process_builtin(buffer, draw_pipeline_manager_.get_pipelines()[get_current_draw_config().pipeline_index].pipeline_layout)) return false;
-        auto& cur_pipe = draw_pipeline_manager_.get_pipelines()[get_current_draw_config().pipeline_index];
-
-        switch (gui::fx::state_type(entry.tag.major)) {
-        case gui::fx::state_type(gui::fx::draw_state_index_deduce_v<gui::fx::blit_config>):{
-	        flush_callback();
-            // Blit 必须在渲染通道外
-        	blit(entry.as<gui::fx::blit_config>(), buffer);
-        	return true;
-        }
-        case gui::fx::state_type(gui::fx::draw_state_index_deduce_v<gui::fx::draw_config>):{
-	        auto param = entry.as<gui::fx::draw_config>();
-        	if (param.mode == gui::fx::draw_mode::COUNT_or_fallback) {
-        		cache_draw_param_stack_.pop_back();
-        	} else {
-        		if (param.use_fallback_pipeline()) param.pipeline_index = get_current_draw_config().pipeline_index;
-        		cache_draw_param_stack_.push_back(param);
-        	}
-        	return false;
-        }
-        case gui::fx::state_type::push_constant:{
-	        const auto flags = static_cast<VkShaderStageFlags>(entry.tag.minor);
-        	if(entry.payload.size() == 16){
-        		__debugbreak();
-        	}
-        	vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, entry.logical_offset, entry.payload.size(), entry.payload.data());
-        }
-        }
-        return false;
-    }
+	const compute_pipeline_blit_inout_config& get_blit_inout_config(const gui::fx::blit_config& cfg){
+		return cfg.use_default_inouts()
+			       ? blit_pipeline_manager_.get_pipelines()[cfg.pipe_info.pipeline_index].option.inout
+			       : blit_pipeline_manager_.get_inout_defines()[cfg.pipe_info.inout_define_index];
+	}
 };
 } // namespace mo_yanxi::backend::vulkan

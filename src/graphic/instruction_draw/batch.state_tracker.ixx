@@ -1,145 +1,177 @@
 module;
 
 #include <cassert>
+#include <cstring>
 #include <mo_yanxi/adapted_attributes.hpp>
 
 export module mo_yanxi.graphic.draw.instruction.state_tracker;
 
 import std;
-import binary_trace;
 export import mo_yanxi.graphic.draw.instruction.batch.common;
 
 namespace mo_yanxi::graphic::draw::instruction {
 
-/**
- * @brief 惰性状态追踪器
- */
 export
 struct state_tracker {
     using tag_type = mo_yanxi::binary_diff_trace::tag;
 
 private:
-    struct committed_entry {
+    struct state_record {
         tag_type tag;
-        std::uint32_t logical_offset; // 该段数据的起始逻辑偏移
-        std::vector<std::byte> data;
+        std::uint32_t logical_offset; // 数据的逻辑起始偏移量
+        std::uint32_t current_size;   // 当前数据的有效大小
+        std::uint32_t capacity;       // 预分配的容量
+        std::uint32_t buffer_offset;  // 在 storage_ 中的物理起始偏移量
+        bool dirty;                   // 脏标记
+        bool is_new;                  // 新增：标记是否为首次创建
     };
 
-    // GPU 影子状态
-    std::vector<committed_entry> committed_state_;
+    // 所有的状态元数据，保持有序以支持二分查找
+    std::vector<state_record> records_;
 
-    // 当前 Batch 的 Pending 状态
-    mo_yanxi::binary_diff_trace pending_state_;
+    // 全局唯一的扁平化内存池
+    // 内存布局: [ Current Data (capacity) | Committed Data (capacity) ]
+    std::vector<std::byte> storage_;
 
 public:
-    [[nodiscard]] state_tracker() = default;
+    [[nodiscard]] state_tracker() {
+        // 预分配一定内存，避免初期频繁扩容
+        storage_.reserve(4096);
+    }
 
     /**
-     * @brief 更新状态
-     * @param offset 数据的逻辑起始偏移量
+     * @brief 扁平化的高速状态更新
      */
     void update(tag_type tag, std::span<const std::byte> payload, unsigned offset = 0) {
-        // 在写入新数据前，必须确保 Pending Trace 包含该 Tag 的基准数据。
-        // 如果 committed 状态中有数据，将其加载进去，这样 binary_trace 才能正确处理
-        // "在现有数据中间挖洞/修改" 或 "扩展现有数据" 的逻辑，而不是简单地把未覆盖区域填零。
-        ensure_base_loaded(tag);
+        if (payload.empty()) return;
 
-        pending_state_.push(tag, payload, offset);
-    }
+        // 使用二分查找寻找现有状态
+        auto it = std::ranges::lower_bound(records_, tag, {}, &state_record::tag);
 
-    void undo(tag_type tag) {
-        pending_state_.undo(tag);
+        if (it == records_.end() || it->tag != tag) {
+            // === 全新状态：首次写入 ===
+            const std::uint32_t cap = static_cast<std::uint32_t>(payload.size());
+            const std::uint32_t offset_in_buf = static_cast<std::uint32_t>(storage_.size());
+
+            // 为 Current 和 Committed 一次性分配双倍空间
+            storage_.resize(offset_in_buf + cap * 2, std::byte{0});
+
+            // 写入 Current 数据
+            std::memcpy(storage_.data() + offset_in_buf, payload.data(), payload.size());
+
+            records_.insert(it, state_record{
+                tag,
+                offset,
+                cap,
+                cap,
+                offset_in_buf,
+                true, // dirty
+                true  // is_new
+            });
+            return;
+        }
+
+        // === 现有状态：合并覆盖 ===
+        auto& rec = *it;
+        const unsigned req_start = offset;
+        const unsigned req_end = offset + static_cast<unsigned>(payload.size());
+        const unsigned cur_start = rec.logical_offset;
+        const unsigned cur_end = cur_start + rec.current_size;
+
+        const unsigned new_start = std::min(req_start, cur_start);
+        const unsigned new_end = std::max(req_end, cur_end);
+        const unsigned new_size = new_end - new_start;
+
+        if (new_size > rec.capacity) {
+            // 发生了罕见的容量暴涨：采用 Arena 风格，直接在末尾分配新空间，废弃旧空间 (速度极快)
+            const unsigned new_cap = std::max(rec.capacity * 2, new_size);
+            const unsigned new_buf_off = static_cast<unsigned>(storage_.size());
+            storage_.resize(new_buf_off + new_cap * 2, std::byte{0});
+
+            const unsigned old_rel = cur_start - new_start;
+
+            if (rec.current_size > 0) {
+                // 搬运原有的 Current 和 Committed 数据
+                std::memcpy(storage_.data() + new_buf_off + old_rel,
+                            storage_.data() + rec.buffer_offset,
+                            rec.current_size);
+
+                std::memcpy(storage_.data() + new_buf_off + new_cap + old_rel,
+                            storage_.data() + rec.buffer_offset + rec.capacity,
+                            rec.current_size);
+            }
+
+            rec.capacity = new_cap;
+            rec.buffer_offset = new_buf_off;
+        } else {
+            // 容量足够，但如果逻辑偏移发生了向外扩张，需要处理内部偏移
+            if (new_start < cur_start) {
+                // 向左扩张：需要把原有数据向右推
+                const unsigned shift = cur_start - new_start;
+                std::byte* cur_ptr = storage_.data() + rec.buffer_offset;
+                std::byte* com_ptr = cur_ptr + rec.capacity;
+
+                std::memmove(cur_ptr + shift, cur_ptr, rec.current_size);
+                std::memset(cur_ptr, 0, shift);
+
+                std::memmove(com_ptr + shift, com_ptr, rec.current_size);
+                std::memset(com_ptr, 0, shift);
+            }
+            if (new_end > cur_end) {
+                // 向右扩张：确保新暴露出但 Payload 没覆盖到的尾部空间是 0
+                const unsigned expand = new_end - cur_end;
+                std::byte* cur_ptr = storage_.data() + rec.buffer_offset;
+                std::byte* com_ptr = cur_ptr + rec.capacity;
+
+                // 注意：由于上面可能发生了向右推，旧数据的新结尾变成了 (cur_end - new_start)
+                const unsigned tail_offset = cur_end - new_start;
+                std::memset(cur_ptr + tail_offset, 0, expand);
+                std::memset(com_ptr + tail_offset, 0, expand);
+            }
+        }
+
+        // 写入最新的 Payload 数据
+        const unsigned new_rel = req_start - new_start;
+        std::memcpy(storage_.data() + rec.buffer_offset + new_rel, payload.data(), payload.size());
+
+        rec.logical_offset = new_start;
+        rec.current_size = new_size;
+        rec.dirty = true;
+        // 注意：这里绝不修改 is_new 的值，以保留首次创建的状态
     }
 
     /**
-     * @brief 刷新差异
+     * @brief 高速延迟刷新
      */
     bool flush(state_transition_config& out_config) {
-        if (pending_state_.empty()) {
-            return false;
-        }
-
         bool has_changes = false;
-        auto pending_view = pending_state_.get_records();
 
-        for (const auto& record : pending_view) {
-            auto it = std::ranges::lower_bound(committed_state_, record.tag, {}, &committed_entry::tag);
+        for (auto& rec : records_) {
+            // 优化点 1：通过脏标记跳过绝大部分未操作的状态
+            if (!rec.dirty) continue;
 
-            bool needs_emit = false;
+            const std::byte* cur_ptr = storage_.data() + rec.buffer_offset;
+            std::byte* com_ptr = storage_.data() + rec.buffer_offset + rec.capacity;
 
-            if (it != committed_state_.end() && it->tag == record.tag) {
-                // === 现有 Tag: 比较并合并 ===
-
-                // 1. 计算新的逻辑范围
-                std::uint32_t new_start = std::min(it->logical_offset, record.offset);
-                std::uint32_t new_end = std::max(
-                    it->logical_offset + static_cast<std::uint32_t>(it->data.size()),
-                    record.offset + static_cast<std::uint32_t>(record.range.size())
-                );
-                std::uint32_t new_size = new_end - new_start;
-
-                bool is_range_changed = (it->logical_offset != record.offset) || (it->data.size() != record.range.size());
-
-                if (is_range_changed || !std::ranges::equal(it->data, record.range)) {
-                    // 数据有变更
-                    // 注意：binary_trace 已经帮我们处理了 merge (A + B + Gap)，
-                    // 所以 record.range 包含了该 Tag 下所有的 Pending 数据（包括从 Committed 加载的 Base）。
-                    // 我们直接用 Pending 的结果覆盖 Committed 对应的部分。
-
-                    // 这里有一个细微点：如果 Committed 原来是 [0, 100)，Pending 只是修改了 [50, 60)。
-                    // 因为 ensure_base_loaded，Pending 变成了 [0, 100) (含新修改)。
-                    // Record 就是 [0, 100)。
-                    // 我们直接更新 Committed 为 [0, 100)，并输出整个 [0, 100) 指令。
-                    // 优化：虽然带宽可能浪费，但保证了逻辑简单且绝对正确。
-
-                    it->logical_offset = record.offset;
-                    it->data.assign(record.range.begin(), record.range.end());
-                    needs_emit = true;
-                }
-            } else {
-                // === 新 Tag ===
-                it = committed_state_.insert(it, {
-                    record.tag,
-                    record.offset,
-                    {record.range.begin(), record.range.end()}
-                });
-                needs_emit = true;
-            }
-
-            if (needs_emit) {
-                // 输出指令时携带逻辑偏移
-                out_config.push(record.tag, record.range, record.offset);
+            // 优化点 2：如果是新创建的 Tag，无条件 Emit；否则通过 memcmp 比较
+            if (rec.current_size > 0 && (rec.is_new || std::memcmp(cur_ptr, com_ptr, rec.current_size) != 0)) {
+                // 发生实质性变更，更新 committed 数据，并发出绘制指令
+                std::memcpy(com_ptr, cur_ptr, rec.current_size);
+                out_config.push(rec.tag, std::span{cur_ptr, rec.current_size}, rec.logical_offset);
                 has_changes = true;
             }
+
+            // 清理标记
+            rec.dirty = false;
+            rec.is_new = false;
         }
 
-        pending_state_.clear();
         return has_changes;
     }
 
     void reset() noexcept {
-        committed_state_.clear();
-        pending_state_.clear();
-    }
-
-private:
-    void ensure_base_loaded(tag_type tag) {
-        if (pending_state_.contains(tag)) {
-            return;
-        }
-
-        auto it = std::ranges::lower_bound(committed_state_, tag, {}, &committed_entry::tag);
-        if (it != committed_state_.end() && it->tag == tag) {
-            // 将 Committed 的现有数据作为 Base 推入 Pending。
-            // 这一点至关重要：
-            // 假设 Committed 有 [0, 100)。我们现在要 Update [120, 130)。
-            // 如果不 Load Base，binary_trace 会认为 Pending 只有 [120, 130)，
-            // 或者是 [0, 130) 但 [0, 120) 全是 0 (取决于 binary_trace 内部实现细节，
-            // 但根据你的代码，它倾向于 merge)。
-            // 通过 Push Base，我们保证 Pending 状态正确地反映了 "旧数据 + 新修改"。
-
-            pending_state_.push(tag, it->data, it->logical_offset);
-        }
+        records_.clear();
+        storage_.clear();
     }
 };
 

@@ -15,6 +15,7 @@ export import mo_yanxi.graphic.draw.instruction.general;
 export import mo_yanxi.graphic.draw.instruction.state_tracker; // Import the tracker
 export import mo_yanxi.graphic.draw.instruction.util;
 export import mo_yanxi.user_data_entry;
+
 import mo_yanxi.type_register;
 import mo_yanxi.aligned_allocator;
 import std;
@@ -349,8 +350,6 @@ public:
 	void push_state(state_push_config config, tag_type tag, std::span<const std::byte> payload, unsigned offset = 0){
 		switch(config.type){
 		case state_push_type::idempotent : tracker_.update(tag, payload, offset);
-			break;
-		case state_push_type::undo : tracker_.undo(tag);
 			break;
 		case state_push_type::non_idempotent :{
 			state_transition_config temp_config;

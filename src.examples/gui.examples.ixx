@@ -42,20 +42,20 @@ namespace mo_yanxi::gui::example{
 export
 void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
 	scene.set_pass_config({
-		fx::scene_render_pass_config::value_type{
-			.begin_config = {
-				.mode = fx::draw_mode::msdf,
-				.draw_targets = 0b1,
-			},
-			.end_config = {}
-		},
-		{
-			.begin_config = {
-				.mode = fx::draw_mode::msdf,
-				.draw_targets = 0b10,
-			},
-			.end_config = {}
-		}
+			{
+				fx::scene_render_pass_config::value_type{
+				   .begin_config = {
+					   .draw_targets = 0b1,
+				   },
+				   .end_config = std::nullopt
+			   },
+			   {
+				   .begin_config = {
+					   .draw_targets = 0b10,
+				   },
+				   .end_config = std::nullopt
+			   }
+			}, fx::blit_pipeline_config{}
 	});
 
 	scene.set_native_communicator<backend::glfw::communicator>(ctx.window().get_handle());

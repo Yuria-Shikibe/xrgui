@@ -175,6 +175,7 @@ FragOut main_frag(
 
     FragOut out;
     out.out_base = out_color_base;
-
+    out.out_base.rgb *= out.out_base.a;
+    
     return out;
 }

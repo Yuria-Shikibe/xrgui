@@ -39,21 +39,24 @@ void scene::draw_at(const elem& elem){
 	for(unsigned i = 0; i < pass_config_.size(); ++i){
 		renderer().update_state(pass_config_[i].begin_config);
 
-		renderer().update_state(
-			{},
-		graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010),
-			fx::draw_mode::def);
+		renderer().update_state({},
+			fx::batch_draw_mode::def, graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
+		);
 
 
 		elem.draw_layer(c, {i});
 
-		renderer().update_state({
-			.type = graphic::draw::instruction::state_push_type::non_idempotent
-		}, fx::blit_config{
+		if(pass_config_[i].end_config)renderer().update_state(fx::blit_config{
 				.blit_region = {bound.src, bound.extent()},
-				.pipe_info = pass_config_[i].end_config
+				.pipe_info = pass_config_[i].end_config.value()
 			});
 	}
+
+
+	if(auto tail = pass_config_.get_tail_blit())renderer().update_state(fx::blit_config{
+			.blit_region = {bound.src, bound.extent()},
+			.pipe_info = tail.value()
+		});
 }
 
 void scene::draw(rect clip){
@@ -89,11 +92,16 @@ void scene::draw(rect clip){
 	// renderer().update_state(pass_config_[i].begin_config);
 
 	if(inputs_.is_cursor_inbound()){
-		renderer().update_state(fx::draw_config{
-				.mode = fx::draw_mode::def,
+		renderer().update_state(fx::pipeline_config{
 				.draw_targets = {0b1},
 				.pipeline_index = 0
 			});
+
+		renderer().update_state(
+			{}, fx::batch_draw_mode::def,
+			graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
+		);
+
 		cursor_collection_.draw(*this);
 
 	}

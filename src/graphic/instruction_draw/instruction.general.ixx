@@ -205,7 +205,6 @@ struct alignas(instr_required_align) generic_instruction_head{
 export
 enum struct state_push_type{
 	idempotent,
-	undo,
 	non_idempotent
 };
 
@@ -432,7 +431,7 @@ using state_tag = binary_diff_trace::tag;
 export
 template <typename L, typename R>
 	requires (sizeof(L) == sizeof(state_tag::major) && sizeof(R) == sizeof(state_tag::minor))
-constexpr state_tag make_state_tag(L major, R minor) noexcept {
+FORCE_INLINE CONST_FN [[nodiscard]] constexpr state_tag make_state_tag(L major, R minor) noexcept {
 	return {std::bit_cast<decltype(state_tag::major)>(major), std::bit_cast<decltype(state_tag::minor)>(minor)};
 }
 

@@ -231,16 +231,13 @@ struct quad_draw : instr_resolver
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
     {
-        switch (param.vtx_skip) {
-        case 0:
-            primits[param.prm_skip] = Primitive(generic, param);
-        case 1:
-            primits[param.prm_skip + 1 - param.isPatch()] = Primitive(generic, param);
-        case 2:
-            indices[param.get_primitive_index()] = param.getTrivialIndicies();
-        case 3:
-            indices[param.get_primitive_index()] = param.getTrivialIndicies();
+
+        if (param.vtx_skip > 1) {
+            let idc_idx = param.get_primitive_index();
+            primits[idc_idx] = Primitive(generic, param);
+            indices[idc_idx] = param.getTrivialIndicies();
         }
+
         return Vertex(float3(vts[param.vtx_skip], generic.depth), vert_color[param.vtx_skip], uv[param.vtx_skip]);
     }
 };
@@ -268,6 +265,12 @@ struct rectangle_draw : instr_resolver
         let rotX = get_dir_vec2(angle) * scale * .5f;
         let rotY = rotate_rt_counter_clockwise(rotX);
 
+        if (param.vtx_skip > 1) {
+            let idc_idx = param.get_primitive_index();
+            primits[idc_idx] = Primitive(generic, param);
+            indices[idc_idx] = param.getTrivialIndicies();
+        }
+
         switch (idx) {
         case 0:
             return Vertex(float3(center - extent.x * rotX - extent.y * rotY, generic.depth), vert_color.c00, uv00);
@@ -276,15 +279,9 @@ struct rectangle_draw : instr_resolver
             return Vertex(float3(center + extent.x * rotX - extent.y * rotY, generic.depth), vert_color.c10, {uv11.x, uv00.y});
 
         case 2:
-            if (!isPatch) {
-                primits[param.prm_skip] = Primitive(generic, param);
-                indices[param.prm_skip] = param.getTrivialIndicies();
-            }
             return Vertex(float3(center - extent.x * rotX + extent.y * rotY, generic.depth), vert_color.c01, { uv00.x, uv11.y });
 
         case 3:
-            primits[param.prm_skip + 1] = Primitive(generic, param);
-            indices[param.prm_skip + 1] = param.getTrivialIndicies();
             return Vertex(float3(center + extent.x * rotX + extent.y * rotY, generic.depth), vert_color.c11, uv11);
 
         default:
@@ -545,7 +542,6 @@ struct circle_fill_draw : instr_resolver
     }
 };
 
-//TODO reuse the first one/two vertex
 struct partial_circle_fill_draw : instr_resolver
 {
     primitive_generic generic;
@@ -749,13 +745,6 @@ struct row_patch : instr_resolver{
 };
 
 static const uint instruction_align = 16;
-// static const uint instruction_shift = 4;
-
-[ForceInline]
-[[deprecated("")]]
-public instruction_head get_instruction_head(const in ByteAddressBuffer instruction, uint location){
-    return instruction.LoadAligned<instruction_head>(location, instruction_align);
-}
 
 [ForceInline]
 public Vertex push_vertex(

@@ -55,11 +55,6 @@ struct state_transition_config{
 		}
 	};
 
-	/**
-	 * @brief determine the LOAD_OP after this call
-	 */
-	bool clear_draw_after_break{};
-
 private:
 	std::vector<entry> entries_{};
 	std::vector<std::byte> payload_storage{};
@@ -94,7 +89,6 @@ public:
 	}
 
 	void append(const state_transition_config& other){
-		clear_draw_after_break = clear_draw_after_break || other.clear_draw_after_break;
 		const auto curOff = static_cast<std::uint32_t>(payload_storage.size());
 		const auto curEntrySz = entries_.size();
 
@@ -107,7 +101,6 @@ public:
 	}
 
 	void clear() noexcept{
-		clear_draw_after_break = false;
 		entries_.clear();
 		payload_storage.clear();
 	}

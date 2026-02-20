@@ -1,5 +1,7 @@
 #include <vulkan/vulkan.h>
 
+import std;
+
 import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
 
@@ -12,6 +14,7 @@ import mo_yanxi.gui.elem.group;
 import mo_yanxi.gui.global;
 import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.renderer.frontend;
+import mo_yanxi.gui.fx.config;
 
 import mo_yanxi.graphic.image_atlas;
 
@@ -23,13 +26,11 @@ import mo_yanxi.graphic.compositor.bloom;
 import mo_yanxi.gui.examples;
 import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.gui.fx.config;
 
 import mo_yanxi.gui.fx.fringe;
 
 import mo_yanxi.math.rand;
 
-import std;
 
 import mo_yanxi.font;
 import mo_yanxi.font.plat;
@@ -104,40 +105,6 @@ void app_run(
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
-	const char* test_text =
-R"({s:*.5f}Basic{size:64} Token {size:128}Test{//}
-{u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâãäåx̂̃ñ
-{color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
-
-Escapes Test:
-1. Backslash: \\ {_}(Should see single backslash){/}
-2. Braces {size:128}with{/} slash: \{ and \} (Should see literal { and })
-3. Braces with double: {{ and }} (Should see literal { and })
-
-Line Continuation Test:
-This is a very long line that \
-{font:gui}should be joined together{/} \
-without newlines.
-
-{feature:liga}0 ff {feature:-liga}1 ff {feature:liga} 2 ff{feature} 3 ff{feature} 4 ff
-
-O{ftr:liga}off file flaff{/} ff
-
-Edge Cases:
-1. Token without arg: {bold}Bold Text{/bold}
-2. {u}Unclosed brace{/}: { This is just text because no closing bracket
-3. Unknown escape: \z (Should show 'z')
-4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
-)";
-	typesetting::tokenized_text text{test_text};
-	typesetting::layout_context context{{
-	}};
-
-	auto rst = context.layout(text);
-	rst = context.layout(text);
-	rst = context.layout(text);
-	rst = context.layout(text);
-	rst = context.layout(text);
 
 	while(!ctx.window().should_close()){
 
@@ -153,203 +120,196 @@ Edge Cases:
 		));
 		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::slide_line_config{});
 
-		auto& r = gui::global::manager.get_current_focus().renderer();
+		auto& current_focus = gui::global::manager.get_current_focus();
+		auto& r = current_focus.renderer();
 		r.init_projection();
 
-		if(false){
+		if(true){
 			using namespace graphic::draw::instruction;
 
-			math::vec2 offset{50, 50};
+			{
+				// gui::fringe::poly_partial_with_cap(r, poly_partial{
+				// 		.pos = {600, 400},
+				// 		.segments = 64,
+				// 		.radius = {120, 130},
+				// 		.range = {0, .45f},
+				// 		.color = {
+				// 			graphic::colors::white, graphic::colors::white, graphic::colors::aqua, graphic::colors::aqua
+				// 		}
+				// 	});
+				//
+				//
+				// gui::fringe::poly_partial_with_cap(r, poly_partial{
+				// 		.pos = {800, 400},
+				// 		.segments = 64,
+				// 		.radius = {120, 130},
+				// 		.range = {0, -.45f},
+				// 		.color = {
+				// 			graphic::colors::white, graphic::colors::ACID, graphic::colors::aqua, graphic::colors::CRIMSON
+				// 		}
+				// 	});
 
-			r.update_state(gui::fx::draw_config{
-					.mode = gui::fx::draw_mode::msdf,
-					.draw_targets = {0b1},
-					.pipeline_index = 0
-				});
-			for (const auto & layout_result : rst.elems){
-				if(!layout_result.texture->view)continue;
-				r.push(rect_aabb{
-					.generic = {layout_result.texture->view},
-					.v00 = layout_result.aabb.get_src().add(offset),
-					.v11 = layout_result.aabb.get_end().add(offset),
-					.uv00 = layout_result.texture->uv.v00(),
-					.uv11 = layout_result.texture->uv.v11(),
-					.vert_color = {layout_result.color}
-				});
+				// gui::fringe::curve_with_cap(r, {
+				// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 500}, {800, 300}, {900, 500}),
+				// 		.stroke = {12, 12},
+				// 		.segments = 32,
+				// 		.color = {graphic::colors::white}
+				// 	});
+
+				// auto gen = [](float cx, float cy, float a, float b) -> std::vector<math::vec2> {
+				// 	// 使用 8 个控制点来近似
+				// 	// 为了让三次 B 样条闭合，通常需要将前 3 个点重复添加到末尾
+				// 	std::vector<math::vec2> points = {};
+				// 	for (int i = 0; i < 12; ++i) {
+				// 		float angle = i * (360.0f / 12.0f) * (std::numbers::pi_v<float> / 180.0f);
+				//
+				// 		points.push_back({
+				// 			cx + a * std::cos(angle),
+				// 			cy + b * std::sin(angle)
+				// 		});
+				// 	}
+				// 	return points;
+				// };
+				//
+				// {
+				// 	auto verts = gen(800, 500, 400, 300);
+				// 	for(unsigned i = 0; i < verts.size(); ++i){
+				// 		gui::fringe::curve(r, {
+				// 			.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
+				// 			.stroke = {12, 12},
+				// 			.segments = 6,
+				// 			.color = {graphic::colors::white}
+				// 		}, 2);
+				// 	}
+				// }
+				// auto verts = gen(1200, 900, 300, 200);
+				// for(unsigned i = 0; i < verts.size(); ++i){
+				// 	gui::fringe::curve(r, {
+				// 		.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
+				// 		.stroke = {12, 12},
+				// 		.segments = 6,
+				// 		.color = {graphic::colors::white}
+				// 	}, 2);
+				// }
+				//
+				// gui::fringe::line_context line_ctx{r.get_mem_pool()};
+				// line_ctx.push({math::vec2{450, 600}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+				// line_ctx.push({math::vec2{400, 560}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+				// line_ctx.push({math::vec2{300, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+				//
+				// line_ctx.push({math::vec2{250, 450}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+				// line_ctx.push({math::vec2{1200, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
+				//
+				// line_ctx.add_cap();
+				// line_ctx.add_fringe_cap(2, 2);
+				// line_ctx.dump_mid(r, line_segments{});
+				// line_ctx.dump_fringe_inner(r, line_segments{}, 1.75f);
+				// line_ctx.dump_fringe_outer(r, line_segments{}, 1.75f);
+
+				// line_ctx.dump_fringe_cap_src(r, line_segments{}, 3.f, 4.f);
+				// line_ctx.dump_fringe_cap_dst(r, line_segments{}, 12.f, 4.f);
+				// line_ctx.dump_fringe_inner(r, line_segments_closed{}, 2.f);
+				// line_ctx.dump_fringe_outer(r, line_segments_closed{}, 2.f);
+
+				// gui::fringe::curve(r, {
+				// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 400}, {800, 400}, {900, 500}),
+				// 	.margin = {0, 1.01f},
+				// 		.stroke = {4, 6},
+				// 		.segments = 1,
+				// 		.color = {graphic::colors::ACID.copy().mul_a(.5f)}
+				// 	});
+				// gui::fringe::curve(r, {
+				// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 400}, {800, 400}, {900, 500}),
+				// 	.margin = {1.01f, 0},
+				// 		.stroke = {4, 6},
+				// 		.segments = 1,
+				// 		.color = {graphic::colors::ACID.copy().mul_a(.5f)}
+				// 	});
+
+
+				// r.push(poly_partial{
+				// 		// .generic = ,
+				// 		.pos = {400, 400},
+				// 		.segments = 64,
+				//
+				// 		.radius = {120, 130},
+				// 		.range = {0, .45f},
+				// 		.color = {
+				// 			graphic::colors::white, graphic::colors::white, graphic::colors::aqua, graphic::colors::aqua
+				// 		}
+				// 	});
 			}
-			for (const auto & layout_result : rst.underlines){
-				r.push(line{
-					.src = offset + layout_result.start,
-					.dst = offset + layout_result.end,
-					.color = {layout_result.color, layout_result.color},
-					.stroke = layout_result.thickness,
-				});
-			}
 
-			r.push(rect_aabb_outline{
-				.v00 = math::vec2{}.add(offset),
-				.v11 = rst.extent.copy().add(offset),
-				.stroke = {2},
-				.vert_color = {graphic::colors::white}
-			});
+			r.update_state(gui::fx::pipeline_config{});
+			r.update_state(
+				{},
+				gui::fx::batch_draw_mode::def,
+				gui::make_state_tag(gui::fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
+			r.update_state(gui::fx::blend::pma::standard);
+			r.update_state(r.get_full_screen_scissor());
+			r.update_state(r.get_full_screen_viewport());
 
-			// r.push(rect_aabb_outline{
-			// 	.v00 = math::vec2{}.add(offset),
-			// 	.v11 = math::vec2{300, 300}.add(offset),
-			// 	.stroke = {2},
-			// 	.vert_color = {graphic::colors::GREEN}
-			// });
-
-			// r.push(line{
-			// 	.src = {100, 100},
-			// 	.dst = {800, 400},
-			// 	.color = {graphic::colors::white, graphic::colors::aqua},
-			// 	.stroke = 2,
-			// });
-
-			r.update_state(state_push_config{
-				// state_push_target::defer_pre
-			}, gui::fx::blit_config{
-				{
-					.src = {},
-					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-				},
-				{.pipeline_index = 1}});
-
-
-		}
-
-		if(false){
-			using namespace graphic::draw::instruction;
-
-			// gui::fringe::poly_partial_with_cap(r, poly_partial{
-			// 		.pos = {600, 400},
-			// 		.segments = 64,
-			// 		.radius = {120, 130},
-			// 		.range = {0, .45f},
-			// 		.color = {
-			// 			graphic::colors::white, graphic::colors::white, graphic::colors::aqua, graphic::colors::aqua
-			// 		}
-			// 	});
-			//
-			//
-			// gui::fringe::poly_partial_with_cap(r, poly_partial{
-			// 		.pos = {800, 400},
-			// 		.segments = 64,
-			// 		.radius = {120, 130},
-			// 		.range = {0, -.45f},
-			// 		.color = {
-			// 			graphic::colors::white, graphic::colors::ACID, graphic::colors::aqua, graphic::colors::CRIMSON
-			// 		}
-			// 	});
-
-			// gui::fringe::curve_with_cap(r, {
-			// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 500}, {800, 300}, {900, 500}),
-			// 		.stroke = {12, 12},
-			// 		.segments = 32,
-			// 		.color = {graphic::colors::white}
-			// 	});
-
-			// auto gen = [](float cx, float cy, float a, float b) -> std::vector<math::vec2> {
-			// 	// 使用 8 个控制点来近似
-			// 	// 为了让三次 B 样条闭合，通常需要将前 3 个点重复添加到末尾
-			// 	std::vector<math::vec2> points = {};
-			// 	for (int i = 0; i < 12; ++i) {
-			// 		float angle = i * (360.0f / 12.0f) * (std::numbers::pi_v<float> / 180.0f);
-			//
-			// 		points.push_back({
-			// 			cx + a * std::cos(angle),
-			// 			cy + b * std::sin(angle)
-			// 		});
-			// 	}
-			// 	return points;
-			// };
-			//
-			// {
-			// 	auto verts = gen(800, 500, 400, 300);
-			// 	for(unsigned i = 0; i < verts.size(); ++i){
-			// 		gui::fringe::curve(r, {
-			// 			.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
-			// 			.stroke = {12, 12},
-			// 			.segments = 6,
-			// 			.color = {graphic::colors::white}
-			// 		}, 2);
-			// 	}
-			// }
-			// auto verts = gen(1200, 900, 300, 200);
-			// for(unsigned i = 0; i < verts.size(); ++i){
-			// 	gui::fringe::curve(r, {
-			// 		.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
-			// 		.stroke = {12, 12},
-			// 		.segments = 6,
-			// 		.color = {graphic::colors::white}
-			// 	}, 2);
-			// }
-			//
-			// gui::fringe::line_context line_ctx{r.get_mem_pool()};
-			// line_ctx.push({math::vec2{450, 600}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-			// line_ctx.push({math::vec2{400, 560}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-			// line_ctx.push({math::vec2{300, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-			//
-			// line_ctx.push({math::vec2{250, 450}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-			// line_ctx.push({math::vec2{1200, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-			//
-			// line_ctx.add_cap();
-			// line_ctx.add_fringe_cap(2, 2);
-			// line_ctx.dump_mid(r, line_segments{});
-			// line_ctx.dump_fringe_inner(r, line_segments{}, 1.75f);
-			// line_ctx.dump_fringe_outer(r, line_segments{}, 1.75f);
-
-			// line_ctx.dump_fringe_cap_src(r, line_segments{}, 3.f, 4.f);
-			// line_ctx.dump_fringe_cap_dst(r, line_segments{}, 12.f, 4.f);
-			// line_ctx.dump_fringe_inner(r, line_segments_closed{}, 2.f);
-			// line_ctx.dump_fringe_outer(r, line_segments_closed{}, 2.f);
-
-			// gui::fringe::curve(r, {
-			// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 400}, {800, 400}, {900, 500}),
-			// 	.margin = {0, 1.01f},
-			// 		.stroke = {4, 6},
-			// 		.segments = 1,
-			// 		.color = {graphic::colors::ACID.copy().mul_a(.5f)}
-			// 	});
-			// gui::fringe::curve(r, {
-			// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 400}, {800, 400}, {900, 500}),
-			// 	.margin = {1.01f, 0},
-			// 		.stroke = {4, 6},
-			// 		.segments = 1,
-			// 		.color = {graphic::colors::ACID.copy().mul_a(.5f)}
-			// 	});
-
-
-			// r.push(poly_partial{
-			// 		// .generic = ,
-			// 		.pos = {400, 400},
-			// 		.segments = 64,
-			//
-			// 		.radius = {120, 130},
-			// 		.range = {0, .45f},
-			// 		.color = {
-			// 			graphic::colors::white, graphic::colors::white, graphic::colors::aqua, graphic::colors::aqua
-			// 		}
-			// 	});
-
-
-
-			float size = 80;
-			auto X_count = math::ceil<int>(ctx.get_extent().width / size);
-			auto Y_count = math::ceil<int>(ctx.get_extent().height / size);
-
+			constexpr float size = 80;
+			const auto X_count = math::ceil<int>(ctx.get_extent().width / size);
+			const auto Y_count = math::ceil<int>(ctx.get_extent().height / size);
 			math::rand rand{54767963};
-			for(int x = 0; x < X_count; ++x){
-				for(int y = 0; y < Y_count; ++y){
-					r.push(rect_aabb{
-						// .generic = {.mode = std::to_underlying(gui::primitive_draw_mode::draw_slide_line)},
-						.v00 = {x * size, y * size},
-						.v11 = {x * size + size, y * size + size},
-						.vert_color = {graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}}
-					});
-				}
+			for(int x = 0; x < X_count; ++x){ for(int y = 0; y < Y_count; ++y){
+				r.push(rect_aabb{
+					.generic = {.mode = std::to_underlying(((x + y) % 3 == 0) ? gui::fx::primitive_draw_mode::draw_slide_line : gui::fx::primitive_draw_mode::none)},
+					.v00 = {x * size, y * size},
+					.v11 = {x * size + size, y * size + size},
+					.vert_color = {graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}}
+				});
+			}}
+
+			{
+				gui::state_guard g{r, gui::fx::blend::multiply};
+				r.push(poly{
+					.pos = current_focus.get_cursor_pos().add_x(-150),
+					.segments = 16,
+					.radius = {0, 64},
+					.color = {graphic::colors::gray, graphic::colors::white}
+				});
 			}
+
+			{
+				gui::state_guard g{r, gui::fx::blend::pma::screen};
+				r.push(poly{
+					.pos = current_focus.get_cursor_pos().add_x(150),
+					.segments = 16,
+					.radius = {0, 64},
+					.color = {graphic::colors::gray, graphic::colors::white}
+				});
+			}
+
+			{
+				gui::state_guard g{r, gui::fx::blend::pma::additive};
+				r.push(poly{
+					.pos = current_focus.get_cursor_pos().add_y(150),
+					.segments = 16,
+					.radius = {0, 64},
+					.color = {graphic::colors::gray, graphic::colors::white}
+				});
+			}
+
+
+			{
+				gui::state_guard g{r, gui::fx::blend::pma::subtractive};
+				r.push(poly{
+					.pos = current_focus.get_cursor_pos().add_y(-150),
+					.segments = 16,
+					.radius = {0, 64},
+					.color = {graphic::colors::gray, graphic::colors::white}
+				});
+			}
+
+
+			r.push(poly{
+					.pos = current_focus.get_cursor_pos(),
+					.segments = 16,
+					.radius = {0, 64},
+					.color = {graphic::colors::gray, graphic::colors::white}
+				});
 
 			// r.push(line{
 			// 	.src = {100, 100},
@@ -370,22 +330,12 @@ Edge Cases:
 			// 	.pipeline_index = 1
 			// });
 			//
-			r.update_state(state_push_config{
-				// state_push_target::defer_pre
-			}, gui::fx::blit_config{
+			r.update_state(gui::fx::blit_config{
 				{
 					.src = {},
 					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
 				},
 				{.pipeline_index = 1}});
-			//
-			// r.push(line{
-			// 	.src = {200, 200},
-			// 	.dst = {900, 500},
-			// 	.color = {graphic::colors::white, graphic::colors::aqua},
-			// 	.stroke = 2,
-			// });
-
 		}
 
 		gui::global::manager.draw();
@@ -483,7 +433,11 @@ void prepare(){
 									shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
 									shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
-								graphic_pipeline_option{false, {0b1}}
+								graphic_pipeline_option{
+									false, {0b1},
+									{
+										{vk::blending::scaled_alpha_blend}, false, true, false
+									}}
 							},
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
@@ -491,7 +445,10 @@ void prepare(){
 									shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
 									shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
-								graphic_pipeline_option{true, {0b1}}
+								graphic_pipeline_option{
+									true, {0b1}, {
+											{vk::blending::scaled_alpha_blend}
+										}}
 							},
 						},
 						{}
@@ -570,10 +527,10 @@ void prepare(){
 	pass_filter_high_light.id()->add_input({{ui_input, 0}});
 
 
-	auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
-	pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
-	pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
-	pass_bloom.pass.add_local({1, compositor::no_slot});
+	// auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
+	// pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
+	// pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
+	// pass_bloom.pass.add_local({1, compositor::no_slot});
 
 
 	compositor::post_process_meta meta{
@@ -585,7 +542,7 @@ void prepare(){
 	meta.sockets.at_out(0).get<compositor::image_requirement>().usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
 	auto pass_h2s = manager.add_pass<compositor::post_process_stage>(meta);
-	pass_h2s.id()->add_dep({pass_bloom.id(), 0, 0});
+	pass_h2s.id()->add_dep({pass_filter_high_light.id(), 0, 0});
 	pass_h2s.id()->add_local({compositor::no_slot, 0});
 
 	manager.sort();
@@ -599,9 +556,9 @@ void prepare(){
 		ui_input.resource = compositor::image_entity{.handle = renderer.get_base()};
 		manager.resize(event.size, true);
 		//
-		pass_bloom.meta.set_scale(.5f);
-		pass_bloom.meta.set_mix_factor(0.f);
-		pass_bloom.meta.set_strength(.8f, .8f);
+		// pass_bloom.meta.set_scale(.5f);
+		// pass_bloom.meta.set_mix_factor(0.f);
+		// pass_bloom.meta.set_strength(.6f, .6f);
 
 		{
 			vk::scoped_recorder r{post_process_cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};

@@ -29,8 +29,8 @@ namespace mo_yanxi::gui{
 namespace fx{
 export
 struct layer_config{
-	draw_config begin_config;
-	blit_pipeline_config end_config;
+	pipeline_config begin_config;
+	std::optional<blit_pipeline_config> end_config;
 
 	//TODO pre/post draw function?
 };
@@ -46,12 +46,15 @@ struct scene_render_pass_config{
 
 private:
 	std::array<value_type, draw_pass_max_capacity> masks{};
+
+	std::optional<blit_pipeline_config> tail_blit{};
+
 	unsigned pass_count{};
 
 public:
 	constexpr scene_render_pass_config() = default;
 
-	constexpr scene_render_pass_config(std::initializer_list<value_type> masks) : pass_count(masks.size()){
+	constexpr scene_render_pass_config(std::initializer_list<value_type> masks, std::optional<blit_pipeline_config> tail_blit) : tail_blit(tail_blit), pass_count(masks.size()){
 		std::ranges::copy(masks, this->masks.begin());
 	}
 
@@ -87,6 +90,10 @@ public:
 
 	inline constexpr auto end(this auto& self) noexcept{
 		return self.masks.begin() + self.size();
+	}
+
+	std::optional<blit_pipeline_config> get_tail_blit() const noexcept{
+		return tail_blit;
 	}
 };
 

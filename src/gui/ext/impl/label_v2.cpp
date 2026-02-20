@@ -63,10 +63,11 @@ void label_v2::draw_text() const{
 		mat.set_translation(get_glyph_src_abs());
 	}
 
-	renderer().update_state(
-		{},
-		graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT),
-		fx::draw_mode::msdf);
+	state_guard guard{
+		renderer(),
+		fx::batch_draw_mode::msdf,
+		graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)
+		};
 
 	{
 		transform_guard _t{renderer(), mat};
@@ -74,7 +75,6 @@ void label_v2::draw_text() const{
 	}
 
 
-	renderer().undo_state(graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
 
 }
 
