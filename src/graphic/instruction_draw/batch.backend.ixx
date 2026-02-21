@@ -292,7 +292,7 @@ struct frame_resource{
 		if(buffer_state_data.get_size() < payload.size()){
 			buffer_state_data = vk::buffer_cpu_to_gpu{
 					allocator, payload.size(),
-					VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+					VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 				};
 		}
 		vk::buffer_mapper{buffer_state_data}.load_range(payload);
@@ -415,7 +415,6 @@ struct frame_resource{
 
 	void push_back_to_descriptor_heap(
 		std::uint32_t buffer_section,
-		std::uint32_t image_section,
 		vk::resource_descriptor_heap& heap,
 
 		const draw_list_context& host_ctx,
@@ -423,38 +422,42 @@ struct frame_resource{
 		std::uint32_t totalDispatchCount,
 		std::uint32_t instructionHeadSize,
 		std::uint32_t instructionSize
-		){
-			{
-				//load buffers
-				const auto dispatch_timeline_size = host_ctx.get_data_group_vertex_info().size() * sizeof(std::uint32_t);
-				const auto dispatch_unit_size = sizeof(dispatch_group_info) + dispatch_timeline_size;
+	){
+		const auto dispatch_timeline_size = host_ctx.get_data_group_vertex_info().size() * sizeof(std::uint32_t);
+		const auto dispatch_unit_size = sizeof(dispatch_group_info) + dispatch_timeline_size;
 
-				cache_buffer_ranges_[0] = {buffer_dispatch_info.get_address(), dispatch_unit_size * (1 + totalDispatchCount)};
-				cache_buffer_ranges_[1] = {buffer_instruction_heads.get_address(), instructionHeadSize};
-				cache_buffer_ranges_[2] = {buffer_instruction.get_address(), instructionSize};
+		cache_buffer_ranges_[0] = {buffer_dispatch_info.get_address(), dispatch_unit_size * (1 + totalDispatchCount)};
+		cache_buffer_ranges_[1] = {buffer_instruction_heads.get_address(), instructionHeadSize};
+		cache_buffer_ranges_[2] = {buffer_instruction.get_address(), instructionSize};
 
-				VkDeviceSize cur_offset{};
-				for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
-					cache_buffer_ranges_[2 + 1 + i] = {buffer_sustained_info.get_address() + cur_offset, entry.get_required_byte_size()};
-					cur_offset += entry.get_required_byte_size();
-				}
+		VkDeviceSize cur_offset{};
+		for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
+			cache_buffer_ranges_[3 + i] = {
+					buffer_sustained_info.get_address() + cur_offset, entry.get_required_byte_size()
+				};
+			cur_offset += entry.get_required_byte_size();
+		}
 
-				//UBO begin
-				auto v1_size = host_ctx.get_data_group_vertex_info().size();
-				cache_buffer_ranges_[2 + v1_size + 1] = state_data_layout_cache_.to_subrange(buffer_state_data.get_address(), 0);
+		//UBO begin
+		const auto v1_size = host_ctx.get_data_group_vertex_info().size();
+		const auto ssbo_count = 3 + v1_size; // 正确的总数
 
-				for(const auto& [idx, entry] : host_ctx.get_data_group_non_vertex_info().entries | std::views::enumerate){
-					cache_buffer_ranges_[2 + v1_size + 2 + idx] = state_data_layout_cache_.to_subrange(buffer_state_data.get_address(), idx + 1);
-				}
+		cache_buffer_ranges_[ssbo_count] = state_data_layout_cache_.
+			to_subrange(buffer_state_data.get_address(), 0);
 
-				heap.clear(buffer_section);
-				heap.push_back_storage_buffers(buffer_section, {cache_buffer_ranges_.begin(), 2 + v1_size});
-				heap.push_back_uniform_buffers(buffer_section, {cache_buffer_ranges_.begin() + 2 + v1_size, cache_buffer_ranges_.end()});
-			}
+		for(const auto& [idx, entry] : host_ctx.get_data_group_non_vertex_info().entries | std::views::enumerate){
+			cache_buffer_ranges_[ssbo_count + 1 + idx] = state_data_layout_cache_.to_subrange(
+				buffer_state_data.get_address(), idx + 1);
+		}
 
-			{
-
-			}
+		heap.clear(buffer_section);
+		heap.push_back_storage_buffers(buffer_section, cache_buffer_ranges_);
+		// heap.push_back_storage_buffers(buffer_section, {cache_buffer_ranges_.begin(), 2 + v1_size});
+		//
+		//
+		// heap.push_back_storage_buffers(buffer_section, {
+		// 		cache_buffer_ranges_.begin() + 2 + v1_size, cache_buffer_ranges_.end()
+		// 	});
 	}
 };
 
@@ -522,14 +525,17 @@ public:
 		}
 	}
 
-	bool upload(draw_list_context& host_ctx,
+	void upload(
+		std::uint32_t target_section,
+		vk::resource_descriptor_heap& resource_descriptor_heap,
+		draw_list_context& host_ctx,
 		VkSampler sampler,
 		std::uint32_t frame_index
 	){
 		auto& frame = frames_[frame_index];
 		const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
 		if(submit_group_subrange.empty()){
-			return false;
+			return;
 		}
 
 		// 1. Prepare Indirect Commands
@@ -560,8 +566,12 @@ public:
 		std::uint32_t instructionSize = 0;
 		frame.upload_instructions(allocator_, submit_group_subrange, instructionHeadSize, instructionSize);
 
-		return frame.update_descriptors(host_ctx, descriptor_layout_, sampler, totalDispatchCount, instructionHeadSize,
+		frame.update_descriptors(host_ctx, descriptor_layout_, sampler, totalDispatchCount, instructionHeadSize,
 			instructionSize);
+
+		frame.push_back_to_descriptor_heap(target_section, resource_descriptor_heap,
+			host_ctx, volatile_data_layout_,
+			totalDispatchCount, instructionHeadSize, instructionSize);
 	}
 
 	std::array<VkDescriptorSetLayout, 2> get_descriptor_set_layout() const noexcept{

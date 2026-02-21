@@ -489,8 +489,15 @@ private:
 	compute_pipeline_manager blit_pipeline_manager_{};
 
 	vk::sampler_descriptor_heap sampler_descriptor_heap_{};
-	vk::resource_descriptor_heap resource_descriptor_heap_{};
 
+public:
+	vk::resource_descriptor_heap resource_descriptor_heap{};
+
+	static constexpr std::uint32_t get_heap_dynamic_image_section() noexcept{
+		return 1;
+	}
+
+private:
 	std::vector<vk::descriptor_buffer> blit_default_inout_descriptors_{};
 	std::vector<vk::descriptor_buffer> blit_specified_inout_descriptors_{};
 
@@ -540,28 +547,29 @@ public:
 			vk::preset::default_texture_sampler,
 		}, false};
 
-		resource_descriptor_heap_ = {
-				allocator_usage_, {
-					//image descriptors
-					//TODO support input attachments?
+		std::array<vk::heap_section, 5> sections{};
 
-					vk::heap_section{
-						attachment_manager_.get_blit_attachment_count() +
-							attachment_manager_.get_draw_attachment_count(),
-						vk::heap_section_type::image
-					},
-					//batch buffers
-					vk::heap_section{
-						batch_device.get_required_buffer_descriptor_count(batch_host),
+		sections[0] = {
+			attachment_manager_.get_blit_attachment_count() +
+				attachment_manager_.get_draw_attachment_count(),
+			vk::heap_section_type::image
+		};
+
+		sections[get_heap_dynamic_image_section()]= {
+			128,
+			vk::heap_section_type::image
+		};
+
+		for(unsigned i = 0; i < frames_in_flight; ++i){
+			sections[get_heap_dynamic_image_section() + 1 + i]= {
+				batch_device.get_required_buffer_descriptor_count_per_frame(batch_host),
 						vk::heap_section_type::buffer
-					},
-					//dynamic batch used images
-					vk::heap_section{
-						128,
-						vk::heap_section_type::image
-					}
-				}
 			};
+		}
+
+
+
+		resource_descriptor_heap = {allocator_usage_, sections};
 	}
 
 	/** 窗口缩放时重置附件与描述符绑定 */
@@ -608,7 +616,7 @@ public:
 		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
 		try{
 			frames_[current_frame_index_].fence.wait_and_reset();
-			batch_device.upload(batch_host, sampler_, current_frame_index_);
+			batch_device.upload(current_frame_index_ + 2, resource_descriptor_heap, batch_host, sampler_, current_frame_index_);
 		} catch(...){
 			frames_[current_frame_index_].fence.reset();
 

@@ -211,6 +211,9 @@ private:
 
 	std::atomic_flag loading{};
 
+	vk::resource_descriptor_heap* target_descriptor_heap_{};
+	std::uint32_t target_descriptor_heap_section_{};
+
 	std::jthread working_thread{};
 
 	static void work_func(std::stop_token stop_token, async_image_loader& self){
@@ -256,17 +259,26 @@ public:
 	[[nodiscard]] explicit async_image_loader(
 		const vk::context_info& context,
 		std::uint32_t graphic_family_index,
-		VkQueue working_queue
-		)
-	:
-	working_queue_{working_queue},
-	async_allocator_(vk::allocator(context, VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT)),
-	command_pool_(context.device, graphic_family_index, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT),
-	region_fence_(context.device, true),
-	allocation_fence_(context.device, false),
-	working_thread([](std::stop_token stop_token, async_image_loader& self){
-		work_func(std::move(stop_token), self);
-	}, std::ref(*this)){
+		VkQueue working_queue,
+
+		vk::resource_descriptor_heap& target_descriptor_heap,
+		std::uint32_t target_descriptor_heap_section
+	)
+		:
+		working_queue_{working_queue},
+		async_allocator_(vk::allocator(context, VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT)),
+		command_pool_(context.device, graphic_family_index, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT),
+		region_fence_(context.device, true),
+		allocation_fence_(context.device, false),
+		target_descriptor_heap_(&target_descriptor_heap),
+		target_descriptor_heap_section_(target_descriptor_heap_section),
+		working_thread([](std::stop_token stop_token, async_image_loader& self){
+			work_func(std::move(stop_token), self);
+		}, std::ref(*this)){
+	}
+
+	std::uint32_t add_image_to_heap(VkImageViewCreateInfo create_info, VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) const{
+		return target_descriptor_heap_->push_back_images(target_descriptor_heap_section_, std::views::single(create_info), image_layout, type);
 	}
 
 	void push(allocated_image_load_description&& desc){
@@ -371,6 +383,8 @@ private:
 public:
 	[[nodiscard]] image_page() = default;
 
+	//TODO support format spec
+
 	[[nodiscard]] explicit image_page(
 		async_image_loader& loader,
 		const math::usize2 page_size = DefaultTexturePageSize,
@@ -450,7 +464,21 @@ public:
 
 					{
 						std::lock_guard _{subpage_mtx_};
-						sub_page = &*subpages_.emplace(page_size_);
+						sub_page = std::to_address(subpages_.emplace(page_size_));
+						sub_page->heap_target_index = loader_->add_image_to_heap(VkImageViewCreateInfo{
+							.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+							.image = sub_page->texture.get_image(),
+							.viewType = VK_IMAGE_VIEW_TYPE_2D,
+							.format = sub_page->texture.get_format(),
+							.components = {},
+							.subresourceRange = {
+								.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+								.baseMipLevel = 0,
+								.levelCount = sub_page->texture.get_mip_level(),
+								.baseArrayLayer = 0,
+								.layerCount = sub_page->texture.get_layers()
+							}
+						});
 					}
 				}catch(...){
 					task_post_lock_.store(&*subpages_.rbegin(), std::memory_order_release);
@@ -606,9 +634,12 @@ public:
 	[[nodiscard]] image_atlas(
 	const vk::context_info& ctx_info,
 	std::uint32_t graphic_family_index,
-	VkQueue loader_working_queue
+	VkQueue loader_working_queue,
+
+	vk::resource_descriptor_heap& target_descriptor_heap,
+	std::uint32_t target_descriptor_heap_section
 	) :
-	async_image_loader_{std::make_unique<async_image_loader>(ctx_info, graphic_family_index, loader_working_queue)}{
+	async_image_loader_{std::make_unique<async_image_loader>(ctx_info, graphic_family_index, loader_working_queue, target_descriptor_heap, target_descriptor_heap_section)}{
 	}
 
 	image_page& create_image_page(

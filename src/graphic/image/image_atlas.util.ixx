@@ -52,11 +52,12 @@ public:
 
 	[[nodiscard]] constexpr allocated_image_region(
 		sub_page& page,
+		image_descriptor_index index,
 		VkImageView imageView,
 		const math::usize2 image_size,
 		const math::urect region
 	)
-	: combined_image_region{.view = imageView}, region(region), page{&page}{
+	: combined_image_region{.index = index, .view = imageView}, region(region), page{&page}{
 		uv.fetch_into(image_size, region);
 	}
 
@@ -214,10 +215,12 @@ struct sub_page{
 
 private:
 	std::binary_semaphore lock{1};
-public:
 
+public:
 	vk::texture texture{};
+	std::uint32_t heap_target_index{std::numeric_limits<std::uint32_t>::max()};
 	allocator2d<> allocator{};
+
 
 	auto allocate(const math::usize2 size) try {
 		lock.acquire();
@@ -253,6 +256,7 @@ public:
 	)
 	: texture(allocator, extent_2d), allocator({extent_2d.width, extent_2d.height}){
 	}
+
 	[[nodiscard]] explicit sub_page(
 		const math::usize2 extent_2d
 	) : allocator(extent_2d){
@@ -270,7 +274,7 @@ public:
 
 			return page_acquire_result{
 					allocated_image_region{
-						*this, texture.get_image_view(),
+						*this, heap_target_index, texture.get_image_view(),
 						std::bit_cast<math::usize2>(texture.get_image().get_extent2()), rst
 					},
 					&texture
@@ -298,7 +302,7 @@ public:
 				});
 
 			return allocated_image_region{
-					*this, texture.get_image_view(),
+					*this, heap_target_index, texture.get_image_view(),
 					std::bit_cast<math::usize2>(texture.get_image().get_extent2()), rst
 				};
 		}

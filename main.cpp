@@ -369,35 +369,6 @@ void prepare(){
 	backend::vulkan::context ctx{ApplicationInfo};
 	vk::load_ext(ctx.get_instance());
 
-	auto heapProp = vk::GetDescriptorHeapProperties(ctx.get_physical_device());
-
-#pragma region LoadResource
-	image_atlas image_atlas{
-			ctx,
-			ctx.graphic_family(),
-			ctx.get_device().graphic_queue(1)
-		};
-	font::font_manager font_manager{};
-	font_manager.set_page(image_atlas.create_image_page("font"));
-
-	{
-		auto sys_font_path = font::get_system_fonts();
-		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
-		auto& SourceHanSansCN_regular = font_manager.register_meta("srchs", font_path / "SourceHanSansCN-Regular.otf");
-		auto& telegrama = font_manager.register_meta("tele", font_path / "telegrama.otf");
-		auto& seguisym = font_manager.register_meta("segui", font_path / "seguisym.ttf");
-
-		auto& default_family = font_manager.register_family("def", {&telegrama, &SourceHanSansCN_regular, &seguisym});
-
-		auto& default_family2 = font_manager.register_family("gui", {&SourceHanSansCN_regular, &seguisym});
-
-		font_manager.set_default_family(&default_family2);
-
-		font::default_font_manager = &font_manager;
-	}
-#pragma endregion
-
-#pragma region InitUI
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 	auto renderer = [&]() -> backend::vulkan::renderer{
 		vk::shader_module shader_draw{ctx.get_device(), shader_spv_path / "ui.draw_v2.spv"};
@@ -497,6 +468,36 @@ void prepare(){
 				}
 			};
 	}();
+
+#pragma region LoadResource
+	image_atlas image_atlas{
+			ctx,
+			ctx.graphic_family(),
+			ctx.get_device().graphic_queue(1),
+			renderer.resource_descriptor_heap,
+			renderer.get_heap_dynamic_image_section()
+		};
+	font::font_manager font_manager{};
+	font_manager.set_page(image_atlas.create_image_page("font"));
+
+	{
+		auto sys_font_path = font::get_system_fonts();
+		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
+		auto& SourceHanSansCN_regular = font_manager.register_meta("srchs", font_path / "SourceHanSansCN-Regular.otf");
+		auto& telegrama = font_manager.register_meta("tele", font_path / "telegrama.otf");
+		auto& seguisym = font_manager.register_meta("segui", font_path / "seguisym.ttf");
+
+		auto& default_family = font_manager.register_family("def", {&telegrama, &SourceHanSansCN_regular, &seguisym});
+
+		auto& default_family2 = font_manager.register_family("gui", {&SourceHanSansCN_regular, &seguisym});
+
+		font_manager.set_default_family(&default_family2);
+
+		font::default_font_manager = &font_manager;
+	}
+#pragma endregion
+
+#pragma region InitUI
 
 	auto& ui_root = gui::global::manager;
 	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
