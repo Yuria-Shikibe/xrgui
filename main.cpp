@@ -369,6 +369,8 @@ void prepare(){
 	backend::vulkan::context ctx{ApplicationInfo};
 	vk::load_ext(ctx.get_instance());
 
+	auto heapProp = vk::GetDescriptorHeapProperties(ctx.get_physical_device());
+
 #pragma region LoadResource
 	image_atlas image_atlas{
 			ctx,
@@ -596,33 +598,6 @@ void prepare(){
 int main(){
 	using namespace mo_yanxi;
 	using namespace graphic;
-
-// const char* test_text =
-// R"({size:24}Basic Token Test{/}
-// {color:#FF0000}Red Text{/} and {font:Arial}Font Change{/}
-//
-// Escapes Test:
-// 1. Backslash: \\ (Should see single backslash)
-// 2. Braces with slash: \{ and \} (Should see literal { and })
-// 3. Braces with double: {{ and }} (Should see literal { and })
-//
-// Line Continuation Test:
-// This is a very long line that \
-// should be joined together \
-// without newlines.
-//
-// Edge Cases:
-// 1. Token without arg: {bold}Bold Text{/bold}
-// 2. Unclosed brace: { This is just text because no closing bracket
-// 3. Unknown escape: \z (Should show 'z')
-// 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
-// )";
-//
-// 	typesetting::tokenized_text text{test_text};
-
-	// std::println("{}", to_utf8(text.get_text()));
-
-	// type_setting::tokenized_text text2{test_text};
 
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){

@@ -530,5 +530,9 @@ public:
 		vk::cmd::drawMeshTasksIndirect(cmd, frames_[frame_index].buffer_indirect,
 			dispatch_group_index * sizeof(VkDrawMeshTasksIndirectCommandEXT), 1);
 	}
+
+	std::uint32_t get_required_buffer_descriptor_count(const draw_list_context& host_ctx) const noexcept{
+		return (3 + host_ctx.get_data_group_vertex_info().size()) * frames_.size();
+	}
 };
 }

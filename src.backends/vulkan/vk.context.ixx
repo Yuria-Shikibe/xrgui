@@ -46,6 +46,9 @@ constexpr inline std::array device_extensions{
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 	// VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME,
 	VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
+
+	VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
+	VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
 	VK_EXT_MESH_SHADER_EXTENSION_NAME,
 	VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
 };
@@ -117,7 +120,6 @@ constexpr VkPhysicalDeviceFeatures RequiredFeatures{
 			features.samplerAnisotropy = true;
 			features.independentBlend = true;
 			features.sampleRateShading = true;
-			features.fragmentStoresAndAtomics = true;
 			features.shaderClipDistance = true;
 
 			return features;
@@ -132,6 +134,12 @@ constexpr VkPhysicalDeviceDescriptorBufferFeaturesEXT DescriptorBufferFeatures{
 		.descriptorBufferImageLayoutIgnored = false,
 		.descriptorBufferPushDescriptors = false
 	};
+
+constexpr VkPhysicalDeviceDescriptorHeapFeaturesEXT DescriptorHeapFeatures = []{
+	VkPhysicalDeviceDescriptorHeapFeaturesEXT rst{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT};
+	rst.descriptorHeap = true;
+	return rst;
+}();
 
 constexpr VkPhysicalDeviceExtendedDynamicState3FeaturesEXT PhysicalDeviceExtendedDynamicState3Features = []{
 	VkPhysicalDeviceExtendedDynamicState3FeaturesEXT rst{
@@ -152,6 +160,8 @@ const extension_chain extChain{
 		// PhysicalDeviceComputeShaderDerivativesFeaturesKHR,
 
 		DescriptorBufferFeatures,
+		DescriptorHeapFeatures,
+
 		MeshShaderFeatures,
 	};
 }

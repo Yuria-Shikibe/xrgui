@@ -1,0 +1,8 @@
+# 启用最佳实践验证 (Best Practices)
+khronos_validation.validate_best_practices = true
+
+# 启用同步验证 (Synchronization Validation)
+khronos_validation.validate_sync = true
+
+# 填入你要屏蔽的错误 ID（使用英文逗号分隔）
+khronos_validation.message_id_filter = VUID-VkShaderModuleCreateInfo-pCode-08737,VUID-RuntimeSpirv-OpVariable-08746

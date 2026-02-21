@@ -436,16 +436,24 @@ FORCE_INLINE CONST_FN [[nodiscard]] constexpr state_tag make_state_tag(L major, 
 }
 
 export
+struct render_data_update_head{
+	bool blit_resource;
+	unsigned index;
+};
+
+export
 struct batch_backend_interface{
 	using host_impl_ptr = void*;
 
 	using function_signature_buffer_acquire = void(host_impl_ptr, instruction_head, const std::byte* payload);
 	using function_signature_update_state_entry = void(host_impl_ptr, state_push_config config, state_tag tag, std::span<const std::byte> payload, unsigned offset);
+	using function_signature_update_manager_ubo = void(host_impl_ptr, render_data_update_head head, std::span<const std::byte> payload, unsigned target_offset);
 
 private:
 	host_impl_ptr host;
 	std::add_pointer_t<function_signature_buffer_acquire> fptr_push;
 	std::add_pointer_t<function_signature_update_state_entry> state_handle;
+	std::add_pointer_t<function_signature_update_manager_ubo> update_manager_handle;
 
 
 public:
@@ -453,16 +461,20 @@ public:
 
 	template <typename HostT,
 	std::invocable<HostT&, instruction_head, const std::byte*> AcqFn,
-	std::invocable<HostT&, state_push_config, state_tag, std::span<const std::byte>, unsigned> StateHandleFn
+	std::invocable<HostT&, state_push_config, state_tag, std::span<const std::byte>, unsigned> StateHandleFn,
+	std::invocable<HostT&, render_data_update_head, std::span<const std::byte>, unsigned> ManagerUpdateFn
 	>
 	[[nodiscard]] constexpr batch_backend_interface(
 		HostT& host,
 		AcqFn,
-		StateHandleFn
+		StateHandleFn,
+		ManagerUpdateFn
 	) noexcept : host(std::addressof(host)), fptr_push(+[](host_impl_ptr host, instruction_head head, const std::byte* instr){
 		return AcqFn::operator()(*static_cast<HostT*>(host), head, instr);
 	}), state_handle(+[](host_impl_ptr host, state_push_config config, state_tag tag, std::span<const std::byte> payload, unsigned offset) static {
 		StateHandleFn::operator()(*static_cast<HostT*>(host), config, tag, payload, offset);
+	}), update_manager_handle(+[](host_impl_ptr host, render_data_update_head head, std::span<const std::byte> payload, unsigned target_offset) static {
+		ManagerUpdateFn::operator()(*static_cast<HostT*>(host), head, payload, target_offset);
 	}){
 
 	}
@@ -485,6 +497,11 @@ public:
 
 	void update_state(state_push_config config, state_tag tag, std::span<const std::byte> payload, unsigned offset = 0) const{
 		state_handle(host, config, tag, payload, offset);
+	}
+
+
+	void update_state(render_data_update_head head, std::span<const std::byte> payload, unsigned offset = 0) const{
+		update_manager_handle(host, head, payload, offset);
 	}
 
 };

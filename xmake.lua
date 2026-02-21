@@ -122,6 +122,7 @@ target("xrgui.example")
 
         print("正在复制资源文件...")
         os.cp(src_dir, dst_dir)
+        os.cp(path.join(os.projectdir(), "./properties/vk_layer_settings.txt"), dst_dir)
         print("资源已复制到: " .. dst_dir)
     end)
 target_end()
