@@ -114,6 +114,12 @@ struct data_layout_spec{
 		return entries[index].offset + local_index * vk::align_up(entries[index].unit_size, 64U);
 	}
 
+	inline VkDeviceAddressRangeEXT to_subrange(VkDeviceAddress pos, unsigned index) const noexcept{
+		const auto off0 = offset_at(index, 0);
+		const auto off1 = offset_at(index + 1, 0);
+		return VkDeviceAddressRangeEXT{pos + off0, off1 - off0};
+	}
+
 	inline subrange operator[](unsigned index, unsigned local_index) const noexcept{
 		const auto e = entries[index];
 		return {e.offset + local_index * vk::align_up(e.unit_size, 64U), e.unit_size};
@@ -160,7 +166,7 @@ struct frame_resource{
 	vk::buffer_cpu_to_gpu buffer_instruction{};
 	vk::buffer_cpu_to_gpu buffer_indirect{};
 	vk::buffer_cpu_to_gpu buffer_sustained_info{};
-	vk::buffer_cpu_to_gpu buffer_volatile_data{};
+	vk::buffer_cpu_to_gpu buffer_state_data{};
 
 	std::vector<vk::binding_spec> bindings{
 			{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
@@ -173,13 +179,16 @@ struct frame_resource{
 	vk::dynamic_descriptor_buffer descriptor_buffer{};
 	vk::descriptor_buffer volatile_descriptor_buffer{};
 
+	std::vector<VkDeviceAddressRangeEXT> cache_buffer_ranges_{};
+
 	frame_resource(const vk::allocator_usage& allocator,
 		const vk::descriptor_layout& layout,
-		const vk::descriptor_layout& volatile_layout)
+		const vk::descriptor_layout& volatile_layout, std::size_t required_buffer_upload_count)
 		: buffer_indirect(allocator, sizeof(VkDrawMeshTasksIndirectCommandEXT) * 32,
 			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)
 		, descriptor_buffer(allocator, layout, layout.binding_count(), bindings)
-		, volatile_descriptor_buffer(allocator, volatile_layout, volatile_layout.binding_count()){
+		, volatile_descriptor_buffer(allocator, volatile_layout, volatile_layout.binding_count()),
+		cache_buffer_ranges_(required_buffer_upload_count){
 	}
 
 	void upload_indirect(
@@ -249,23 +258,23 @@ struct frame_resource{
 		const vk::allocator_usage& allocator,
 		const draw_list_context& host_ctx,
 		const std::span<const VkDrawMeshTasksIndirectCommandEXT> submit_info,
-		data_layout_spec& volatile_data_layout,
+		data_layout_spec& state_data_layout_cache_,
 		std::vector<std::uint32_t>& cached_volatile_timelines){
 		// Sustained
 		load_data_group_to_buffer(host_ctx.get_data_group_vertex_info(), allocator, buffer_sustained_info,
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
 		// Volatile
-		volatile_data_layout.begin_push();
-		volatile_data_layout.push(sizeof(dispatch_config), submit_info.size());
+		state_data_layout_cache_.begin_push();
+		state_data_layout_cache_.push(sizeof(dispatch_config), submit_info.size());
 
 		for(const auto& entry : host_ctx.get_data_group_non_vertex_info().entries){
 			auto total = entry.get_count();
-			volatile_data_layout.push(entry.unit_size, total);
+			state_data_layout_cache_.push(entry.unit_size, total);
 		}
-		volatile_data_layout.finalize();
+		state_data_layout_cache_.finalize();
 
-		volatile_data_layout.load(0, submit_info | std::views::transform(
+		state_data_layout_cache_.load(0, submit_info | std::views::transform(
 			[cur = 0u](const VkDrawMeshTasksIndirectCommandEXT& info) mutable{
 				const dispatch_config rst{cur};
 				cur += info.groupCountX;
@@ -276,17 +285,17 @@ struct frame_resource{
 
 		for(const auto& [idx, entry] : vtx_info.entries | std::views::enumerate){
 			const auto total = entry.get_count();
-			volatile_data_layout.load(1 + idx, entry.data(), total);
+			state_data_layout_cache_.load(1 + idx, entry.data(), total);
 		}
 
-		const auto payload = volatile_data_layout.get_payload();
-		if(buffer_volatile_data.get_size() < payload.size()){
-			buffer_volatile_data = vk::buffer_cpu_to_gpu{
+		const auto payload = state_data_layout_cache_.get_payload();
+		if(buffer_state_data.get_size() < payload.size()){
+			buffer_state_data = vk::buffer_cpu_to_gpu{
 					allocator, payload.size(),
 					VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 				};
 		}
-		vk::buffer_mapper{buffer_volatile_data}.load_range(payload);
+		vk::buffer_mapper{buffer_state_data}.load_range(payload);
 
 		if(volatile_descriptor_buffer.get_chunk_count() < submit_info.size() + 1){
 			volatile_descriptor_buffer.set_chunk_count(submit_info.size() + 1);
@@ -298,11 +307,11 @@ struct frame_resource{
 
 		auto load_timelines = [&](std::size_t current_chunk){
 			mapper.set_uniform_buffer(0,
-				buffer_volatile_data.get_address() + volatile_data_layout.offset_at(0, current_chunk),
+				buffer_state_data.get_address() + state_data_layout_cache_.offset_at(0, current_chunk),
 				sizeof(dispatch_config), current_chunk);
 			for(auto [idx, timeline] : cached_volatile_timelines | std::views::enumerate){
-				auto [off, sz] = volatile_data_layout[idx + 1, timeline];
-				mapper.set_uniform_buffer(idx + 1, buffer_volatile_data.get_address() + off, sz, current_chunk);
+				auto [off, sz] = state_data_layout_cache_[idx + 1, timeline];
+				mapper.set_uniform_buffer(idx + 1, buffer_state_data.get_address() + off, sz, current_chunk);
 			}
 		};
 
@@ -403,6 +412,50 @@ struct frame_resource{
 		}
 		return requires_command_record;
 	}
+
+	void push_back_to_descriptor_heap(
+		std::uint32_t buffer_section,
+		std::uint32_t image_section,
+		vk::resource_descriptor_heap& heap,
+
+		const draw_list_context& host_ctx,
+		const data_layout_spec& state_data_layout_cache_,
+		std::uint32_t totalDispatchCount,
+		std::uint32_t instructionHeadSize,
+		std::uint32_t instructionSize
+		){
+			{
+				//load buffers
+				const auto dispatch_timeline_size = host_ctx.get_data_group_vertex_info().size() * sizeof(std::uint32_t);
+				const auto dispatch_unit_size = sizeof(dispatch_group_info) + dispatch_timeline_size;
+
+				cache_buffer_ranges_[0] = {buffer_dispatch_info.get_address(), dispatch_unit_size * (1 + totalDispatchCount)};
+				cache_buffer_ranges_[1] = {buffer_instruction_heads.get_address(), instructionHeadSize};
+				cache_buffer_ranges_[2] = {buffer_instruction.get_address(), instructionSize};
+
+				VkDeviceSize cur_offset{};
+				for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
+					cache_buffer_ranges_[2 + 1 + i] = {buffer_sustained_info.get_address() + cur_offset, entry.get_required_byte_size()};
+					cur_offset += entry.get_required_byte_size();
+				}
+
+				//UBO begin
+				auto v1_size = host_ctx.get_data_group_vertex_info().size();
+				cache_buffer_ranges_[2 + v1_size + 1] = state_data_layout_cache_.to_subrange(buffer_state_data.get_address(), 0);
+
+				for(const auto& [idx, entry] : host_ctx.get_data_group_non_vertex_info().entries | std::views::enumerate){
+					cache_buffer_ranges_[2 + v1_size + 2 + idx] = state_data_layout_cache_.to_subrange(buffer_state_data.get_address(), idx + 1);
+				}
+
+				heap.clear(buffer_section);
+				heap.push_back_storage_buffers(buffer_section, {cache_buffer_ranges_.begin(), 2 + v1_size});
+				heap.push_back_uniform_buffers(buffer_section, {cache_buffer_ranges_.begin() + 2 + v1_size, cache_buffer_ranges_.end()});
+			}
+
+			{
+
+			}
+	}
 };
 
 export class batch_vulkan_executor{
@@ -422,7 +475,7 @@ private:
 	/**
 	 * @brief Descriptor varies during each draw dispatch, used for uniform buffer update mainly.
 	 */
-	vk::descriptor_layout volatile_descriptor_layout_{};
+	vk::descriptor_layout state_descriptor_layout_{};
 
 	VkDeviceSize offset_ceil(std::size_t size) const noexcept{
 		//TODO check device real limit
@@ -453,7 +506,7 @@ public:
 					builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 				}
 			})
-		, volatile_descriptor_layout_{
+		, state_descriptor_layout_{
 			a.get_device(),
 			VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 			[&](vk::descriptor_layout_builder& builder){
@@ -465,7 +518,7 @@ public:
 		}{
 		frames_.reserve(frames_in_flight);
 		for(std::size_t i = 0; i < frames_in_flight; ++i){
-			frames_.emplace_back(allocator_, descriptor_layout_, volatile_descriptor_layout_);
+			frames_.emplace_back(allocator_, descriptor_layout_, state_descriptor_layout_, get_required_buffer_descriptor_count_per_frame(batch_host));
 		}
 	}
 
@@ -512,7 +565,7 @@ public:
 	}
 
 	std::array<VkDescriptorSetLayout, 2> get_descriptor_set_layout() const noexcept{
-		return {descriptor_layout_, volatile_descriptor_layout_};
+		return {descriptor_layout_, state_descriptor_layout_};
 	}
 
 	template <typename T = std::allocator<descriptor_buffer_usage>>
@@ -531,8 +584,8 @@ public:
 			dispatch_group_index * sizeof(VkDrawMeshTasksIndirectCommandEXT), 1);
 	}
 
-	std::uint32_t get_required_buffer_descriptor_count(const draw_list_context& host_ctx) const noexcept{
-		return (3 + host_ctx.get_data_group_vertex_info().size()) * frames_.size();
+	std::uint32_t get_required_buffer_descriptor_count_per_frame(const draw_list_context& host_ctx) const noexcept{
+		return 3 + host_ctx.get_data_group_vertex_info().size() + 1 + host_ctx.get_data_group_non_vertex_info().size();
 	}
 };
 }
