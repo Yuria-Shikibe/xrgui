@@ -42,6 +42,7 @@ public enum instruction_type : uint32_t
 
 public struct draw_mode
 {
+   
     public uint32_t value;
 };
 
@@ -89,17 +90,28 @@ public struct resolve_param
     }
 }
 
+public struct image_index
+{
+    
+    public uint32_t index : TextureIndex;
+    public uint32_t _cap;
+};
+
 public struct primitive_generic
 {
-    nointerpolation public image_index image;
-    nointerpolation public draw_mode mode;
-    nointerpolation public float depth;
+    public image_index image;
+    public draw_mode mode;
+    public float depth;
 };
 
 public struct Vertex
 {
     public float4 position : SV_Position;
+
+    [[vk::location(0)]]
     public float4 color : VtxSclColor;
+
+    [[vk::location(1)]]
     centroid public float2 uv : VtxUV;
 
     public __init(float3 p_, float4 c_, float2 uv_) {
@@ -117,8 +129,11 @@ public struct Vertex
 
 public struct Primitive
 {
-    public uint texture_index : PmtTexID;
-    public draw_mode mode : PmtMode;
+    [[vk::location(0)]]
+    nointerpolation public uint texture_index : PmtTexID;
+
+    [[vk::location(1)]]
+    nointerpolation public draw_mode mode : PmtMode;
 
     [ForceInline]
     __init(primitive_generic generic, resolve_param param) {
@@ -173,11 +188,6 @@ public struct section<T>
 
 public typealias range = section<float>;
 
-public struct image_index
-{
-    public uint32_t index;
-    public uint32_t _cap;
-};
 
 struct triangle_draw : instr_resolver
 {

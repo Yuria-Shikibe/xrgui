@@ -48,6 +48,9 @@ constexpr inline std::array device_extensions{
 	VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
 
 	VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
+	VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
+	VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
+
 	VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
 	VK_EXT_MESH_SHADER_EXTENSION_NAME,
 	VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
@@ -71,6 +74,17 @@ constexpr VkPhysicalDeviceVulkan13Features PhysicalDeviceVulkan13Features{
 
 			features.synchronization2 = true;
 			features.dynamicRendering = true;
+			features.maintenance4 = true;
+
+			return features;
+		}()
+	};
+
+constexpr VkPhysicalDeviceShaderUntypedPointersFeaturesKHR UntypedPointer{
+		[]{
+			VkPhysicalDeviceShaderUntypedPointersFeaturesKHR features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR};
+
+			features.shaderUntypedPointers = true;
 
 			return features;
 		}()
@@ -155,6 +169,8 @@ const extension_chain extChain{
 		PhysicalDeviceVulkan11Features,
 		PhysicalDeviceVulkan12Features,
 		PhysicalDeviceVulkan13Features,
+
+		UntypedPointer,
 
 		PhysicalDeviceExtendedDynamicState3Features,
 		// PhysicalDeviceComputeShaderDerivativesFeaturesKHR,

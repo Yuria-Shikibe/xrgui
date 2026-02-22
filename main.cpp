@@ -21,6 +21,7 @@ import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.graphic.compositor.manager;
 import mo_yanxi.graphic.compositor.post_process_pass;
 import mo_yanxi.graphic.compositor.bloom;
+import mo_yanxi.graphic.shaderc;
 
 
 import mo_yanxi.gui.examples;
@@ -469,6 +470,22 @@ void prepare(){
 			};
 	}();
 
+
+	{
+
+		vk::shader_module bindless_shader_mesh{ctx.get_device(), shader_spv_path / "ui.draw_bindless.glsl.spv"};
+		vk::shader_module bindless_shader_frag{ctx.get_device(), shader_spv_path / "ui.frag.spv"};
+
+		vk::graphic_pipeline_template template_{};
+		template_.set_shaders({bindless_shader_mesh.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT), bindless_shader_frag.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT)});
+		template_.push_color_attachment_format(VK_FORMAT_R8G8B8A8_UNORM);
+		template_.push_color_attachment_blend_state(vk::blending::scaled_alpha_blend);
+		vk::pipeline pipeline{ctx.get_device(), 0, VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT, template_};
+
+		renderer._temp_pipeline = std::move(pipeline);
+	}
+
+
 #pragma region LoadResource
 	image_atlas image_atlas{
 			ctx,
@@ -599,6 +616,11 @@ void prepare(){
 int main(){
 	using namespace mo_yanxi;
 	using namespace graphic;
+
+	shader_runtime_compiler shader_runtime_compiler{};
+	shader_wrapper wrapper{shader_runtime_compiler, (std::filesystem::current_path() / "assets/shader/spv").make_preferred()};
+	wrapper.compile(R"(D:\projects\xrgui\properties\assets\shader\glsl\ui.frag)");
+	wrapper.compile(R"(D:\projects\xrgui\properties\assets\shader\glsl\ui.draw_bindless.glsl)");
 
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){

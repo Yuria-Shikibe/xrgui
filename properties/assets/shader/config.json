@@ -38,6 +38,13 @@
     {
       "file": "ui/draw_v2.slang"
     },
+    
+    {
+      "file": "ui/draw_bindless.slang",
+      "options": ["-target", "glsl", "-entry", "main_mesh"]
+    },
+    
+    
 
     {
       "file": "ui/blit.default.slang",

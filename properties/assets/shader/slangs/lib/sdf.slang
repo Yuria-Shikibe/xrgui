@@ -32,6 +32,23 @@ public float msdf(Sampler2D samp, float2 uv) {
 }
 
 [[ForceInline]]
+public float msdf(Texture2D samp, SamplerState sampler, float2 uv) {
+    let fw = fwidth(uv);
+    let lod = min(fw.x, fw.y);
+
+    float2 size;
+    float _;
+    samp.GetDimensions(uint(lod), size.x, size.y, _);
+
+    let col = samp.SampleLevel(sampler, uv, lod).rgb;
+    float sigDist = median(col) - 0.5f;
+
+    sigDist *= max(0.5 * dot(rcp(size), rcp(fw)), 1.0);;
+
+    return sigDist;
+}
+
+[[ForceInline]]
 public float4 visualize(float distance, float scale){
     // 1. 应用缩放
     // 距离值除以缩放因子，以控制颜色过渡的“厚度”。

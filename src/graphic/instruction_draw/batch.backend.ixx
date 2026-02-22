@@ -180,6 +180,7 @@ struct frame_resource{
 	vk::descriptor_buffer volatile_descriptor_buffer{};
 
 	std::vector<VkDeviceAddressRangeEXT> cache_buffer_ranges_{};
+	std::vector<std::uint32_t> dispatch_timeline_stamps_{};
 
 	frame_resource(const vk::allocator_usage& allocator,
 		const vk::descriptor_layout& layout,
@@ -301,7 +302,10 @@ struct frame_resource{
 			volatile_descriptor_buffer.set_chunk_count(submit_info.size() + 1);
 		}
 
+		auto breakpoints = host_ctx.get_state_transitions();
 		cached_volatile_timelines.resize(vtx_info.size(), 0);
+		auto dispatch_timeline_chunk_size = (cached_volatile_timelines.size() + 1);
+		dispatch_timeline_stamps_.resize(dispatch_timeline_chunk_size * (breakpoints.size() + 1));
 
 		vk::descriptor_mapper mapper{volatile_descriptor_buffer};
 
@@ -316,11 +320,14 @@ struct frame_resource{
 		};
 
 		load_timelines(0);
-		auto breakpoints = host_ctx.get_state_transitions();
 		for(const auto& [chunk_idx, breakpoint] : breakpoints | std::views::enumerate){
 			for(const auto i : breakpoint.uniform_buffer_marching_indices){
 				++cached_volatile_timelines[i];
 			}
+
+			auto where = dispatch_timeline_stamps_.begin() + (chunk_idx + 1) * dispatch_timeline_chunk_size;
+			*where = chunk_idx;
+			std::ranges::copy(cached_volatile_timelines, std::ranges::next(where));
 			load_timelines(chunk_idx + 1);
 		}
 	}
@@ -465,11 +472,11 @@ export class batch_vulkan_executor{
 private:
 	vk::allocator_usage allocator_{};
 
-	std::vector<VkDrawMeshTasksIndirectCommandEXT> submit_info_{};
+	std::vector<VkDrawMeshTasksIndirectCommandEXT> cache_submit_info_{};
 	std::vector<frame_resource> frames_{};
 
 	data_layout_spec volatile_data_layout_{};
-	std::vector<std::uint32_t> cached_volatile_timelines_{};
+	std::vector<std::uint32_t> cached_state_timelines_{};
 
 	/**
 	 * @brief Descriptor maintain the same during all the mesh dispatch.
@@ -540,7 +547,7 @@ public:
 
 		// 1. Prepare Indirect Commands
 		const auto dispatchCountGroups = [&]{
-			submit_info_.resize(host_ctx.get_state_transitions().size());
+			cache_submit_info_.resize(host_ctx.get_state_transitions().size());
 			std::uint32_t currentSubmitGroupIndex = 0;
 			for(const auto& [idx, submit_breakpoint] : host_ctx.get_state_transitions() | std::views::enumerate){
 				const auto section_end = submit_breakpoint.break_before_index;
@@ -549,10 +556,10 @@ public:
 					submitCount += static_cast<std::uint32_t>(submit_group_subrange[i].get_dispatch_infos().
 						size());
 				}
-				submit_info_[idx] = {submitCount, 1, 1};
+				cache_submit_info_[idx] = {submitCount, 1, 1};
 				currentSubmitGroupIndex = section_end;
 			}
-			return std::span{std::as_const(submit_info_)};
+			return std::span{std::as_const(cache_submit_info_)};
 		}();
 
 		frame.upload_indirect(allocator_, dispatchCountGroups);
@@ -560,7 +567,7 @@ public:
 		std::uint32_t totalDispatchCount = frame.upload_dispatch(allocator_, host_ctx, submit_group_subrange);
 
 		frame.upload_user_data(allocator_, host_ctx, dispatchCountGroups, volatile_data_layout_,
-			cached_volatile_timelines_);
+			cached_state_timelines_);
 
 		std::uint32_t instructionHeadSize = 0;
 		std::uint32_t instructionSize = 0;
@@ -585,8 +592,14 @@ public:
 		record_context.push(1, frame.volatile_descriptor_buffer, frame.volatile_descriptor_buffer.get_chunk_size());
 	}
 
+	std::span<const std::uint32_t> get_state_buffer_indices(const draw_list_context& host_ctx, std::uint32_t frame_index, std::uint32_t drawlist_index) const noexcept{
+		auto& frame = frames_[frame_index];
+		auto chunksize = (1 + host_ctx.get_data_group_non_vertex_info().size());
+		return {frame.dispatch_timeline_stamps_.begin() + chunksize * drawlist_index, chunksize};
+	}
+
 	bool is_section_empty(std::uint32_t frame_index) const noexcept{
-		return submit_info_[frame_index].groupCountX == 0;
+		return cache_submit_info_[frame_index].groupCountX == 0;
 	}
 
 	void cmd_draw(VkCommandBuffer cmd, std::uint32_t dispatch_group_index, std::uint32_t frame_index) const{
@@ -595,7 +608,7 @@ public:
 	}
 
 	std::uint32_t get_required_buffer_descriptor_count_per_frame(const draw_list_context& host_ctx) const noexcept{
-		return 3 + host_ctx.get_data_group_vertex_info().size() + 1 + host_ctx.get_data_group_non_vertex_info().size();
+		return 3 + host_ctx.get_data_group_vertex_info().size() + (1 + host_ctx.get_data_group_non_vertex_info().size());
 	}
 };
 }

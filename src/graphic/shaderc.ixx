@@ -6,7 +6,6 @@ export module mo_yanxi.graphic.shaderc;
 import std;
 import mo_yanxi.io;
 
-/*
 namespace mo_yanxi::graphic {
     struct Includer final : shaderc::CompileOptions::IncluderInterface {
 
@@ -135,4 +134,3 @@ namespace mo_yanxi::graphic {
         }
     };
 }
-*/

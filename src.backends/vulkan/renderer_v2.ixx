@@ -212,9 +212,7 @@ export struct renderer{
 					barrier_gen.apply(cmd);
 				}
 
-				// 3. 开始新的 Rendering Pass
 				if(!is_rendering){
-					// 【优化核心】：在启动图形管线前，将所有积累的待决 Blit 转换为屏障提前发射
 					commit_pending_blit_events(r, cmd);
 
 					r.attachment_manager_.configure_dynamic_rendering<32>(
@@ -269,6 +267,8 @@ export struct renderer{
 		void cmd_draw_(renderer& r, VkCommandBuffer cmd, std::uint32_t index, const gui::fx::pipeline_config& arg){
 			// 获取 Pipeline Layout 仅用于描述符绑定
 			const auto& pc = r.draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
+
+			auto data_span = r.batch_device.get_state_buffer_indices(r.batch_host, r.current_frame_index_, index);
 
 			descriptor_context.clear();
 			r.batch_device.load_descriptors(descriptor_context, r.current_frame_index_);
@@ -491,6 +491,8 @@ private:
 	vk::sampler_descriptor_heap sampler_descriptor_heap_{};
 
 public:
+	vk::pipeline _temp_pipeline{};
+
 	vk::resource_descriptor_heap resource_descriptor_heap{};
 
 	static constexpr std::uint32_t get_heap_dynamic_image_section() noexcept{
