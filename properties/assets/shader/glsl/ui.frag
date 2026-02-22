@@ -1,6 +1,6 @@
 #pragma shader_stage(fragment)
-#extension GL_EXT_descriptor_heap : enable
-#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_mesh_shader : require
 
 struct ubo_ui_state {
@@ -34,7 +34,7 @@ layout(push_constant) uniform dbh_input {
 layout(descriptor_heap) uniform sampler heapSampler[];
 layout(descriptor_heap) uniform texture2D heapTexture2D[];
 layout(descriptor_heap) buffer STATES {
-    ubo_ui_state state;
+    ubo_ui_state state[];
 } states[];
 
 layout(descriptor_heap) buffer SLIDE_LINES {
@@ -45,7 +45,7 @@ layout(descriptor_heap) uniform sampler heapSampler[];
 
 //layout (location = 0) in vec4 pos;
 noperspective layout (location = 0) in vec4 color;
-centroid layout (location = 1) in vec2 uv;
+ layout (location = 1) in vec2 uv;
 perprimitiveEXT layout (location = 2) flat in uint image_index;
 perprimitiveEXT layout (location = 3) flat in uint draw_mode;
 //layout (location = 5) flat in float depth;
@@ -53,5 +53,10 @@ perprimitiveEXT layout (location = 3) flat in uint draw_mode;
 layout (location = 0) out vec4 fragColor;
 
 void main() {
-    fragColor = image_index == ~0 ? vec4(1) : texture(sampler2D(heapTexture2D[image_index], heapSampler[0]), uv);
+//    fragColor = color;//image_index == ~0 ? vec4(1) : texture(sampler2D(heapTexture2D[image_index], heapSampler[0]), uv);
+//    fragColor = vec4(uv * 100, 1, 1);//image_index == ~0 ? vec4(1) : texture(sampler2D(heapTexture2D[image_index], heapSampler[0]), uv);
+
+//    fragColor = imageLoad(heapTexture2D[4], ivec2(0));
+    fragColor = vec4(texture(sampler2D(heapTexture2D[0], heapSampler[0]), vec2(0)).rgb, 1);
+//    fragColor = vec4(vec3(states[264 + 6].state[0].time / 30), 1);
 }

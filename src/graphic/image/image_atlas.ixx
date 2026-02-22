@@ -404,6 +404,20 @@ public:
 		sub_page* sub_page = &*subpages_.emplace(page_size_);
 		ptr_to_texture_temp_.wait(nullptr, std::memory_order::relaxed);
 		sub_page->texture = std::move(*ptr_to_texture_temp_.load(std::memory_order::acquire));
+		sub_page->heap_target_index = loader_->add_image_to_heap(VkImageViewCreateInfo{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.image = sub_page->texture.get_image(),
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.format = sub_page->texture.get_format(),
+			.components = {},
+			.subresourceRange = {
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = sub_page->texture.get_mip_level(),
+				.baseArrayLayer = 0,
+				.layerCount = sub_page->texture.get_layers()
+			}
+		});
 
 		ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
 		ptr_to_texture_temp_.notify_one();
@@ -441,6 +455,7 @@ public:
 					}
 				}
 			}
+
 
 			clear_unused();
 
@@ -512,12 +527,17 @@ public:
 		allocated_image_region* rst;
 
 		{
-			std::lock_guard lg{named_image_regions_mtx_};
-			if(const auto itr = named_image_regions.find(sv); itr != named_image_regions.end()){
-				return {itr->second, false};
+			{
+				std::lock_guard lg{named_image_regions_mtx_};
+				if(const auto itr = named_image_regions.find(sv); itr != named_image_regions.end()){
+					return {itr->second, false};
+				}
 			}
 
-			rst = &named_image_regions.try_emplace(std::forward<Str>(name), this->async_allocate(image_load_description{std::forward<T>(desc)})).first->second;
+			auto val = this->async_allocate(image_load_description{std::forward<T>(desc)});
+
+			std::lock_guard lg{named_image_regions_mtx_};
+			rst = &named_image_regions.try_emplace(std::forward<Str>(name), std::move(val)).first->second;
 		}
 
 		if(mark_as_protected){
@@ -585,6 +605,8 @@ public:
 			auto check = cur->second.check_droppable_and_retire();
 			if(check){
 				cur = named_image_regions.erase(cur);
+			}else{
+				++cur;
 			}
 		}
 	}

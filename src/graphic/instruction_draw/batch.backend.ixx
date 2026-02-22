@@ -98,9 +98,10 @@ struct data_layout_spec{
 	inline void push(unsigned size, unsigned count){
 		//TODO get required align from device
 		auto& cur = entries.back();
+		cur.offset = vk::align_up(cur.offset, 16U);
 		cur.unit_size = size;
 
-		const auto aligned = vk::align_up(size, 64U);
+		const auto aligned = vk::align_up(size, 16U);
 		const auto total_req = aligned * count;
 
 		entries.push_back({cur.offset + total_req});
@@ -111,7 +112,7 @@ struct data_layout_spec{
 	}
 
 	inline unsigned offset_at(unsigned index, unsigned local_index) const noexcept{
-		return entries[index].offset + local_index * vk::align_up(entries[index].unit_size, 64U);
+		return entries[index].offset + local_index * vk::align_up(entries[index].unit_size, 16U);
 	}
 
 	inline VkDeviceAddressRangeEXT to_subrange(VkDeviceAddress pos, unsigned index) const noexcept{
@@ -122,7 +123,7 @@ struct data_layout_spec{
 
 	inline subrange operator[](unsigned index, unsigned local_index) const noexcept{
 		const auto e = entries[index];
-		return {e.offset + local_index * vk::align_up(e.unit_size, 64U), e.unit_size};
+		return {e.offset + local_index * vk::align_up(e.unit_size, 16U), e.unit_size};
 	}
 
 	inline unsigned finalize() noexcept{
@@ -135,7 +136,7 @@ struct data_layout_spec{
 		const auto entry = entries[index];
 		const auto dst = data.data() + entry.offset;
 		for(unsigned i = 0; i < count; ++i){
-			std::memcpy(dst + i * vk::align_up(entry.unit_size, 64U), src + i * entry.unit_size, entry.unit_size);
+			std::memcpy(dst + i * vk::align_up(entry.unit_size, 16U), src + i * entry.unit_size, entry.unit_size);
 		}
 	}
 
@@ -147,7 +148,7 @@ struct data_layout_spec{
 		assert(entry.unit_size == sz);
 		const auto dst = data.data() + entry.offset;
 		for(unsigned i = {}; const auto& val : rng){
-			std::memcpy(dst + i * vk::align_up(sz, 64U), std::addressof(val), sz);
+			std::memcpy(dst + i * vk::align_up(sz, 16U), std::addressof(val), sz);
 			++i;
 		}
 	}
@@ -307,19 +308,19 @@ struct frame_resource{
 		auto dispatch_timeline_chunk_size = (cached_volatile_timelines.size() + 1);
 		dispatch_timeline_stamps_.resize(dispatch_timeline_chunk_size * (breakpoints.size() + 1));
 
-		vk::descriptor_mapper mapper{volatile_descriptor_buffer};
+		// vk::descriptor_mapper mapper{volatile_descriptor_buffer};
 
-		auto load_timelines = [&](std::size_t current_chunk){
-			mapper.set_uniform_buffer(0,
-				buffer_state_data.get_address() + state_data_layout_cache_.offset_at(0, current_chunk),
-				sizeof(dispatch_config), current_chunk);
-			for(auto [idx, timeline] : cached_volatile_timelines | std::views::enumerate){
-				auto [off, sz] = state_data_layout_cache_[idx + 1, timeline];
-				mapper.set_uniform_buffer(idx + 1, buffer_state_data.get_address() + off, sz, current_chunk);
-			}
-		};
+		// auto load_timelines = [&](std::size_t current_chunk){
+		// 	mapper.set_uniform_buffer(0,
+		// 		buffer_state_data.get_address() + state_data_layout_cache_.offset_at(0, current_chunk),
+		// 		sizeof(dispatch_config), current_chunk);
+		// 	for(auto [idx, timeline] : cached_volatile_timelines | std::views::enumerate){
+		// 		auto [off, sz] = state_data_layout_cache_[idx + 1, timeline];
+		// 		mapper.set_uniform_buffer(idx + 1, buffer_state_data.get_address() + off, sz, current_chunk);
+		// 	}
+		// };
 
-		load_timelines(0);
+		// load_timelines(0);
 		for(const auto& [chunk_idx, breakpoint] : breakpoints | std::views::enumerate){
 			for(const auto i : breakpoint.uniform_buffer_marching_indices){
 				++cached_volatile_timelines[i];
@@ -328,7 +329,7 @@ struct frame_resource{
 			auto where = dispatch_timeline_stamps_.begin() + (chunk_idx + 1) * dispatch_timeline_chunk_size;
 			*where = chunk_idx;
 			std::ranges::copy(cached_volatile_timelines, std::ranges::next(where));
-			load_timelines(chunk_idx + 1);
+			// load_timelines(chunk_idx + 1);
 		}
 	}
 
