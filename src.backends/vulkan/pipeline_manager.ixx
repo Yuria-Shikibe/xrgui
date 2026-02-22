@@ -259,8 +259,9 @@ struct graphic_pipeline_create_config{
 
 
 				data.pipeline = vk::pipeline{
-					data.pipeline_layout.get_device(), data.pipeline_layout,
-					VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+					data.pipeline_layout.get_device(),
+					0,
+					VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
 					gtp
 				};
 			}

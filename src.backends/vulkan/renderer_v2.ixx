@@ -67,7 +67,7 @@ struct attachment_state{
 };
 
 export struct renderer{
-	static constexpr std::size_t frames_in_flight = 3;
+	static constexpr std::size_t frames_in_flight = 1;
 
 	/** 命令录制上下文：作为 renderer 的内部结构体，拥有访问外部私有成员的权限 */
 	struct command_recording_context{
@@ -182,6 +182,7 @@ export struct renderer{
 					vkCmdEndRendering(cmd);
 					is_rendering = false;
 					graphic_context.set_rebind_required();
+
 				}
 			};
 
@@ -235,6 +236,21 @@ export struct renderer{
 					is_rendering = true;
 					current_pass_mask = target_mask;
 					current_pass_msaa = is_msaa;
+
+
+					vk::cmd::bindResourceHeapEXT(cmd, r.resource_descriptor_heap.get_bind_info());
+					vk::cmd::bindSamplerHeapEXT(cmd, r.sampler_descriptor_heap_.get_bind_info());
+
+					const std::uint32_t initial_buffer_index = r.resource_descriptor_heap.get_section_begin_index(get_heap_dynamic_image_section() + 1 + r.current_frame_index_);
+					vk::cmd::pushDataEXT(cmd, {
+						.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT,
+						.pNext = nullptr,
+						.offset = 0,
+						.data = VkHostAddressRangeConstEXT{
+							.address = &initial_buffer_index,
+							.size = sizeof(initial_buffer_index)
+						},
+					});
 				}
 
 				bool requires_clear = false;
@@ -270,10 +286,21 @@ export struct renderer{
 
 			auto data_span = r.batch_device.get_state_buffer_indices(r.batch_host, r.current_frame_index_, index);
 
-			descriptor_context.clear();
-			r.batch_device.load_descriptors(descriptor_context, r.current_frame_index_);
-			descriptor_context.prepare_bindings();
-			descriptor_context(pc.pipeline_layout, cmd, index, VK_PIPELINE_BIND_POINT_GRAPHICS);
+			// descriptor_context.clear();
+			// r.batch_device.load_descriptors(descriptor_context, r.current_frame_index_);
+			// descriptor_context.prepare_bindings();
+			// descriptor_context(pc.pipeline_layout, cmd, index, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+			vk::cmd::pushDataEXT(cmd, {
+				.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT,
+				.pNext = nullptr,
+				.offset = 4,
+				.data = VkHostAddressRangeConstEXT{
+					.address = data_span.data(),
+					.size = data_span.size_bytes()
+				},
+			});
+
 			r.batch_device.cmd_draw(cmd, index, r.current_frame_index_);
 		}
 
@@ -370,8 +397,8 @@ export struct renderer{
 			case state_type::push_constant :{
 				const auto flags = static_cast<VkShaderStageFlags>(entry.tag.minor);
 
-				vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, entry.logical_offset, entry.payload.size(),
-					entry.payload.data());
+				// vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, entry.logical_offset, entry.payload.size(),
+				// 	entry.payload.data());
 				break;
 			}
 			case state_type::set_color_blend_enable :{
@@ -390,7 +417,6 @@ export struct renderer{
 					context_trace.set_blend_equation(i, param);
 				});
 				break;
-
 			}
 			case state_type::set_color_write_mask :{
 				auto param = entry.as<blend_write_mask_type>();
@@ -618,7 +644,7 @@ public:
 		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
 		try{
 			frames_[current_frame_index_].fence.wait_and_reset();
-			batch_device.upload(current_frame_index_ + 2, resource_descriptor_heap, batch_host, sampler_, current_frame_index_);
+			batch_device.upload(current_frame_index_ + get_heap_dynamic_image_section() + 1, resource_descriptor_heap, batch_host, sampler_, current_frame_index_);
 		} catch(...){
 			frames_[current_frame_index_].fence.reset();
 

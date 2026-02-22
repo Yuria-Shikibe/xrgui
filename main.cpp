@@ -339,7 +339,7 @@ void app_run(
 				{.pipeline_index = 1}});
 		}
 
-		gui::global::manager.draw();
+		// gui::global::manager.draw();
 		renderer.batch_host.end_rendering();
 		renderer.upload();
 		renderer.create_command();
@@ -376,6 +376,9 @@ void prepare(){
 		vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
 		vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
 
+		vk::shader_module bindless_shader_mesh{ctx.get_device(), shader_spv_path / "ui.draw_bindless.glsl.spv"};
+		vk::shader_module bindless_shader_frag{ctx.get_device(), shader_spv_path / "ui.frag.spv"};
+
 		using namespace backend::vulkan;
 		return {
 				renderer_create_info{
@@ -404,8 +407,8 @@ void prepare(){
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
-									shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									bindless_shader_mesh.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT),
+									bindless_shader_frag.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT)
 								},
 								graphic_pipeline_option{
 									false, {0b1},
@@ -413,17 +416,17 @@ void prepare(){
 										{vk::blending::scaled_alpha_blend}, false, true, false
 									}}
 							},
-							graphic_pipeline_create_config::config{
-								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
-								{
-									shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
-									shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
-								},
-								graphic_pipeline_option{
-									true, {0b1}, {
-											{vk::blending::scaled_alpha_blend}
-										}}
-							},
+							// graphic_pipeline_create_config::config{
+							// 	{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
+							// 	{
+							// 		shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
+							// 		shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+							// 	},
+							// 	graphic_pipeline_option{
+							// 		true, {0b1}, {
+							// 				{vk::blending::scaled_alpha_blend}
+							// 			}}
+							// },
 						},
 						{}
 					},
@@ -471,19 +474,17 @@ void prepare(){
 	}();
 
 
-	{
-
-		vk::shader_module bindless_shader_mesh{ctx.get_device(), shader_spv_path / "ui.draw_bindless.glsl.spv"};
-		vk::shader_module bindless_shader_frag{ctx.get_device(), shader_spv_path / "ui.frag.spv"};
-
-		vk::graphic_pipeline_template template_{};
-		template_.set_shaders({bindless_shader_mesh.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT), bindless_shader_frag.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT)});
-		template_.push_color_attachment_format(VK_FORMAT_R8G8B8A8_UNORM);
-		template_.push_color_attachment_blend_state(vk::blending::scaled_alpha_blend);
-		vk::pipeline pipeline{ctx.get_device(), 0, VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT, template_};
-
-		renderer._temp_pipeline = std::move(pipeline);
-	}
+	// {
+	//
+	// 	vk::graphic_pipeline_template template_{};
+	// 	template_.set_shaders({});
+	// 	template_.push_color_attachment_format(VK_FORMAT_R8G8B8A8_UNORM);
+	// 	template_.push_color_attachment_blend_state(vk::blending::scaled_alpha_blend);
+	// 	template_.dynamic_states.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT);
+	// 	vk::pipeline pipeline{ctx.get_device(), 0, VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT, template_};
+	//
+	// 	renderer._temp_pipeline = std::move(pipeline);
+	// }
 
 
 #pragma region LoadResource
@@ -494,6 +495,11 @@ void prepare(){
 			renderer.resource_descriptor_heap,
 			renderer.get_heap_dynamic_image_section()
 		};
+
+
+	auto& test_page = image_atlas.create_image_page("test", {1, 0, 0, 1}, {1024, 1024});
+
+
 	font::font_manager font_manager{};
 	font_manager.set_page(image_atlas.create_image_page("font"));
 
