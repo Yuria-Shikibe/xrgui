@@ -7,7 +7,7 @@ export module mo_yanxi.gui.region_drawable;
 export import mo_yanxi.math.rect_ortho;
 import mo_yanxi.allocator_aware_unique_ptr;
 export import mo_yanxi.graphic.color;
-export import mo_yanxi.gui.assets.image_regions;
+export import mo_yanxi.gui.image_regions;
 export import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.gui.alloc;
 import align;
@@ -60,6 +60,9 @@ struct base{
 		return fx::primitive_draw_mode{};
 	}
 
+	[[nodiscard]] constexpr explicit(false) operator fx::batch_draw_mode() const noexcept  requires(!any_convertible_to<fx::batch_draw_mode, Ts...>){
+		return fx::batch_draw_mode{};
+	}
 };
 
 export
@@ -74,10 +77,19 @@ struct EMPTY_BASE vertex_color{
 };
 
 export
-struct EMPTY_BASE draw_mode{
+struct EMPTY_BASE primitive_draw_mode{
 	fx::primitive_draw_mode mode;
 
 	[[nodiscard]] constexpr explicit(false) operator fx::primitive_draw_mode() const noexcept{
+		return mode;
+	}
+};
+
+export
+struct EMPTY_BASE batch_draw_mode{
+	fx::batch_draw_mode mode;
+
+	[[nodiscard]] constexpr explicit(false) operator fx::batch_draw_mode() const noexcept{
 		return mode;
 	}
 };

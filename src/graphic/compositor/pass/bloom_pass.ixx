@@ -69,10 +69,15 @@ struct bloom_pass final : post_process_stage{
 		}
 	}
 
+	void set_max_mip_level(std::uint32_t max_level){
+		max_mip_level_ = max_level;
+	}
+
 private:
 	bloom_uniform_block current_param{1, 1, 1, 0.5f};
 
-	std::uint32_t current_mip_level_{0};
+	std::uint32_t total_mip_level_{0};
+	std::uint32_t max_mip_level_{7};
 	std::vector<vk::image_view> down_mipmap_image_views{};
 	std::vector<vk::image_view> up_mipmap_image_views{};
 
@@ -95,15 +100,15 @@ private:
 	}
 
 	void reset_resources(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
-		current_mip_level_ = get_real_mipmap_level(extent);
+		total_mip_level_ = std::min(max_mip_level_, get_real_mipmap_level(extent));
 		uniform_buffer_ = {alloc, sizeof(bloom_uniform_block)};
-		reset_descriptor_buffer(alloc, current_mip_level_ * 2);
+		reset_descriptor_buffer(alloc, total_mip_level_ * 2);
 		vk::buffer_mapper ubo_mapper{uniform_buffer_};
 		(void)ubo_mapper.load(current_param);
 
 		{
 			vk::descriptor_mapper info{descriptor_buffer_};
-			for(std::uint32_t i = 0; i < current_mip_level_ * 2; ++i){
+			for(std::uint32_t i = 0; i < total_mip_level_ * 2; ++i){
 				(void)info.set_uniform_buffer(
 					4,
 					uniform_buffer_.get_address(), sizeof(bloom_uniform_block), i);
@@ -113,8 +118,8 @@ private:
 
 		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources().get_in(1).resource);
 		const auto up_sample_image = std::get<image_entity>(pass.get_used_resources().get_out(0).resource);
-		down_mipmap_image_views.resize(current_mip_level_);
-		up_mipmap_image_views.resize(current_mip_level_);
+		down_mipmap_image_views.resize(total_mip_level_);
+		up_mipmap_image_views.resize(total_mip_level_);
 
 		for(auto&& [idx, view] : down_mipmap_image_views | std::views::enumerate){
 			view = vk::image_view(
@@ -154,16 +159,16 @@ private:
 
 		vk::descriptor_mapper mapper{descriptor_buffer_};
 
-		for(std::uint32_t i = 0; i < current_mip_level_ * 2; ++i){
+		for(std::uint32_t i = 0; i < total_mip_level_ * 2; ++i){
 			mapper.set_image(0, std::get<image_entity>(pass.get_used_resources().get_in(0).resource).handle.image_view,
 			                 i, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler);
 			mapper.set_image(1, down_sample_image.handle.image_view, i, VK_IMAGE_LAYOUT_GENERAL, sampler);
 			mapper.set_image(2, up_sample_image.handle.image_view, i, VK_IMAGE_LAYOUT_GENERAL, sampler);
 
-			if(i < current_mip_level_){
+			if(i < total_mip_level_){
 				mapper.set_storage_image(3, down_mipmap_image_views[i], VK_IMAGE_LAYOUT_GENERAL, i);
 			} else{
-				mapper.set_storage_image(3, up_mipmap_image_views[reverse_after(i, current_mip_level_)],
+				mapper.set_storage_image(3, up_mipmap_image_views[reverse_after(i, total_mip_level_)],
 				                         VK_IMAGE_LAYOUT_GENERAL, i);
 			}
 		}
@@ -179,13 +184,13 @@ private:
 		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources().get_in(1).resource);
 		const auto up_sample_image = std::get<image_entity>(pass.get_used_resources().get_out(0).resource);
 
-		for(std::uint32_t i = 0; i < current_mip_level_ * 2; ++i){
-			const auto current_mipmap_index = reverse_after(i, current_mip_level_);
-			const auto div = 1 << (current_mipmap_index + 1 - (i >= current_mip_level_));
+		for(std::uint32_t i = 0; i < total_mip_level_ * 2; ++i){
+			const auto current_mipmap_index = reverse_after(i, total_mip_level_);
+			const auto div = 1 << (current_mipmap_index + 1 - (i >= total_mip_level_));
 			math::u32size2 current_ext{extent / div};
 
 			if(i > 0){
-				if(i <= current_mip_level_){
+				if(i <= total_mip_level_){
 					// mipmap access barrier
 					cmd::memory_barrier(
 						buffer,
@@ -198,7 +203,7 @@ private:
 						VK_IMAGE_LAYOUT_GENERAL,
 
 						VkImageSubresourceRange{
-							VK_IMAGE_ASPECT_COLOR_BIT, reverse_after(i - 1, current_mip_level_), 1, 0, 1
+							VK_IMAGE_ASPECT_COLOR_BIT, reverse_after(i - 1, total_mip_level_), 1, 0, 1
 						}
 					);
 				} else{
@@ -213,7 +218,7 @@ private:
 						VK_IMAGE_LAYOUT_GENERAL,
 
 						VkImageSubresourceRange{
-							VK_IMAGE_ASPECT_COLOR_BIT, reverse_after(i, current_mip_level_) + 1, 1, 0, 1
+							VK_IMAGE_ASPECT_COLOR_BIT, reverse_after(i, total_mip_level_) + 1, 1, 0, 1
 						}
 					);
 				}
@@ -247,21 +252,21 @@ private:
 	bloom_defines get_current_defines(unsigned layerIndex, const math::u32size2 extent) const noexcept{
 		return {
 			.currentLayerExtent = [&] -> math::u32size2{
-				if(layerIndex < current_mip_level_){
+				if(layerIndex < total_mip_level_){
 					return {extent.x >> (layerIndex + 1), extent.y >> (layerIndex + 1)};
 				} else{
-					return {extent.x >> reverse_after(layerIndex, current_mip_level_), extent.y >> reverse_after(layerIndex, current_mip_level_)};
+					return {extent.x >> reverse_after(layerIndex, total_mip_level_), extent.y >> reverse_after(layerIndex, total_mip_level_)};
 				}
 			}(),
-				.current_layer = reverse_after(layerIndex, current_mip_level_),
-				.up_scaling = layerIndex >= current_mip_level_,
-				.total_layer = current_mip_level_,
+				.current_layer = reverse_after(layerIndex, total_mip_level_),
+				.up_scaling = layerIndex >= total_mip_level_,
+				.total_layer = total_mip_level_,
 		};
 	}
 };
 
 export
-	[[nodiscard]] post_process_meta get_bloom_default_meta(const vk::shader_module& shader_module){
+	[[nodiscard]] post_process_meta get_bloom_default_meta(const vk::shader_module& shader_module, std::optional<VkSpecializationInfo> specializationInfo = std::nullopt){
 		post_process_meta meta{
 				shader_module,
 				{
@@ -269,7 +274,8 @@ export
 					{{1}, {1, no_slot}},
 					{{2}, {no_slot, 0}}, //Output
 					{{3}, {no_slot, 0}},
-				}
+				},
+				specializationInfo
 			};
 
 	meta.set_format_at_in(1, VK_FORMAT_R16G16B16A16_SFLOAT);

@@ -8,30 +8,29 @@ import mo_yanxi.vk.cmd;
 import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.backend.glfw.window;
 import mo_yanxi.backend.application_timer;
+import mo_yanxi.backend.vulkan.renderer;
+
+import mo_yanxi.math.rand;
+
+import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.image_atlas;
+import mo_yanxi.graphic.compositor.manager;
+import mo_yanxi.graphic.compositor.post_process_pass;
+import mo_yanxi.graphic.compositor.bloom;
+import mo_yanxi.graphic.shaderc;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.group;
 import mo_yanxi.gui.global;
 import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.renderer.frontend;
-import mo_yanxi.gui.fx.config;
-
-import mo_yanxi.graphic.image_atlas;
-
-import mo_yanxi.graphic.compositor.manager;
-import mo_yanxi.graphic.compositor.post_process_pass;
-import mo_yanxi.graphic.compositor.bloom;
-import mo_yanxi.graphic.shaderc;
-
-
 import mo_yanxi.gui.examples;
-import mo_yanxi.backend.vulkan.renderer;
-import mo_yanxi.graphic.draw.instruction;
-
+import mo_yanxi.gui.fx.config;
 import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.gui.fx.instruction_extension;
 
-import mo_yanxi.math.rand;
-
+import mo_yanxi.gui.assets;
+import mo_yanxi.gui.image_regions;
 
 import mo_yanxi.font;
 import mo_yanxi.font.plat;
@@ -115,15 +114,26 @@ void app_run(
 		gui::global::manager.update(timer.global_delta_tick());
 		gui::global::manager.layout();
 
+		auto& current_focus = gui::global::manager.get_current_focus();
+		auto& r = current_focus.renderer();
+
 		renderer.batch_host.begin_rendering();
 		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::ui_state(
+			r.get_region().extent(),
 			timer.global_time()
 		));
 		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::slide_line_config{});
 
-		auto& current_focus = gui::global::manager.get_current_focus();
-		auto& r = current_focus.renderer();
 		r.init_projection();
+
+		r.update_state(gui::fx::pipeline_config{});
+		r.update_state(
+			{},
+			gui::fx::batch_draw_mode::def,
+			gui::make_state_tag(gui::fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
+		r.update_state(gui::fx::blend::pma::standard);
+		r.update_state(r.get_full_screen_scissor());
+		r.update_state(r.get_full_screen_viewport());
 
 		if(true){
 			using namespace graphic::draw::instruction;
@@ -241,14 +251,6 @@ void app_run(
 				// 	});
 			}
 
-			r.update_state(gui::fx::pipeline_config{});
-			r.update_state(
-				{},
-				gui::fx::batch_draw_mode::def,
-				gui::make_state_tag(gui::fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
-			r.update_state(gui::fx::blend::pma::standard);
-			r.update_state(r.get_full_screen_scissor());
-			r.update_state(r.get_full_screen_viewport());
 
 			constexpr float size = 80;
 			const auto X_count = math::ceil<int>(ctx.get_extent().width / size);
@@ -264,79 +266,74 @@ void app_run(
 			}}
 
 			{
-				gui::state_guard g{r, gui::fx::blend::multiply};
+				{
+					gui::state_guard g{r, gui::fx::blend::multiply};
+					r.push(poly{
+						.pos = current_focus.get_cursor_pos().add_x(-150),
+						.segments = 16,
+						.radius = {0, 64},
+						.color = {graphic::colors::gray, graphic::colors::white}
+					});
+				}
+
+				{
+					gui::state_guard g{r, gui::fx::blend::pma::screen};
+					r.push(poly{
+						.pos = current_focus.get_cursor_pos().add_x(150),
+						.segments = 16,
+						.radius = {0, 64},
+						.color = {graphic::colors::gray, graphic::colors::white}
+					});
+				}
+
+				{
+					gui::state_guard g{r, gui::fx::blend::pma::additive};
+					r.push(poly{
+						.pos = current_focus.get_cursor_pos().add_y(150),
+						.segments = 16,
+						.radius = {0, 64},
+						.color = {graphic::colors::gray, graphic::colors::white}
+					});
+				}
+
+
+				{
+					gui::state_guard g{r, gui::fx::blend::pma::subtractive};
+					r.push(poly{
+						.pos = current_focus.get_cursor_pos().add_y(-150),
+						.segments = 16,
+						.radius = {0, 64},
+						.color = {graphic::colors::gray, graphic::colors::white}
+					});
+				}
+
 				r.push(poly{
-					.pos = current_focus.get_cursor_pos().add_x(-150),
-					.segments = 16,
-					.radius = {0, 64},
-					.color = {graphic::colors::gray, graphic::colors::white}
-				});
+						.pos = current_focus.get_cursor_pos(),
+						.segments = 16,
+						.radius = {0, 64},
+						.color = {graphic::colors::gray, graphic::colors::white}
+					});
 			}
 
-			{
-				gui::state_guard g{r, gui::fx::blend::pma::screen};
-				r.push(poly{
-					.pos = current_focus.get_cursor_pos().add_x(150),
-					.segments = 16,
-					.radius = {0, 64},
-					.color = {graphic::colors::gray, graphic::colors::white}
-				});
-			}
+			r.update_state(
+			{},
+			gui::fx::batch_draw_mode::msdf,
+				gui::make_state_tag(gui::fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
 
-			{
-				gui::state_guard g{r, gui::fx::blend::pma::additive};
-				r.push(poly{
-					.pos = current_focus.get_cursor_pos().add_y(150),
-					.segments = 16,
-					.radius = {0, 64},
-					.color = {graphic::colors::gray, graphic::colors::white}
-				});
-			}
+			r << gui::fx::nine_patch_draw_vert_color{
+				.nine_region = &gui::assets::builtin::default_round_square_boarder,
+				.region = {200, 200, 600, 600},
+				.color = {graphic::colors::white, graphic::colors::CYAN, graphic::colors::ROYAL, graphic::colors::GREEN}
+			};
 
 
-			{
-				gui::state_guard g{r, gui::fx::blend::pma::subtractive};
-				r.push(poly{
-					.pos = current_focus.get_cursor_pos().add_y(-150),
-					.segments = 16,
-					.radius = {0, 64},
-					.color = {graphic::colors::gray, graphic::colors::white}
-				});
-			}
-
-
-			r.push(poly{
-					.pos = current_focus.get_cursor_pos(),
-					.segments = 16,
-					.radius = {0, 64},
-					.color = {graphic::colors::gray, graphic::colors::white}
-				});
-
-			// r.push(line{
-			// 	.src = {100, 100},
-			// 	.dst = {800, 400},
-			// 	.color = {graphic::colors::white, graphic::colors::aqua},
-			// 	.stroke = 2,
-			// });
-			//
-			//
-			// r.update_state(gui::gfx_config::blit_config{
-			// 	{
-			// 		.src = {},
-			// 		.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-			// 	},
-			// 	{.pipeline_index = 1}});
-			//
-			// r.update_state(gui::draw_config{
-			// 	.pipeline_index = 1
-			// });
-			//
 			r.update_state(gui::fx::blit_config{
 				{
 					.src = {},
 					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
 				},
-				{.pipeline_index = 1}});
+				{.pipeline_index = 1, .inout_define_index = 0}
+			});
 		}
 
 		gui::global::manager.draw();
@@ -385,18 +382,19 @@ void prepare(){
 					.attachment_draw_config = {
 						{
 							draw_attachment_config{
-								.attachment = {VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}
+								.attachment = {VK_FORMAT_R16G16B16A16_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}
 							},
 							draw_attachment_config{
-								.attachment = {VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}
+								.attachment = {VK_FORMAT_R16G16B16A16_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}
 							},
 						},
 						// VK_SAMPLE_COUNT_4_BIT
 					},
 					.attachment_blit_config = {
 						{
+							attachment_config{VK_FORMAT_R16G16B16A16_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
 							attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
-							attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
+							attachment_config{VK_FORMAT_R16G16B16A16_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
 						}
 					},
 					.draw_pipe_config = graphic_pipeline_create_config{
@@ -462,7 +460,12 @@ void prepare(){
 						},
 						{
 							compute_pipeline_blit_inout_config{
-
+									{
+										{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+									},
+									{
+										{1, 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+									}
 							}
 						}
 					}
@@ -472,17 +475,17 @@ void prepare(){
 
 
 	{
+		//
+		// vk::shader_module bindless_shader_mesh{ctx.get_device(), shader_spv_path / "ui.draw_bindless.glsl.spv"};
+		// vk::shader_module bindless_shader_frag{ctx.get_device(), shader_spv_path / "ui.frag.spv"};
 
-		vk::shader_module bindless_shader_mesh{ctx.get_device(), shader_spv_path / "ui.draw_bindless.glsl.spv"};
-		vk::shader_module bindless_shader_frag{ctx.get_device(), shader_spv_path / "ui.frag.spv"};
-
-		vk::graphic_pipeline_template template_{};
-		template_.set_shaders({bindless_shader_mesh.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT), bindless_shader_frag.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT)});
-		template_.push_color_attachment_format(VK_FORMAT_R8G8B8A8_UNORM);
-		template_.push_color_attachment_blend_state(vk::blending::scaled_alpha_blend);
-		vk::pipeline pipeline{ctx.get_device(), 0, VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT, template_};
-
-		renderer._temp_pipeline = std::move(pipeline);
+		// vk::graphic_pipeline_template template_{};
+		// template_.set_shaders({bindless_shader_mesh.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT), bindless_shader_frag.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT)});
+		// template_.push_color_attachment_format(VK_FORMAT_R8G8B8A8_UNORM);
+		// template_.push_color_attachment_blend_state(vk::blending::scaled_alpha_blend);
+		// vk::pipeline pipeline{ctx.get_device(), 0, VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT, template_};
+		//
+		// renderer._temp_pipeline = std::move(pipeline);
 	}
 
 
@@ -499,6 +502,8 @@ void prepare(){
 
 	{
 		auto sys_font_path = font::get_system_fonts();
+
+
 		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
 		auto& SourceHanSansCN_regular = font_manager.register_meta("srchs", font_path / "SourceHanSansCN-Regular.otf");
 		auto& telegrama = font_manager.register_meta("tele", font_path / "telegrama.otf");
@@ -511,6 +516,10 @@ void prepare(){
 		font_manager.set_default_family(&default_family2);
 
 		font::default_font_manager = &font_manager;
+	}
+
+	{
+		gui::assets::generate_default_shapes(image_atlas);
 	}
 #pragma endregion
 
@@ -525,13 +534,28 @@ void prepare(){
 #pragma region SetupRenderGraph
 	compositor::manager manager{ctx.get_allocator()};
 	vk::shader_module shader_filter_high_light = {ctx.get_device(), shader_spv_path / "post_process.highlight_extract.spv"};
+	vk::shader_module shader_merge = {ctx.get_device(), shader_spv_path / "ui.merge.spv"};
 	vk::shader_module shader_hdr_to_sdr = {ctx.get_device(), shader_spv_path / "post_process.hdr_to_sdr.spv"};
 
 	vk::sampler sampler_blit{ctx.get_device(), vk::preset::default_blit_sampler};
 	vk::shader_module shader_bloom{ctx.get_device(), shader_spv_path / "post_process.bloom.spv"};
 
-	auto& ui_input = manager.add_external_resource(compositor::resource_entity_external{
+	auto& ui_input_base = manager.add_external_resource(compositor::resource_entity_external{
 			compositor::image_entity{.handle = renderer.get_base()}, compositor::resource_dependency{
+				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+			}
+		});
+
+	auto& ui_input_back = manager.add_external_resource(compositor::resource_entity_external{
+			compositor::image_entity{.handle = renderer.get_base()}, compositor::resource_dependency{
+				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+			}
+		});
+
+	auto& base_input = manager.add_external_resource(compositor::resource_entity_external{
+			compositor::image_entity{.handle = renderer.get_blit_attachments()[2]}, compositor::resource_dependency{
 				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 			}
@@ -544,14 +568,42 @@ void prepare(){
 			}
 		});
 
-	pass_filter_high_light.id()->add_input({{ui_input, 0}});
+	pass_filter_high_light.id()->add_input({{ui_input_base, 0}});
 
 
-	// auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
-	// pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
-	// pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
-	// pass_bloom.pass.add_local({1, compositor::no_slot});
+	auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
+	pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
+	pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
+	pass_bloom.pass.add_local({1, compositor::no_slot});
 
+
+	static constexpr VkSpecializationMapEntry SpecEntry{0, 0, 4};
+	static constexpr VkBool32 SpecData{true};
+	auto pass_blur = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom, VkSpecializationInfo{
+		.mapEntryCount = 1,
+		.pMapEntries = &SpecEntry,
+		.dataSize = sizeof(SpecData),
+		.pData = &SpecData
+	}));
+	pass_blur.meta.set_max_mip_level(5);
+	pass_blur.meta.set_sampler_at_binding(0, sampler_blit);
+	pass_blur.id()->add_input({{base_input, 0}});
+	pass_blur.id()->add_local({1, compositor::no_slot});
+
+
+	auto pass_merge = manager.add_pass<compositor::post_process_stage>(compositor::post_process_meta{
+			shader_merge, {
+				{{0}, compositor::no_slot, 0},
+				{{1}, 0, compositor::no_slot},
+				{{2}, 1, compositor::no_slot},
+				{{3}, 2, compositor::no_slot},
+				{{4}, 3, compositor::no_slot},
+			}
+		});
+	pass_merge.id()->add_dep({pass_bloom.id(), 0, 0});
+	pass_merge.id()->add_input({{ui_input_back, 1}});
+	pass_merge.id()->add_input({{base_input, 2}});
+	pass_merge.id()->add_dep({pass_blur.id(), 0, 3});
 
 	compositor::post_process_meta meta{
 			shader_hdr_to_sdr, {
@@ -560,10 +612,10 @@ void prepare(){
 			}
 		};
 	meta.sockets.at_out(0).get<compositor::image_requirement>().usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-
 	auto pass_h2s = manager.add_pass<compositor::post_process_stage>(meta);
-	pass_h2s.id()->add_dep({pass_filter_high_light.id(), 0, 0});
+	pass_h2s.id()->add_dep({pass_merge.id(), 0, 0});
 	pass_h2s.id()->add_local({compositor::no_slot, 0});
+
 
 	manager.sort();
 #pragma endregion
@@ -573,12 +625,19 @@ void prepare(){
 		renderer.resize({event.size.width, event.size.height});
 		gui::global::manager.resize(math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
 
-		ui_input.resource = compositor::image_entity{.handle = renderer.get_base()};
+		ui_input_base.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[0]};
+		ui_input_back.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[1]};
+		base_input.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[2]};
+
 		manager.resize(event.size, true);
 		//
-		// pass_bloom.meta.set_scale(.5f);
-		// pass_bloom.meta.set_mix_factor(0.f);
-		// pass_bloom.meta.set_strength(.6f, .6f);
+		pass_bloom.meta.set_scale(.5f);
+		pass_bloom.meta.set_mix_factor(0.25f);
+		pass_bloom.meta.set_strength(.65f, .65f);
+
+		pass_blur.meta.set_scale(1.25f);
+		pass_blur.meta.set_mix_factor(.025f);
+		pass_blur.meta.set_strength(1.f, 1.f);
 
 		{
 			vk::scoped_recorder r{post_process_cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
@@ -617,10 +676,10 @@ int main(){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
-	shader_runtime_compiler shader_runtime_compiler{};
-	shader_wrapper wrapper{shader_runtime_compiler, (std::filesystem::current_path() / "assets/shader/spv").make_preferred()};
-	wrapper.compile(R"(D:\projects\xrgui\properties\assets\shader\glsl\ui.frag)");
-	wrapper.compile(R"(D:\projects\xrgui\properties\assets\shader\glsl\ui.draw_bindless.glsl)");
+	//shader_runtime_compiler shader_runtime_compiler{};
+	//shader_wrapper wrapper{shader_runtime_compiler, (std::filesystem::current_path() / "assets/shader/spv").make_preferred()};
+	//wrapper.compile(R"(D:\projects\xrgui\properties\assets\shader\glsl\ui.frag)");
+	//wrapper.compile(R"(D:\projects\xrgui\properties\assets\shader\glsl\ui.draw_bindless.glsl)");
 
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){

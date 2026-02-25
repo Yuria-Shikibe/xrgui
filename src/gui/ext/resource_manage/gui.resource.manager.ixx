@@ -1,7 +1,7 @@
 export module mo_yanxi.gui.assets.manager;
 
 import mo_yanxi.gui.alloc;
-export import mo_yanxi.gui.assets.image_regions;
+export import mo_yanxi.gui.image_regions;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.graphic.image_region;
 import mo_yanxi.graphic.image_region.borrow;
@@ -199,7 +199,10 @@ export inline constexpr std::string_view page_name = {page_name_str_array.data()
 export
 enum id_enum{
 	white,
-	row_patch_area,
+	row_separator,
+	round_square_edge,
+	round_square_edge_thin,
+	round_square_base,
 	COUNT,
 };
 

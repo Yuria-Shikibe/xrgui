@@ -108,8 +108,8 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 		element.renderer().push(poly_partial{
 			.pos = region.vert_00() ,
 			.segments = 4,
-			.radius = {3, 5},
 			.range = {static_cast<float>(element.get_scene().get_current_time() / 60.f), 1},
+			.radius = {3, 5},
 			.color = {colors::aqua}
 		});
 	}

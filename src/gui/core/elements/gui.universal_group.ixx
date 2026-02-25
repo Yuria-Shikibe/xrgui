@@ -85,7 +85,6 @@ protected:
 };
 
 
-
 export
 template <typename Elem, typename Cell>
 struct create_handle : create_handle_base<Cell>{
@@ -154,6 +153,12 @@ struct cell_adaptor{
 	}
 };
 
+enum struct children_position_state{
+	on_add,
+	on_smooth,
+	on_smooth_done,
+};
+
 export
 template <typename CellTy, typename Adaptor = cell_adaptor<CellTy>>
 struct universal_group : public basic_group{
@@ -165,6 +170,9 @@ struct universal_group : public basic_group{
 protected:
 	bool has_smooth_pos_animation_{};
 	mr::heap_vector<adaptor_type> cells_{get_heap_allocator<adaptor_type>()};
+
+private:
+	// mr::heap_vector<children_position_state> children_smooth_pos_state_{get_heap_allocator<children_position_state>()};
 
 public:
 	using basic_group::basic_group;

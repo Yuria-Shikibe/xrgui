@@ -402,6 +402,11 @@ public:
 		style_boarder_cache_ = style.get_boarder();
 	}
 
+	void set_style(referenced_ptr<const style::elem_style_drawer> style) noexcept{
+		this->style = std::move(style);
+		style_boarder_cache_ = style->get_boarder();
+	}
+
 	void set_style() noexcept{
 		this->style = nullptr;
 		style_boarder_cache_ = {};

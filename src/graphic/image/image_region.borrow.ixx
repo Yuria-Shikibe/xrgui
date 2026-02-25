@@ -36,6 +36,12 @@ public:
 		: referenced_ptr<Base, no_deletion_on_ref_count_to_zero>(std::addressof(target)), cache_(region){
 	}
 
+	[[nodiscard]] universal_borrowed_image_region(
+		const region_type& region
+		)
+		: referenced_ptr<Base, no_deletion_on_ref_count_to_zero>(nullptr), cache_(region){
+	}
+
 	template <typename Ty>
 		requires (std::constructible_from<region_type, Ty>)
 	[[nodiscard]] universal_borrowed_image_region(

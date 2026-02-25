@@ -8,6 +8,7 @@ export import mo_yanxi.gui.infrastructure;
 import mo_yanxi.graphic.color;
 import mo_yanxi.graphic.gradient;
 import mo_yanxi.math;
+import mo_yanxi.math.constrained_system;
 
 import std;
 
@@ -19,6 +20,7 @@ export enum struct progress_state{
 	staging,
 	approach_linear,
 	approach_scaled,
+	approach_smooth,
 
 };
 
@@ -31,20 +33,25 @@ private:
 	value_type current{};
 
 	float speed_scale{1};
+
+	float current_speed_{};
 public:
 	constexpr void set_speed(value_type speed) noexcept{
 		//TODO check NAN?
 		speed_scale = speed;
 	}
 
-	constexpr void set_target(value_type target) noexcept{
-		this->target = target;
+	constexpr bool set_target(value_type target) noexcept{
+		return util::try_modify(this->target, target);
 	}
 
-	constexpr void set_state(progress_state new_state) noexcept{
+	constexpr bool set_state(progress_state new_state) noexcept{
+		auto rst = util::try_modify(state, new_state);
+		if(new_state == progress_state::approach_smooth)current_speed_ = 0;
 		if(new_state == progress_state::rough){
 			current = {};
 		}
+		return rst;
 	}
 
 	constexpr void set_to_target() noexcept{
@@ -63,23 +70,33 @@ public:
 		return current;
 	}
 
-	constexpr void update(float delta_in_tick) noexcept{
+	constexpr bool update(float delta_in_tick) noexcept{
 		switch(state){
-		case progress_state::staging: break;
-		case progress_state::rough: current += delta_in_tick * speed_scale; break;
-		case progress_state::exact: current = target; break;
-		case progress_state::approach_linear: math::approach_inplace(current, target, delta_in_tick * speed_scale); break;
+		case progress_state::staging: return true;
+		case progress_state::rough: current += delta_in_tick * speed_scale; return false;
+		case progress_state::exact: current = target; return true;
+		case progress_state::approach_linear:{
+			math::approach_inplace(current, target, delta_in_tick * speed_scale);
+			return current == target;
+		}
 		case progress_state::approach_scaled:{
 			auto dlt = target - current;
-			if(math::abs(dlt) < std::numeric_limits<float>::epsilon()){
+			if(math::abs(dlt) < std::numeric_limits<float>::epsilon() * 1024){
 				current = target;
-			}else{
-				current = math::lerp(current, target, math::clamp(delta_in_tick * speed_scale));
+				return true;
 			}
-			break;
+			current = math::lerp(current, target, math::clamp(delta_in_tick * speed_scale));
+			return false;
+		}
+		case progress_state::approach_smooth:{
+			auto accel = math::constrain_resolve::smooth_approach(target - current, current_speed_, speed_scale);
+			math::approach_inplace(current, target, math::abs(delta_in_tick * current_speed_));
+			current_speed_ += accel * delta_in_tick;
+			return current == target;
 		}
 		default: std::unreachable();
 		}
+		return true;
 	}
 };
 
@@ -95,22 +112,32 @@ export struct progress_bar;
 
 namespace style{
 
+export
 struct progress_drawer : style_drawer<progress_bar>{
 	using style_drawer::style_drawer;
 };
 
 export
-struct default_progress_drawer : progress_drawer{
-	constexpr default_progress_drawer()
-		: progress_drawer(tags::persistent, layer_top_only){
-	}
-
+struct progress_drawer_flat : progress_drawer{
+	using progress_drawer::progress_drawer;
 
 protected:
 	void draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override;
 };
 
-export inline constexpr default_progress_drawer default_progress_drawer;
+export
+struct progress_drawer_arc : progress_drawer{
+	math::based_section<float> radius{0, 1};
+	math::based_section<float> angle_range{0, 1};
+	align::pos align = align::pos::center;
+
+	using progress_drawer::progress_drawer;
+
+protected:
+	void draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override;
+};
+
+export inline constexpr progress_drawer_flat default_progress_drawer{tags::persistent, layer_top_only};
 export inline const progress_drawer* global_default_progress_drawer{};
 
 export inline const progress_drawer* get_global_default_progress_drawer() noexcept{
@@ -131,10 +158,13 @@ protected:
 
 struct progress_bar : elem{
 protected:
-	const style::progress_drawer* drawer{style::get_global_default_progress_drawer()};
 	progress_bar_terminal* notifier_{};
 
 public:
+	referenced_ptr<const style::progress_drawer> drawer{style::get_global_default_progress_drawer()};
+	/**
+	 * @brief Directly access to progress does not maintains the invariant of update.
+	 */
 	bar_progress progress{};
 	progress_draw_config draw_config{};
 
@@ -152,15 +182,30 @@ public:
 	}
 
 public:
+	void set_progress_target(bar_progress::value_type value){
+		if(progress.set_target(value)){
+			set_update_required(update_channel::value_approach);
+		}
+	}
+
+	void set_progress_state(progress_state state){
+		if(progress.set_state(state)){
+			set_update_required(update_channel::value_approach);
+		}
+	}
+
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		draw_style(param);
 		if(drawer){
 			drawer->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
 		}
 	}
+
 	bool update(float delta_in_ticks) override{
 		if(elem::update(delta_in_ticks)){
-			progress.update(delta_in_ticks);
+			if(progress.update(delta_in_ticks)){
+				set_update_disabled(update_channel::value_approach);
+			}
 			return true;
 		}
 		return false;
@@ -168,7 +213,7 @@ public:
 };
 
 void progress_bar_terminal::on_update(react_flow::data_carrier<float>& data){
-	target->progress.set_target(data.get());
+	target->set_progress_target(data.get());
 }
 
 

@@ -14,19 +14,42 @@ float median(float3 v) {
     return median(v.r, v.g, v.b);
 }
 
-[[ForceInline]]
-public float msdf(Sampler2D samp, float2 uv) {
-    let fw = fwidth(uv);
-    let lod = min(fw.x, fw.y);
+float CalculateLOD(float2 fw, float2 textureSize) {
+    let texels = fw * textureSize;
 
+    var maxDelta = max(texels.x, texels.y);
+    maxDelta = max(maxDelta, 0.00001);
+
+    return log2(maxDelta);
+}
+
+[[ForceInline]]
+public float msdf(Sampler2D samp, float2 uv, float pxRange = 4.f) {
+    // 1. 获取归一化 UV 在屏幕空间的曼哈顿导数
+    let fw = fwidth(uv);
+
+    // 2. 强制获取基础纹理（LOD 0）的物理尺寸
     float2 size;
     float _;
-    samp.GetDimensions(uint(lod), size.x, size.y, _);
+    samp.GetDimensions(0, size.x, size.y, _);
 
+    // 3. 计算正确的 LOD 层级
+    // 原理：fw (UV/像素) * size (纹理素/UV) = 纹理素/像素
+    // max(..., ...) 取 X 或 Y 方向上最大的缩放率
+    // log2(...) 将线性缩放率转换为 Mipmap 层级
+    float2 texelsPerPixel = fw * size;
+    float lod = max(0.0, log2(max(texelsPerPixel.x, texelsPerPixel.y)));
+
+    // 4. 使用计算出的 LOD 进行采样
     let col = samp.SampleLevel(uv, lod).rgb;
+
+    // 5. 计算基础的有向距离 [-0.5, 0.5]
     float sigDist = median(col) - 0.5f;
 
-    sigDist *= max(0.5 * dot(rcp(size), rcp(fw)), 1.0);;
+    // 6. 将距离场转换为屏幕像素跨度（保留了你原有的完美点乘公式）
+    // float2(pxRange) * rcp(size) = pxRange 在 UV 空间的大小
+    // rcp(fw) = 1 / fwidth(uv)，即屏幕像素在 UV 空间的倒数
+    sigDist *= max(0.5 * dot(float2(pxRange) * rcp(size), rcp(fw)), 1.0);
 
     return sigDist;
 }

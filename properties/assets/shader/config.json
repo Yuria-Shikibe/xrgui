@@ -30,6 +30,10 @@
     {
       "file": "ui/blend.slang"
     },
+    
+    {
+      "file": "ui/merge.slang"
+    },
 
     {
       "file": "post_process/bloom.merge.slang"

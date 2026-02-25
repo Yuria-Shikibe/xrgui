@@ -303,6 +303,12 @@ export
 template <typename T>
 concept known_instruction = instruction_type_of<T> != instr_type::SIZE;
 
+
+export
+template <typename T, typename Ctx>
+concept known_meta_instruction = std::invocable<const T&, Ctx&>;
+
+
 export
 template <typename T, typename... Args>
 	requires (std::is_trivially_copyable_v<T> && valid_consequent_argument<T, Args...>)

@@ -233,7 +233,9 @@ public:
 	void push(const Instr& instr){
 		using namespace graphic::draw;
 
-		if constexpr(instruction::known_instruction<Instr>){
+		if constexpr (graphic::draw::instruction::known_meta_instruction<Instr, renderer_frontend>){
+			std::invoke(instr, *this);
+		}else if constexpr(instruction::known_instruction<Instr>){
 			batch_backend_interface_.push(instruction::make_instruction_head(instr),
 				reinterpret_cast<const std::byte*>(&instr));
 		} else{
@@ -284,6 +286,7 @@ public:
 		const auto head = instruction::place_instruction_at(pbuffer, instr, args...);
 		batch_backend_interface_.push(head, pbuffer);
 	}
+
 
 private:
 	void update_state_(
@@ -363,6 +366,19 @@ public:
 		return true;
 	}
 
+	template <graphic::draw::instruction::known_instruction T>
+	friend renderer_frontend& operator<<(renderer_frontend& renderer, const T& instr){
+		renderer.push(instr);
+		return renderer;
+	}
+
+	template <graphic::draw::instruction::known_meta_instruction<renderer_frontend> T>
+	friend renderer_frontend& operator<<(renderer_frontend& renderer, const T& instr){
+		renderer.push(instr);
+		return renderer;
+	}
+
+
 #pragma endregion
 
 	void resize(const math::frect region){
@@ -382,6 +398,10 @@ public:
 	void notify_viewport_changed(){
 		const auto& vp = top_viewport();
 		push(ubo_layer_info{vp.get_element_to_root_screen(), vp.top_scissor()});
+		update_state(fx::scissor{
+			.pos = vp.top_scissor().rect.vert_00().round<std::int32_t>(),
+			.size = vp.top_scissor().rect.extent().round<std::uint32_t>()
+		});
 	}
 
 	void push_viewport(const math::frect viewport, scissor_raw_ scissor_raw){

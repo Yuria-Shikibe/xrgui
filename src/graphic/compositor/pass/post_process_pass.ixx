@@ -1,12 +1,14 @@
 module;
 
 #include <vulkan/vulkan.h>
+
 #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <spirv_reflect.h>;
 #endif
 
 export module mo_yanxi.graphic.compositor.post_process_pass;
 
+import std;
 export import mo_yanxi.graphic.compositor.manager;
 export import mo_yanxi.graphic.compositor.resource;
 export import mo_yanxi.graphic.shader_reflect;
@@ -16,7 +18,7 @@ export import mo_yanxi.vk;
 
 import mo_yanxi.meta_programming;
 import mo_yanxi.utility;
-import std;
+
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 import <spirv_reflect.h>;
 #endif
@@ -80,14 +82,16 @@ private:
     vk::descriptor_layout_builder descriptor_layout_builder_{};
     std::vector<inout_index> required_transient_buffer_input_slots_{};
 
+    std::optional<VkSpecializationInfo> specialization_info_{};
+
 public:
     pass_inout_connection sockets{};
 
     [[nodiscard]] post_process_meta() = default;
 
-    [[nodiscard]] post_process_meta(const vk::shader_module& shader, const inout_map& inout_map)
+    [[nodiscard]] post_process_meta(const vk::shader_module& shader, const inout_map& inout_map, std::optional<VkSpecializationInfo> specializationInfo = std::nullopt)
         : shader_(&shader),
-          inout_map_(inout_map) {
+          inout_map_(inout_map), specialization_info_(specializationInfo) {
 
         // 创建我们新的反射包装类
         const shader_reflection refl{shader.get_binary()};
@@ -266,7 +270,7 @@ protected:
 
 		pipeline_ = vk::pipeline{
 				ctx.get_device(), pipeline_layout_, VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
-				meta_.shader_->get_create_info(VK_SHADER_STAGE_COMPUTE_BIT)
+				meta_.shader_->get_create_info(VK_SHADER_STAGE_COMPUTE_BIT, "main", meta().specialization_info_ ? &meta().specialization_info_.value() : nullptr)
 			};
     }
 

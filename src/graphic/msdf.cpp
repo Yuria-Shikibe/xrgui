@@ -474,7 +474,7 @@ bitmap msdf::load_glyph(
 		const auto bound = shape.getBounds();
 		const math::vector2 scale{font_w, font_h};
 
-		msdfgen::edgeColoringByDistance(shape, 2.5);
+		msdfgen::edgeColoringByDistance(shape, 3.);
 		msdfgen::Bitmap<float, 3> msdf(bitmap.width(), bitmap.height());
 
 		const auto offx = -bound.l + static_cast<double>(boarder) / scale.x;
@@ -574,9 +574,12 @@ msdf_generator::msdf_generator(std::string str, bool is_memory_data, double rang
 }
 
 
-void add_contour(msdfgen::Shape& shape, double size, double radius, double k, double margin = 0.f,
+void add_ring_contour(msdfgen::Shape& shape, double size, double radius, double k, double margin = 0.f,
 	msdfgen::Vector2 offset = {}){
 	using namespace msdfgen;
+
+	// 关键修复 1：防止 radius 为负数，如果线宽大于圆角，内圈应当退化为直角（半径为0）
+	radius = std::max(0.0, radius);
 
 	Contour& outer_contour = shape.addContour();
 
@@ -630,23 +633,96 @@ void add_contour(msdfgen::Shape& shape, double size, double radius, double k, do
 	));
 }
 
+void add_ring_contour_split(msdfgen::Shape& shape, double size, double radius, double margin = 0.f, double offset = 0.0) {
+    using namespace msdfgen;
+
+    // 防止 radius 为负数，退化为直角
+    radius = std::max(0.0, radius);
+
+    Contour& contour = shape.addContour();
+
+    // 预计算 45 度圆弧的完美常量
+    constexpr double sq2 = 0.7071067811865475244; // sqrt(2)/2
+    constexpr double k45 = 0.2652164898395440093; // 4/3 * tan(pi/16)
+    const double L = radius * k45;
+
+    // 将对角线偏移量 (绝对距离) 分解到 X 和 Y 轴上
+    const double shift = offset * sq2;
+
+    // 分别计算四个圆心，shift 会让圆心沿着各自的对角线移动
+    // 正 offset：向外侧四个角扩张；负 offset：向图形中心收缩
+    const Point2 c_bl{margin + radius - shift, margin + radius - shift};
+    const Point2 c_br{size - margin - radius + shift, margin + radius - shift};
+    const Point2 c_tr{size - margin - radius + shift, size - margin - radius + shift};
+    const Point2 c_tl{margin + radius - shift, size - margin - radius + shift};
+
+    // 辅助 Lambda：在指定的圆心上，生成由两段 45 度贝塞尔组成的完美 90 度拐角
+    auto add_split_corner = [&](const Point2& center, const Vector2& p_start, const Vector2& p_end, const Vector2& d_start, const Vector2& d_end) {
+        Vector2 p_mid = {(p_start.x + p_end.x) * sq2, (p_start.y + p_end.y) * sq2};
+        Vector2 d_mid = {(d_start.x + d_end.x) * sq2, (d_start.y + d_end.y) * sq2};
+
+        Point2 p0 = center + p_start * radius;
+        Point2 p1 = center + p_mid * radius;
+        Point2 p2 = center + p_end * radius;
+
+        contour.addEdge(new CubicSegment(
+            p0,
+            p0 + d_start * L,
+            p1 - d_mid * L,
+            p1
+        ));
+        contour.addEdge(new CubicSegment(
+            p1,
+            p1 + d_mid * L,
+            p2 - d_end * L,
+            p2
+        ));
+    };
+
+    // --- 依次闭合添加线段与拐角 (逆时针/CCW) ---
+    // 直线段基于偏移后的圆心 (c_bl, c_br 等) 自动推导起始点，保证连接完美闭合
+
+    // 1. 底部直线与右下角
+    contour.addEdge(new LinearSegment(c_bl + Vector2{0, -radius}, c_br + Vector2{0, -radius}));
+    add_split_corner(c_br, {0, -1}, {1, 0}, {1, 0}, {0, 1});
+
+    // 2. 右侧直线与右上角
+    contour.addEdge(new LinearSegment(c_br + Vector2{radius, 0}, c_tr + Vector2{radius, 0}));
+    add_split_corner(c_tr, {1, 0}, {0, 1}, {0, 1}, {-1, 0});
+
+    // 3. 顶部直线与左上角
+    contour.addEdge(new LinearSegment(c_tr + Vector2{0, radius}, c_tl + Vector2{0, radius}));
+    add_split_corner(c_tl, {0, 1}, {-1, 0}, {-1, 0}, {0, -1});
+
+    // 4. 左侧直线与左下角
+    contour.addEdge(new LinearSegment(c_tl + Vector2{-radius, 0}, c_bl + Vector2{-radius, 0}));
+    add_split_corner(c_bl, {-1, 0}, {0, -1}, {0, -1}, {1, 0});
+}
 
 svg_info msdf::create_boarder(double radius, double width, double k){
 	using namespace msdfgen;
 
-	// 创建形状对象
 	Shape shape;
-	shape.inverseYAxis = true; // 翻转Y轴坐标（视需求而定）
+	shape.inverseYAxis = true;
 
+	// 1. 强制使用正圆的控制点比例，这是保证贝塞尔曲线能产生完美同心圆的唯一数学解
+	double k_circle = k;
 
-	add_contour(shape, boarder_size, radius, k);
-	add_contour(shape, boarder_size, radius - width, k, width);
-	// 验证形状有效性
+	// 外圈
+	add_ring_contour_split(shape, boarder_size, radius);
+
+	// 2. 内圈：防止内半径出现负数导致的路径翻转交叉
+	double inner_radius = std::max(0.0, radius - width);
+	add_ring_contour_split(shape, boarder_size, inner_radius, width, -.85);
+
 	if(!shape.validate()) return {};
 
-
 	shape.orientContours();
-	edgeColoringByDistance(shape, 2.);
+
+	// 3. 关键修复：弃用 ByDistance，改用 Simple。
+	// 这能防止 MSDF 在处理极近的同心双线时出现 RGB 通道着色溢出，从而避免拐角渲染变细。
+	edgeColoringSimple(shape, 3.0);
+
 	shape.normalize();
 
 	return {shape, {boarder_size, boarder_size}};
@@ -660,8 +736,8 @@ svg_info msdf::create_solid_boarder(double radius, double k){
 	shape.inverseYAxis = true; // 翻转Y轴坐标（视需求而定）
 
 	constexpr double strokeWidth = 2.0; // 轮廓线宽
-
-	add_contour(shape, boarder_size, radius, k);
+	add_ring_contour_split(shape, boarder_size, radius);
+	// add_ring_contour(shape, boarder_size, radius, k);
 	// add_contour(shape, 64, radius - strokeWidth, k, strokeWidth);
 	// 验证形状有效性
 	if(!shape.validate()) return {};

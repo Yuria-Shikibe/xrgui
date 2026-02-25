@@ -1,6 +1,5 @@
 module;
 
-
 #if defined(_WIN32)
 #include <windows.h>
 #include <tchar.h>
@@ -17,12 +16,6 @@ export module mo_yanxi.font.plat;
 
 import std;
 
-// 定义返回结构
-struct font_descriptor {
-    std::string family_name;
-    std::filesystem::path file_path;
-};
-
 // 辅助函数：Windows 宽字符串转 UTF-8 std::string
 #ifdef _WIN32
 std::string wide_to_utf8(const std::wstring& wstr) {
@@ -34,30 +27,84 @@ std::string wide_to_utf8(const std::wstring& wstr) {
 }
 #endif
 
-// 核心函数：获取系统字体
+namespace mo_yanxi::font {
 
-
-namespace mo_yanxi::font{
+// 新增函数：获取系统默认 UI 字体名称
 export
-[[nodiscard]] std::vector<font_descriptor> get_system_fonts() {
-    std::vector<font_descriptor> fonts;
+[[nodiscard]] std::string get_system_default_font_name() {
+#if defined(_WIN32)
+    // --- Windows 实现 ---
+    NONCLIENTMETRICSW ncm;
+    ncm.cbSize = sizeof(NONCLIENTMETRICSW);
+    if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(NONCLIENTMETRICSW), &ncm, 0)) {
+        return wide_to_utf8(ncm.lfMessageFont.lfFaceName);
+    }
+    return "Segoe UI"; // 失败时的安全后备
+
+#elif defined(__linux__)
+    // --- Linux 实现 ---
+    std::string default_font = "sans-serif";
+    FcConfig* config = FcInitLoadConfigAndFonts();
+    if (config) {
+        // 请求解析默认的无衬线字体
+        FcPattern* pat = FcNameParse(reinterpret_cast<const FcChar8*>("sans-serif"));
+        FcConfigSubstitute(config, pat, FcMatchPattern);
+        FcDefaultSubstitute(pat);
+
+        FcResult result;
+        FcPattern* font = FcFontMatch(config, pat, &result);
+        if (font) {
+            FcChar8* family = nullptr;
+            if (FcPatternGetString(font, FC_FAMILY, 0, &family) == FcResultMatch) {
+                default_font = reinterpret_cast<char*>(family);
+            }
+            FcPatternDestroy(font);
+        }
+        FcPatternDestroy(pat);
+        FcConfigDestroy(config);
+    }
+    return default_font;
+
+#elif defined(__APPLE__)
+    // --- macOS 实现 ---
+    std::string default_font = "System";
+    // 请求系统标准的 UI 字体
+    CTFontRef font = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 0.0, nullptr);
+    if (font) {
+        CFStringRef name_ref = CTFontCopyFamilyName(font);
+        if (name_ref) {
+            char name_buf[256];
+            if (CFStringGetCString(name_ref, name_buf, sizeof(name_buf), kCFStringEncodingUTF8)) {
+                default_font = name_buf;
+            }
+            CFRelease(name_ref);
+        }
+        CFRelease(font);
+    }
+    return default_font;
+#else
+    return "Arial"; // 未知平台的后备
+#endif
+}
+
+
+// 核心函数：获取系统字体
+export
+[[nodiscard]] std::map<std::string, std::filesystem::path> get_system_fonts() {
+    std::map<std::string, std::filesystem::path> fonts;
 
 #if defined(_WIN32)
     // --- Windows 实现 (基于注册表) ---
     HKEY h_key;
-    // 打开字体注册表键
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts", 0, KEY_READ, &h_key) == ERROR_SUCCESS) {
         DWORD max_value_name_len, max_value_data_len;
         RegQueryInfoKey(h_key, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &max_value_name_len, &max_value_data_len, NULL, NULL);
 
-        // 分配缓冲区
         std::vector<wchar_t> value_name(max_value_name_len + 1);
         std::vector<wchar_t> value_data(max_value_data_len + 1);
 
-        // 获取 Windows 字体目录 (通常是 C:\Windows\Fonts)
         wchar_t win_font_dir[MAX_PATH];
         if (SHGetSpecialFolderPathW(0, win_font_dir, CSIDL_FONTS, FALSE) == FALSE) {
-            // 如果获取失败，回退到硬编码
             wcscpy_s(win_font_dir, L"C:\\Windows\\Fonts");
         }
         std::filesystem::path system_font_path(win_font_dir);
@@ -81,22 +128,19 @@ export
                 std::wstring font_name_w(value_name.data());
                 std::wstring file_name_w(value_data.data());
 
-                // 简单的清理：移除结尾的 " (TrueType)" 等标记
                 size_t param_pos = font_name_w.find(L" (");
                 if (param_pos != std::wstring::npos) {
                     font_name_w = font_name_w.substr(0, param_pos);
                 }
 
                 std::filesystem::path full_path;
-                // 如果注册表里的路径包含盘符或反斜杠，通常是绝对路径
                 if (file_name_w.find(L"\\") != std::wstring::npos || file_name_w.find(L":") != std::wstring::npos) {
                     full_path = file_name_w;
                 } else {
-                    // 否则是相对路径，位于 C:\Windows\Fonts 下
                     full_path = system_font_path / file_name_w;
                 }
 
-                fonts.push_back({ wide_to_utf8(font_name_w), full_path });
+                fonts[wide_to_utf8(font_name_w)] = full_path;
             }
             index++;
         }
@@ -119,10 +163,7 @@ export
             if (FcPatternGetString(font, FC_FILE, 0, &file) == FcResultMatch &&
                 FcPatternGetString(font, FC_FAMILY, 0, &family) == FcResultMatch) {
 
-                fonts.push_back({
-                    std::string(reinterpret_cast<char*>(family)),
-                    std::filesystem::path(reinterpret_cast<char*>(file))
-                });
+                fonts[std::string(reinterpret_cast<char*>(family))] = std::filesystem::path(reinterpret_cast<char*>(file));
             }
         }
         FcFontSetDestroy(fs);
@@ -141,23 +182,15 @@ export
         for (CFIndex i = 0; i < count; i++) {
             CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(font_arr, i);
 
-            // 获取字体名称
             CFStringRef name_ref = (CFStringRef)CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute);
-
-            // 获取字体 URL (路径)
             CFURLRef url_ref = (CFURLRef)CTFontDescriptorCopyAttribute(descriptor, kCTFontURLAttribute);
 
             if (name_ref && url_ref) {
-                // 转换名称
                 char name_buf[256];
                 if (CFStringGetCString(name_ref, name_buf, sizeof(name_buf), kCFStringEncodingUTF8)) {
-                    // 转换路径
                     char path_buf[1024];
                     if (CFURLGetFileSystemRepresentation(url_ref, true, (UInt8*)path_buf, sizeof(path_buf))) {
-                        fonts.push_back({
-                            std::string(name_buf),
-                            std::filesystem::path(path_buf)
-                        });
+                        fonts[std::string(name_buf)] = std::filesystem::path(path_buf);
                     }
                 }
             }

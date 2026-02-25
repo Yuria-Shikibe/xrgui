@@ -14,7 +14,7 @@ import mo_yanxi.graphic.draw.instruction;
 namespace mo_yanxi::gui{
 
 export
-struct drag_split : head_body_no_invariant{
+struct split_pane : head_body_no_invariant{
 private:
 	snap_shot<float> seperator_position_{.5f};
 
@@ -28,7 +28,7 @@ private:
 
 public:
 
-	drag_split(scene& scene, elem* parent, layout::layout_policy layout_policy)
+	split_pane(scene& scene, elem* parent, layout::layout_policy layout_policy)
 		: head_body_no_invariant(scene, parent, layout_policy){
 		extend_focus_until_mouse_drop = true;
 		interactivity = interactivity_flag::enabled;
@@ -38,8 +38,8 @@ public:
 		set_body_size({layout::size_category::passive, .5f});
 	}
 
-	drag_split(scene& scene, elem* parent)
-		: drag_split(scene, parent, layout::layout_policy::vert_major){
+	split_pane(scene& scene, elem* parent)
+		: split_pane(scene, parent, layout::layout_policy::vert_major){
 	}
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{

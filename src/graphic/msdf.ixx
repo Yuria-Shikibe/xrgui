@@ -95,7 +95,7 @@ struct msdf_glyph_generator_base{
 	msdfgen::FontHandle* face{};
 	unsigned font_w{};
 	unsigned font_h{};
-	double range = 0.4;
+	double range = 0.09;
 	unsigned boarder = sdf_image_boarder;
 };
 
@@ -115,7 +115,7 @@ struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
 		}
 		return load_glyph(face, code, w - b * 2, h - b * 2, b,
 			static_cast<double>(font_w) / static_cast<double>(scl),
-			static_cast<double>(font_h) / static_cast<double>(scl), range);
+			static_cast<double>(font_h) / static_cast<double>(scl), range / static_cast<double>(scl));
 	};
 };
 
@@ -128,14 +128,14 @@ struct msdf_glyph_generator : msdf_glyph_generator_base{
 	}
 };
 
-constexpr unsigned boarder_size = 128;
+constexpr unsigned boarder_size = 96;
 constexpr double boarder_range = 4;
 
 export
-svg_info create_boarder(double radius = 15., double width = 2., double k = .7f);
+svg_info create_boarder(double radius = 15., double width = 2., double k = 0.5522847498);
 
 export
-svg_info create_solid_boarder(double radius = 15., double k = .7f);
+svg_info create_solid_boarder(double radius = 15., double k = 0.5522847498);
 
 /**
  * @brief 创建超椭圆 (更平滑的胶囊/圆角矩形)

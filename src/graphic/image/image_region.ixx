@@ -220,7 +220,7 @@ export
 template <std::derived_from<uniformed_rect_uv> Ty>
 struct combined_image_region{
 	Ty uv;
-	image_descriptor_index index;
+	image_descriptor_index index = ~0U;
 	VkImageView view;
 
 
@@ -236,6 +236,10 @@ struct combined_image_region{
 
 	constexpr explicit(false) operator sized_image() const noexcept requires (spec_of<Ty, size_awared_uv>){
 		return sized_image{uv.size, index, view};
+	}
+
+	constexpr explicit operator bool() const noexcept{
+		return view != nullptr;
 	}
 };
 

@@ -16,6 +16,7 @@ import mo_yanxi.meta_programming;
 
 // --DEPRECIATED--  --DEPRECIATED--  --DEPRECIATED--  --DEPRECIATED--  --DEPRECIATED--  --DEPRECIATED--
 
+/*
 namespace mo_yanxi::graphic{
 	constexpr align::scale DefaultScale = align::scale::stretch;
 
@@ -138,14 +139,14 @@ namespace mo_yanxi::graphic{
 	export
 	template <typename T = float>
 		requires (std::is_arithmetic_v<T>)
-	struct nine_patch_raw{
+	struct nine_patch_rect_export{
 		using rect = math::rect_ortho<T>;
 
 		std::array<rect, NinePatchSize> values{};
 
-		[[nodiscard]] constexpr nine_patch_raw() noexcept = default;
+		[[nodiscard]] constexpr nine_patch_rect_export() noexcept = default;
 
-		[[nodiscard]] constexpr nine_patch_raw(const rect internal, const rect external) noexcept
+		[[nodiscard]] constexpr nine_patch_rect_export(const rect internal, const rect external) noexcept
 			: values{
 				graphic::create_grid<4, T>({
 						external.vert_00(),
@@ -155,7 +156,7 @@ namespace mo_yanxi::graphic{
 					})
 			}{}
 
-		[[nodiscard]] constexpr nine_patch_raw(align::padding2d<T> edge, const rect external) noexcept
+		[[nodiscard]] constexpr nine_patch_rect_export(align::padding2d<T> edge, const rect external) noexcept
 			{
 			constexpr T err = std::numeric_limits<T>::epsilon() * 32;
 
@@ -201,24 +202,24 @@ namespace mo_yanxi::graphic{
 		}
 
 
-		[[nodiscard]] constexpr nine_patch_raw(
+		[[nodiscard]] constexpr nine_patch_rect_export(
 			const align::spacing edge,
 			const rect rect,
 			const math::vector2<T> centerSize,
 			const align::scale centerScale) noexcept
-			: nine_patch_raw{edge, rect}{
+			: nine_patch_rect_export{edge, rect}{
 
-			nine_patch_raw::set_center_scale(centerSize, centerScale);
+			nine_patch_rect_export::set_center_scale(centerSize, centerScale);
 		}
 
 
-		[[nodiscard]] constexpr nine_patch_raw(
+		[[nodiscard]] constexpr nine_patch_rect_export(
 			const rect internal, const rect external,
 			const math::vector2<T> centerSize,
 			const align::scale centerScale) noexcept
-			: nine_patch_raw{internal, external}{
+			: nine_patch_rect_export{internal, external}{
 
-			nine_patch_raw::set_center_scale(centerSize, centerScale);
+			nine_patch_rect_export::set_center_scale(centerSize, centerScale);
 		}
 
 		constexpr void set_center_scale(const math::vector2<T> centerSize, const align::scale centerScale) noexcept{
@@ -244,23 +245,23 @@ namespace mo_yanxi::graphic{
 	};
 
 	export
-	struct nine_patch_brief{
+	struct nine_patch_layout{
 		align::spacing edge{};
 		math::vec2 inner_size{};
 		align::scale center_scale{DefaultScale};
 
-		[[nodiscard]] constexpr nine_patch_raw<float> get_regions(const nine_patch_raw<float>::rect bound) const noexcept{
-			return nine_patch_raw{edge, bound, inner_size, center_scale};
+		[[nodiscard]] constexpr nine_patch_rect_export<float> get_regions(const nine_patch_rect_export<float>::rect bound) const noexcept{
+			return nine_patch_rect_export{edge, bound, inner_size, center_scale};
 		}
 
 		[[nodiscard]] constexpr math::vec2 get_recommended_size() const noexcept{
 			return inner_size + edge.extent();
 		}
 
-		[[nodiscard]] nine_patch_brief() = default;
+		[[nodiscard]] nine_patch_layout() = default;
 
 
-		[[nodiscard]] nine_patch_brief(
+		[[nodiscard]] nine_patch_layout(
 			math::urect external,
 			math::urect internal,
 			const math::usize2 centerSize = {},
@@ -268,7 +269,7 @@ namespace mo_yanxi::graphic{
 		){
 			this->center_scale = centerScale;
 			this->inner_size = centerSize.as<float>();
-			this->edge = align::padBetween(internal.as<float>(), external.as<float>());
+			this->edge = align::pad_between(internal.as<float>(), external.as<float>());
 		}
 
 
@@ -279,7 +280,7 @@ namespace mo_yanxi::graphic{
 	};
 
 	export
-	struct image_nine_region : nine_patch_brief{
+	struct image_nine_region : nine_patch_layout{
 		static constexpr auto size = NinePatchSize;
 		using region_type = combined_image_region<size_awared_uv<uniformed_rect_uv>>;
 
@@ -301,12 +302,12 @@ namespace mo_yanxi::graphic{
 			const auto external = imageRegion.uv.get_region();
 			internal_in_relative.src += external.src;
 			assert(external.contains_loose(internal_in_relative));
-			this->nine_patch_brief::operator=(nine_patch_brief{external, internal_in_relative, centerSize, centerScale});
+			this->nine_patch_layout::operator=(nine_patch_layout{external, internal_in_relative, centerSize, centerScale});
 
 
 
 			using gen = Generator<float>;
-			const auto ninePatch = nine_patch_raw{internal_in_relative, external, centerSize, centerScale};
+			const auto ninePatch = nine_patch_rect_export{internal_in_relative, external, centerSize, centerScale};
 			for (auto && [i, region] : regions | std::views::enumerate){
 				region.fetch_into(image_view.size, ninePatch[i]);
 			}
@@ -336,3 +337,4 @@ namespace mo_yanxi::graphic{
 
 	};
 }
+*/

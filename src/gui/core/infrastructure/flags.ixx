@@ -36,6 +36,8 @@ enum class update_channel : unsigned{
 	draw = 1 << 2,
 
 	custom = 1 << 3,
+
+	value_approach = 1 << 4,
 };
 
 BITMASK_OPS(export, update_channel)

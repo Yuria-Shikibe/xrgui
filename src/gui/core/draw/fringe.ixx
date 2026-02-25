@@ -16,8 +16,8 @@ namespace mo_yanxi::gui::fx::fringe{
 using namespace mo_yanxi::graphic::draw;
 
 template <std::floating_point T>
-FORCE_INLINE CONST_FN bool is_nearly_zero(T f) noexcept{
-	return std::abs(f) < std::numeric_limits<T>::epsilon();
+FORCE_INLINE CONST_FN bool is_draw_meaningful(T f) noexcept{
+	return std::abs(f) > .5f;
 }
 
 template <std::floating_point T>
@@ -27,22 +27,41 @@ FORCE_INLINE CONST_FN bool is_nearly_zero_assume_positive(T f) noexcept{
 }
 
 export
-FORCE_INLINE void poly_partial(renderer_frontend& r, const instruction::poly_partial& instr, float fringe = 2.0f){
+FORCE_INLINE void poly(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
 	r.push(instr);
 
-	if(is_nearly_zero(instr.radius.from)){
+	if(is_draw_meaningful(instr.radius.from)){
 		auto instr_inner = instr;
 		instr_inner.radius.to = instr_inner.radius.from - fringe;
-		instr_inner.color.v10 = {};
-		instr_inner.color.v11 = {};
+		instr_inner.color.from = instr_inner.color.to.make_transparent();
 		r.push(instr_inner);
 	}
 
-	if(is_nearly_zero(instr.radius.to)){
+	if(is_draw_meaningful(instr.radius.to)){
 		auto instr_outer = instr;
 		instr_outer.radius.from = instr_outer.radius.to + fringe;
-		instr_outer.color.v00 = {};
-		instr_outer.color.v01 = {};
+		instr_outer.color.to = instr.color.from.make_transparent();
+		r.push(instr_outer);
+	}
+}
+
+export
+FORCE_INLINE void poly_partial(renderer_frontend& r, const instruction::poly_partial& instr, float fringe = 2.0f){
+	r.push(instr);
+
+	if(is_draw_meaningful(instr.radius.from)){
+		auto instr_inner = instr;
+		instr_inner.radius.to = instr_inner.radius.from - fringe;
+		instr_inner.color.v10 = instr.color.v00.make_transparent();
+		instr_inner.color.v11 = instr.color.v01.make_transparent();
+		r.push(instr_inner);
+	}
+
+	if(is_draw_meaningful(instr.radius.to)){
+		auto instr_outer = instr;
+		instr_outer.radius.from = instr_outer.radius.to + fringe;
+		instr_outer.color.v00 = instr.color.v10.make_transparent();
+		instr_outer.color.v01 = instr.color.v11.make_transparent();
 		r.push(instr_outer);
 	}
 
@@ -56,23 +75,23 @@ FORCE_INLINE void poly_partial_with_cap(renderer_frontend& r, const instruction:
 
 	poly_partial(r, instr, fringe);
 
-	if(src_cap_fringe > std::numeric_limits<float>::epsilon()) [[likely]] {
+	if(is_draw_meaningful(src_cap_fringe)) [[likely]] {
 		const auto radscl_src = src_cap_fringe / radius / math::pi_2;
 		instr_src.range.extent = std::copysign(radscl_src, -instr.range.extent);
-		instr_src.color.v01 = {};
-		instr_src.color.v11 = {};
+		instr_src.color.v01.a = {};
+		instr_src.color.v11.a = {};
 		instr_src.segments = 1;
 		poly_partial(r, instr_src, fringe);
 
 	}
 
-	if(dst_cap_fringe > std::numeric_limits<float>::epsilon()) [[likely]] {
+	if(is_draw_meaningful(dst_cap_fringe)) [[likely]] {
 		const auto radscl_dst = dst_cap_fringe / radius / math::pi_2;
 		const auto off = std::copysign(radscl_dst, instr.range.extent);
 		instr_dst.range.base = instr.range.dst() + off;
 		instr_dst.range.extent = -off;
-		instr_dst.color.v00 = {};
-		instr_dst.color.v10 = {};
+		instr_dst.color.v00.a = {};
+		instr_dst.color.v10.a = {};
 		instr_src.segments = 1;
 		poly_partial(r, instr_dst, fringe);
 	}

@@ -26,7 +26,7 @@ struct ubo_layer_info {
 
 struct VertexUI {
     noperspective Vertex vtx;
-    noperspective float[4] clip_dst : SV_ClipDistance;
+    // noperspective float[4] clip_dst : SV_ClipDistance;
 }
 
 typealias UI_VTX = VertexUI;
@@ -81,7 +81,7 @@ struct trans : vertex_transformer_2<UI_VTX> {
         float right_plane_dist = layer.scissor.dst.x - screen_coord.x;
         float top_plane_dist = layer.scissor.dst.y - screen_coord.y;
         float bottom_plane_dist = screen_coord.y - layer.scissor.src.y;
-        vtx.clip_dst = { left_plane_dist, right_plane_dist, top_plane_dist, bottom_plane_dist };
+        // vtx.clip_dst = { left_plane_dist, right_plane_dist, top_plane_dist, bottom_plane_dist };
         return vtx;
     }
 
@@ -163,7 +163,7 @@ FragOut main_frag(
         break;
     case global_draw_mode_type::sdf:
         var alpha = no_tex ? 1 : sdf::msdf(textures[primit.texture_index], vtx.uv);
-        out_color_base = float4(1, 1, 1, smoothstep(-0.015, 0.045, alpha)) * vtx.color;
+        out_color_base = float4(1, 1, 1, smoothstep(-0.6, 0.6, alpha)) * vtx.color;
         break;
     default: out_color_base = vtx.color;
     }

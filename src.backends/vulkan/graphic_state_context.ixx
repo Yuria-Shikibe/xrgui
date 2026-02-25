@@ -214,7 +214,11 @@ struct graphics_context_trace {
 
         // 辅助 lambda：判断是否需要录制指令 (Dirty 且 (强制刷新 或 内容确实改变))
         const auto should_emit = [&]<typename T>(std::uint32_t flag_bit, T dynamic_state_packet::* mptr) -> bool {
-        	if (pipeline_just_changed || requires_rebind) {
+        	if(requires_rebind){
+        		current_state.*mptr = pending_state.*mptr;
+        		return true;
+        	}
+        	if (pipeline_just_changed) {
         		return true;
         	}
 

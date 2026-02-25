@@ -13,7 +13,7 @@ struct palette{
 	graphic::color on_focus{};
 	graphic::color on_press{};
 
-	graphic::color disabled{};
+	graphic::color disable{};
 	graphic::color toggled{};
 
 	[[nodiscard]] constexpr palette copy() const noexcept{
@@ -25,7 +25,7 @@ struct palette{
 		on_focus.mul_a(alpha);
 		on_press.mul_a(alpha);
 
-		disabled.mul_a(alpha);
+		disable.mul_a(alpha);
 		toggled.mul_a(alpha);
 
 		return *this;
@@ -36,7 +36,7 @@ struct palette{
 		on_focus.mul_rgb(alpha);
 		on_press.mul_rgb(alpha);
 
-		disabled.mul_rgb(alpha);
+		disable.mul_rgb(alpha);
 		toggled.mul_rgb(alpha);
 
 		return *this;

@@ -106,7 +106,7 @@ export struct line : quad_like{
 
 	float cap_length;
 
-	std::uint32_t _cap[2];
+	std::uint32_t _pad[2];
 };
 
 export struct line_node{
@@ -255,7 +255,7 @@ export struct poly{
 	float initial_angle;
 
 	//TODO native dashline support?
-	std::uint32_t _cap[2];
+	std::uint32_t _pad[2];
 
 	math::range radius;
 
@@ -280,10 +280,10 @@ export struct poly_partial{
 	primitive_generic generic;
 	float2 pos;
 	std::uint32_t segments;
-	std::uint32_t cap;
+	std::uint32_t _pad;
 
-	math::range radius;
 	math::based_section<float> range;
+	math::range radius;
 	float2 uv00, uv11;
 
 	//TODO using quad color instead
@@ -343,7 +343,7 @@ export struct parametric_curve{
 	math::range offset;
 
 	std::uint32_t segments;
-	std::uint32_t _cap3;
+	std::uint32_t _pad;
 
 	float2 uv00, uv11;
 	quad_vert_color color;

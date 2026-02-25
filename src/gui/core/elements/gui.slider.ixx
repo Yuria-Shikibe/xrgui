@@ -24,7 +24,8 @@ public:
 	[[nodiscard]] math::vec2 get_segment_unit() const noexcept{
 		return math::vec2{
 				segments.x ? 1.f / static_cast<float>(segments.x) : 1.f,
-				segments.y ? 1.f / static_cast<float>(segments.y) : 1.f
+				segments.y ?
+				1.f / static_cast<float>(segments.y) : 1.f
 			};
 	}
 
@@ -153,6 +154,7 @@ struct default_slider_drawer : slider_drawer{
 };
 
 export inline constexpr default_slider_drawer default_slider_drawer;
+
 export inline const slider_drawer* global_default_slider_drawer{};
 
 export inline const slider_drawer* get_global_default_slider_drawer() noexcept{
@@ -162,16 +164,21 @@ export inline const slider_drawer* get_global_default_slider_drawer() noexcept{
 }
 
 
-
-
 struct slider : elem{
-private:
-
 protected:
+	void update_approach_state() noexcept {
+		if(bar.is_sliding()){
+			set_update_required(update_channel::value_approach);
+		} else {
+			set_update_disabled(update_channel::value_approach);
+		}
+	}
+
 	void check_apply(){
 		if(bar.apply() && submit_node_){
 			submit_node_->update_value(bar.get_progress());
 		}
+		update_approach_state();
 	}
 
 	react_flow::provider_cached<math::vec2>* submit_node_;
@@ -184,9 +191,9 @@ protected:
 	math::optional_vec2<float> drag_src_{math::nullopt_vec2<float>};
 
 public:
-	float approach_speed_scl = 0.05f;
-
 	slider2d_slot bar;
+
+	float approach_speed_scl = 0.05f;
 
 	/**
 	 * @brief Negative value is accepted to flip the operation
@@ -203,6 +210,60 @@ public:
 		extend_focus_until_mouse_drop = true;
 	}
 
+	// ==========================================
+	// 状态获取与控制 (Getters & Setters)
+	// ==========================================
+	[[nodiscard]] math::vec2 get_progress() const noexcept{
+		return bar.get_progress();
+	}
+
+	[[nodiscard]] math::vec2 get_temp_progress() const noexcept{
+		return bar.get_temp_progress();
+	}
+
+	template <typename T>
+	[[nodiscard]] math::vector2<T> get_segments_progress() const noexcept{
+		return bar.template get_segments_progress<T>();
+	}
+
+	[[nodiscard]] bool is_sliding() const noexcept{
+		return bar.is_sliding();
+	}
+
+	void set_progress(math::vec2 progress) noexcept{
+		bar.set_progress(progress);
+		check_apply();
+	}
+
+	void set_progress_from_segments(math::usize2 current, math::usize2 total){
+		bar.set_progress_from_segments(current, total);
+		check_apply();
+	}
+
+	void set_progress_from_segments_x(unsigned current, unsigned total){
+		bar.set_progress_from_segments_x(current, total);
+		check_apply();
+	}
+
+	void set_progress_from_segments_y(unsigned current, unsigned total){
+		bar.set_progress_from_segments_y(current, total);
+		check_apply();
+	}
+
+	void clamp_progress(math::vec2 from, math::vec2 to) noexcept{
+		bar.clamp(from, to);
+		check_apply();
+	}
+
+	void move_progress_target(const math::vec2 movement_in_percent, bool smooth = true) noexcept{
+		bar.move_progress(movement_in_percent, smooth ? &snap_shot<math::vec2>::temp : &snap_shot<math::vec2>::base);
+		if(!smooth) {
+			check_apply();
+		} else {
+			update_approach_state();
+		}
+	}
+
 	react_flow::provider_cached<math::vec2>& request_react_node(){
 		if(submit_node_){
 			return *submit_node_;
@@ -214,10 +275,6 @@ public:
 
 	[[nodiscard]] bool is_clamped() const noexcept{
 		return is_clamped_to_hori() || is_clamped_to_vert();
-	}
-
-	[[nodiscard]] math::vec2 get_progress() const noexcept{
-		return bar.get_progress();
 	}
 
 	[[nodiscard]] const style::slider_drawer* get_drawer() const noexcept{
@@ -261,12 +318,18 @@ public:
 	events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override{
 		move_bar(bar, event);
 
-		if(!smooth_scroll_)check_apply();
+		if(!smooth_scroll_) check_apply();
+		else update_approach_state();
+
 		return events::op_afterwards::intercepted;
 	}
 
 	events::op_afterwards on_drag(const events::drag event) override{
+		if(event.key.mode_bits == input_handle::mode::ctrl)return events::op_afterwards::fall_through;
+
 		bar.move_progress(event.delta() * sensitivity / content_extent(), drag_src_);
+		update_approach_state();
+
 		return events::op_afterwards::intercepted;
 	}
 
@@ -282,14 +345,21 @@ public:
 				const auto move = (event.get_content_pos(*this) - get_progress() * content_extent()) /
 					content_extent();
 				bar.move_progress(move * sensitivity.sign_or_zero());
-				if(!smooth_jump_)check_apply();
+
+				if(!smooth_jump_){
+					check_apply();
+				}else{
+					update_approach_state();
+				}
 			}
 			break;
 		}
 
 		case input_handle::act::release :{
 			drag_src_.reset();
-			if(!smooth_drag_)check_apply();
+			if(!smooth_drag_) check_apply();
+			else update_approach_state();
+			break;
 		}
 
 		default : break;
@@ -308,7 +378,6 @@ protected:
 
 		const auto mov = -scroll_sensitivity * sensitivity * (is_clamped() ? vec2{move.y, move.y} : move);
 		slot.move_minimum_delta(mov, smooth_scroll_ ? &snap_shot<vec2>::temp : &snap_shot<vec2>::base);
-
 	}
 
 private:
@@ -353,6 +422,9 @@ public:
 					submit_node_->update_value(bar.get_progress());
 				}
 
+				if(!bar.is_sliding()){
+					set_update_disabled(update_channel::value_approach);
+				}
 			}
 			return true;
 		}
@@ -360,11 +432,11 @@ public:
 	}
 	[[nodiscard]] constexpr math::vec2 get_bar_handle_extent() const noexcept{
 		return {
-				is_clamped_to_vert() ? content_width() : bar_handle_extent.x,
+				is_clamped_to_vert() ?
+				content_width() : bar_handle_extent.x,
 				is_clamped_to_hori() ? content_height() : bar_handle_extent.y,
 			};
 	}
 };
-
 
 }

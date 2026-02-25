@@ -5,29 +5,24 @@ module;
 #include <mo_yanxi/assume.hpp>
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.gui.assets.image_regions;
+export module mo_yanxi.gui.image_regions;
 
 export import mo_yanxi.graphic.image_region;
 export import mo_yanxi.graphic.image_region.borrow;
 import mo_yanxi.math.quad;
 import mo_yanxi.graphic.grid_generator;
 import mo_yanxi.graphic.color;
+import mo_yanxi.graphic.image_region;
 import align;
 
 import std;
 import mo_yanxi.meta_programming;
 
-namespace mo_yanxi::gui::assets{
+namespace mo_yanxi::gui{
 export using image_native_handle = VkImageView;
 export using image_region_type = graphic::combined_image_region<graphic::size_awared_uv<graphic::uniformed_rect_uv>>;
 export using image_region_borrow = graphic::universal_borrowed_image_region<image_region_type, referenced_object_atomic_nonpropagation>;
 
-export
-struct simple_vertex{
-	math::vec2 pos;
-	math::vec2 uv;
-	graphic::color color;
-};
 
 export
 struct row_patch{
@@ -206,219 +201,214 @@ public:
 
 };
 
-
-template <typename T = float>
-	requires (std::is_arithmetic_v<T>)
-using Generator = graphic::grid_generator<4, T>;
-
-using NinePatchProp = graphic::grid_property<4>;
-constexpr auto NinePatchSize = NinePatchProp::size;
-
-constexpr align::scale DefaultScale = align::scale::stretch;
-
 export
-template <typename T = float>
-	requires (std::is_arithmetic_v<T>)
-struct nine_patch_raw{
-	using rect = math::rect_ortho<T>;
-
-	std::array<rect, NinePatchSize> values{};
-
-	[[nodiscard]] constexpr nine_patch_raw() noexcept = default;
-
-	[[nodiscard]] constexpr nine_patch_raw(const rect internal, const rect external) noexcept
-	: values{
-		graphic::create_grid<4, T>({
-				external.vert_00(),
-				internal.vert_00(),
-				internal.vert_11(),
-				external.vert_11()
-			})
-	}{
-	}
-
-	[[nodiscard]] constexpr nine_patch_raw(align::padding2d<T> edge, const rect external) noexcept{
-		constexpr T err = std::numeric_limits<T>::epsilon() * 32;
-
-		bool need_scale{false};
-		float ratio_l;
-		float ratio_b;
-		if(edge.width() >= external.width()){
-			need_scale = true;
-			ratio_l = edge.left / edge.width();
-		} else{
-			ratio_l = .5f;
-		}
-
-		if(edge.height() >= external.height()){
-			need_scale = true;
-			ratio_b = edge.bottom / edge.height();
-		} else{
-			ratio_b = .5f;
-		}
-
-		if(need_scale){
-			auto target_bot_lft = external.extent().scl(ratio_l - err, ratio_b - err).to_abs();
-			auto target_top_rit = external.extent().scl(1 - ratio_l - err, 1 - ratio_b - err).to_abs();
-
-			auto true_botlft = align::embed_to(align::scale::fit, edge.bot_lft(), target_bot_lft);
-			auto true_toprit = align::embed_to(align::scale::fit, edge.top_rit(), target_top_rit);
-
-			values = graphic::create_grid<4, T>({
-					external.vert_00(),
-					external.vert_00() + true_botlft,
-					external.vert_11() - true_toprit,
-					external.vert_11()
-				});
-		} else{
-			values = graphic::create_grid<4, T>({
-					external.vert_00(),
-					external.vert_00() + edge.bot_lft(),
-					external.vert_11() - edge.top_rit(),
-					external.vert_11()
-				});
-		}
-	}
-
-
-	[[nodiscard]] constexpr nine_patch_raw(
-		const align::spacing edge,
-		const rect rect,
-		const math::vector2<T> centerSize,
-		const align::scale centerScale) noexcept
-	: nine_patch_raw{edge, rect}{
-		nine_patch_raw::set_center_scale(centerSize, centerScale);
-	}
-
-
-	[[nodiscard]] constexpr nine_patch_raw(
-		const rect internal, const rect external,
-		const math::vector2<T> centerSize,
-		const align::scale centerScale) noexcept
-	: nine_patch_raw{internal, external}{
-		nine_patch_raw::set_center_scale(centerSize, centerScale);
-	}
-
-	constexpr void set_center_scale(const math::vector2<T> centerSize, const align::scale centerScale) noexcept{
-		if(centerScale != DefaultScale){
-			const auto sz = align::embed_to(centerScale, centerSize, center().extent());
-			const auto offset = align::get_offset_of<to_signed_t<T>>(align::pos::center, sz.as_signed(),
-				center().as_signed());
-			center() = {tags::from_extent, static_cast<math::vector2<T>>(offset), sz};
-		}
-	}
-
-	constexpr rect operator [](const unsigned index) const noexcept{
-		return values[index];
-	}
-
-	[[nodiscard]] constexpr math::rect_ortho<T>& center() noexcept{
-		return values[graphic::grid_property<4>::center_index];
-	}
-
-	[[nodiscard]] constexpr const math::rect_ortho<T>& center() const noexcept{
-		return values[graphic::grid_property<4>::center_index];
-	}
-};
-
-export
-struct nine_patch_brief{
+struct nine_patch_layout{
 	align::spacing edge{};
 	math::vec2 inner_size{};
-	align::scale center_scale{DefaultScale};
 
-	[[nodiscard]] constexpr nine_patch_raw<float> get_regions(const nine_patch_raw<float>::rect bound) const noexcept{
-		return nine_patch_raw{edge, bound, inner_size, center_scale};
+	[[nodiscard]] nine_patch_layout() = default;
+
+	[[nodiscard]] nine_patch_layout(
+		math::frect external,
+		math::frect internal
+	){
+		// 直接从 internal 获取 inner_size
+		this->inner_size = internal.extent();
+		this->edge = align::pad_between(internal, external);
 	}
 
 	[[nodiscard]] constexpr math::vec2 get_recommended_size() const noexcept{
 		return inner_size + edge.extent();
 	}
 
-	[[nodiscard]] nine_patch_brief() = default;
-
-
-	[[nodiscard]] nine_patch_brief(
-		math::urect external,
-		math::urect internal,
-		const math::usize2 centerSize = {},
-		const align::scale centerScale = DefaultScale
-	){
-		this->center_scale = centerScale;
-		this->inner_size = centerSize.as<float>();
-		this->edge = align::padBetween(internal.as<float>(), external.as<float>());
-	}
-
-
 	[[nodiscard]] math::vec2 get_size() const noexcept{
 		return inner_size + edge.extent();
 	}
+
+	[[nodiscard]] constexpr std::array<math::frect, 9> get_regions(const math::frect bound) const noexcept{
+		const std::array<float, 4> xs = {
+				bound.get_src_x(),
+				bound.get_src_x() + edge.left,
+				bound.get_end_x() - edge.right,
+				bound.get_end_x()
+			};
+		const std::array<float, 4> ys = {
+				bound.get_src_y(),
+				bound.get_src_y() + edge.bottom,
+				bound.get_end_y() - edge.top,
+				bound.get_end_y()
+			};
+
+		std::array<math::frect, 9> rst{};
+		for(int y = 0; y < 3; ++y){
+			for(int x = 0; x < 3; ++x){
+				rst[x + y * 3] = math::frect{
+						tags::unchecked, tags::from_vertex,
+						math::vec2{xs[x], ys[y]},
+						math::vec2{xs[x + 1], ys[y + 1]}
+					};
+			}
+		}
+		return rst;
+	}
+
+	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_coords(const math::raw_frect bound) const noexcept{
+		const std::array xs = {
+				(bound.get_src_x()),
+				(bound.get_src_x() + edge.left),
+				(bound.get_end_x() - edge.right),
+				(bound.get_end_x())
+			};
+		const std::array ys = {
+				(bound.get_src_y()),
+				(bound.get_src_y() + edge.bottom),
+				(bound.get_end_y() - edge.top),
+				(bound.get_end_y())
+			};
+
+		return {
+				std::array{xs[0], xs[1], xs[2], xs[3], ys[0], ys[1]},
+				std::array{xs[0], xs[1], xs[2], xs[3], ys[1], ys[2]},
+				std::array{xs[0], xs[1], xs[2], xs[3], ys[2], ys[3]}
+			};
+	}
+
+	template <typename T>
+	[[nodiscard]] constexpr math::section<T> interpolate_middle_row_values(
+		const T& val_bottom, // 下方（或起点）的值
+		const T& val_top, // 上方（或终点）的值
+		const float total_height
+	) const noexcept{
+		if(total_height <= 0.0f){
+			return {val_bottom, val_top};
+		}
+
+		const float t_bottom = edge.bottom / total_height;
+		const float t_top = 1.0f - (edge.top / total_height);
+
+		const T mid_bottom = val_bottom + (val_top - val_bottom) * t_bottom;
+		const T mid_top = val_bottom + (val_top - val_bottom) * t_top;
+
+		return {mid_bottom, mid_top};
+	}
 };
 
-/*
 export
-struct image_nine_region : nine_patch_brief{
-	static constexpr auto size = NinePatchSize;
-	using region_type = combined_image_region<size_awared_uv<uniformed_rect_uv>>;
+struct image_nine_region : nine_patch_layout{
+	static constexpr auto size = 9;
+	using region_type = image_region_borrow;
 
-	graphic::sized_image image_view{};
-	std::array<graphic::uniformed_rect_uv, NinePatchSize> regions{};
+	image_region_borrow image_view{};
 	float margin{};
+
+	graphic::uniformed_rect_uv outer_uv{};
+	graphic::uniformed_rect_uv inner_uv{};
 
 	[[nodiscard]] image_nine_region() = default;
 
 	image_nine_region(
-		const region_type& imageRegion,
+		const region_type& image_region,
 		math::urect internal_in_relative,
-		const float external_margin = 0.f,
-		const math::usize2 centerSize = {},
-		const align::scale centerScale = DefaultScale,
-		const float edgeShrinkScale = 0.25f
-	) : image_view(imageRegion), margin(external_margin){
-		const auto external = imageRegion.uv.get_region();
+		const float external_margin = 0.f
+	) : image_view(image_region), margin(external_margin){
+		const auto external = image_region->uv.get_region();
 		internal_in_relative.src += external.src;
 		assert(external.contains_loose(internal_in_relative));
-		this->nine_patch_brief::operator=(nine_patch_brief{external, internal_in_relative, centerSize, centerScale});
 
+		// 移除了 center_size 参数
+		this->nine_patch_layout::operator=(nine_patch_layout{external.as<float>(), internal_in_relative.as<float>()});
 
-		using gen = Generator<float>;
-		const auto ninePatch = nine_patch_raw{internal_in_relative, external, centerSize, centerScale};
-		for(auto&& [i, region] : regions | std::views::enumerate){
-			region.fetch_into(image_view.size, ninePatch[i]);
-		}
-
-		for(const auto hori_edge_index : gen::property::edge_indices | std::views::take(
-			    gen::property::edge_indices.size() / 2)){
-			regions[hori_edge_index].shrink(image_view.size, {edgeShrinkScale * inner_size.x, 0});
-		}
-
-		for(const auto vert_edge_index : gen::property::edge_indices | std::views::drop(
-			    gen::property::edge_indices.size() / 2)){
-			regions[vert_edge_index].shrink(image_view.size, {0, edgeShrinkScale * inner_size.y});
-		}
+		const auto bound_size = image_view->uv.size.as<float>();
+		outer_uv.fetch_into(bound_size, external.as<float>());
+		inner_uv.fetch_into(bound_size, internal_in_relative.as<float>());
 	}
 
 	image_nine_region(
-		const region_type& imageRegion,
-		const align::padding2d<std::uint32_t> margin,
-		const float external_margin = 0.f,
-		const math::usize2 centerSize = {},
-		const align::scale centerScale = DefaultScale,
-		const float edgeShrinkScale = 0.25f
+		const region_type& image_region,
+		const align::padding2d<std::uint32_t> padding,
+		const float external_margin = 0.f
 	) : image_nine_region{
-		imageRegion, math::urect{
-			tags::from_extent, margin.bot_lft(), imageRegion.uv.get_region().extent().sub(margin.extent())
-		},
-		external_margin, centerSize, centerScale, edgeShrinkScale
-	}{
-		assert(margin.extent().within(imageRegion.uv.get_region().extent()));
+			image_region,
+			math::urect{
+				tags::from_extent, padding.bot_lft(), image_region->uv.get_region().extent().sub(padding.extent())
+			},
+			external_margin
+		}{
+		assert(padding.extent().within(image_region->uv.get_region().extent()));
 	}
-};*/
+
+	[[nodiscard]] constexpr std::array<graphic::uniformed_rect_uv, 9> get_uvs() const noexcept{
+		const std::array<float, 4> xs = {outer_uv.v00().x, inner_uv.v00().x, inner_uv.v11().x, outer_uv.v11().x};
+		const std::array<float, 4> ys = {outer_uv.v00().y, inner_uv.v00().y, inner_uv.v11().y, outer_uv.v11().y};
+
+		std::array<graphic::uniformed_rect_uv, 9> rst{};
+		for(int y = 0; y < 3; ++y){
+			for(int x = 0; x < 3; ++x){
+				rst[x + y * 3] = graphic::uniformed_rect_uv{
+						math::vec2{xs[x], ys[y]},
+						math::vec2{xs[x + 1], ys[y + 1]}
+					};
+			}
+		}
+		return rst;
+	}
+
+	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_uvs() const noexcept{
+		const std::array us = {
+				outer_uv.v00().x,
+				inner_uv.v00().x,
+				inner_uv.v11().x,
+				outer_uv.v11().x
+			};
+		const std::array vs = {
+				outer_uv.v00().y,
+				inner_uv.v00().y,
+				inner_uv.v11().y,
+				outer_uv.v11().y
+			};
+
+		return {
+				std::array{vs[0], vs[1], us[0], us[1], us[2], us[3]},
+				std::array{vs[1], vs[2], us[0], us[1], us[2], us[3]},
+				std::array{vs[2], vs[3], us[0], us[1], us[2], us[3]}
+			};
+	}
+
+	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_coords(const math::raw_frect bound) const noexcept{
+		const std::array xs = {
+				bound.get_src_x() - margin,
+				(bound.get_src_x() + edge.left),
+				(bound.get_end_x() - edge.right),
+				bound.get_end_x() + margin
+			};
+		const std::array ys = {
+				bound.get_src_y() - margin,
+				(bound.get_src_y() + edge.bottom),
+				(bound.get_end_y() - edge.top),
+				bound.get_end_y() + margin
+			};
+
+		return {
+				std::array{xs[0], xs[1], xs[2], xs[3], ys[0], ys[1]},
+				std::array{xs[0], xs[1], xs[2], xs[3], ys[1], ys[2]},
+				std::array{xs[0], xs[1], xs[2], xs[3], ys[2], ys[3]}
+			};
+	}
 
 
-namespace builtin{
-export
-row_patch get_separator_row_patch();
+};
+
+namespace assets::builtin{
+
+
+export row_patch get_separator_row_patch();
+
+// export inline row_patch default_row_seperator;
+
+export inline image_nine_region default_round_square_boarder;
+export inline image_nine_region default_round_square_boarder_thin;
+export inline image_nine_region default_round_square_base;
+
 }
 
 }

@@ -213,6 +213,7 @@ struct sync_baked_data {
 	struct signal_info {
 		VkEvent event;
 		VkPipelineStageFlags2 stage_mask;
+		VkAccessFlags2 access_mask;
 	};
 
 	// [生产者阶段] 需要在该 Pass 开始时重置的事件 (用于循环录制)
@@ -814,7 +815,8 @@ public:
 	add_result<T> add_pass(Args&&... args){
 		pass_data& pass = *passes_.insert(pass_data{
 				std::make_unique<T>(
-					mo_yanxi::front_redundant_construct<T>(vk::allocator_usage{allocator_frags_}, std::forward<Args>(args)...))
+				std::forward<Args>(args)...)
+					// mo_yanxi::front_redundant_construct<T>(/*vk::allocator_usage{allocator_frags_}, */std::forward<Args>(args)...))
 			});
 		return add_result<T>{pass, static_cast<T&>(*pass.meta)};
 	}
@@ -1050,12 +1052,22 @@ private:
 
 					if (mutable_state.producer_event_index.has_value()) {
 						evt_idx = mutable_state.producer_event_index.value();
+						// 新增：如果多个资源共享同一个事件，需累加它们的 stage 和 access
+						VkEvent placeholder_evt = std::bit_cast<VkEvent>(static_cast<std::uintptr_t>(evt_idx + 1));
+						for (auto& sig : producer_pass.sync_info_.signals) {
+							if (sig.event == placeholder_evt) {
+								sig.stage_mask |= src_stage;
+								sig.access_mask |= src_access;
+								break;
+							}
+						}
 					} else {
 						evt_idx = event_count_needed++;
 						mutable_state.producer_event_index = evt_idx;
 						VkEvent placeholder_evt = std::bit_cast<VkEvent>(static_cast<std::uintptr_t>(evt_idx + 1));
 						producer_pass.sync_info_.events_to_reset.push_back(placeholder_evt);
-						producer_pass.sync_info_.signals.push_back({placeholder_evt, src_stage});
+						// 修改：把 src_access 也记录下来
+						producer_pass.sync_info_.signals.push_back({placeholder_evt, src_stage, src_access});
 					}
 
 					VkEvent placeholder_evt = std::bit_cast<VkEvent>(static_cast<std::uintptr_t>(evt_idx + 1));
@@ -1703,8 +1715,44 @@ public:
 	}
 
 	void create_command(VkCommandBuffer buffer) {
-		// 移除所有运行时状态追踪 (res_states, already_modified_mark 等)
-		// 直接按照 Execute Sequence 顺序录制指令
+		// =========================================================
+		// Phase 0: Global Event Reset & Execution Barrier
+		// 解决 SYNC-vkCmdSetEvent2-missingbarrier-reset
+		// =========================================================
+		std::vector<VkEvent> all_events_to_reset;
+		for (const auto* pass_ptr : execute_sequence_) {
+			all_events_to_reset.insert(all_events_to_reset.end(),
+			                           pass_ptr->sync_info_.events_to_reset.begin(),
+			                           pass_ptr->sync_info_.events_to_reset.end());
+		}
+
+		if (!all_events_to_reset.empty()) {
+			for (auto event : all_events_to_reset) {
+				vkCmdResetEvent2(buffer, event, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+			}
+
+			// 必须在此处插入全局执行屏障，避免 Reset 与后续的 Set 产生 Race Condition
+			const VkMemoryBarrier2 reset_barrier{
+				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+				.pNext = nullptr,
+				.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+				.srcAccessMask = VK_ACCESS_2_NONE,
+				.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+				.dstAccessMask = VK_ACCESS_2_NONE
+			};
+			const VkDependencyInfo reset_dep{
+				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+				.pNext = nullptr,
+				.dependencyFlags = 0,
+				.memoryBarrierCount = 1,
+				.pMemoryBarriers = &reset_barrier,
+				.bufferMemoryBarrierCount = 0,
+				.pBufferMemoryBarriers = nullptr,
+				.imageMemoryBarrierCount = 0,
+				.pImageMemoryBarriers = nullptr
+			};
+			vkCmdPipelineBarrier2(buffer, &reset_dep);
+		}
 
 		for (const auto* pass_ptr : execute_sequence_) {
 			const auto& pass = *pass_ptr;
@@ -1714,23 +1762,12 @@ public:
 			// Phase 1: Pre-Pass Synchronization
 			// =========================================================
 
-			// 1.1 Reset Events (Producer Reset)
-			// 生产者在开始执行前，重置它将在稍后 Signal 的事件。
-			// 这是为了支持 CommandBuffer 的重复提交 (Re-submission)。
-			if (!sync.events_to_reset.empty()) {
-				for (auto event : sync.events_to_reset) {
-					// 仅重置状态，不阻塞 Pipeline
-					vkCmdResetEvent2(buffer, event, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
-				}
-			}
-
 			// 1.2 Wait Events (Split Barriers / Long-distance dependencies)
-			// 消费者等待远端生产者产生的事件
 			for (const auto& wait : sync.waits) {
 				const VkDependencyInfo dep_info{
 					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
 					.pNext = nullptr,
-					.dependencyFlags = 0,
+					.dependencyFlags = VK_DEPENDENCY_ASYMMETRIC_EVENT_BIT_KHR, // 核心修复：使用非对称事件标志
 					.memoryBarrierCount = 0,
 					.pMemoryBarriers = nullptr,
 					.bufferMemoryBarrierCount = static_cast<uint32_t>(wait.buffer_barriers.size()),
@@ -1738,14 +1775,10 @@ public:
 					.imageMemoryBarrierCount = static_cast<uint32_t>(wait.image_barriers.size()),
 					.pImageMemoryBarriers = wait.image_barriers.data()
 				};
-
-				// 这是一个阻塞操作，GPU 会在这里等待 Event 变为 Set 状态
-				// 并执行附加的 Memory Barrier (如 Layout Transition)
 				vkCmdWaitEvents2(buffer, 1, &wait.event, &dep_info);
 			}
 
 			// 1.3 Immediate Barriers (In) (Adjacent dependencies / First use / External)
-			// 处理紧邻的依赖或无法使用 Event 的情况
 			if (!sync.immediate_image_barriers_in.empty() || !sync.immediate_buffer_barriers_in.empty()) {
 				const VkDependencyInfo dep_info{
 					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -1758,15 +1791,12 @@ public:
 					.imageMemoryBarrierCount = static_cast<uint32_t>(sync.immediate_image_barriers_in.size()),
 					.pImageMemoryBarriers = sync.immediate_image_barriers_in.data()
 				};
-
 				vkCmdPipelineBarrier2(buffer, &dep_info);
 			}
 
 			// =========================================================
 			// Phase 2: Execute Pass
 			// =========================================================
-
-			// 执行用户定义的 Pass 逻辑
 			pass.meta->record_command(allocator_frags_, pass, {extent_.width, extent_.height}, buffer);
 
 			// =========================================================
@@ -1774,24 +1804,19 @@ public:
 			// =========================================================
 
 			// 3.1 Signal Events (Producer Signal)
-			// 通知下游消费者，数据已准备好
 			for (const auto& sig : sync.signals) {
-				// vkCmdSetEvent2 需要一个 DependencyInfo 来定义触发事件的 Stage 范围
-				// 我们使用一个全局 MemoryBarrier 来承载 srcStageMask
-				// 具体的 Memory Availability 和 Visibility 由 Wait 侧的 Barrier 处理
 				const VkMemoryBarrier2 stage_def_barrier{
 					.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
 					.pNext = nullptr,
-					.srcStageMask = sig.stage_mask, // 关键：定义哪个阶段完成后 Signal
-					.srcAccessMask = VK_ACCESS_2_NONE, // Access 由 Wait 侧定义
+					.srcStageMask = sig.stage_mask,
+					.srcAccessMask = VK_ACCESS_2_NONE, // 必须为 0，因为使用了非对称事件标志
 					.dstStageMask = VK_PIPELINE_STAGE_2_NONE,
 					.dstAccessMask = VK_ACCESS_2_NONE
 				};
-
 				const VkDependencyInfo dep_info{
 					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
 					.pNext = nullptr,
-					.dependencyFlags = 0, // 可以根据需要添加 VK_DEPENDENCY_BY_REGION_BIT
+					.dependencyFlags = VK_DEPENDENCY_ASYMMETRIC_EVENT_BIT_KHR,
 					.memoryBarrierCount = 1,
 					.pMemoryBarriers = &stage_def_barrier,
 					.bufferMemoryBarrierCount = 0,
@@ -1799,12 +1824,10 @@ public:
 					.imageMemoryBarrierCount = 0,
 					.pImageMemoryBarriers = nullptr
 				};
-
 				vkCmdSetEvent2(buffer, sig.event, &dep_info);
 			}
 
 			// 3.2 Immediate Barriers (Out) (External Outputs)
-			// 处理 Pass 结束后的强制转换（如转换回 Present 布局）
 			if (!sync.immediate_image_barriers_out.empty() || !sync.immediate_buffer_barriers_out.empty()) {
 				const VkDependencyInfo dep_info{
 					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -1817,7 +1840,6 @@ public:
 					.imageMemoryBarrierCount = static_cast<uint32_t>(sync.immediate_image_barriers_out.size()),
 					.pImageMemoryBarriers = sync.immediate_image_barriers_out.data()
 				};
-
 				vkCmdPipelineBarrier2(buffer, &dep_info);
 			}
 		}

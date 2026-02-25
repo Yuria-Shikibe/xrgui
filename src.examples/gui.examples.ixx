@@ -5,6 +5,7 @@
 export module mo_yanxi.gui.examples;
 
 
+import std;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.group;
@@ -29,12 +30,14 @@ import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.drag_split;
 import mo_yanxi.gui.elem.label_v2;
 
+import mo_yanxi.gui.style.round_square;
+import mo_yanxi.gui.style.palette;
+
 import mo_yanxi.gui.assets.manager;
 
 import mo_yanxi.backend.communicator;
 import mo_yanxi.backend.vulkan.context;
 
-import std;
 
 namespace mo_yanxi::gui::example{
 
@@ -68,53 +71,78 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 	// auto& node_layout = scene.request_independent_react_node<label_layout_node>();
 	// auto& node_format = scene.request_independent_react_node<format_node>();
 	// auto& node_stoint = scene.request_independent_react_node<react_flow::string_to_arth<int, std::string_view>>();
-	// auto& node_proj_x = scene.request_independent_react_node(react_flow::make_transformer(react_flow::async_type::none, [](math::vec2 v){
-	// 	return v.x;
-	// }));
+	auto& node_proj_x = scene.request_independent_react_node(react_flow::make_transformer([](math::vec2 v){
+		return v.x;
+	}));
+
+	referenced_ptr<style::round_style> round_style{std::in_place};
+	round_style->edge.pal = style::pal::white.border;
+	round_style->edge = assets::builtin::default_round_square_boarder_thin;
+
+	round_style->base.pal = style::pal::white.background;
+	round_style->base.pal.mul_alpha(.1f);
+	round_style->base = assets::builtin::default_round_square_base;
+
+	round_style->back.pal = style::pal::dark;
+	round_style->back = assets::builtin::default_round_square_base;
 
 	auto make_create_table = [&]{
 		using function_signature = void(scroll_pane&);
 		std::vector<std::function<function_signature>> creators{
-				/*[&](scroll_pane& pane){
+				[&](scroll_pane& pane){
 					pane.create([&](sequence& sequence){
 						sequence.template_cell.set_pad({4, 4});
 
 						auto slider = sequence.emplace_back<gui::slider>();
 						slider->set_smooth_scroll(true);
-						slider->set_smooth_jump(true);
+						slider->set_smooth_jump(false);
 						slider->set_smooth_drag(true);
 						slider->set_hori_only();
 						slider.cell().set_size(60);
 
 						auto& progNode = slider->request_react_node();
-						node_format.connect_predecessor(progNode);
+						// node_format.connect_predecessor(progNode);
 
-						sequence.create_back([&](async_label& label){
-							label.set_as_config_prov();
-							label.set_dependency(node_layout);
-							label.set_text_color_scl(graphic::colors::ACID.to_light_by_luma(1.2));
-							// label.set_expand_policy(gui::layout::expand_policy::prefer);
-						}).cell().set_pending();
+						// sequence.create_back([&](async_label& label){
+						// 	label.set_as_config_prov();
+						// 	label.set_dependency(node_layout);
+						// 	label.set_text_color_scl(graphic::colors::ACID.to_light_by_luma(1.2));
+						// 	// label.set_expand_policy(gui::layout::expand_policy::prefer);
+						// }).cell().set_pending();
 
-						sequence.create_back([&](label& label){
-							auto& t = label.request_receiver();
-							t.connect_predecessor(node_format);
-						}).cell().set_pending();
+						// sequence.create_back([&](label& label){
+						// 	auto& t = label.request_receiver();
+						// 	t.connect_predecessor(node_format);
+						// }).cell().set_pending();
 
 						sequence.create_back([&](progress_bar& prog){
-							prog.progress.set_state(progress_state::approach_scaled);
-							prog.progress.set_speed(.0001f);
+							prog.progress.set_state(progress_state::approach_smooth);
+							prog.progress.set_speed(.0005f);
 							auto& t = prog.request_receiver();
 							react_flow::connect_chain({&progNode, &node_proj_x, &t});
 						}).cell().set_size(60);
 
-						sequence.create_back([&](text_edit& area){
-							auto& nd = area.set_as_string_prov();
-							react_flow::connect_chain({&nd, &node_format, &node_layout});
-							react_flow::connect_chain({&nd, &node_stoint, &node_format});
-						}).cell().set_pending();
+						sequence.create_back([&](progress_bar& prog){
+							prog.set_style(round_style);
+							prog.progress.set_state(progress_state::approach_smooth);
+							prog.progress.set_speed(.0005f);
+							referenced_ptr<style::progress_drawer_arc> drawer{std::in_place};
+
+							drawer->angle_range = {.1f, -.7f};
+							drawer->radius = {5, 2};
+
+							prog.drawer = std::move(drawer);
+							auto& t = prog.request_receiver();
+							react_flow::connect_chain({&progNode, &node_proj_x, &t});
+						}).cell().set_size(400);
+
+						// sequence.create_back([&](text_edit& area){
+						// 	auto& nd = area.set_as_string_prov();
+						// 	react_flow::connect_chain({&nd, &node_format, &node_layout});
+						// 	react_flow::connect_chain({&nd, &node_stoint, &node_format});
+						// }).cell().set_pending();
 					});
-				},*/
+				},
 				[&](scroll_pane& pane){
 					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create([](sequence& sequence){
@@ -293,7 +321,7 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 				[](scroll_pane& pane){
 					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create(
-						[](drag_split& table){
+						[](split_pane& table){
 							constexpr static auto test_text =
 R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
 {u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâãäåx̂̃ñ
@@ -322,7 +350,7 @@ Edge Cases:
 
 							table.set_expand_policy(layout::expand_policy::prefer);
 							using namespace std::literals;
-							table.create_head([](drag_split& inner){
+							table.create_head([](split_pane& inner){
 								inner.set_expand_policy(layout::expand_policy::passive);
 								inner.set_layout_policy(layout::layout_policy::hori_major);
 								inner.create_head([](scroll_pane& label){
@@ -352,7 +380,7 @@ Edge Cases:
 							});
 
 
-							table.create_body([](drag_split& inner){
+							table.create_body([](split_pane& inner){
 								inner.set_expand_policy(layout::expand_policy::passive);
 								inner.set_layout_policy(layout::layout_policy::hori_major);
 								inner.create_head([](scroll_pane& label){
@@ -396,8 +424,8 @@ Edge Cases:
 	menu_hdl->set_layout_policy(layout::layout_policy::vert_major);
 	menu_hdl->set_expand_policy(layout::expand_policy::passive);
 	menu_hdl->set_head_size({layout::size_category::mastering, 256});
-	menu_hdl.cell().region_scale = {.0f, .0f, 1.f, 1.f};
-	menu_hdl.cell().align = align::pos::center;
+	menu_hdl.cell().region_scale = {.0f, .0f, .8f, 1.f};
+	menu_hdl.cell().align = align::pos::left;
 
 	menu_hdl->get_head_template_cell().set_pending();
 	menu_hdl->get_head_template_cell().set_pad({4, 4});

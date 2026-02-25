@@ -1,7 +1,7 @@
 export module mo_yanxi.gui.elem.image_frame;
 
 export import mo_yanxi.gui.infrastructure;
-export import mo_yanxi.gui.assets.image_regions;
+export import mo_yanxi.gui.image_regions;
 export import mo_yanxi.gui.region_drawable;
 export import mo_yanxi.gui.region_drawable.derives;
 export import mo_yanxi.graphic.color;
@@ -227,7 +227,7 @@ protected:
 
 export
 struct icon_frame : image_frame_single<drawable_image<>>{
-	[[nodiscard]] icon_frame(scene& scene, elem* group, const assets::image_region_borrow& icon = {},
+	[[nodiscard]] icon_frame(scene& scene, elem* group, const image_region_borrow& icon = {},
 		const image_display_style& style = {})
 	: image_frame_single<drawable_image<>>(scene, group, drawable_image<>{icon}, style){
 	}
@@ -239,7 +239,7 @@ export
 struct row_separator : image_frame_single<drawable_row_patch<>>{
 	[[nodiscard]] row_separator(
 		scene& scene, elem* group,
-		const assets::row_patch& patch = assets::builtin::get_separator_row_patch(),
+		const row_patch& patch = assets::builtin::get_separator_row_patch(),
 		const image_display_style& style = {align::scale::stretch, align::pos::center})
 	: image_frame_single(scene, group, drawable_row_patch<>{patch}, style){
 		set_style();

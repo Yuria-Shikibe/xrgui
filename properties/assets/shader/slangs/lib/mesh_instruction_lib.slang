@@ -559,9 +559,9 @@ struct partial_circle_fill_draw : instr_resolver
     uint32_t segments;
     uint32_t cap;
 
-    range radius;
     float ratio_src;
     float ratio_ext;
+    range radius;
 
     float2 uv00, uv11;
     section<float4> color_src;

@@ -37,7 +37,7 @@ struct collapser_settings{
 };
 
 export
-struct collapser : two_segment_elem{
+struct collapser : head_body_elem{
 private:
 	float expand_reload_{};
 
@@ -52,7 +52,7 @@ public:
 	collapser_settings settings{};
 
 	[[nodiscard]] collapser(scene& scene, elem* parent, layout::layout_policy layout_policy)
-	: two_segment_elem(scene, parent, layout_policy){
+	: head_body_elem(scene, parent, layout_policy){
 		interactivity = gui::interactivity_flag::children_only;
 		layout_state.intercept_lower_to_isolated = true;
 		item_size[0] = {layout::size_category::pending, 1};
@@ -63,12 +63,12 @@ public:
 		: collapser(scene, parent, elem::search_layout_policy(parent, false).value_or(layout::layout_policy::hori_major)){
 	}
 
-	using two_segment_elem::create;
-	using two_segment_elem::emplace;
-	using two_segment_elem::emplace_head;
-	using two_segment_elem::emplace_body;
-	using two_segment_elem::create_head;
-	using two_segment_elem::create_body;
+	using head_body_elem::create;
+	using head_body_elem::emplace;
+	using head_body_elem::emplace_head;
+	using head_body_elem::emplace_body;
+	using head_body_elem::create_head;
+	using head_body_elem::create_body;
 
 	[[nodiscard]] collapser_expand_cond get_expand_cond() const noexcept{
 		return expand_cond_;
@@ -120,7 +120,7 @@ protected:
 			throw layout::illegal_layout{"Passive is not allowd here"};
 		}
 
-		two_segment_elem::set_item_size(isContent, size);
+		head_body_elem::set_item_size(isContent, size);
 	}
 
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override;
@@ -128,12 +128,12 @@ protected:
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override;
 
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
-		two_segment_elem::on_inbound_changed(is_inbounded, changed);
+		head_body_elem::on_inbound_changed(is_inbounded, changed);
 		if(changed && expand_cond_ == collapser_expand_cond::inbound)set_update_required(update_channel::layout);
 	}
 
 	void on_focus_changed(bool is_focused) override{
-		two_segment_elem::on_focus_changed(is_focused);
+		head_body_elem::on_focus_changed(is_focused);
 		if(expand_cond_ == collapser_expand_cond::focus)set_update_required(update_channel::layout);
 	}
 
@@ -141,7 +141,7 @@ protected:
 
 
 	bool update(float delta_in_ticks) override{
-		if(!two_segment_elem::update(delta_in_ticks))return false;
+		if(!head_body_elem::update(delta_in_ticks))return false;
 
 		update_collapse(delta_in_ticks);
 		body().invisible = state_ == collapser_state::un_expand;

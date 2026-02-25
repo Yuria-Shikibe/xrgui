@@ -27,7 +27,18 @@ namespace blend
 [ForceInline]
 public float3 screen(float3 src, float3 dst)
 {
-    return float3(1.0) - (1.0 - src.rgb) * (1.0 - dst.rgb);
+    return src + dst - src * dst;
+}
+
+public float4 screen_straight(float4 top, float4 bottom)
+{
+    float outAlpha = top.a + bottom.a - top.a * bottom.a;
+
+    float3 topWeighted = top.rgb * top.a;
+    float3 bottomWeighted = bottom.rgb * bottom.a;
+    float3 outRGB = (topWeighted + bottomWeighted - topWeighted * bottomWeighted) / outAlpha;
+
+    return float4(outRGB, outAlpha);
 }
 
 [ForceInline]
@@ -39,12 +50,8 @@ public float4 alpha_blend(const in float4 src, const in float4 dst)
 }
 
 [ForceInline]
-public float4 pre_scaled_alpha_blend(const in float4 src, const in float4 dest)
-{
-    float4 result;
-    result.rgb = fma(dest.rgb, (1.0 - src.a), src.rgb);
-    result.a = fma(dest.a, (1.0 - src.a), src.a);
-    return result;
+public float4 pre_scaled_alpha_blend(const in float4 src, const in float4 dest) {
+    return fma(dest, (1.0 - src.a), src);
 }
 
 }

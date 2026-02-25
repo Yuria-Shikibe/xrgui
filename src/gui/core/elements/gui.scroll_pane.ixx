@@ -120,6 +120,9 @@ namespace mo_yanxi::gui{
 		void layout_elem() override{
 			elem::layout_elem();
 			update_item_layout();
+			if(util::try_modify(scroll_.base, scroll_.base.copy().clamp_xy({}, scrollable_extent()))){
+				scroll_.resume();
+			}
 		}
 
 

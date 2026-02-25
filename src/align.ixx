@@ -163,7 +163,7 @@ namespace mo_yanxi{
 		};
 
 		template <typename T>
-		padding2d<T> padBetween(const math::rect_ortho<T>& internal, const math::rect_ortho<T>& external) noexcept {
+		padding2d<T> pad_between(const math::rect_ortho<T>& internal, const math::rect_ortho<T>& external) noexcept {
 			return padding2d<T>{
 					internal.get_src_x() - external.get_src_x(),
 					external.get_end_x() - internal.get_end_x(),

@@ -178,8 +178,9 @@ using layer_param_pass_t = const layer_param;
 
 export
 struct ui_state{
+	math::vec2 screen_extent;
 	float time;
-	std::uint32_t _cap[3];
+	std::uint32_t _cap;
 };
 
 export

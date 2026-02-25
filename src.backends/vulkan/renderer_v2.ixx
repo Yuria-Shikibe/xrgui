@@ -491,7 +491,6 @@ private:
 	vk::sampler_descriptor_heap sampler_descriptor_heap_{};
 
 public:
-	vk::pipeline _temp_pipeline{};
 
 	vk::resource_descriptor_heap resource_descriptor_heap{};
 
@@ -658,6 +657,10 @@ public:
 
 	vk::image_handle get_base() const noexcept{
 		return attachment_manager_.get_blit_attachments()[0];
+	}
+
+	auto get_blit_attachments() const noexcept{
+		return attachment_manager_.get_blit_attachments();
 	}
 
 	vk::image_handle get_draw_base() const noexcept{
