@@ -27,22 +27,36 @@ FORCE_INLINE CONST_FN bool is_nearly_zero_assume_positive(T f) noexcept{
 }
 
 export
-FORCE_INLINE void poly(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
-	r.push(instr);
+FORCE_INLINE void poly_fringe_at_from(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
+	auto instr_inner = instr;
+	instr_inner.radius.to = instr_inner.radius.from - fringe;
+	instr_inner.color.to = instr_inner.color.from.make_transparent();
+	r.push(instr_inner);
+}
 
+export
+FORCE_INLINE void poly_fringe_at_to(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
+	auto instr_outer = instr;
+	instr_outer.radius.from = instr_outer.radius.to + fringe;
+	instr_outer.color.from = instr_outer.color.to.make_transparent();
+	r.push(instr_outer);
+}
+
+export
+FORCE_INLINE void poly_fringe_only(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
 	if(is_draw_meaningful(instr.radius.from)){
-		auto instr_inner = instr;
-		instr_inner.radius.to = instr_inner.radius.from - fringe;
-		instr_inner.color.from = instr_inner.color.to.make_transparent();
-		r.push(instr_inner);
+		poly_fringe_at_from(r, instr, fringe);
 	}
 
 	if(is_draw_meaningful(instr.radius.to)){
-		auto instr_outer = instr;
-		instr_outer.radius.from = instr_outer.radius.to + fringe;
-		instr_outer.color.to = instr.color.from.make_transparent();
-		r.push(instr_outer);
+		poly_fringe_at_to(r, instr, fringe);
 	}
+}
+
+export
+FORCE_INLINE void poly(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
+	r.push(instr);
+	poly_fringe_only(r, instr, fringe);
 }
 
 export
@@ -64,7 +78,6 @@ FORCE_INLINE void poly_partial(renderer_frontend& r, const instruction::poly_par
 		instr_outer.color.v01 = instr.color.v11.make_transparent();
 		r.push(instr_outer);
 	}
-
 }
 
 export
@@ -209,6 +222,19 @@ concept container_buffer = requires(T& t, std::size_t sz){
 	t.resize(sz);
 	requires std::ranges::contiguous_range<T>;
 	requires std::ranges::sized_range<T>;
+};
+
+export
+template <typename T, std::size_t N>
+struct static_array_buffer : std::array<T, N>{
+	using array = std::array<T, N>;
+	using array::array;
+
+	static void resize(array::size_type sz){
+		if(sz > N){
+			throw std::bad_alloc{};
+		}
+	}
 };
 
 export

@@ -168,6 +168,10 @@ export
 struct layer_param{
 	std::uint32_t layer_index;
 
+	constexpr bool is_top() const noexcept{
+		return layer_index == 0;
+	}
+
 	constexpr bool operator==(std::uint32_t idx) const noexcept{
 		return layer_index == idx;
 	}

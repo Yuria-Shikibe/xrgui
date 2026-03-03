@@ -56,6 +56,7 @@ void main(
     trans_back *= darkened_base_dst.a;
     // 步骤一：Src[1] (背景色) 作用给压暗后的 Dst[0] (目标前景色)
     float4 temp_base_dst = pp::blend::pre_scaled_alpha_blend(trans_back, darkened_base_dst);
+    temp_base_dst *= color_base_dst.a;
 
     // 步骤二：Src[1] (背景色) 和 Dst[1] (目标背景色) 预乘混合
     float4 final_back_dst = pp::blend::pre_scaled_alpha_blend(color_back_src, color_back_dst);

@@ -51,7 +51,7 @@ public float4 alpha_blend(const in float4 src, const in float4 dst)
 
 [ForceInline]
 public float4 pre_scaled_alpha_blend(const in float4 src, const in float4 dest) {
-    return fma(dest, (1.0 - src.a), src);
+    return fma(dest, saturate(1.0 - src.a), src);
 }
 
 }

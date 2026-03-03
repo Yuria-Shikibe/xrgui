@@ -17,9 +17,10 @@ void main(
 ) {
     let pos = dispatchThreadID.xy + offset;
 
-    let sourceColor = input.Load(pos);
+    var sourceColor = input.Load(pos);
     let targetColor = output.Load(pos);
-    let result = pp::blend::alpha_blend(sourceColor, targetColor);
+    sourceColor.rgb *= sourceColor.a;
+    let result = pp::blend::pre_scaled_alpha_blend(sourceColor, targetColor);
 
     output.Store(pos, result);
 }

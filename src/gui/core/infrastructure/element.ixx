@@ -735,6 +735,16 @@ public:
 		}
 	}
 
+	template <std::derived_from<elem> T, bool unchecked = false>
+	[[nodiscard]] FORCE_INLINE T& parent_ref() const noexcept{
+		assert(parent_ != nullptr);
+		if constexpr (!unchecked && !std::same_as<T, elem>){
+			return dynamic_cast<T&>(*parent_);
+		}else{
+			return static_cast<T&>(*parent_);
+		}
+	}
+
 	[[nodiscard]] FORCE_INLINE inline vec2 content_extent() const noexcept{
 		const auto [w, h] = size_.get_size();
 		const auto [bw, bh] = boarder_extent();

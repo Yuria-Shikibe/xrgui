@@ -571,10 +571,10 @@ void prepare(){
 	pass_filter_high_light.id()->add_input({{ui_input_base, 0}});
 
 
-	auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
-	pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
-	pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
-	pass_bloom.pass.add_local({1, compositor::no_slot});
+	// auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
+	// pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
+	// pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
+	// pass_bloom.pass.add_local({1, compositor::no_slot});
 
 
 	static constexpr VkSpecializationMapEntry SpecEntry{0, 0, 4};
@@ -600,7 +600,7 @@ void prepare(){
 				{{4}, 3, compositor::no_slot},
 			}
 		});
-	pass_merge.id()->add_dep({pass_bloom.id(), 0, 0});
+	pass_merge.id()->add_dep({pass_filter_high_light.id(), 0, 0});
 	pass_merge.id()->add_input({{ui_input_back, 1}});
 	pass_merge.id()->add_input({{base_input, 2}});
 	pass_merge.id()->add_dep({pass_blur.id(), 0, 3});
@@ -631,9 +631,7 @@ void prepare(){
 
 		manager.resize(event.size, true);
 		//
-		pass_bloom.meta.set_scale(.5f);
-		pass_bloom.meta.set_mix_factor(0.25f);
-		pass_bloom.meta.set_strength(.65f, .65f);
+		// pass_bloom.meta.set_scale(.5f);/.65f, .65f);
 
 		pass_blur.meta.set_scale(1.25f);
 		pass_blur.meta.set_mix_factor(.025f);

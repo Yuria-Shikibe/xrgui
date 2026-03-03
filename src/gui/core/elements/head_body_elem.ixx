@@ -1,6 +1,6 @@
-//
-// Created by Matrix on 2025/11/14.
-//
+module;
+
+#include <cassert>
 
 export module mo_yanxi.gui.elem.head_body_elem;
 
@@ -179,6 +179,26 @@ protected:
 		return this->create(true, std::forward<Fn>(init), std::forward<Args>(args)...);
 	}
 
+	template <typename E = elem>
+	auto& set_elem(bool as_body, elem_ptr&& item){
+		if(items[as_body]){
+			clear_children_update_required(items[as_body].get());
+		}
+		items[as_body] = std::move(item);
+		notify_isolated_layout_changed();
+		return static_cast<E&>(*items[as_body]);
+	}
+
+	template <typename E = elem>
+	auto& set_body_elem(elem_ptr&& item){
+		return set_elem<E>(true, std::move(item));
+	}
+
+	template <typename E = elem>
+	auto& set_head_elem(elem_ptr&& item){
+		return set_elem<E>(false, std::move(item));
+	}
+
 
 	[[nodiscard]] std::optional<layout::layout_policy> search_layout_policy_getter_impl() const noexcept final{
 		return get_layout_policy();
@@ -194,6 +214,8 @@ protected:
 	}
 
 	virtual void set_children_src() const{
+		assert(items[0] != nullptr);
+		assert(items[1] != nullptr);
 		auto [_, minor] = layout::get_vec_ptr(layout_policy_);
 
 		auto sz = items[transpose_head_and_body_]->extent();
@@ -360,5 +382,13 @@ export struct head_body_no_invariant : head_body{
 
 	using head_body::emplace_body;
 	using head_body::emplace_head;
+
+	using head_body::set_body_elem;
+	using head_body::set_head_elem;
+
+	using head_body::emplace;
+	using head_body::create;
+	using head_body::set_elem;
+
 };
 }

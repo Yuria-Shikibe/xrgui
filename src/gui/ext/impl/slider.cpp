@@ -28,8 +28,8 @@ namespace mo_yanxi::gui{
 
 void style::default_slider_drawer::draw(const slider& element, math::frect region, float opacityScl) const{
 	const auto extent = element.get_bar_handle_extent();
-	auto pos1 = element.content_src_pos_abs() + element.bar.get_progress() * element.content_extent().fdim(extent);
-	auto pos2 = element.content_src_pos_abs() + element.bar.get_temp_progress() * element.content_extent().fdim(extent);
+	auto pos1 = region.src + element.bar.get_progress() * region.extent().fdim(extent);
+	auto pos2 = region.src + element.bar.get_temp_progress() * region.extent().fdim(extent);
 
 	auto& renderer = element.get_scene().renderer();
 	using namespace graphic;
@@ -37,12 +37,12 @@ void style::default_slider_drawer::draw(const slider& element, math::frect regio
 	renderer.push(rect_aabb{
 		.v00 = pos1,
 		.v11 = pos1 + extent,
-		.vert_color = {colors::white}
+		.vert_color = {colors::white.copy().mul_a(.5f * opacityScl)}
 	});
 	renderer.push(rect_aabb{
 		.v00 = pos2,
 		.v11 = pos2 + extent,
-		.vert_color = {colors::white.copy().mul_a(.5f)}
+		.vert_color = {colors::white.copy().mul_a(opacityScl)}
 	});
 }
 
@@ -50,9 +50,8 @@ void style::default_slider_drawer::draw(const slider& element, math::frect regio
 void slider::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
 	elem::draw_layer(clipSpace, param);
 
-	draw_style(param);
 	if(drawer_){
-		drawer_->draw_layer(*this, clipSpace, 1, param);
+		drawer_->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
 	}
 }
 }

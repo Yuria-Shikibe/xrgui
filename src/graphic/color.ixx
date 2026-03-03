@@ -401,26 +401,6 @@ public:
 		return to_hsv().v;
 	}
 
-	FORCE_INLINE constexpr color& from_hue(const float amount) noexcept{
-		auto TMP_HSV = to_hsv();
-		TMP_HSV.h = amount;
-		from_hsv(TMP_HSV);
-		return *this;
-	}
-
-	FORCE_INLINE constexpr color& from_saturation(const float amount) noexcept{
-		auto TMP_HSV = to_hsv();
-		TMP_HSV.s = amount;
-		from_hsv(TMP_HSV);
-		return *this;
-	}
-
-	FORCE_INLINE constexpr color& from_value(const float amount) noexcept{
-		auto TMP_HSV = to_hsv();
-		TMP_HSV.v = amount;
-		from_hsv(TMP_HSV);
-		return *this;
-	}
 
 	FORCE_INLINE constexpr color& shift_hue(const float amount) noexcept{
 		auto TMP_HSV = to_hsv();
@@ -458,82 +438,149 @@ public:
 			static_cast<rgba8_bits>(max_val * a));;
 	}
 
-	FORCE_INLINE constexpr color& from_hsv(const float h, const float s, const float v) noexcept{
-		const float x = math::mod(h / 60.0f + 6, static_cast<float>(6));
-		const int i = static_cast<int>(x);
-		const float f = x - static_cast<float>(i);
-		const float p = v * (1 - s);
-		const float q = v * (1 - s * f);
-		const float t = v * (1 - s * (1 - f));
-		switch(i){
-		case 0 : r = v;
-			g = t;
-			b = p;
-			break;
-		case 1 : r = q;
-			g = v;
-			b = p;
-			break;
-		case 2 : r = p;
-			g = v;
-			b = t;
-			break;
-		case 3 : r = p;
-			g = q;
-			b = v;
-			break;
-		case 4 : r = t;
-			g = p;
-			b = v;
-			break;
-		default : r = v;
-			g = p;
-			b = q;
-		}
+	// ---------------------------------------------------------
+	// 优化后的 to_hsv
+	// ---------------------------------------------------------
+	[[nodiscard]] FORCE_INLINE constexpr hsv to_hsv() const noexcept{
+    hsv hsv{0.0f, 0.0f, 0.0f};
+    const float maxV = math::max(math::max(r, g), b);
+    const float minV = math::min(math::min(r, g), b);
+    const float range = maxV - minV;
+
+    hsv.v = maxV;
+
+    // 如果亮度为0，直接返回纯黑
+    if(maxV <= 0.0f){
+       return hsv;
+    }
+
+    hsv.s = range / maxV;
+
+    // 如果没有色差（饱和度为0的纯灰色），色相为0
+    if(range <= 0.0f){
+       return hsv;
+    }
+
+    // 预计算除数常量 (相当于 1.0f / (6.0f * range))
+    // 对应原本公式中除以 360 度的归一化处理
+    const float inv_range_6 = 1.0f / (6.0f * range);
+
+    if(maxV == r){
+       hsv.h = (g - b) * inv_range_6;
+       if(hsv.h < 0.0f) hsv.h += 1.0f;
+    } else if(maxV == g){
+       hsv.h = (b - r) * inv_range_6 + (1.0f / 3.0f); // 1/3 对应 120 度
+    } else{
+       hsv.h = (r - g) * inv_range_6 + (2.0f / 3.0f); // 2/3 对应 240 度
+    }
+
+    return hsv;
+}
+
+// ---------------------------------------------------------
+// 优化后的 from_hsv (使用 [0, 1] 归一化输入)
+// ---------------------------------------------------------
+FORCE_INLINE constexpr color& from_hsv(const hsv val) noexcept{
+    auto [h, s, v] = val;
+    // Fast-path: 饱和度为 0 时直接是灰阶
+    if(s <= 0.0f){
+       r = v;
+       g = v;
+       b = v;
+       return clamp();
+    }
+
+    // 规范化 hue 到 [0, 1) 之间
+    float norm_h = math::mod(h, 1.0f);
+    if(norm_h < 0.0f) norm_h += 1.0f;
+
+    // 映射到 [0, 6) 用于计算六边形的 6 个区间
+    norm_h *= 6.0f;
+
+    const int i = static_cast<int>(norm_h);
+    const float f = norm_h - static_cast<float>(i);
+
+    const float p = v * (1.0f - s);
+    const float q = v * (1.0f - s * f);
+    const float t = v * (1.0f - s * (1.0f - f));
+
+    switch(i){
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    default:r = v; g = p; b = q; break; // case 5
+    }
+
+    return clamp();
+}
+
+// ---------------------------------------------------------
+// 极速修改色相 (Hue)
+// ---------------------------------------------------------
+FORCE_INLINE constexpr color& set_hue(const float target_h) noexcept{
+    const float current_v = math::max(math::max(r, g), b);
+    const float current_min = math::min(math::min(r, g), b);
+
+    // 纯黑没有色相，直接返回
+    if(current_v <= 0.0f) return *this;
+
+    const float current_range = current_v - current_min;
+    // 纯灰阶(无饱和度)没有色相，修改色相无意义，直接返回
+    if(current_range <= 0.0f) return *this;
+
+    // 仅计算 S 和 V，跳过当前 H 的昂贵计算，直接重新生成 RGB
+    // 注意：这里的 target_h 现在预期是 [0, 1] 的值
+    const float current_s = current_range / current_v;
+    return from_hsv({target_h, current_s, current_v});
+}
+
+	// ---------------------------------------------------------
+	// 极速修改饱和度 (Saturation)
+	// ---------------------------------------------------------
+	FORCE_INLINE constexpr color& set_saturation(const float target_s) noexcept{
+		const float current_v = math::max(math::max(r, g), b);
+
+		if(current_v <= 0.0f) return *this; // 纯黑没有饱和度
+
+		const float current_min = math::min(math::min(r, g), b);
+		const float current_range = current_v - current_min;
+
+		if(current_range <= 0.0f) return *this; // 灰阶无法凭空捏造出颜色倾向
+
+		// 通过线性变换直接在 RGB 空间缩放饱和度，避免了 H 的计算与重分配
+		// 推导：scale = target_s / current_s = target_s / (current_range / current_v)
+		const float scale = (target_s * current_v) / current_range;
+
+		r = current_v + (r - current_v) * scale;
+		g = current_v + (g - current_v) * scale;
+		b = current_v + (b - current_v) * scale;
 
 		return clamp();
 	}
 
-	FORCE_INLINE constexpr color& from_hsv(const hsv hsv) noexcept{
-		return from_hsv(hsv.h, hsv.s, hsv.v);
-	}
+	// ---------------------------------------------------------
+	// 极速修改明度 (Value)
+	// ---------------------------------------------------------
+	FORCE_INLINE constexpr color& set_value(const float target_v) noexcept{
+		const float current_v = math::max(math::max(r, g), b);
 
-	FORCE_INLINE constexpr color HSVtoRGB(const float h, const float s, const float v, const float alpha) noexcept{
-		color c = HSVtoRGB(h, s, v);
-		c.a = alpha;
-		return c;
-	}
-
-	FORCE_INLINE constexpr color HSVtoRGB(const float h, const float s, const float v) noexcept{
-		color c{1, 1, 1, 1};
-		HSVtoRGB(h, s, v, c);
-		return c;
-	}
-
-	[[nodiscard]] FORCE_INLINE constexpr hsv to_hsv() const noexcept{
-		hsv hsv{};
-
-		const float maxV = math::max(math::max(r, g), b);
-		const float minV = math::min(math::min(r, g), b);
-		if(const float range = maxV - minV; range == 0){
-			hsv.h = 0;
-		} else if(maxV == r){
-			hsv.h = math::mod(60 * (g - b) / range + 360, 360.0f);
-		} else if(maxV == g){
-			hsv.h = 60 * (b - r) / range + 120;
-		} else{
-			hsv.h = 60 * (r - g) / range + 240;
+		// 如果原本是黑色，则将明度赋予为纯灰阶
+		if(current_v <= 0.0f){
+			r = target_v;
+			g = target_v;
+			b = target_v;
+			return clamp();
 		}
 
-		if(maxV > 0){
-			hsv.s = 1 - minV / maxV;
-		} else{
-			hsv.s = 0;
-		}
+		// 按比例缩放所有通道即可完美保持 H 和 S
+		const float scale = target_v / current_v;
+		r *= scale;
+		g *= scale;
+		b *= scale;
 
-		hsv.v = maxV;
-
-		return hsv;
+		return clamp();
 	}
 
 	[[nodiscard]] FORCE_INLINE constexpr bool equals(const color& other) const noexcept{
@@ -543,49 +590,6 @@ public:
 			math::equal(g, other.g, tolerance) &&
 			math::equal(b, other.b, tolerance) &&
 			math::equal(a, other.a, tolerance);
-	}
-
-	[[deprecated]] constexpr color& HSVtoRGB(float h, float s, float v, color& targetColor) noexcept{
-		if(h == 360) h = 359;
-		h = math::max(0.0f, math::min(360.0f, h));
-		s = math::max(0.0f, math::min(100.0f, s));
-		v = math::max(0.0f, math::min(100.0f, v));
-		s /= 100.0f;
-		v /= 100.0f;
-		h /= 60.0f;
-		const int i = math::floorLEqual(h);
-		const float f = h - static_cast<float>(i);
-		const float p = v * (1 - s);
-		const float q = v * (1 - s * f);
-		const float t = v * (1 - s * (1 - f));
-		switch(i){
-		case 0 : r = v;
-			g = t;
-			b = p;
-			break;
-		case 1 : r = q;
-			g = v;
-			b = p;
-			break;
-		case 2 : r = p;
-			g = v;
-			b = t;
-			break;
-		case 3 : r = p;
-			g = q;
-			b = v;
-			break;
-		case 4 : r = t;
-			g = p;
-			b = v;
-			break;
-		default : r = v;
-			g = p;
-			b = q;
-		}
-
-		targetColor.set_a(targetColor.a);
-		return targetColor;
 	}
 
 	template <std::ranges::random_access_range Rng>

@@ -67,7 +67,7 @@ struct attachment_state{
 };
 
 export struct renderer{
-	static constexpr std::size_t frames_in_flight = 3;
+	static constexpr std::size_t frames_in_flight = 1;
 
 	/** 命令录制上下文：作为 renderer 的内部结构体，拥有访问外部私有成员的权限 */
 	struct command_recording_context{

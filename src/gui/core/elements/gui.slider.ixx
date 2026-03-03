@@ -138,11 +138,11 @@ struct slider_drawer : style_drawer<slider>{
 };
 
 export
-struct default_slider_drawer : slider_drawer{
+struct
+default_slider_drawer : slider_drawer{
 	[[nodiscard]] constexpr default_slider_drawer()
 	: slider_drawer(tags::persistent, layer_top_only){
 	}
-
 
 	void draw_layer_impl(
 		const slider& element,
@@ -153,12 +153,12 @@ struct default_slider_drawer : slider_drawer{
 	void draw(const slider& element, math::frect region, float opacityScl) const ;
 };
 
-export inline constexpr default_slider_drawer default_slider_drawer;
+export inline constexpr default_slider_drawer default_slider_drawer_instance;
 
 export inline const slider_drawer* global_default_slider_drawer{};
 
 export inline const slider_drawer* get_global_default_slider_drawer() noexcept{
-	return global_default_slider_drawer == nullptr ? &default_slider_drawer : global_default_slider_drawer;
+	return global_default_slider_drawer == nullptr ? &default_slider_drawer_instance : global_default_slider_drawer;
 }
 
 }
@@ -175,8 +175,8 @@ protected:
 	}
 
 	void check_apply(){
-		if(bar.apply() && submit_node_){
-			submit_node_->update_value(bar.get_progress());
+		if(bar.apply()){
+			on_changed();
 		}
 		update_approach_state();
 	}
@@ -190,6 +190,9 @@ protected:
 
 	math::optional_vec2<float> drag_src_{math::nullopt_vec2<float>};
 
+	virtual void on_changed(){
+		if(submit_node_)submit_node_->update_value(bar.get_progress());
+	}
 public:
 	slider2d_slot bar;
 
@@ -286,16 +289,30 @@ public:
 		drawer->apply_to(*this);
 	}
 
+	void set_drawer(const style::slider_drawer& drawer){
+		set_drawer(&drawer);
+	}
+
 	void set_hori_only() noexcept{
 		sensitivity.y = 0.0f;
 	}
 
-	[[nodiscard]] bool is_clamped_to_hori() const noexcept{
-		return sensitivity.y == 0.0f;
-	}
-
 	void set_vert_only() noexcept{
 		sensitivity.x = 0.0f;
+	}
+
+	void set_clamp_from_layout_policy(layout::layout_policy policy, math::vec2 target_sensitivity = {1, 1}){
+		sensitivity = target_sensitivity;
+		switch(policy){
+		case layout::layout_policy::none: break;
+		case layout::layout_policy::vert_major: set_vert_only(); break;
+		case layout::layout_policy::hori_major: set_hori_only(); break;
+		default: std::unreachable();
+		}
+	}
+
+	[[nodiscard]] bool is_clamped_to_hori() const noexcept{
+		return sensitivity.y == 0.0f;
 	}
 
 	[[nodiscard]] bool is_clamped_to_vert() const noexcept{
@@ -414,6 +431,7 @@ public:
 
 	}
 
+protected:
 	bool update(float delta_in_ticks) override{
 		if(elem::update(delta_in_ticks)){
 			if(!drag_src_ && (smooth_scroll_ || smooth_jump_ || smooth_drag_)){
@@ -430,6 +448,8 @@ public:
 		}
 		return false;
 	}
+
+public:
 	[[nodiscard]] constexpr math::vec2 get_bar_handle_extent() const noexcept{
 		return {
 				is_clamped_to_vert() ?

@@ -9,7 +9,7 @@ restrict WTexture2D output;
 restrict readonly RWTexture2D input;
 
 static const float u_threshold = .0f;
-static const float u_smoothness = .065f;
+static const float u_smoothness = .0f;
 
 [shader("compute")]
 [numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
@@ -20,13 +20,13 @@ void main(
 
     let sourceColor = input.Load(pos);
 
-    let luminance = pp::luma(sourceColor.rgb);
+    // let luminance = pp::luma(sourceColor.rgb);
 
-    let highlight = max(0.0, luminance - u_threshold);
+    // let highlight = max(0.0, luminance - u_threshold);
 
-    let smoothFactor = smoothstep(0.0, u_smoothness, highlight);
+    // let smoothFactor = smoothstep(0.0, u_smoothness, highlight);
 
-    let result = float4(sourceColor.rgb, sourceColor.a) * smoothFactor;
+    // let result = float4(sourceColor.rgb, sourceColor.a) * smoothFactor;
 
-    output.Store(pos, result);
+    output.Store(pos, sourceColor);
 }
