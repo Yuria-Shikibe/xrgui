@@ -358,7 +358,7 @@ public:
 
 	acquire_result obtain(const glyph_index_t code, const glyph_size_type size){
 		check(set_size(size.x, size.y));
-		if(const auto shot = load_and_get_by_index(code)){
+		if(const auto shot = load_and_get_by_index(code, FT_LOAD_NO_HINTING)){
 			const bool is_empty = shot.value()->bitmap.width == 0 ||
 				shot.value()->bitmap.rows == 0;
 			return acquire_result{
@@ -377,9 +377,9 @@ public:
 
 	[[nodiscard]] math::usize2 get_extent() noexcept{
 		return {
-				handle->glyph->bitmap.width + graphic::msdf::sdf_image_boarder * 2,
-				handle->glyph->bitmap.rows + graphic::msdf::sdf_image_boarder * 2
-			};
+			static_cast<unsigned>(std::ceil(normalize_len<float>(handle->glyph->metrics.width))) + graphic::msdf::sdf_image_boarder * 2,
+			static_cast<unsigned>(std::ceil(normalize_len<float>(handle->glyph->metrics.height))) + graphic::msdf::sdf_image_boarder * 2
+		};
 	}
 };
 

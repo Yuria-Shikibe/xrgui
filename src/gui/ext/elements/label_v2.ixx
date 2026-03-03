@@ -5,14 +5,14 @@ module;
 
 export module mo_yanxi.gui.elem.label_v2;
 
+import std;
+export import mo_yanxi.typesetting;
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.gui.elem.text_holder;
 export import mo_yanxi.font;
-export import mo_yanxi.typesetting;
 export import mo_yanxi.typesetting.rich_text;
 export import mo_yanxi.graphic.draw.instruction.recorder;
 import mo_yanxi.concurrent.atomic_shared_mutex;
-import std;
 
 namespace mo_yanxi::gui{
 
@@ -22,7 +22,7 @@ struct layout_record<typesetting::glyph_layout>{
 	static void record_glyph_draw_instructions(
 		graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
 		const typesetting::glyph_layout& glyph_layout,
-		graphic::color color_scl
+		graphic::color color_scl, typesetting::content_alignment line_align
 	);
 };
 

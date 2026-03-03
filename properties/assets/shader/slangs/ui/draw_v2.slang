@@ -114,8 +114,9 @@ void main_mesh(
 }
 
 struct ubo_ui_state {
+    float2 screen_extent;
     float time;
-    uint32_t[3] _cap;
+    uint32_t _cap;
 };
 
 [[vk::binding(1, 1)]]

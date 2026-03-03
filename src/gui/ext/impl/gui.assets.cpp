@@ -8,6 +8,7 @@ import mo_yanxi.gui.assets.manager;
 
 //TODO import image page from other place...
 import mo_yanxi.graphic.image_atlas;
+import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.image_regions;
 import align;
 
@@ -65,19 +66,19 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 	auto& boarder = load(page,
 			"edge",
 			graphic::sdf_load{
-				graphic::msdf::msdf_generator{graphic::msdf::create_boarder(12.f, 3.f), 4.}, extent, 2
+				graphic::msdf::msdf_generator{graphic::msdf::create_boarder(8.f, 3.f), 4.}, extent, 3
 			});
 
 	auto& boarder_thin = load(page,
 		"edge_thin",
 		graphic::sdf_load{
-			graphic::msdf::msdf_generator{graphic::msdf::create_boarder(12.f, 2.f), 4.}, extent, 2
+			graphic::msdf::msdf_generator{graphic::msdf::create_boarder(8.f, 1.f), 4.}, extent, 3
 		});
 
 	auto& base = load(page,
 		"base",
 		graphic::sdf_load{
-			graphic::msdf::msdf_generator{graphic::msdf::create_solid_boarder(12.f), 4.}, extent, 3
+			graphic::msdf::msdf_generator{graphic::msdf::create_solid_boarder(8.f), 4.}, extent, 3
 		});
 
 	using namespace builtin;
@@ -93,5 +94,12 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 	builtin::default_round_square_boarder_thin = {boarder_thin, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_boarder), graphic::msdf::sdf_image_boarder};
 	builtin::default_round_square_base = {base, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_boarder), graphic::msdf::sdf_image_boarder};
 
+}
+
+void dispose_generated_shapes(){
+	style::global_default_style_drawer = {};
+	builtin::default_round_square_boarder = {};
+	builtin::default_round_square_boarder_thin = {};
+	builtin::default_round_square_base = {};
 }
 }

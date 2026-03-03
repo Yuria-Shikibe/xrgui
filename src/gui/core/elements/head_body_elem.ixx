@@ -2,7 +2,7 @@
 // Created by Matrix on 2025/11/14.
 //
 
-export module mo_yanxi.gui.elem.two_segment_elem;
+export module mo_yanxi.gui.elem.head_body_elem;
 
 export import mo_yanxi.gui.infrastructure;
 import std;

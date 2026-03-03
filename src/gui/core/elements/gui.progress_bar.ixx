@@ -13,91 +13,140 @@ import mo_yanxi.math.constrained_system;
 import std;
 
 namespace mo_yanxi::gui{
-
 export enum struct progress_state{
-	exact,
-	rough,
-	staging,
-	approach_linear,
-	approach_scaled,
-	approach_smooth,
-
+    exact,
+    rough,
+    staging,
+    approach_linear,
+    approach_scaled,
+    approach_smooth,
+    approach_smooth_lerp // 可选：新增基于 lerp 的极致平滑状态
 };
 
 struct bar_progress{
-	using value_type = float;
+    using value_type = float;
 
 private:
-	progress_state state{};
-	value_type target{};
-	value_type current{};
+    progress_state state{};
+    value_type target{};
+    value_type current{};
 
-	float speed_scale{1};
+    float speed_scale{1};
+    float current_speed_{};
 
-	float current_speed_{};
 public:
-	constexpr void set_speed(value_type speed) noexcept{
-		//TODO check NAN?
-		speed_scale = speed;
-	}
+    constexpr void set_speed(value_type speed) noexcept{
+       speed_scale = math::max(speed, 0.0f); // 防御性编程：避免负数缩放导致物理系统崩溃
+    }
 
-	constexpr bool set_target(value_type target) noexcept{
-		return util::try_modify(this->target, target);
-	}
+    constexpr bool set_target(value_type target) noexcept{
+       return util::try_modify(this->target, target);
+    }
 
-	constexpr bool set_state(progress_state new_state) noexcept{
-		auto rst = util::try_modify(state, new_state);
-		if(new_state == progress_state::approach_smooth)current_speed_ = 0;
-		if(new_state == progress_state::rough){
-			current = {};
-		}
-		return rst;
-	}
+    constexpr bool set_state(progress_state new_state) noexcept{
+       auto rst = util::try_modify(state, new_state);
+       if(new_state == progress_state::approach_smooth ||
+          new_state == progress_state::approach_smooth_lerp){
+           current_speed_ = 0;
+       }
+       if(new_state == progress_state::rough){
+          current = {};
+       }
+       return rst;
+    }
 
-	constexpr void set_to_target() noexcept{
-		current = target;
-	}
+    constexpr void set_to_target() noexcept{
+       current = target;
+       current_speed_ = 0; // 重置目标时，一并消除动能
+    }
 
-	[[nodiscard]] constexpr progress_state get_state() const noexcept{
-		return state;
-	}
+    [[nodiscard]] constexpr progress_state get_state() const noexcept{ return state; }
+    [[nodiscard]] constexpr value_type get_target() const noexcept{ return target; }
+    [[nodiscard]] constexpr value_type get_current() const noexcept{ return current; }
 
-	[[nodiscard]] constexpr value_type get_target() const noexcept{
-		return target;
-	}
+    constexpr bool update(float delta_in_tick) noexcept{
+       switch(state){
+       case progress_state::staging: return true;
 
-	[[nodiscard]] constexpr value_type get_current() const noexcept{
-		return current;
-	}
+       case progress_state::rough:
+           current += delta_in_tick * speed_scale;
+           return false;
 
-	constexpr bool update(float delta_in_tick) noexcept{
-		switch(state){
-		case progress_state::staging: return true;
-		case progress_state::rough: current += delta_in_tick * speed_scale; return false;
-		case progress_state::exact: current = target; return true;
-		case progress_state::approach_linear:{
-			math::approach_inplace(current, target, delta_in_tick * speed_scale);
-			return current == target;
-		}
-		case progress_state::approach_scaled:{
-			auto dlt = target - current;
-			if(math::abs(dlt) < std::numeric_limits<float>::epsilon() * 1024){
-				current = target;
-				return true;
-			}
-			current = math::lerp(current, target, math::clamp(delta_in_tick * speed_scale));
-			return false;
-		}
-		case progress_state::approach_smooth:{
-			auto accel = math::constrain_resolve::smooth_approach(target - current, current_speed_, speed_scale);
-			math::approach_inplace(current, target, math::abs(delta_in_tick * current_speed_));
-			current_speed_ += accel * delta_in_tick;
-			return current == target;
-		}
-		default: std::unreachable();
-		}
-		return true;
-	}
+       case progress_state::exact:
+           current = target;
+           return true;
+
+       case progress_state::approach_linear:
+          math::approach_inplace(current, target, delta_in_tick * speed_scale);
+          return current == target;
+
+       case progress_state::approach_scaled:{
+          auto dlt = target - current;
+          if(math::zero(dlt, std::numeric_limits<float>::epsilon() * 1024)){
+             current = target;
+             return true;
+          }
+          current = math::lerp(current, target, math::clamp(delta_in_tick * speed_scale));
+          return false;
+       }
+
+       case progress_state::approach_smooth:{
+          const auto dist = target - current;
+
+          // 提前终止条件：如果距离足够近，且速度几乎为零，则直接吸附
+          if(math::zero(dist, 1e-4f) && math::zero(current_speed_, 1e-3f)){
+              current = target;
+              current_speed_ = 0.0f;
+              return true;
+          }
+
+          // 获取系统约束下的最优加速度
+          auto accel = math::constrain_resolve::smooth_approach(dist, current_speed_, speed_scale);
+
+          // 半隐式欧拉积分：先更新速度
+          current_speed_ += accel * delta_in_tick;
+          const auto delta_pos = current_speed_ * delta_in_tick;
+
+          // 防超调 (Anti-overshoot) 逻辑：如果这一步会跨越目标，强制截断并停滞
+          if ((dist > 0 && delta_pos >= dist) || (dist < 0 && delta_pos <= dist)) {
+              current = target;
+              current_speed_ = 0.0f;
+          } else {
+              current += delta_pos;
+          }
+
+          return current == target;
+       }
+
+       case progress_state::approach_smooth_lerp:{
+          // 利用 constrain_resolve 中的 smooth_approach_lerp 提供另一种阻尼感更强的平滑
+          const auto dist = target - current;
+
+          if(math::zero(dist, 1e-4f) && math::zero(current_speed_, 1e-3f)){
+              current = target;
+              current_speed_ = 0.0f;
+              return true;
+          }
+
+          auto accel = math::constrain_resolve::smooth_approach_lerp(dist, current_speed_, speed_scale, 0.01f);
+
+          current_speed_ += accel * delta_in_tick;
+          const auto delta_pos = current_speed_ * delta_in_tick;
+
+          if ((dist > 0 && delta_pos >= dist) || (dist < 0 && delta_pos <= dist)) {
+              current = target;
+              current_speed_ = 0.0f;
+          } else {
+              current += delta_pos;
+          }
+
+          return current == target;
+       }
+
+       default: std::unreachable();
+       }
+       return true;
+    }
 };
 
 export

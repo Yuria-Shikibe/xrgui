@@ -36,7 +36,7 @@ namespace func{
 float get_upper_pad(
 	const parse_context& context,
 	const glyph_layout& layout,
-	const layout_rect region
+	const mo_yanxi::typesetting::layout_rect region
 ) noexcept{
 	//TODO make it decideable by params
 	const auto default_spacing = context.get_line_spacing();
@@ -196,7 +196,7 @@ bool parser::flush(
             : layout[context.current_row - 1].src.y;
 
         // [Helper 2] 上边距计算逻辑
-        auto calc_upper_pad = [&](layout_rect& bound) -> float {
+        auto calc_upper_pad = [&](mo_yanxi::typesetting::layout_rect& bound) -> float {
             const auto h = context.get_font_size().y;
             if (bound.ascender <= h) bound.ascender = h;
             return func::get_upper_pad(context, layout, bound);

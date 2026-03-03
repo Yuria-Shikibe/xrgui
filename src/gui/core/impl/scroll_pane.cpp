@@ -105,7 +105,7 @@ void scroll_pane::draw_layer(rect clipSpace, fx::layer_param_pass_t param) const
         // 获取颜色并应用透明度
         auto get_color = [&](auto base_color) {
             auto c = base_color;
-            c.a *= bar_opacity_;
+            c.a *= bar_opacity_ * get_draw_opacity();
             return c;
         };
 

@@ -73,10 +73,10 @@ using elem_style_ptr = referenced_ptr<const elem_style_drawer>;
 export constexpr inline debug_elem_drawer debug_style;
 export constexpr inline empty_drawer empty_style;
 
-export inline const elem_style_drawer* global_default_style_drawer{};
+export inline referenced_ptr<const elem_style_drawer> global_default_style_drawer{};
 
-export inline const elem_style_drawer* get_default_style_drawer() noexcept{
-	return global_default_style_drawer == nullptr ? &debug_style : global_default_style_drawer;
+export inline referenced_ptr<const elem_style_drawer> get_default_style_drawer() noexcept{
+	return global_default_style_drawer == nullptr ? referenced_ptr<const elem_style_drawer>{&debug_style} : global_default_style_drawer;
 }
 
 }
@@ -859,8 +859,9 @@ public:
 		const auto prev = get_draw_opacity();
 		if(util::try_modify(context_opacity_, val)){
 			on_opacity_changed(prev);
+			const float o = get_draw_opacity();
 			for(const auto& element : children()){
-				element->update_context_opacity(get_draw_opacity());
+				element->update_context_opacity(o);
 			}
 		}
 	}
@@ -872,6 +873,13 @@ public:
 			for(const auto& element : children()){
 				element->update_context_opacity(get_draw_opacity());
 			}
+		}
+	}
+
+	FORCE_INLINE inline void set_children_opacity_with_scl(const float scl) noexcept{
+		const float o = get_draw_opacity() * scl;
+		for(const auto& element : children()){
+			element->update_context_opacity(o);
 		}
 	}
 

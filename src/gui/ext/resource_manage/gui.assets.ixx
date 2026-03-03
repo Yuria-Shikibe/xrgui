@@ -14,4 +14,7 @@ void load_default_assets(const std::filesystem::path& svg_root);
 
 export
 void generate_default_shapes(graphic::image_atlas& image_atlas);
+
+export
+void dispose_generated_shapes();
 }

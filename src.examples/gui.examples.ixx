@@ -79,12 +79,15 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 	round_style->edge.pal = style::pal::white.border;
 	round_style->edge = assets::builtin::default_round_square_boarder_thin;
 
-	round_style->base.pal = style::pal::white.background;
-	round_style->base.pal.mul_alpha(.1f);
-	round_style->base = assets::builtin::default_round_square_base;
+	// round_style->base.pal = style::pal::white.background;
+	// round_style->base.pal.mul_alpha(.05f);
+	// round_style->base.pal.mul_rgb(.6f);
+	// round_style->base = assets::builtin::default_round_square_base;
 
 	round_style->back.pal = style::pal::dark;
 	round_style->back = assets::builtin::default_round_square_base;
+
+	gui::style::global_default_style_drawer = round_style;
 
 	auto make_create_table = [&]{
 		using function_signature = void(scroll_pane&);
@@ -117,7 +120,7 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 
 						sequence.create_back([&](progress_bar& prog){
 							prog.progress.set_state(progress_state::approach_smooth);
-							prog.progress.set_speed(.0005f);
+							prog.progress.set_speed(.0001f);
 							auto& t = prog.request_receiver();
 							react_flow::connect_chain({&progNode, &node_proj_x, &t});
 						}).cell().set_size(60);
@@ -125,7 +128,7 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 						sequence.create_back([&](progress_bar& prog){
 							prog.set_style(round_style);
 							prog.progress.set_state(progress_state::approach_smooth);
-							prog.progress.set_speed(.0005f);
+							prog.progress.set_speed(.0001f);
 							referenced_ptr<style::progress_drawer_arc> drawer{std::in_place};
 
 							drawer->angle_range = {.1f, -.7f};
@@ -357,6 +360,7 @@ Edge Cases:
 									label.set_style();
 									label.create([](label_v2& l){
 										l.set_expand_policy(layout::expand_policy::prefer);
+										l.text_line_align = typesetting::content_alignment::justify;
 										l.set_fit(false);
 										l.set_typesetting_config(typesetting::layout_config{
 												.throughout_scale = 1.75f

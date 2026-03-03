@@ -9,6 +9,7 @@ import mo_yanxi.concurrent.atomic_shared_mutex;
 import mo_yanxi.graphic.draw.instruction.recorder;
 import mo_yanxi.graphic.color;
 import mo_yanxi.gui.infrastructure;
+import mo_yanxi.typesetting;
 
 namespace mo_yanxi::gui{
 
@@ -58,7 +59,8 @@ struct layout_record{
 	static void record_glyph_draw_instructions(
 		graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
 		const LayoutType& glyph_layout,
-		graphic::color color_scl
+		graphic::color color_scl,
+		typesetting::content_alignment line_align
 	){
 		static_assert(false);
 	}
@@ -89,6 +91,7 @@ protected:
 
 public:
 	align::pos text_entire_align{align::pos::top_left};
+	typesetting::content_alignment text_line_align{};
 
 	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
 		return expand_policy_;
@@ -146,7 +149,7 @@ protected:
 	}
 
 	void update_draw_buffer(const LayoutType& glyph_layout){
-		layout_record<LayoutType>::record_glyph_draw_instructions(draw_instr_buffer_, glyph_layout, get_text_draw_color());
+		layout_record<LayoutType>::record_glyph_draw_instructions(draw_instr_buffer_, glyph_layout, get_text_draw_color(), text_line_align);
 	}
 
 	void push_text_draw_buffer() const{

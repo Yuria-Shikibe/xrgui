@@ -39,13 +39,101 @@ export struct underline{
 	math::vec2 start;
 	math::vec2 end;
 	float thickness;
+	unsigned start_gap_count;
+	unsigned end_gap_count;
 	graphic::color color;
 };
 
-export struct glyph_layout{
+export struct subrange {
+	unsigned pos{};
+	unsigned size{};
+};
+
+
+export struct line {
+	struct align_result {
+		math::vec2 start_pos;
+		math::vec2 letter_spacing;
+	};
+
+	subrange glyph_range;
+	subrange underline_range;
+	layout_rect rect;
+	math::vec2 start_pos;
+
+	[[nodiscard]] align_result calculate_alignment(
+		math::vec2 extent,
+		content_alignment align,
+		layout_direction dir) const noexcept {
+		align_result result{start_pos, math::vec2{0.f, 0.f}};
+
+		const bool is_vertical = (dir == layout_direction::ttb || dir == layout_direction::btt);
+		const bool is_reversed = (dir == layout_direction::rtl || dir == layout_direction::btt);
+
+		const float container_width = is_vertical ? extent.y : extent.x;
+		const float abs_content = std::abs(rect.width);
+		const float remaining = container_width - abs_content;
+
+		float align_offset = 0.f;
+		float spacing = 0.f;
+
+		if (!std::isinf(container_width)) {
+			if (remaining > 0.001f) {
+				if (is_reversed) {
+					switch (align) {
+						case content_alignment::start: align_offset = container_width; break;
+						case content_alignment::center: align_offset = container_width - (remaining / 2.0f); break;
+						case content_alignment::end: align_offset = abs_content; break;
+						case content_alignment::justify:
+							align_offset = container_width;
+							if (glyph_range.size > 1) spacing = remaining / static_cast<float>(glyph_range.size - 1);
+							break;
+					}
+				} else {
+					switch (align) {
+						case content_alignment::start: align_offset = 0.f; break;
+						case content_alignment::center: align_offset = remaining / 2.0f; break;
+						case content_alignment::end: align_offset = remaining; break;
+						case content_alignment::justify:
+							align_offset = 0.f;
+							if (glyph_range.size > 1) spacing = remaining / static_cast<float>(glyph_range.size - 1);
+							break;
+					}
+				}
+			} else if (is_reversed) {
+				align_offset = container_width;
+			}
+		} else {
+			if (is_reversed) align_offset = abs_content;
+		}
+
+		// 根据排版方向应用偏移和间距
+		if (is_vertical) {
+			result.start_pos.y += align_offset;
+			if (dir == layout_direction::ttb) {
+				result.letter_spacing.y = -spacing; // TTB 笔触默认向下移动
+			} else {
+				result.letter_spacing.y = spacing;  // BTT 笔触默认向上移动
+			}
+		} else {
+			result.start_pos.x += align_offset;
+			if (dir == layout_direction::ltr) {
+				result.letter_spacing.x = spacing;  // LTR 笔触默认向右移动
+			} else {
+				result.letter_spacing.x = -spacing; // RTL 笔触默认向左移动
+			}
+		}
+
+		return result;
+	}
+};
+
+export struct glyph_layout {
 	std::vector<glyph_elem> elems;
 	std::vector<underline> underlines;
+	std::vector<line> lines;
 	math::vec2 extent;
+	layout_direction direction;
 };
 
 font::hb::font_ptr create_harfbuzz_font(const font::font_face_handle& face){
@@ -53,9 +141,8 @@ font::hb::font_ptr create_harfbuzz_font(const font::font_face_handle& face){
 	return font::hb::font_ptr{font};
 }
 
-
 constexpr bool IsSeparator(char32_t c) noexcept {
-	//TODO use detailed check when ICU is valid
+	// TODO: use detailed check when ICU is valid
 
 	switch (c) {
 		// --- 常见 ASCII 标点 (保持原样) ---
@@ -95,7 +182,8 @@ export struct layout_config{
 
 	math::optional_vec2<float> default_font_size{math::nullopt_vec2<float>};
 	linefeed line_feed_type;
-	content_alignment align = content_alignment::start;
+	// content_alignment align = content_alignment::start;
+
 	float throughout_scale = 1.f;
 	float tab_scale = 4.f;
 	float line_spacing_scale = 1.5f;
@@ -112,7 +200,8 @@ export struct layout_config{
 		return screen_ppi.value_or(glyph_size::screen_ppi);
 	}
 
-	constexpr bool has_wrap_indicator() const noexcept{ return wrap_indicator_char; }
+	constexpr bool has_wrap_indicator() const noexcept{ return wrap_indicator_char;
+	}
 
 	constexpr bool operator==(const layout_config&) const noexcept = default;
 };
@@ -149,6 +238,7 @@ struct layout_block{
 		underlines.push_back(ul);
 		math::vec2 ul_min = math::min(ul.start, ul.end);
 		math::vec2 ul_max = math::max(ul.start, ul.end);
+
 		const math::vec2 diff = ul.end - ul.start;
 		if(std::abs(diff.x) > std::abs(diff.y)){
 			ul_min.y -= ul.thickness / 2.f;
@@ -189,33 +279,30 @@ export
 struct layout_context{
 private:
 	struct line_buffer_t{
-		std::vector<glyph_elem> elems;
-		std::vector<underline> underlines;
-		float width = 0.f;
-		float max_ascender = 0.f;
-		float max_descender = 0.f;
+		std::vector<glyph_elem> elems{};
+		std::vector<underline> underlines{};
+		layout_rect line_bound{};
 
-		// [Added] 追踪当前行的局部包围盒 (相对于行起始点)
+		// 追踪当前行的局部包围盒 (相对于行起始点)
 		math::vec2 pos_min{math::vectors::constant2<float>::inf_positive_vec2};
 		math::vec2 pos_max{-math::vectors::constant2<float>::inf_positive_vec2};
 
 		FORCE_INLINE inline void clear(){
 			elems.clear();
 			underlines.clear();
-			width = 0.f;
-			max_ascender = 0.f;
-			max_descender = 0.f;
-			// [Added] 重置包围盒
+			line_bound = {};
+
+			// 重置包围盒
 			pos_min = math::vectors::constant2<float>::inf_positive_vec2;
 			pos_max = -math::vectors::constant2<float>::inf_positive_vec2;
 		}
 
 		FORCE_INLINE inline void append(layout_block& block, float math::vec2::* major_axis){
 			math::vec2 move_vec{};
-			move_vec.*major_axis = width;
+			move_vec.*major_axis = line_bound.width;
 			elems.reserve(elems.size() + block.glyphs.size());
 
-			// [Modified] 在添加元素时同时更新行缓存的包围盒
+			// 在添加元素时同时更新行缓存的包围盒
 			if (!block.glyphs.empty() || !block.underlines.empty()) {
 				// 计算 block 移动后的包围盒
 				math::vec2 block_min = block.pos_min + move_vec;
@@ -237,9 +324,9 @@ private:
 				underlines.push_back(std::move(ul));
 			}
 
-			width += block.cursor.*major_axis;
-			max_ascender = std::max(max_ascender, block.block_ascender);
-			max_descender = std::max(max_descender, block.block_descender);
+			line_bound.width += block.cursor.*major_axis;
+			line_bound.ascender = std::max(line_bound.ascender, block.block_ascender);
+			line_bound.descender = std::max(line_bound.descender, block.block_descender);
 		}
 	};
 
@@ -253,13 +340,11 @@ private:
 		math::vec2 min_bound{math::vectors::constant2<float>::inf_positive_vec2};
 		math::vec2 max_bound{-math::vectors::constant2<float>::inf_positive_vec2};
 		math::vec2 default_font_size{};
-
 		float default_line_thickness = 0.f;
 		float default_space_width = 0.f;
 		float prev_line_descender_ = 0.f;
 		float current_baseline_pos_ = 0.f;
 		bool is_first_line_ = true;
-
 		hb_direction_t target_hb_dir = HB_DIRECTION_INVALID;
 		float math::vec2::* major_p = &math::vec2::x;
 		float math::vec2::* minor_p = &math::vec2::y;
@@ -293,9 +378,9 @@ private:
 	font::hb::buffer_ptr hb_buffer_;
 	std::vector<hb_feature_t> feature_stack_;
 
-	layout_config config;
+	layout_config config{};
 
-	layout_state state_;
+	layout_state state_{};
 	indicator_cache cached_indicator_{};
 
 public:
@@ -315,29 +400,31 @@ public:
 	[[nodiscard]] glyph_layout layout(const tokenized_text& full_text, font::font_face_view base_view = {}){
 		initialize_state(full_text, base_view);
 		glyph_layout results{};
-		results.elems.reserve(full_text.get_text().size());
+		results.direction = get_actual_direction();
+		results.elems.reserve(full_text.get_text().size()); // 预留全局元素空间
 
 		if(process_layout(full_text, results)){
 
 		}
 		finalize(results);
-
 		return results;
 	}
 
-	void layout(glyph_layout& layout, const tokenized_text& full_text, font::font_face_view base_view = {}){
+	void layout(glyph_layout& layout_ref, const tokenized_text& full_text, font::font_face_view base_view = {}){
 		initialize_state(full_text, base_view);
 
-		layout.elems.clear();
-		layout.underlines.clear();
-		layout.extent = {};
+		layout_ref.elems.clear();
+		layout_ref.underlines.clear();
+		layout_ref.lines.clear();
+		layout_ref.extent = {};
+		layout_ref.direction = get_actual_direction();
 
-		layout.elems.reserve(full_text.get_text().size());
+		layout_ref.elems.reserve(full_text.get_text().size());
 
-		if(process_layout(full_text, layout)){
+		if(process_layout(full_text, layout_ref)){
 
 		}
-		finalize(layout);
+		finalize(layout_ref);
 	}
 
 	bool set_max_extent(math::vec2 ext){
@@ -350,7 +437,7 @@ public:
 
 	void set_config(layout_config& c){
 		config = c;
-		//state update?
+		// state update?
 	}
 
 	[[nodiscard]] const layout_config& get_config() const noexcept{
@@ -429,9 +516,11 @@ private:
 				font::glyph_identity id{index, snapped_base_size};
 				font::glyph g = manager_->get_glyph_exact(*face, id);
 				const auto& m = g.metrics();
+
 				const auto advance = m.advance * base_scale_factor;
 				math::vec2 adv{};
 				adv.*state_.major_p = advance.*state_.major_p * (is_vertical_() ? -1 : 1);
+
 				math::frect local_aabb = m.place_to({}, base_scale_factor);
 				cached_indicator_ = indicator_cache{std::move(g), local_aabb, adv};
 			} else{
@@ -441,15 +530,17 @@ private:
 	}
 
 
-	// [Changed] Return bool: true if success, false if boundary exceeded
+	// 返回值：如果成功放置返回 true，如果超出边界则返回 false
 	bool advance_line(glyph_layout& results) noexcept{
 		const bool is_empty_line = state_.line_buffer_.elems.empty();
+
 		const float current_asc = is_empty_line
 									  ? get_scaled_default_line_thickness() / 2.f
-									  : state_.line_buffer_.max_ascender;
+									  : state_.line_buffer_.line_bound.ascender;
+
 		const float current_desc = is_empty_line
 									   ? get_scaled_default_line_thickness() / 2.f
-									   : state_.line_buffer_.max_descender;
+									   : state_.line_buffer_.line_bound.descender;
 
 		// 1. 预测下一行的基线位置
 		float next_baseline = state_.current_baseline_pos_;
@@ -461,10 +552,10 @@ private:
 			next_baseline += step;
 		}
 
-		// 2. [Fix] 主轴(宽度)检查：使用排版宽度(Advance)，忽略像素溢出
+		// 2. 主轴(宽度)检查：使用排版宽度(Advance)，忽略像素溢出
 		if (!config.max_extent.is_any_inf()) {
 			const float container_width = config.max_extent.*state_.major_p;
-			const float content_width = state_.line_buffer_.width;
+			const float content_width = state_.line_buffer_.line_bound.width;
 
 			// 如果仅仅是排版宽度超出（不含容差），则不允许提交
 			// 注意：这里允许极小的浮点误差
@@ -474,46 +565,17 @@ private:
 		}
 
 		// 3. 计算对齐偏移 (保持原有逻辑)
-		float align_offset = 0.f;
-		const float content_width = state_.line_buffer_.width;
-
-		if(!config.max_extent.is_any_inf()){
-			const float container_width = config.max_extent.*state_.major_p;
-			const float abs_content = std::abs(content_width);
-			float remaining = container_width - abs_content;
-
-			if(remaining > 0.001f){
-				if (is_reversed_()) {
-					switch(config.align){
-						case content_alignment::start: align_offset = container_width; break;
-						case content_alignment::center: align_offset = container_width - (remaining / 2.0f); break;
-						case content_alignment::end: align_offset = abs_content; break;
-						default: align_offset = container_width; break;
-					}
-				} else {
-					switch(config.align){
-						case content_alignment::center: align_offset = remaining / 2.0f; break;
-						case content_alignment::end: align_offset = remaining; break;
-						default: break;
-					}
-				}
-			} else if (is_reversed_()) {
-				align_offset = container_width;
-			}
-		} else {
-			if (is_reversed_()) align_offset = std::abs(content_width);
-		}
+		constexpr float align_offset = 0.f;
 
 		math::vec2 offset_vec{};
 		offset_vec.*state_.major_p = align_offset;
 		offset_vec.*state_.minor_p = next_baseline;
 
-		// 4. [Fix] 副轴(高度)检查：仍然基于 AABB，防止垂直溢出
+		// 4. 副轴(高度)检查：基于 AABB 防止垂直溢出
 		// 我们需要计算这一行放置后的垂直覆盖范围
 		if (!state_.line_buffer_.elems.empty()) {
 			// 计算当前行的垂直边界 (相对于 offset_vec 之前的局部坐标)
 			// 注意：pos_min/max 包含了 X 和 Y。我们只关心 minor_p (Y轴)
-
 			float line_min_y = state_.line_buffer_.pos_min.*state_.minor_p + offset_vec.*state_.minor_p;
 			float line_max_y = state_.line_buffer_.pos_max.*state_.minor_p + offset_vec.*state_.minor_p;
 
@@ -539,27 +601,34 @@ private:
 		state_.current_baseline_pos_ = next_baseline;
 		state_.is_first_line_ = false;
 
+		line new_line;
+		new_line.start_pos = offset_vec;
+		new_line.rect = state_.line_buffer_.line_bound;
+
+		// 记录在全局大数组中的索引范围
+		new_line.glyph_range = subrange(results.elems.size(), state_.line_buffer_.elems.size());
+		new_line.underline_range = subrange(results.underlines.size(), state_.line_buffer_.underlines.size());
+
+		// 计算全局包围盒，并将元素（保持局部相对坐标）移动到大数组
 		for(auto& elem : state_.line_buffer_.elems){
-			elem.aabb.move(offset_vec);
+			state_.min_bound.min(elem.aabb.vert_00() + offset_vec);
+			state_.max_bound.max(elem.aabb.vert_11() + offset_vec);
 			results.elems.push_back(std::move(elem));
-			state_.min_bound.min(elem.aabb.vert_00());
-			state_.max_bound.max(elem.aabb.vert_11());
 		}
 
+		unsigned global_glyph_base = results.elems.size();
 		for(auto& ul : state_.line_buffer_.underlines){
-			ul.start += offset_vec;
-			ul.end += offset_vec;
-
-			math::vec2 ul_min = math::min(ul.start, ul.end);
-			math::vec2 ul_max = math::max(ul.start, ul.end);
+			math::vec2 ul_min = math::min(ul.start, ul.end) + offset_vec;
+			math::vec2 ul_max = math::max(ul.start, ul.end) + offset_vec;
 			ul_min.y -= ul.thickness / 2.f;
 			ul_max.y += ul.thickness / 2.f;
 
 			state_.min_bound.min(ul_min);
 			state_.max_bound.max(ul_max);
-
 			results.underlines.push_back(std::move(ul));
 		}
+
+		results.lines.push_back(std::move(new_line));
 
 		state_.prev_line_descender_ = current_desc;
 		state_.line_buffer_.clear();
@@ -571,9 +640,9 @@ private:
 
 		// 辅助 Lambda：预测合并 block 后的尺寸是否合规
 		auto check_block_fit = [&](const line_buffer_t& buffer, const layout_block& blk) -> bool {
-			// --- [Fix] 主轴检查：只检查 Advance Width (排版宽度) ---
+			// --- 主轴检查：仅检查 Advance Width (排版宽度) ---
 			// 预测行宽 = 当前行宽 + Block步进
-			float predicted_width = buffer.width + blk.cursor.*state_.major_p;
+			float predicted_width = buffer.line_bound.width + blk.cursor.*state_.major_p;
 			float limit_width = config.max_extent.*state_.major_p;
 
 			// 如果不是无限宽，且预测宽度 > 限制宽度，则放不下
@@ -581,10 +650,11 @@ private:
 				return false;
 			}
 
-			// --- [Fix] 副轴检查：检查 AABB Height (垂直溢出) ---
+			// --- 副轴检查：检查 AABB Height (垂直溢出) ---
 			// 获取行高信息
-			float asc = std::max(buffer.max_ascender, blk.block_ascender);
-			float desc = std::max(buffer.max_descender, blk.block_descender);
+			float asc = std::max(buffer.line_bound.ascender, blk.block_ascender);
+			float desc = std::max(buffer.line_bound.descender, blk.block_descender);
+
 			if (buffer.elems.empty()) {
 				if (asc == 0 && desc == 0) {
 					asc = get_scaled_default_line_thickness() / 2.f;
@@ -601,6 +671,7 @@ private:
 			}
 
 			float limit_height = config.max_extent.*state_.minor_p;
+
 			if (!std::isinf(limit_height)) {
 				// 预测的最底端
 				float predicted_bottom = estimated_baseline + desc;
@@ -671,6 +742,7 @@ private:
 		hb_buffer_set_direction(hb_buffer_.get(), state_.target_hb_dir);
 
 		hb_buffer_guess_segment_properties(hb_buffer_.get());
+
 		const auto req_size_vec = (state_.rich_text_context_.get_size(state_.default_font_size) * config.throughout_scale).max({1, 1});
 		const auto snapped_size = get_snapped_size_vec(req_size_vec);
 		const math::vec2 run_scale_factor = req_size_vec / snapped_size.as<float>();
@@ -683,15 +755,18 @@ private:
 
 		hb_shape(raw_hb_font, hb_buffer_.get(), feature_stack_.data(), feature_stack_.size());
 		unsigned int len;
+
 		hb_glyph_info_t* infos = hb_buffer_get_glyph_infos(hb_buffer_.get(), &len);
 		hb_glyph_position_t* pos = hb_buffer_get_glyph_positions(hb_buffer_.get(), &len);
 
 		long long last_applied_pos = static_cast<long long>(start) - 1;
+
 		auto ft_face = face->get();
 		float ul_position;
 		float ul_thickness;
 		if(ft_face->units_per_EM != 0){
 			float em_scale = req_size_vec.y / static_cast<float>(ft_face->units_per_EM);
+
 			if(is_vertical_()){
 				ul_position = static_cast<float>(ft_face->descender) * em_scale;
 			} else{
@@ -714,28 +789,63 @@ private:
 			ul_position = -req_size_vec.y / 10.0f;
 		}
 
-		auto commit_underline = [&](math::vec2 start_pos, math::vec2 end_pos, graphic::color color){
+		// 记录活动的下划线起始点及间隙信息
+		struct ul_start_info {
+			math::vec2 pos;
+			unsigned gap_count;
+		};
+		std::optional<ul_start_info> active_ul_start;
+
+		// 辅助计算：根据当前字符是否为空格，推算正确的间隙倍数
+		auto get_current_gap_index = [&](bool is_delimiter) -> unsigned {
+			unsigned size = state_.line_buffer_.elems.size() + state_.current_block.glyphs.size();
+
+			// 如果当前是空格（不产生glyph_elem），它在物理上位于下一个字形之前，
+			// 必须归属到前一个间距组，否则会窃取下一个字形的 spacing 导致整体右偏。
+			if (is_delimiter && size > 0) {
+				return size - 1;
+			}
+			return size;
+		};
+
+		auto commit_underline = [&](const ul_start_info& start_info, math::vec2 end_pos, graphic::color color, bool triggered_by_delimiter){
 			math::vec2 offset_vec{};
 			offset_vec.*state_.minor_p = -ul_position;
 
 			underline ul;
-			ul.start = start_pos + offset_vec;
+			ul.start = start_info.pos + offset_vec;
 			ul.end = end_pos + offset_vec;
 			ul.thickness = ul_thickness;
 			ul.color = color;
+
+			ul.start_gap_count = start_info.gap_count;
+
+			// 根据触发结束的字符类型，正确结算结尾的间距数
+			ul.end_gap_count = get_current_gap_index(triggered_by_delimiter);
+
+			// 兜底保护，防止跨行或纯空格计算倒挂
+			if (ul.end_gap_count < ul.start_gap_count) {
+				ul.end_gap_count = ul.start_gap_count;
+			}
+
 			state_.current_block.push_back_underline(ul);
 		};
 
-		std::optional<math::vec2> active_ul_start;
 		for(unsigned int i = 0; i < len; ++i){
 			const font::glyph_index_t gid = infos[i].codepoint;
 			const auto current_cluster = infos[i].cluster;
 
+			// 将字符获取和判定提前
+			const auto ch = full_text.get_text()[current_cluster];
+			bool is_delimiter = (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || IsSeparator(ch));
+
 			bool was_ul = state_.rich_text_context_.is_underline_enabled();
 			graphic::color prev_color = state_.rich_text_context_.get_color();
+
 			for(auto p = last_applied_pos + 1; p <= current_cluster; ++p){
 				auto tokens = full_text.get_token_group(static_cast<std::size_t>(p),
 					state_.token_soft_last_iterator);
+
 				if(!tokens.empty()){
 					state_.rich_text_context_.update(
 						*manager_,
@@ -752,27 +862,36 @@ private:
 			last_applied_pos = current_cluster;
 
 			bool is_ul = state_.rich_text_context_.is_underline_enabled();
+
+			// 1. 处理富文本样式变化导致的下划线截断
 			if(was_ul && !is_ul && active_ul_start.has_value()){
-				commit_underline(*active_ul_start, state_.current_block.cursor, prev_color);
+				commit_underline(active_ul_start.value(), state_.current_block.cursor, prev_color, is_delimiter);
 				active_ul_start.reset();
 			}
 
-			if(state_.rich_text_context_.is_underline_enabled() && !active_ul_start.has_value()){
-				active_ul_start = state_.current_block.cursor;
+			// 2. 开启新的下划线
+			if(is_ul && !active_ul_start.has_value()){
+				active_ul_start = ul_start_info{
+					state_.current_block.cursor,
+					get_current_gap_index(is_delimiter)
+				};
 			}
 
-			const auto ch = full_text.get_text()[infos[i].cluster];
-			if(bool is_delimiter = (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || IsSeparator(ch))){
+			if(is_delimiter){
 				if(active_ul_start.has_value()){
-					commit_underline(*active_ul_start, state_.current_block.cursor,
-						state_.rich_text_context_.get_color());
+					// 分隔符断行/断词时的提交
+					commit_underline(active_ul_start.value(), state_.current_block.cursor, state_.rich_text_context_.get_color(), true);
 					active_ul_start.reset();
 				}
 
 				if(!flush_block(results)) return false;
 
 				if(ch != '\n' && ch != '\r' && state_.rich_text_context_.is_underline_enabled()){
-					active_ul_start = state_.current_block.cursor;
+					// 分隔符后重新开启
+					active_ul_start = ul_start_info{
+						state_.current_block.cursor,
+						get_current_gap_index(true)
+					};
 				}
 			}
 
@@ -795,7 +914,7 @@ private:
 
 			switch(ch){
 			case '\r' : if(config.line_feed_type == linefeed::CRLF){
-					state_.line_buffer_.width = 0.f;
+					state_.line_buffer_.line_bound.width = 0.f;
 					active_ul_start.reset();
 				}
 				continue;
@@ -819,6 +938,7 @@ private:
 				float tab_step = config.tab_scale * get_scaled_default_space_width();
 				if(tab_step > std::numeric_limits<float>::epsilon()){
 					float current_pos = state_.current_block.cursor.*state_.major_p;
+
 					float next_tab = (std::floor(current_pos / tab_step) + 1) * tab_step;
 					state_.current_block.cursor.*state_.major_p = next_tab;
 				}
@@ -838,6 +958,7 @@ private:
 					font::normalize_len(pos[i].x_advance), font::normalize_len(pos[i].y_advance)
 				} * run_scale_factor;
 			const float x_offset = font::normalize_len(pos[i].x_offset) * run_scale_factor.x;
+
 			const float y_offset = font::normalize_len(pos[i].y_offset) * run_scale_factor.y;
 
 			math::vec2 glyph_local_draw_pos{x_offset, -y_offset};
@@ -852,18 +973,20 @@ private:
 
 			state_.current_block.push_back(actual_aabb,
 				{draw_aabb, state_.rich_text_context_.get_color(), std::move(loaded_glyph)});
+
 			if(!is_reversed_()){
 				state_.current_block.cursor = move_pen(state_.current_block.cursor, advance);
 			}
 		}
 
 		if(active_ul_start.has_value()){
-			commit_underline(*active_ul_start, state_.current_block.cursor, state_.rich_text_context_.get_color());
+			commit_underline(active_ul_start.value(), state_.current_block.cursor, state_.rich_text_context_.get_color(), true);
 		}
 
 		if(last_applied_pos < static_cast<long long>(start + length - 1)){
 			for(auto p = last_applied_pos + 1; p < start + length; ++p){
 				auto tokens = full_text.get_token_group(static_cast<std::size_t>(p), full_text.get_init_token());
+
 				if(!tokens.empty()){
 					state_.rich_text_context_.update(*manager_,
 						{
@@ -885,17 +1008,20 @@ private:
 		font::font_face_handle* current_face = nullptr;
 		auto resolve_face = [&](font::font_face_handle* current, char32_t codepoint) -> font::font_face_handle*{
 			if(current && current->index_of(codepoint)) return current;
+
 			const auto* family = &state_.rich_text_context_.get_font(manager_->get_default_family());
 			auto face_view = manager_->use_family(family);
 			auto [best_face, _] = face_view.find_glyph_of(codepoint);
 			return best_face;
 		};
+
 		while(current_idx < full_text.get_text().size()){
 			auto tokens = full_text.get_token_group(current_idx, state_.token_hard_last_iterator);
 			state_.token_hard_last_iterator = tokens.end();
 
 
 			const bool need_another_run = typesetting::check_token_group_need_another_run(tokens);
+
 			if(need_another_run){
 				if(current_face && current_idx > run_start){
 					if(!process_text_run(full_text, results, run_start, current_idx - run_start, current_face)) return
@@ -921,6 +1047,7 @@ private:
 						}
 					}
 				);
+
 				run_start = current_idx;
 				current_face = nullptr;
 
@@ -929,12 +1056,14 @@ private:
 
 			const auto codepoint = full_text.get_text()[current_idx];
 			font::font_face_handle* best_face = resolve_face(current_face, codepoint);
+
 			if(current_face == nullptr){
 				current_face = best_face;
 			} else if(best_face != current_face){
 				if(!process_text_run(full_text, results, run_start, current_idx - run_start, current_face)) return
 					false;
 				current_face = best_face;
+
 				run_start = current_idx;
 			}
 			current_idx++;
@@ -952,22 +1081,33 @@ private:
 	}
 
 	FORCE_INLINE inline void finalize(glyph_layout& results){
-		if(results.elems.empty()){
+		if(results.lines.empty()){
 			results.extent = {0, 0};
 			return;
 		}
 
 		auto extent = state_.max_bound - state_.min_bound;
 		results.extent = extent;
-		for(auto& elem : results.elems){
-			elem.aabb.move(-state_.min_bound);
-		}
-		for(auto& ul : results.underlines){
-			ul.start -= state_.min_bound;
-			ul.end -= state_.min_bound;
+
+		// 仅移动行的起始位置，全局扁平数组中的元素相对坐标保持不变
+		for(auto& line : results.lines){
+			line.start_pos -= state_.min_bound;
 		}
 	}
 
+	[[nodiscard]] FORCE_INLINE inline layout_direction get_actual_direction() const noexcept {
+		if (config.direction != layout_direction::deduced) {
+			return config.direction;
+		}
+		switch (state_.target_hb_dir) {
+		case HB_DIRECTION_LTR: return layout_direction::ltr;
+		case HB_DIRECTION_RTL: return layout_direction::rtl;
+		case HB_DIRECTION_TTB: return layout_direction::ttb;
+		case HB_DIRECTION_BTT: return layout_direction::btt;
+
+		default: return layout_direction::ltr;
+		}
+	}
 #pragma region TRIVIAL_OP
 
 	FORCE_INLINE inline bool is_reversed_() const noexcept{
@@ -995,6 +1135,7 @@ private:
 		if(auto ptr = hb_cache_.get(face)) return ptr->get();
 		auto new_hb_font = create_harfbuzz_font(*face);
 		hb_ft_font_set_load_flags(new_hb_font.get(), FT_LOAD_DEFAULT | FT_LOAD_NO_HINTING);
+
 		const auto rst = new_hb_font.get();
 		hb_cache_.put(face, std::move(new_hb_font));
 		return rst;

@@ -340,6 +340,14 @@ protected:
 		return any_changed;
 	}
 
+	void layout_elem() override{
+		if(has_smooth_pos_animation_ && layout_state.any_lower_changed()){
+			if(update_children_src(0.001f)){
+				set_update_required(update_channel::position);
+			}
+		}
+		basic_group::layout_elem();
+	}
 };
 
 export

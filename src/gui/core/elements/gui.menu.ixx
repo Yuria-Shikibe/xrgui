@@ -6,7 +6,7 @@ export module mo_yanxi.gui.elem.menu;
 
 import mo_yanxi.gui.elem.sequence;
 import mo_yanxi.gui.elem.scroll_pane;
-import mo_yanxi.gui.elem.two_segment_elem;
+import mo_yanxi.gui.elem.head_body_elem;
 import std;
 
 namespace mo_yanxi::gui{

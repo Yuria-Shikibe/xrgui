@@ -153,7 +153,7 @@ void style::progress_drawer_arc::draw_layer_impl(const progress_bar& element, ma
 
 	if(prog < 0.001f)return;
 
-	auto count = GetSmoothCircleVertexCount(radius, math::abs(prog * angle_range.extent), .5f);
+	auto count = GetSmoothCircleVertexCount(radius, math::abs(prog * angle_range.extent), .35f);
 
 	if(prog == 1.f && angle_range.extent >= 1.f){
 		fx::fringe::poly(element.renderer(), draw::instruction::poly{

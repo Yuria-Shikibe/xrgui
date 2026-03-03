@@ -21,7 +21,7 @@ namespace mo_yanxi::gui{
 				layout_cell(cell);
 			}
 
-			elem::layout_elem();
+			universal_group::layout_elem();
 		}
 
 	protected:

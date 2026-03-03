@@ -7,7 +7,7 @@ export module mo_yanxi.gui.elem.collapser;
 
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.gui.layout.policies;
-export import mo_yanxi.gui.elem.two_segment_elem;
+export import mo_yanxi.gui.elem.head_body_elem;
 
 import std;
 

@@ -15,34 +15,42 @@ namespace mo_yanxi::gui{
 void layout_record<typesetting::glyph_layout>::record_glyph_draw_instructions(
 	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout& layout,
-	graphic::color color_scl
-	){
+	graphic::color color_scl, typesetting::content_alignment line_align
+){
 	using namespace mo_yanxi::graphic;
 	using namespace mo_yanxi::graphic::draw::instruction;
-	color tempColor{};
 
 	buffer.clear();
 
-	for (const auto & layout_result : layout.elems){
-		if(!layout_result.texture->view)continue;
-		buffer.push(rect_aabb{
-			.generic = {layout_result.texture->view},
-			.v00 = layout_result.aabb.get_src(),
-			.v11 = layout_result.aabb.get_end(),
-			.uv00 = layout_result.texture->uv.v00(),
-			.uv11 = layout_result.texture->uv.v11(),
-			.vert_color = {layout_result.color}
-		});
+	for (const auto & current_line : layout.lines){
+		auto [line_src, spacing] = current_line.calculate_alignment(layout.extent, line_align, layout.direction);
+		for (const auto & [idx, layout_result] : std::span{layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size} | std::views::enumerate){
+			if(!layout_result.texture->view)continue;
+			auto start = math::fma(idx, spacing, line_src + layout_result.aabb.src);
+			buffer.push(rect_aabb{
+				.generic = {layout_result.texture->view},
+				.v00 = start,
+				.v11 = start + layout_result.aabb.extent(),
+				.uv00 = layout_result.texture->uv.v00(),
+				.uv11 = layout_result.texture->uv.v11(),
+				.vert_color = {layout_result.color * color_scl}
+			});
+		}
+
+		for (const auto & ul : std::span{layout.underlines.begin() + current_line.underline_range.pos, current_line.underline_range.size}){
+
+			const auto start = math::fma(spacing, static_cast<float>(ul.start_gap_count), line_src + ul.start);
+			const auto end = math::fma(spacing, static_cast<float>(ul.end_gap_count), line_src + ul.end);
+
+			buffer.push(line{
+				.src = start,
+				.dst = end,
+				.color = {ul.color * color_scl, ul.color * color_scl},
+				.stroke = ul.thickness,
+			});
+		}
 	}
 
-	for (const auto & layout_result : layout.underlines){
-		buffer.push(line{
-			.src = layout_result.start,
-			.dst = layout_result.end,
-			.color = {layout_result.color, layout_result.color},
-			.stroke = layout_result.thickness,
-		});
-	}
 }
 
 void label_v2::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
@@ -69,12 +77,8 @@ void label_v2::draw_text() const{
 		graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)
 		};
 
-	{
-		transform_guard _t{renderer(), mat};
-		push_text_draw_buffer();
-	}
-
-
+	transform_guard _t{renderer(), mat};
+	push_text_draw_buffer();
 
 }
 

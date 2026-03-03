@@ -664,6 +664,7 @@ void prepare(){
 
 	app_run(ctx, renderer, manager, post_process_cmd);
 
+	gui::assets::dispose_generated_shapes();
 	gui::global::terminate_assets_manager();
 	gui::global::terminate();
 

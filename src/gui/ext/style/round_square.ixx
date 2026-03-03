@@ -38,7 +38,7 @@ protected:
 				make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)};
 
 				if(base.image_view){
-					auto color_base = base.pal.on_instance(element);
+					auto color_base = base.pal.on_instance(element).mul_a(opacityScl);
 					element.renderer() << fx::nine_patch_draw{
 						.nine_region = &base,
 						.region = region,
@@ -47,7 +47,7 @@ protected:
 				}
 
 				if(edge.image_view){
-					auto color_edge = edge.pal.on_instance(element);
+					auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
 					element.renderer() << fx::nine_patch_draw{
 						.nine_region = &edge,
 						.region = region,
@@ -63,7 +63,7 @@ protected:
 				state_guard _{element.renderer(), fx::batch_draw_mode::msdf,
 				make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)};
 
-				auto color = back.pal.on_instance(element);
+				auto color = back.pal.on_instance(element).mul_a(opacityScl);
 				element.renderer() << fx::nine_patch_draw{
 					.nine_region = &back,
 					.region = region,

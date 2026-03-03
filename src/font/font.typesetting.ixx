@@ -100,36 +100,6 @@ export struct glyph_elem{
 	}
 };
 
-export struct layout_rect{
-	float width;
-	float ascender;
-	float descender;
-
-	[[nodiscard]] constexpr float height() const noexcept{
-		return ascender + descender;
-	}
-
-	[[nodiscard]] constexpr math::vec2 size() const noexcept{
-		return {width, height()};
-	}
-
-	[[nodiscard]] constexpr math::frect to_region(math::vec2 src) const noexcept{
-		return {tags::from_extent, src.add_y(descender), width, -height()};
-	}
-
-	constexpr void max_height(layout_rect region) noexcept{
-		ascender = math::max(ascender, region.ascender);
-		descender = math::max(descender, region.descender);
-	}
-
-	constexpr void scale(float scale) noexcept{
-		ascender *= scale;
-		descender *= scale;
-		width *= scale;
-	}
-};
-
-
 export
 struct token_argument{
 	static constexpr char token_split_char = '|';
@@ -420,7 +390,7 @@ export struct glyph_layout{
 	struct row{
 		using row_type = std::vector<glyph_elem>;
 		math::vec2 src{};
-		layout_rect bound{};
+		mo_yanxi::typesetting::layout_rect bound{};
 		row_type glyphs{};
 
 		void scale(float scale) noexcept{
@@ -925,7 +895,7 @@ tokenized_text::token_iterator exec_tokens(
 
 struct layout_unit{
 	gch::small_vector<glyph_elem, 4> buffer{};
-	layout_rect bound{};
+	mo_yanxi::typesetting::layout_rect bound{};
 	float pen_advance{};
 
 	void push_back(

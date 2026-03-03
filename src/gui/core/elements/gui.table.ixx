@@ -210,7 +210,7 @@ struct table : universal_group<table_cell_adaptor::cell_type, table_cell_adaptor
 
 	void layout_elem() override{
 		layout_directional();
-		elem::layout_elem();
+		universal_group::layout_elem();
 	}
 
 	table& end_line(){
