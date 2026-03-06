@@ -10,9 +10,16 @@ import std;
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.group;
 import mo_yanxi.backend.vulkan.context;
+import mo_yanxi.react_flow;
 
 
 namespace mo_yanxi::gui::example{
+struct ui_outputs{
+	react_flow::node* shader_bloom_scale;
+	react_flow::node* shader_bloom_src_factor;
+	react_flow::node* shader_bloom_dst_factor;
+	react_flow::node* shader_bloom_mix_factor;
+};
 export
-void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root);
+ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root);
 }

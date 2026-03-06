@@ -107,26 +107,45 @@ struct alpha_gradient_drawer : gui::style::default_slider_drawer{
 				.phase = 8,
 			});
 
-			element.renderer().push(instruction::rect_aabb{
-				.generic = {.mode = std::to_underlying(fx::primitive_draw_mode::draw_slide_line)},
-				.v00 = region.vert_00(),
-				.v11 = region.vert_11(),
-				.vert_color = {graphic::colors::gray}
-			});
-
 			if(element.is_clamped_to_hori()){
 				element.renderer().push(instruction::rect_aabb{
-					.v00 = region.vert_00(),
-					.v11 = region.vert_11(),
-					.vert_color = {graphic::colors::light_gray, graphic::colors::light_gray.make_transparent(), graphic::colors::light_gray, graphic::colors::light_gray.make_transparent()}
-				});
-			}else if(element.is_clamped_to_vert()){
+						.generic = {.mode = std::to_underlying(fx::primitive_draw_mode::draw_slide_line)},
+						.v00 = region.vert_00(),
+						.v11 = region.vert_11(),
+						.vert_color = {
+							graphic::colors::gray.make_transparent(), graphic::colors::gray,
+							graphic::colors::gray.make_transparent(), graphic::colors::gray
+						}
+					});
+
 				element.renderer().push(instruction::rect_aabb{
-					.v00 = region.vert_00(),
-					.v11 = region.vert_11(),
-					.vert_color = {graphic::colors::light_gray, graphic::colors::light_gray, graphic::colors::light_gray.make_transparent(), graphic::colors::light_gray.make_transparent()}
-				});
-			}else{
+						.v00 = region.vert_00(),
+						.v11 = region.vert_11(),
+						.vert_color = {
+							graphic::colors::light_gray, graphic::colors::light_gray.make_transparent(),
+							graphic::colors::light_gray, graphic::colors::light_gray.make_transparent()
+						}
+					});
+			} else if(element.is_clamped_to_vert()){
+				element.renderer().push(instruction::rect_aabb{
+						.generic = {.mode = std::to_underlying(fx::primitive_draw_mode::draw_slide_line)},
+						.v00 = region.vert_00(),
+						.v11 = region.vert_11(),
+						.vert_color = {
+							graphic::colors::gray.make_transparent(), graphic::colors::gray.make_transparent(),
+							graphic::colors::gray, graphic::colors::gray,
+						}
+					});
+
+				element.renderer().push(instruction::rect_aabb{
+						.v00 = region.vert_00(),
+						.v11 = region.vert_11(),
+						.vert_color = {
+							graphic::colors::light_gray, graphic::colors::light_gray,
+							graphic::colors::light_gray.make_transparent(), graphic::colors::light_gray.make_transparent()
+						}
+					});
+			} else{
 				throw std::invalid_argument{"invalid draw direction"};
 			}
 		}
@@ -175,42 +194,50 @@ private:
 		}
 
 		void on_changed() override{
-			get_picker().set_color_sv(math::vec2{1, 1} - bar.get_progress());
+			auto [s, v] = bar.get_progress();
+			get_picker().set_color_sv(math::vec2{s, 1 - v});
 		}
 
 		void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 			elem::draw_layer(clipSpace, param);
 
 			if(param.is_top()){
+
 				auto hue = get_picker().hsv_.h;
 				auto contentext = content_bound_abs();
 				auto v00_full = contentext.vert_00() + bar_handle_extent / 2;
 				auto v11_full = contentext.vert_11() - bar_handle_extent / 2;
 
-				// 设置网格切分数量。16x16 通常能够在性能和视觉平滑度之间取得良好的平衡
-				constexpr static float grid_size = 16;
+				renderer().push(graphic::draw::instruction::rect_aabb_outline{
+				   .v00 = v00_full,
+				   .v11 = v11_full,
+				   .stroke = {8},
+				   .vert_color = {graphic::colors::dark_gray}
+				});
 
-				for (int iy = 0; iy < grid_size; ++iy) {
+				auto [grid_size_x, grid_size_y] = (contentext.extent() / 64.f).ceil().as<int>().max({1, 1});
 
-					const float ty0 = static_cast<float>(iy) / grid_size;
-					const float ty1 = static_cast<float>(iy + 1) / grid_size;
+				for (int iy = 0; iy < grid_size_y; ++iy) {
+					const float ty0 = static_cast<float>(iy) / grid_size_y;
+					const float ty1 = static_cast<float>(iy + 1) / grid_size_y;
 
-					for (int ix = 0; ix < grid_size; ++ix) {
-						const float tx0 = static_cast<float>(ix) / grid_size;
-						const float tx1 = static_cast<float>(ix + 1) / grid_size;
+					for (int ix = 0; ix < grid_size_x; ++ix) {
+						const float tx0 = static_cast<float>(ix) / grid_size_x;
+						const float tx1 = static_cast<float>(ix + 1) / grid_size_x;
 
 						const auto sub_v00 = math::lerp(v00_full, v11_full, math::vec2{tx0, ty0});
 						const auto sub_v11 = math::lerp(v00_full, v11_full, math::vec2{tx1, ty1});
 
-						auto c_tl = graphic::color{0, 0, 0, 1}.from_hsv({hue, 1.0f - tx0, 1.0f - ty0});
-						auto c_tr = graphic::color{0, 0, 0, 1}.from_hsv({hue, 1.0f - tx1, 1.0f - ty0});
-						auto c_bl = graphic::color{0, 0, 0, 1}.from_hsv({hue, 1.0f - tx0, 1.0f - ty1});
-						auto c_br = graphic::color{0, 0, 0, 1}.from_hsv({hue, 1.0f - tx1, 1.0f - ty1});
+						// 2. 水平翻转顶点色：将 1.0f - tx 替换为 tx
+						auto c_tl = graphic::color{0, 0, 0, 1}.from_hsv({hue, tx0, 1.0f - ty0});
+						auto c_tr = graphic::color{0, 0, 0, 1}.from_hsv({hue, tx1, 1.0f - ty0});
+						auto c_bl = graphic::color{0, 0, 0, 1}.from_hsv({hue, tx0, 1.0f - ty1});
+						auto c_br = graphic::color{0, 0, 0, 1}.from_hsv({hue, tx1, 1.0f - ty1});
 
 						renderer().push(graphic::draw::instruction::rect_aabb{
-							.v00 = sub_v00,
-							.v11 = sub_v11,
-							.vert_color = {c_tl, c_tr, c_bl, c_br}
+						   .v00 = sub_v00,
+						   .v11 = sub_v11,
+						   .vert_color = {c_tl, c_tr, c_bl, c_br}
 						});
 					}
 				}
@@ -231,7 +258,6 @@ private:
 					auto radius = extent.get_min() + (expand ? 6.f : 0.f);
 
 					const auto pos = region.src + progress * region.extent().fdim(extent) + extent * .5f;
-					progress.x = 1 - progress.x;
 					progress.y = 1 - progress.y;
 					auto color = get_picker().get_color_at_current_hue(progress);
 					r.push(poly{
@@ -262,9 +288,6 @@ private:
 			}
 		}
 	};
-
-	slider_gradient_drawer hue_slider_drawer_;
-	slider_gradient_drawer alpha_slider_drawer_;
 
 	graphic::hsv hsv_{};
 	slider* slider_HUE_{};
@@ -353,7 +376,7 @@ private:
 
 	void set_color_hue(float hue){
 		if(util::try_modify(hsv_.h, hue)){
-			result_color_.set_hue(hue);
+			result_color_.from_hsv(hsv_);
 			on_color_changed(result_color_);
 		}
 	}
@@ -361,14 +384,13 @@ private:
 	void set_color_sv(math::vec2 sv){
 		bool changed = false;
 		if(util::try_modify(hsv_.s, sv.x)){
-			result_color_.set_saturation(sv.x);
 			changed = true;
 		}
 		if(util::try_modify(hsv_.v, sv.y)){
-			result_color_.set_value(sv.y);
 			changed = true;
 		}
 		if(changed){
+			result_color_.from_hsv(hsv_);
 			on_color_changed(result_color_);
 		}
 	}

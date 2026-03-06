@@ -237,6 +237,8 @@ private:
 	altitude_t layer_altitude_{};
 
 public:
+	unsigned _debug_identity{};
+
 	virtual ~elem(){
 		clear_scene_references();
 	}

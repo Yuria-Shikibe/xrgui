@@ -11,13 +11,16 @@ import mo_yanxi.backend.application_timer;
 import mo_yanxi.backend.vulkan.renderer;
 
 import mo_yanxi.math.rand;
+import mo_yanxi.math.interpolation;
 
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.graphic.compositor.manager;
 import mo_yanxi.graphic.compositor.post_process_pass;
+import mo_yanxi.graphic.compositor.post_process_pass_with_ubo;
 import mo_yanxi.graphic.compositor.bloom;
 import mo_yanxi.graphic.shaderc;
+import mo_yanxi.graphic.trail;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.group;
@@ -38,6 +41,9 @@ import mo_yanxi.font.manager;
 import mo_yanxi.typesetting;
 import mo_yanxi.typesetting.util;
 import mo_yanxi.typesetting.rich_text;
+
+import mo_yanxi.react_flow;
+import mo_yanxi.react_flow.common;
 
 template <std::size_t Stride, typename Tup, typename Proj, std::size_t Offset = 0>
 using tuple_stride_t = decltype([]{
@@ -94,6 +100,19 @@ auto copy_classify(FWIT begin, FWIT end, Args&& ...args){
 	return iter_tup;
 }
 
+struct alignas(16) high_light_filter_args{
+	float threshold{1.3f};
+	float smoothness{.5f};
+	float max_brightness{10}; // 新增：用于抑制超高亮像素，防止 Bloom 闪烁
+};
+
+struct alignas(16) tonemap_args{
+	float exposure{1};
+	float contrast{1};
+	float gamma{1};
+	float saturation{1};
+};
+
 void app_run(
 	mo_yanxi::backend::vulkan::context& ctx,
 	mo_yanxi::backend::vulkan::renderer& renderer,
@@ -106,6 +125,9 @@ void app_run(
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
 
+	graphic::uniformed_trail trail{60, .75f};
+	trail.shrink_interval *= 2.f;
+
 	while(!ctx.window().should_close()){
 
 		ctx.window().poll_events();
@@ -114,8 +136,11 @@ void app_run(
 		gui::global::manager.update(timer.global_delta_tick());
 		gui::global::manager.layout();
 
+
 		auto& current_focus = gui::global::manager.get_current_focus();
 		auto& r = current_focus.renderer();
+
+		trail.update(timer.global_delta_tick(), current_focus.get_cursor_pos(), 2);
 
 		renderer.batch_host.begin_rendering();
 		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::ui_state(
@@ -257,15 +282,15 @@ void app_run(
 			const auto Y_count = math::ceil<int>(ctx.get_extent().height / size);
 			math::rand rand{54767963};
 			for(int x = 0; x < X_count; ++x){ for(int y = 0; y < Y_count; ++y){
-				r.push(rect_aabb{
-					.generic = {.mode = std::to_underlying(((x + y) % 3 == 0) ? gui::fx::primitive_draw_mode::draw_slide_line : gui::fx::primitive_draw_mode::none)},
-					.v00 = {x * size, y * size},
-					.v11 = {x * size + size, y * size + size},
-					.vert_color = {graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}}
-				});
+				// r.push(rect_aabb{
+				// 	.generic = {.mode = std::to_underlying(((x + y) % 3 == 0) ? gui::fx::primitive_draw_mode::draw_slide_line : gui::fx::primitive_draw_mode::none)},
+				// 	.v00 = {x * size, y * size},
+				// 	.v11 = {x * size + size, y * size + size},
+				// 	.vert_color = {graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}}
+				// });
 			}}
 
-			{
+			if(false){
 				{
 					gui::state_guard g{r, gui::fx::blend::multiply};
 					r.push(poly{
@@ -334,9 +359,123 @@ void app_run(
 				},
 				{.pipeline_index = 1, .inout_define_index = 0}
 			});
+
+
+			{
+				struct trail_node_data : graphic::trail::node_type{
+					float idx_scale;
+					graphic::color color;
+
+					[[nodiscard]] float get_width() const noexcept{
+						return idx_scale * scale;
+					}
+				};
+
+				trail.iterate(1.f,
+					[last = trail.head_pos_or({})](
+						const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable {
+						using namespace graphic;
+						math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
+
+						const float factor_global = math::idx_to_factor(idx, total);
+						const auto fac = factor_global | math::interp::pow2Out;
+						const auto off = rand.range(1.f) * fac * math::curve(factor_global, .05f, .2f);
+						const auto tan = (node.pos - last).rotate_rt_counter_clockwise() * off;
+
+						last = node.pos;
+						auto n = node;
+						const auto color = math::lerp(colors::black, colors::aqua.to_light(2.5f),
+							factor_global);
+						return trail_node_data{
+								n, factor_global | math::interp::pow2In | math::interp::reverse, color
+							};
+					}, [&](std::span<const trail_node_data, 4> sspn){
+						using namespace graphic;
+						using namespace graphic::draw;
+
+						const auto appr = sspn[1].pos - sspn[2].pos;
+						const auto apprLen = appr.length();
+						const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 2U, 8U);
+
+						r.push(parametric_curve{
+								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(&trail_node_data::pos)),
+								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 10.f,
+								.segments = seg,
+								.color = {colors::aqua.to_light(2.5f)},
+							});
+						r.push(parametric_curve{
+								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(&trail_node_data::pos)),
+								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 5.f,
+								.segments = seg,
+								.color = {colors::black},
+							});
+					});
+
+				trail.iterate(1.f,
+					[&, last = trail.head_pos_or({})](
+						const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable {
+						using namespace graphic;
+						math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
+
+						float factor_global = math::idx_to_factor(idx, math::max(total, 8U));
+						const auto fac = factor_global | math::interp::pow2Out;
+						const auto off = rand.range(1.f) * fac * math::curve(factor_global, .05f, .5f);
+						const auto tan = (node.pos - last).rotate_rt_counter_clockwise() * off;
+
+						last = node.pos;
+						auto n = node;
+						n.pos += tan;
+						const auto color = math::lerp(colors::aqua.to_light(2.5f), colors::pale_green.to_light(1.5f),
+							factor_global);
+
+						factor_global = math::curve(factor_global | math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)), 1.f);
+
+						return trail_node_data{
+								n, factor_global, color
+							};
+					}, [&](std::span<const trail_node_data, 4> sspn){
+						using namespace graphic;
+						using namespace graphic::draw;
+
+						const auto appr = sspn[1].pos - sspn[2].pos;
+						const auto apprLen = appr.length();
+						const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 4U, 12U);
+
+						r.push(parametric_curve{
+								.param = curve_trait_mat::catmull_rom<> * (sspn | std::views::transform(&trail_node_data::pos)),
+								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 8.f,
+								.segments = seg,
+								.color = {sspn[1].color, sspn[1].color, sspn[2].color, sspn[2].color},
+							});
+					});
+
+			}
+
+			r.push(triangle{});
+			r.update_state(gui::fx::blit_config{
+				{
+					.src = {},
+					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+				},
+				{.pipeline_index = 1}
+			});
+
+			// for(int i = 0; i < 12; ++i){
+			//
+			//
+			// 	r.update_state(gui::fx::blit_config{
+			// 		{
+			// 			.src = {},
+			// 			.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+			// 		},
+			// 		{.pipeline_index = 1}
+			// 	});
+			//
+			// }
+
 		}
 
-		gui::global::manager.draw();
+		// gui::global::manager.draw();
 		renderer.batch_host.end_rendering();
 		renderer.upload();
 		renderer.create_command();
@@ -365,6 +504,8 @@ void prepare(){
 	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
 
 	backend::vulkan::context ctx{ApplicationInfo};
+	vk::register_default_requirements(ctx.get_device(), ctx.get_physical_device());
+
 	vk::load_ext(ctx.get_instance());
 
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
@@ -382,19 +523,19 @@ void prepare(){
 					.attachment_draw_config = {
 						{
 							draw_attachment_config{
-								.attachment = {VK_FORMAT_R16G16B16A16_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}
+								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT}
 							},
 							draw_attachment_config{
-								.attachment = {VK_FORMAT_R16G16B16A16_UNORM, VK_IMAGE_USAGE_STORAGE_BIT}
+								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT}
 							},
 						},
 						// VK_SAMPLE_COUNT_4_BIT
 					},
 					.attachment_blit_config = {
 						{
-							attachment_config{VK_FORMAT_R16G16B16A16_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
+							attachment_config{VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
 							attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
-							attachment_config{VK_FORMAT_R16G16B16A16_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
+							attachment_config{VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
 						}
 					},
 					.draw_pipe_config = graphic_pipeline_create_config{
@@ -528,7 +669,8 @@ void prepare(){
 	auto& ui_root = gui::global::manager;
 	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
 	scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
-	gui::example::build_main_ui(ctx, scene_add_rst.scene, scene_add_rst.root_group);
+	auto ui_providers = gui::example::build_main_ui(ctx, scene_add_rst.scene, scene_add_rst.root_group);
+
 #pragma endregion
 
 #pragma region SetupRenderGraph
@@ -548,20 +690,20 @@ void prepare(){
 		});
 
 	auto& ui_input_back = manager.add_external_resource(compositor::resource_entity_external{
-			compositor::image_entity{.handle = renderer.get_base()}, compositor::resource_dependency{
+			compositor::image_entity{.handle = renderer.get_blit_attachments()[1]}, compositor::resource_dependency{
 				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 			}
 		});
 
-	auto& base_input = manager.add_external_resource(compositor::resource_entity_external{
+	auto& input_background = manager.add_external_resource(compositor::resource_entity_external{
 			compositor::image_entity{.handle = renderer.get_blit_attachments()[2]}, compositor::resource_dependency{
 				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 			}
 		});
 
-	auto pass_filter_high_light = manager.add_pass<compositor::post_process_stage>(compositor::post_process_meta{
+	auto pass_filter_high_light = manager.add_pass<compositor::post_process_pass_with_ubo<high_light_filter_args>>(compositor::post_process_meta{
 			shader_filter_high_light, {
 				{{0}, compositor::no_slot, 0},
 				{{1}, 0, compositor::no_slot},
@@ -571,23 +713,28 @@ void prepare(){
 	pass_filter_high_light.id()->add_input({{ui_input_base, 0}});
 
 
-	// auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom));
-	// pass_bloom.meta.set_sampler_at_binding(0, sampler_blit);
-	// pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
-	// pass_bloom.pass.add_local({1, compositor::no_slot});
+	auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom, {}));
+	pass_bloom.data.set_sampler_at_binding(0, sampler_blit);
+	pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
+	pass_bloom.pass.add_local({1, compositor::no_slot});
 
 
 	static constexpr VkSpecializationMapEntry SpecEntry{0, 0, 4};
 	static constexpr VkBool32 SpecData{true};
-	auto pass_blur = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom, VkSpecializationInfo{
-		.mapEntryCount = 1,
-		.pMapEntries = &SpecEntry,
-		.dataSize = sizeof(SpecData),
-		.pData = &SpecData
-	}));
-	pass_blur.meta.set_max_mip_level(5);
-	pass_blur.meta.set_sampler_at_binding(0, sampler_blit);
-	pass_blur.id()->add_input({{base_input, 0}});
+	auto pass_blur = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom, {
+			.target_scale = 1,
+			.specializationInfo = VkSpecializationInfo{
+				.mapEntryCount = 1,
+				.pMapEntries = &SpecEntry,
+				.dataSize = sizeof(SpecData),
+				.pData = &SpecData
+			},
+			.format = VK_FORMAT_R8G8B8A8_UNORM
+
+		}));
+	pass_blur.data.set_max_mip_level(5);
+	pass_blur.data.set_sampler_at_binding(0, sampler_blit);
+	pass_blur.id()->add_input({{input_background, 0}});
 	pass_blur.id()->add_local({1, compositor::no_slot});
 
 
@@ -598,12 +745,17 @@ void prepare(){
 				{{2}, 1, compositor::no_slot},
 				{{3}, 2, compositor::no_slot},
 				{{4}, 3, compositor::no_slot},
+				{{5}, 4, compositor::no_slot},
 			}
 		});
-	pass_merge.id()->add_dep({pass_filter_high_light.id(), 0, 0});
+	pass_merge.data.set_sampler_at_binding(5, sampler_blit);
+
+	pass_merge.id()->add_input({{ui_input_base, 0}});
 	pass_merge.id()->add_input({{ui_input_back, 1}});
-	pass_merge.id()->add_input({{base_input, 2}});
-	pass_merge.id()->add_dep({pass_blur.id(), 0, 3});
+	pass_merge.id()->add_dep({pass_bloom.id(), 0, 2});
+	pass_merge.id()->add_input({{input_background, 3}});
+	pass_merge.id()->add_dep({pass_blur.id(), 0, 4});
+
 
 	compositor::post_process_meta meta{
 			shader_hdr_to_sdr, {
@@ -612,13 +764,34 @@ void prepare(){
 			}
 		};
 	meta.sockets.at_out(0).get<compositor::image_requirement>().usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-	auto pass_h2s = manager.add_pass<compositor::post_process_stage>(meta);
+	auto pass_h2s = manager.add_pass<compositor::post_process_pass_with_ubo<tonemap_args>>(meta);
 	pass_h2s.id()->add_dep({pass_merge.id(), 0, 0});
 	pass_h2s.id()->add_local({compositor::no_slot, 0});
 
 
 	manager.sort();
 #pragma endregion
+
+	{
+		auto& m = gui::global::manager.get_current_focus();
+		auto& bloom_scale = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
+			p.set_scale(val);
+		}));
+		auto& bloom_src_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
+			p.set_strength_src(math::map(val, 0.f, 1.f, 0.f, 2.f));
+		}));
+		auto& bloom_dst_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
+			p.set_strength_dst(math::map(val, 0.f, 1.f, 0.f, 2.f));
+		}));
+		auto& bloom_mix_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
+			p.set_mix_factor(val);
+		}));
+
+		bloom_scale.connect_predecessor(*ui_providers.shader_bloom_scale);
+		bloom_src_recv.connect_predecessor(*ui_providers.shader_bloom_src_factor);
+		bloom_dst_recv.connect_predecessor(*ui_providers.shader_bloom_dst_factor);
+		bloom_mix_recv.connect_predecessor(*ui_providers.shader_bloom_mix_factor);
+	}
 
 	auto post_process_cmd = ctx.get_compute_command_pool().obtain();
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
@@ -627,15 +800,15 @@ void prepare(){
 
 		ui_input_base.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[0]};
 		ui_input_back.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[1]};
-		base_input.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[2]};
+		input_background.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[2]};
 
 		manager.resize(event.size, true);
 		//
 		// pass_bloom.meta.set_scale(.5f);/.65f, .65f);
 
-		pass_blur.meta.set_scale(1.25f);
-		pass_blur.meta.set_mix_factor(.025f);
-		pass_blur.meta.set_strength(1.f, 1.f);
+		pass_blur.data.set_scale(1.25f);
+		pass_blur.data.set_mix_factor(.025f);
+		pass_blur.data.set_strength(1.f, 1.f);
 
 		{
 			vk::scoped_recorder r{post_process_cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};

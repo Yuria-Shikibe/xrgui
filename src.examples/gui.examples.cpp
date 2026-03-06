@@ -31,6 +31,7 @@ import mo_yanxi.gui.elem.drag_split;
 import mo_yanxi.gui.elem.label_v2;
 
 import mo_yanxi.gui.compound.color_picker;
+import mo_yanxi.gui.compound.named_slider;
 
 import mo_yanxi.gui.style.round_square;
 import mo_yanxi.gui.style.palette;
@@ -42,7 +43,7 @@ import mo_yanxi.backend.vulkan.context;
 
 
 namespace mo_yanxi::gui::example{
-void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
+ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
 	scene.set_pass_config({
 			{
 				fx::scene_render_pass_config::value_type{
@@ -89,21 +90,59 @@ void build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& roo
 
 	gui::style::global_default_style_drawer = round_style;
 
+	ui_outputs result{};
+
 	auto make_create_table = [&]{
 		using function_signature = void(scroll_pane&);
 		std::vector<std::function<function_signature>> creators{
+			[&](scroll_pane& pane){
+				pane.create([&](sequence& sequence){
+					sequence.set_expand_policy(layout::expand_policy::prefer);
+					sequence.template_cell.set_pending();
+					sequence.template_cell.pad = {4, 4};
+					sequence.set_has_smooth_pos_animation(false);
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Bloom Sample Scale", 50.f);
+						hdl->body().set_smooth_drag(true);
+						hdl->body().set_progress(1.f);
+						result.shader_bloom_scale = &hdl.elem().get_slider_provider();
+
+					}
+
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "BloomSrcFactor", 50.f);
+						hdl->body().set_smooth_drag(true);
+						hdl->body().set_progress(.5f);
+						result.shader_bloom_src_factor = &hdl.elem().get_slider_provider();
+					}
+
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "BloomDstFactor", 50.f);
+						hdl->body().set_smooth_drag(true);
+						hdl->body().set_progress(.5f);
+						result.shader_bloom_dst_factor = &hdl.elem().get_slider_provider();
+					}
+
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "BloomMixFactor", 50.f);
+						hdl->body().set_smooth_drag(true);
+						hdl->body().set_progress(.5f);
+						result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
+					}
+				});
+			},
 				[&](scroll_pane& pane){
 					pane.create([&](sequence& sequence){
 						sequence.template_cell.set_pad({4, 4});
 
-						auto slider = sequence.emplace_back<gui::slider>();
+						auto slider = sequence.emplace_back<gui::slider_with_2d_output>();
 						slider->set_smooth_scroll(true);
 						slider->set_smooth_jump(false);
 						slider->set_smooth_drag(true);
 						slider->set_hori_only();
 						slider.cell().set_size(60);
 
-						auto& progNode = slider->request_react_node();
+						auto& progNode = slider->get_provider();
 						// node_format.connect_predecessor(progNode);
 
 						// sequence.create_back([&](async_label& label){
@@ -453,5 +492,7 @@ Edge Cases:
 				creator(scroll_pane);
 			});
 	}
+
+	return result;
 }
 }

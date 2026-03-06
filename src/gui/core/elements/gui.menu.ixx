@@ -154,43 +154,7 @@ protected:
 		return events::op_afterwards::intercepted;
 	}
 
-	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
-		switch(layout_policy_){
-		case layout::layout_policy::hori_major :{
-			if(extent.width_pending()) return std::nullopt;
-			break;
-		}
-		case layout::layout_policy::vert_major :{
-			if(extent.height_pending()) return std::nullopt;
-			break;
-		}
-		case layout::layout_policy::none :{
-			if(extent.fully_mastering()) return extent.potential_extent();
-			return std::nullopt;
-		}
-		default : std::unreachable();
-		}
-
-		auto potential = extent.potential_extent();
-		const auto dep = extent.get_pending();
-
-		auto [majorTargetDep, minorTargetDep] = layout::get_vec_ptr<bool>(layout_policy_);
-
-		if(dep.*minorTargetDep){
-			auto [majorTarget, minorTarget] = layout::get_vec_ptr(layout_policy_);
-
-			if(get_expand_policy() == layout::expand_policy::passive){
-				potential.*minorTarget = this->content_extent().*minorTarget;
-			} else{
-				potential.*minorTarget = get_layout_minor_dim_config(potential.*majorTarget).masterings;
-			}
-		}
-
-		if(auto pref = get_prefer_content_extent(); pref && get_expand_policy() == layout::expand_policy::prefer){
-			potential.max(pref.value());
-		}
-
-		return potential;
-	}
 };
+
+
 }

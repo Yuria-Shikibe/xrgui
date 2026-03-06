@@ -663,7 +663,7 @@ export
 template <typename T>
 struct add_result{
 	pass_data& pass;
-	T& meta;
+	T& data;
 
 	[[nodiscard]] pass_data* id() const noexcept{
 		return std::addressof(pass);

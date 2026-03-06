@@ -374,6 +374,44 @@ struct image_nine_region : nine_patch_layout{
 			};
 	}
 
+	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_coords_scaled(const math::raw_frect bound) const noexcept{
+		const auto bound_ext = bound.extent;
+		const auto edge_ext = edge.extent();
+
+		// 如果目标的可用空间小于四个角所需的最小尺寸，则计算统一的等比缩放系数
+		float scale = 1.0f;
+		if (edge_ext.x > 0.f && edge_ext.y > 0.f && (edge_ext.x > bound_ext.x || edge_ext.y > bound_ext.y)) {
+			// 使用 align 工具获取在目标边界内 Fit 时的比例，限制最大比例为 1.0（即只缩小不放大）
+			scale = std::min(1.0f, align::get_fit_embed_scale(edge_ext, bound_ext));
+		}
+
+		// 对角元素的尺寸以及 margin 进行等比缩放
+		const float scaled_margin = margin * scale;
+		const float scaled_left = edge.left * scale;
+		const float scaled_right = edge.right * scale;
+		const float scaled_bottom = edge.bottom * scale;
+		const float scaled_top = edge.top * scale;
+
+		const std::array xs = {
+			bound.get_src_x() - scaled_margin,
+			bound.get_src_x() + scaled_left,
+			bound.get_end_x() - scaled_right,
+			bound.get_end_x() + scaled_margin
+		};
+		const std::array ys = {
+			bound.get_src_y() - scaled_margin,
+			bound.get_src_y() + scaled_bottom,
+			bound.get_end_y() - scaled_top,
+			bound.get_end_y() + scaled_margin
+		};
+
+		return {
+			std::array{xs[0], xs[1], xs[2], xs[3], ys[0], ys[1]},
+			std::array{xs[0], xs[1], xs[2], xs[3], ys[1], ys[2]},
+			std::array{xs[0], xs[1], xs[2], xs[3], ys[2], ys[3]}
+		};
+	}
+
 	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_coords(const math::raw_frect bound) const noexcept{
 		const std::array xs = {
 				bound.get_src_x() - margin,

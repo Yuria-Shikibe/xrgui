@@ -30,6 +30,7 @@ struct bloom_defines {
 	std::uint32_t current_layer;
 	std::uint32_t up_scaling;
 	std::uint32_t total_layer;
+	std::uint32_t target_scale; // 新增字段，保持和 shader 的 PushConstant 对齐
 };
 
 struct bloom_uniform_block{
@@ -62,8 +63,22 @@ struct bloom_pass final : post_process_stage{
 	}
 
 	void set_strength(const float strengthSrc = 1.f, const float strengthDst = 1.f){
-		if(current_param.strength_dst != strengthSrc || current_param.strength_dst != strengthDst){
+		if(current_param.strength_src != strengthSrc || current_param.strength_dst != strengthDst){
 			current_param.strength_src = strengthSrc;
+			current_param.strength_dst = strengthDst;
+			(void)vk::buffer_mapper{ubo()}.load(current_param);
+		}
+	}
+
+	void set_strength_src(const float strengthSrc = 1.f){
+		if(current_param.strength_src != strengthSrc){
+			current_param.strength_src = strengthSrc;
+			(void)vk::buffer_mapper{ubo()}.load(current_param);
+		}
+	}
+
+	void set_strength_dst(const float strengthDst = 1.f){
+		if(current_param.strength_dst != strengthDst){
 			current_param.strength_dst = strengthDst;
 			(void)vk::buffer_mapper{ubo()}.load(current_param);
 		}
@@ -100,26 +115,42 @@ private:
 	}
 
 	void reset_resources(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
+		int raw_scale = get_target_scale();
+		if (raw_scale < 0) {
+			throw std::invalid_argument("Bloom target scale cannot be less than 0");
+		}
+
 		total_mip_level_ = std::min(max_mip_level_, get_real_mipmap_level(extent));
+
+		// 限制 target_scale 不能大于等于 total_mip_level_，以保证至少有一次上采样操作写入 up_sample_image
+		std::uint32_t target_scale = std::min(static_cast<std::uint32_t>(raw_scale),
+		                                      total_mip_level_ > 0 ? total_mip_level_ - 1 : 0u);
+		std::uint32_t total_passes = total_mip_level_ * 2 - target_scale;
+
 		uniform_buffer_ = {alloc, sizeof(bloom_uniform_block)};
-		reset_descriptor_buffer(alloc, total_mip_level_ * 2);
+		reset_descriptor_buffer(alloc, total_passes);
+
 		vk::buffer_mapper ubo_mapper{uniform_buffer_};
 		(void)ubo_mapper.load(current_param);
 
 		{
 			vk::descriptor_mapper info{descriptor_buffer_};
-			for(std::uint32_t i = 0; i < total_mip_level_ * 2; ++i){
+			for(std::uint32_t i = 0; i < total_passes; ++i){
 				(void)info.set_uniform_buffer(
 					4,
 					uniform_buffer_.get_address(), sizeof(bloom_uniform_block), i);
-
 			}
 		}
 
 		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources().get_in(1).resource);
 		const auto up_sample_image = std::get<image_entity>(pass.get_used_resources().get_out(0).resource);
+
+		// 从对应的 slot 需求中动态获取格式
+		const auto down_format = sockets().at_in<image_requirement>(1).get_format();
+		const auto up_format = sockets().at_out<image_requirement>(0).get_format();
+
 		down_mipmap_image_views.resize(total_mip_level_);
-		up_mipmap_image_views.resize(total_mip_level_);
+		up_mipmap_image_views.resize(total_mip_level_ - target_scale);
 
 		for(auto&& [idx, view] : down_mipmap_image_views | std::views::enumerate){
 			view = vk::image_view(
@@ -129,7 +160,7 @@ private:
 					.flags = 0,
 					.image = down_sample_image.handle.image,
 					.viewType = VK_IMAGE_VIEW_TYPE_2D,
-					.format = VK_FORMAT_R16G16B16A16_SFLOAT,
+					.format = down_format, // 使用动态推断的格式
 					.components = {},
 					.subresourceRange = VkImageSubresourceRange{
 						VK_IMAGE_ASPECT_COLOR_BIT, static_cast<std::uint32_t>(idx), 1, 0, 1
@@ -146,7 +177,7 @@ private:
 					.flags = 0,
 					.image = up_sample_image.handle.image,
 					.viewType = VK_IMAGE_VIEW_TYPE_2D,
-					.format = VK_FORMAT_R16G16B16A16_SFLOAT,
+					.format = up_format, // 使用动态推断的格式
 					.components = {},
 					.subresourceRange = VkImageSubresourceRange{
 						VK_IMAGE_ASPECT_COLOR_BIT, static_cast<std::uint32_t>(idx), 1, 0, 1
@@ -156,10 +187,9 @@ private:
 		}
 
 		VkSampler sampler = get_sampler_at({0, 0});
-
 		vk::descriptor_mapper mapper{descriptor_buffer_};
 
-		for(std::uint32_t i = 0; i < total_mip_level_ * 2; ++i){
+		for(std::uint32_t i = 0; i < total_passes; ++i){
 			mapper.set_image(0, std::get<image_entity>(pass.get_used_resources().get_in(0).resource).handle.image_view,
 			                 i, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler);
 			mapper.set_image(1, down_sample_image.handle.image_view, i, VK_IMAGE_LAYOUT_GENERAL, sampler);
@@ -168,7 +198,9 @@ private:
 			if(i < total_mip_level_){
 				mapper.set_storage_image(3, down_mipmap_image_views[i], VK_IMAGE_LAYOUT_GENERAL, i);
 			} else{
-				mapper.set_storage_image(3, up_mipmap_image_views[reverse_after(i, total_mip_level_)],
+				// 计算逻辑层级并与 target_scale 抵消，使得最后一趟的 conceptual_mip == target_scale 正好写入 up_mipmap 索引 0
+				std::uint32_t conceptual_mip = reverse_after(i, total_mip_level_);
+				mapper.set_storage_image(3, up_mipmap_image_views[conceptual_mip - target_scale],
 				                         VK_IMAGE_LAYOUT_GENERAL, i);
 			}
 		}
@@ -178,13 +210,21 @@ private:
 	                    VkCommandBuffer buffer) override{
 		using namespace vk;
 
+		int raw_scale = get_target_scale();
+		if (raw_scale < 0) {
+			throw std::invalid_argument("Bloom target scale cannot be negative");
+		}
+		std::uint32_t target_scale = std::min(static_cast<std::uint32_t>(raw_scale),
+		                                      total_mip_level_ > 0 ? total_mip_level_ - 1 : 0u);
+		std::uint32_t total_passes = total_mip_level_ * 2 - target_scale;
+
 		pipeline_.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
 		cmd::bind_descriptors(buffer, {descriptor_buffer_});
 
 		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources().get_in(1).resource);
 		const auto up_sample_image = std::get<image_entity>(pass.get_used_resources().get_out(0).resource);
 
-		for(std::uint32_t i = 0; i < total_mip_level_ * 2; ++i){
+		for(std::uint32_t i = 0; i < total_passes; ++i){
 			const auto current_mipmap_index = reverse_after(i, total_mip_level_);
 			const auto div = 1 << (current_mipmap_index + 1 - (i >= total_mip_level_));
 			math::u32size2 current_ext{extent / div};
@@ -224,7 +264,8 @@ private:
 				}
 			}
 
-			if(current_mipmap_index == 0 && i != 0){
+			// 检查是否为最后一趟上采样，转换最终图像布局
+			if(i == total_passes - 1 && i >= total_mip_level_){
 				//Final, set output image layout to general
 				cmd::memory_barrier(
 					buffer,
@@ -240,10 +281,12 @@ private:
 
 			cmd::set_descriptor_offsets(buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0, {0},
 			                            {descriptor_buffer_.get_chunk_offset(i)});
+
 			const auto groups = get_work_group_size(current_ext);
 
 			const auto layerinfo = get_current_defines(i, extent);
 			vkCmdPushConstants(buffer, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(bloom_defines), &layerinfo);
+
 			vkCmdDispatch(buffer, groups.x, groups.y, 1);
 		}
 	}
@@ -261,12 +304,33 @@ private:
 				.current_layer = reverse_after(layerIndex, total_mip_level_),
 				.up_scaling = layerIndex >= total_mip_level_,
 				.total_layer = total_mip_level_,
+				.target_scale = static_cast<std::uint32_t>(std::max(0, get_target_scale())), // 传入 target_scale
 		};
+	}
+
+	[[nodiscard]] int get_target_scale() const {
+		const auto& req = meta().sockets.at_out<image_requirement>(0);
+		return std::get<int>(req.extent.extent);
+	}
+};
+
+struct bloom_meta_config{
+	int target_scale = 0;
+	std::optional<VkSpecializationInfo> specializationInfo = std::nullopt;
+
+	VkFormat format = VK_FORMAT_R16G16B16A16_SFLOAT;
+	VkImageLayout target_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+
+	VkImageLayout get_target_layout() const noexcept{
+		return target_layout != VK_IMAGE_LAYOUT_UNDEFINED ? target_layout : (target_layout == 0 ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	}
 };
 
 export
-	[[nodiscard]] post_process_meta get_bloom_default_meta(const vk::shader_module& shader_module, std::optional<VkSpecializationInfo> specializationInfo = std::nullopt){
+	[[nodiscard]] post_process_meta get_bloom_default_meta(
+		const vk::shader_module& shader_module,
+		bloom_meta_config config){
 		post_process_meta meta{
 				shader_module,
 				{
@@ -275,24 +339,26 @@ export
 					{{2}, {no_slot, 0}}, //Output
 					{{3}, {no_slot, 0}},
 				},
-				specializationInfo
+				config.specializationInfo
 			};
 
-	meta.set_format_at_in(1, VK_FORMAT_R16G16B16A16_SFLOAT);
-	meta.set_format_at_out(0, VK_FORMAT_R16G16B16A16_SFLOAT);
+	meta.set_format_at_in(1, config.format);
+	meta.set_format_at_out(0, config.format);
+
 	{
 		auto& req = meta.sockets.at_out<image_requirement>(0);
 
-		req.override_layout = req.override_output_layout = VK_IMAGE_LAYOUT_GENERAL;
+		req.override_initial_layout = VK_IMAGE_LAYOUT_GENERAL;
+		req.override_output_layout = config.get_target_layout();
 		req.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-		req.mip_level = 6;
-		req.extent.extent = 0;
+		req.mip_level = 6 - config.target_scale;
+		req.extent.extent = config.target_scale;
 	}
 
 	{
 		auto& req = meta.sockets.at_in<image_requirement>(1);
 
-		req.override_layout = req.override_output_layout = VK_IMAGE_LAYOUT_GENERAL;
+		req.override_initial_layout = req.override_output_layout = VK_IMAGE_LAYOUT_GENERAL;
 		req.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 		req.mip_level = 6;
 		req.extent.extent = 1;

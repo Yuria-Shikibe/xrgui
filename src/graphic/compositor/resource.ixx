@@ -110,7 +110,12 @@ struct image_extent_spec{
 					return VkExtent3D{};
 				},
 				[&](const int scale){
-					return VkExtent3D{context_ext.width >> scale, context_ext.height >> scale, 1};
+					if(scale >= 0){
+						return VkExtent3D{context_ext.width >> scale, context_ext.height >> scale, 1};
+					}else{
+						//shift with negative operand is UB
+						return VkExtent3D{context_ext.width << scale, context_ext.height << scale, 1};
+					}
 				},
 				[](const VkExtent3D ext){return ext;}
 			}, extent);
@@ -160,7 +165,7 @@ struct image_requirement{
 	/**
 	 * @brief explicitly specfied expected initial layout of the image
 	 */
-	VkImageLayout override_layout{VK_IMAGE_LAYOUT_UNDEFINED};
+	VkImageLayout override_initial_layout{VK_IMAGE_LAYOUT_UNDEFINED};
 
 	/**
 	 * @brief explicitly specfied expected final layout of the image
@@ -222,7 +227,7 @@ struct image_requirement{
 	}
 
 	[[nodiscard]] VkImageLayout get_expected_layout() const noexcept{
-		if(override_layout) return override_layout;
+		if(override_initial_layout) return override_initial_layout;
 		return is_sampled_image()
 			       ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 			       : VK_IMAGE_LAYOUT_GENERAL;

@@ -17,7 +17,7 @@ export
 struct split_pane : head_body_no_invariant{
 private:
 	snap_shot<float> seperator_position_{.5f};
-
+	math::range min_margin{0.1f, 0.1f};
 	//TODO minimal size
 
 	void update_seperator(){
@@ -26,8 +26,18 @@ private:
 		notify_isolated_layout_changed();
 	}
 
-public:
+	void move_seperator(math::vec2 delta){
+		auto [major_p, minor_p] = layout::get_vec_ptr(get_layout_policy());
+		auto offset_in_minor = delta.*minor_p;
+		auto minor_ext = content_extent().*minor_p - pad_;
 
+		auto delta_offset = offset_in_minor / minor_ext;
+		if(util::try_modify(seperator_position_.temp, math::clamp(seperator_position_.base + delta_offset, min_margin.from, 1.f - min_margin.to))){
+			set_children_opacity_with_scl(.2f);
+		}
+	}
+
+public:
 	split_pane(scene& scene, elem* parent, layout::layout_policy layout_policy)
 		: head_body_no_invariant(scene, parent, layout_policy){
 		extend_focus_until_mouse_drop = true;
@@ -42,9 +52,25 @@ public:
 		: split_pane(scene, parent, layout::layout_policy::vert_major){
 	}
 
+	[[nodiscard]] math::range get_min_margin() const{
+		return min_margin;
+	}
+
+	void set_min_margin(math::range min_margin){
+		if(min_margin.from + min_margin.to > 1.001f){
+			throw std::out_of_range("margin sum > 1");
+		}
+
+		min_margin.from = math::clamp(min_margin.from);
+		min_margin.to = math::clamp(min_margin.to);
+
+		if(util::try_modify(this->min_margin, min_margin)){
+		}
+	}
+
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		auto ret = head_body::on_click(event, aboves);
-		if(event.key.on_release() && seperator_position_.is_dirty()){
+		if(event.key.on_release()/* && seperator_position_.is_dirty()*/){
 			seperator_position_.apply();
 			set_children_opacity_with_scl(1.f);
 			update_seperator();
@@ -55,24 +81,17 @@ public:
 
 	events::op_afterwards on_drag(const events::drag event) override{
 		const auto cursorlocal = event.src;
-		const auto region = get_seperator_region_contnet_local();
+		const auto region = get_seperator_region_element_local();
 
 		if(!region.contains_loose(cursorlocal - content_src_offset()))return events::op_afterwards::fall_through;
-
-		auto [major_p, minor_p] = layout::get_vec_ptr(get_layout_policy());
-		/*if(!seperator_position_.is_dirty())*/set_children_opacity_with_scl(.2f);
-		auto offset_in_minor = event.delta().*minor_p;
-		auto minor_ext = content_extent().*minor_p - pad_;
-
-		auto delta_offset = offset_in_minor / minor_ext;
-		seperator_position_.temp = math::clamp(seperator_position_.base + delta_offset);
+		move_seperator(event.delta());
 		return events::op_afterwards::intercepted;
 	}
 
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		head_body::draw_layer(clipSpace, param);
 		if(param == 0){
-			auto region = get_seperator_region_contnet_local();
+			auto region = get_seperator_region_element_local();
 			auto cursorlocal = util::transform_scene2local(*this, get_scene().get_cursor_pos()) - content_src_offset();
 			auto color = region.contains_loose(cursorlocal) ? graphic::colors::pale_green : graphic::colors::YELLOW;
 			region.move(content_src_pos_abs());

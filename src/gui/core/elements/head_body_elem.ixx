@@ -28,11 +28,13 @@ protected:
 public:
 	[[nodiscard]] head_body_elem(scene& scene, elem* parent)
 	: elem(scene, parent){
+		interactivity = interactivity_flag::children_only;
 	}
 
 	[[nodiscard]] head_body_elem(scene& scene, elem* parent, layout::layout_policy layout_policy)
 	: elem(scene, parent),
 	layout_policy_(layout_policy){
+		interactivity = interactivity_flag::children_only;
 	}
 
 
@@ -116,7 +118,7 @@ public:
 		return true;
 	}
 
-	rect get_seperator_region_contnet_local() const noexcept{
+	rect get_seperator_region_element_local() const noexcept{
 		const auto [major, minor] = layout::get_vec_ptr(get_layout_policy());
 		auto head_extent = head().extent();
 
@@ -362,6 +364,46 @@ public:
 
 	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
 		return expand_policy_;
+	}
+
+
+	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
+		switch(layout_policy_){
+		case layout::layout_policy::hori_major :{
+			if(extent.width_pending()) return std::nullopt;
+			break;
+		}
+		case layout::layout_policy::vert_major :{
+			if(extent.height_pending()) return std::nullopt;
+			break;
+		}
+		case layout::layout_policy::none :{
+			if(extent.fully_mastering()) return extent.potential_extent();
+			return std::nullopt;
+		}
+		default : std::unreachable();
+		}
+
+		auto potential = extent.potential_extent();
+		const auto dep = extent.get_pending();
+
+		auto [majorTargetDep, minorTargetDep] = layout::get_vec_ptr<bool>(layout_policy_);
+
+		if(dep.*minorTargetDep){
+			auto [majorTarget, minorTarget] = layout::get_vec_ptr(layout_policy_);
+
+			if(get_expand_policy() == layout::expand_policy::passive){
+				potential.*minorTarget = this->content_extent().*minorTarget;
+			} else{
+				potential.*minorTarget = get_layout_minor_dim_config(potential.*majorTarget).masterings;
+			}
+		}
+
+		if(auto pref = get_prefer_content_extent(); pref && get_expand_policy() == layout::expand_policy::prefer){
+			potential.max(pref.value());
+		}
+
+		return potential;
 	}
 
 	void layout_elem() override{

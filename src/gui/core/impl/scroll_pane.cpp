@@ -7,6 +7,7 @@ module mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
+
 bool scroll_pane::update(const float delta_in_ticks){
 	if(!elem::update(delta_in_ticks))return false;
 
@@ -118,7 +119,7 @@ void scroll_pane::draw_layer(rect clipSpace, fx::layer_param_pass_t param) const
 			    r.push(graphic::draw::instruction::rect_aabb{
 				    .v00 = bar_rect.vert_00(),
 				    .v11 = bar_rect.vert_11(),
-				    .vert_color = get_color(graphic::colors::gray) // [修改] 应用透明度
+				    .vert_color = get_color(graphic::colors::light_gray) // [修改] 应用透明度
 			    });
             } else if (draw_track_if_locked) {
                 // (锁定状态绘制逻辑，同样应用透明度)
@@ -137,7 +138,7 @@ void scroll_pane::draw_layer(rect clipSpace, fx::layer_param_pass_t param) const
                 r.push(graphic::draw::instruction::rect_aabb{
                     .v00 = lockedRect.vert_00(),
                     .v11 = lockedRect.vert_11(),
-                    .vert_color = get_color(graphic::colors::light_gray) // [修改] 应用透明度
+                    .vert_color = get_color(graphic::colors::gray) // [修改] 应用透明度
                 });
             }
 		}
@@ -152,7 +153,7 @@ void scroll_pane::draw_layer(rect clipSpace, fx::layer_param_pass_t param) const
 			    r.push(graphic::draw::instruction::rect_aabb{
 				    .v00 = bar_rect.vert_00(),
 				    .v11 = bar_rect.vert_11(),
-				    .vert_color = get_color(graphic::colors::gray) // [修改] 应用透明度
+				    .vert_color = get_color(graphic::colors::light_gray) // [修改] 应用透明度
 			    });
             } else if (draw_track_if_locked) {
                 const auto [x, y] = content_src_pos_abs();
@@ -170,7 +171,7 @@ void scroll_pane::draw_layer(rect clipSpace, fx::layer_param_pass_t param) const
                 r.push(graphic::draw::instruction::rect_aabb{
                     .v00 = lockedRect.vert_00(),
                     .v11 = lockedRect.vert_11(),
-                    .vert_color = get_color(graphic::colors::light_gray) // [修改] 应用透明度
+                    .vert_color = get_color(graphic::colors::gray) // [修改] 应用透明度
                 });
             }
 		}

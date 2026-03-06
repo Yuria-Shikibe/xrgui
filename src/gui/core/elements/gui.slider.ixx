@@ -91,22 +91,26 @@ public:
 		bar_progress_.resume();
 	}
 
-	void set_progress_from_segments(math::usize2 current, math::usize2 total){
+	bool set_progress_from_segments(math::usize2 current, math::usize2 total){
 		segments = total;
-		set_progress((current.as<float>() / total.as<float>()).nan_to0());
+		return set_progress((current.as<float>() / total.as<float>()).nan_to0());
 	}
 
-	void set_progress_from_segments_x(unsigned current, unsigned total){
-		set_progress_from_segments({current, 0}, {total, 0});
+	bool set_progress_from_segments_x(unsigned current, unsigned total){
+		return set_progress_from_segments({current, 0}, {total, 0});
 	}
 
-	void set_progress_from_segments_y(unsigned current, unsigned total){
-		set_progress_from_segments({0, current}, {0, total});
+	bool set_progress_from_segments_y(unsigned current, unsigned total){
+		return set_progress_from_segments({0, current}, {0, total});
 	}
 
-	void set_progress(math::vec2 progress) noexcept{
+	bool set_progress(math::vec2 progress) noexcept{
 		progress.clamp_xy({}, math::vectors::constant2<float>::base_vec2);
-		this->bar_progress_ = progress;
+		if(bar_progress_.base != progress){
+			this->bar_progress_ = progress;
+			return true;
+		}
+		return false;
 	}
 
 	[[nodiscard]] math::vec2 get_progress() const noexcept{
@@ -181,7 +185,6 @@ protected:
 		update_approach_state();
 	}
 
-	react_flow::provider_cached<math::vec2>* submit_node_;
 	referenced_ptr<const style::slider_drawer> drawer_{style::get_global_default_slider_drawer()};
 
 	bool smooth_scroll_{};
@@ -191,7 +194,7 @@ protected:
 	math::optional_vec2<float> drag_src_{math::nullopt_vec2<float>};
 
 	virtual void on_changed(){
-		if(submit_node_)submit_node_->update_value(bar.get_progress());
+		// if(submit_node_)submit_node_->update_value(bar.get_progress());
 	}
 public:
 	slider2d_slot bar;
@@ -233,24 +236,41 @@ public:
 		return bar.is_sliding();
 	}
 
-	void set_progress(math::vec2 progress) noexcept{
-		bar.set_progress(progress);
-		check_apply();
+	void set_progress(math::vec2 progress){
+		if(bar.set_progress(progress)){
+			on_changed();
+		}
+	}
+
+	void set_progress(float progress){
+		auto clampX = is_clamped_to_hori();
+		auto clampY = is_clamped_to_vert();
+		if(clampX && clampY)return;
+		if(clampX){
+			set_progress({progress, 0});
+		}else if(clampY){
+			set_progress({0, progress});
+		}else{
+			set_progress({progress, progress});
+		}
 	}
 
 	void set_progress_from_segments(math::usize2 current, math::usize2 total){
-		bar.set_progress_from_segments(current, total);
-		check_apply();
+		if(bar.set_progress_from_segments(current, total)){
+			on_changed();
+		}
 	}
 
 	void set_progress_from_segments_x(unsigned current, unsigned total){
-		bar.set_progress_from_segments_x(current, total);
-		check_apply();
+		if(bar.set_progress_from_segments_x(current, total)){
+			on_changed();
+		}
 	}
 
 	void set_progress_from_segments_y(unsigned current, unsigned total){
-		bar.set_progress_from_segments_y(current, total);
-		check_apply();
+		if(bar.set_progress_from_segments_y(current, total)){
+			on_changed();
+		}
 	}
 
 	void clamp_progress(math::vec2 from, math::vec2 to) noexcept{
@@ -267,14 +287,14 @@ public:
 		}
 	}
 
-	react_flow::provider_cached<math::vec2>& request_react_node(){
-		if(submit_node_){
-			return *submit_node_;
-		}
-		auto& node = get_scene().request_react_node<react_flow::provider_cached<math::vec2>>(*this);
-		this->submit_node_ = &node;
-		return node;
-	}
+	// react_flow::provider_cached<math::vec2>& request_react_node(){
+	// 	if(submit_node_){
+	// 		return *submit_node_;
+	// 	}
+	// 	auto& node = get_scene().request_react_node<react_flow::provider_cached<math::vec2>>(*this);
+	// 	this->submit_node_ = &node;
+	// 	return node;
+	// }
 
 	[[nodiscard]] bool is_clamped() const noexcept{
 		return is_clamped_to_hori() || is_clamped_to_vert();
@@ -344,7 +364,15 @@ public:
 	events::op_afterwards on_drag(const events::drag event) override{
 		if(event.key.mode_bits == input_handle::mode::ctrl)return events::op_afterwards::fall_through;
 
-		bar.move_progress(event.delta() * sensitivity / content_extent(), drag_src_);
+		if(!drag_src_)return events::op_afterwards::intercepted;
+
+		if(event.key.as_mouse() == input_handle::mouse::LMB){
+			bar.move_progress(event.delta() * sensitivity / content_extent(), drag_src_);
+		}else if(event.key.as_mouse() == input_handle::mouse::RMB){
+			bar.resume();
+		}
+
+
 		update_approach_state();
 
 		return events::op_afterwards::intercepted;
@@ -354,33 +382,45 @@ public:
 		elem::on_click(event, aboves);
 		const auto [key, action, mode] = event.key;
 
-		switch(action){
-		case input_handle::act::press :{
-			drag_src_ = bar.get_temp_progress();
+		switch(static_cast<input_handle::mouse>(key)){
+		case input_handle::mouse::_1 :{
+			switch(action){
+			case input_handle::act::press :{
+				drag_src_ = bar.get_temp_progress();
 
-			if(mode == input_handle::mode::ctrl){
-				const auto move = (event.get_content_pos(*this) - get_progress() * content_extent()) /
-					content_extent();
-				bar.move_progress(move * sensitivity.sign_or_zero());
+				if(mode == input_handle::mode::ctrl){
+					const auto move = (event.get_content_pos(*this) - get_progress() * content_extent()) /
+						content_extent();
+					bar.move_progress(move * sensitivity.sign_or_zero());
 
-				if(!smooth_jump_){
-					check_apply();
-				}else{
-					update_approach_state();
+					if(!smooth_jump_){
+						check_apply();
+					} else{
+						update_approach_state();
+					}
 				}
+				break;
+			}
+
+			case input_handle::act::release :{
+				drag_src_.reset();
+				if(!smooth_drag_) check_apply();
+				else update_approach_state();
+				break;
+			}
+
+			default : break;
 			}
 			break;
 		}
-
-		case input_handle::act::release :{
+		case input_handle::mouse::_2 :{
 			drag_src_.reset();
-			if(!smooth_drag_) check_apply();
-			else update_approach_state();
+			bar.resume();
 			break;
 		}
-
-		default : break;
+		default: break;
 		}
+
 
 		return events::op_afterwards::intercepted;
 	}
@@ -436,8 +476,8 @@ protected:
 		if(elem::update(delta_in_ticks)){
 			if(!drag_src_ && (smooth_scroll_ || smooth_jump_ || smooth_drag_)){
 				//TODO user provided speed scl?
-				if(bar.update(delta_in_ticks * approach_speed_scl) && submit_node_){
-					submit_node_->update_value(bar.get_progress());
+				if(bar.update(delta_in_ticks * approach_speed_scl)){
+					on_changed();
 				}
 
 				if(!bar.is_sliding()){
@@ -456,6 +496,46 @@ public:
 				content_width() : bar_handle_extent.x,
 				is_clamped_to_hori() ? content_height() : bar_handle_extent.y,
 			};
+	}
+};
+
+export
+struct slider_with_2d_output : slider{
+private:
+	react_flow::node_holder<react_flow::provider_cached<math::vec2>> output_node;
+
+public:
+
+	slider_with_2d_output(scene& scene, elem* parent)
+		: slider(scene, parent){
+	}
+
+	react_flow::provider_cached<math::vec2>& get_provider() noexcept{
+		return output_node.node;
+	}
+
+	void on_changed() override{
+		output_node->update_value(bar.get_progress());
+	}
+};
+
+export
+struct slider_with_output : slider{
+private:
+	react_flow::node_holder<react_flow::provider_cached<float>> output_node;
+
+public:
+
+	slider_with_output(scene& scene, elem* parent)
+		: slider(scene, parent){
+	}
+
+	react_flow::provider_cached<float>& get_provider() noexcept{
+		return output_node.node;
+	}
+
+	void on_changed() override{
+		output_node->update_value(bar.get_progress().get_max());
 	}
 };
 

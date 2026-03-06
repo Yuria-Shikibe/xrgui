@@ -331,7 +331,10 @@ export struct renderer{
 			descriptor_context(pc.pipeline_layout, cmd, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
 
 			auto dispatches = cfg.get_dispatch_groups();
-			vkCmdDispatch(cmd, dispatches.x, dispatches.y, 1);
+			if(dispatches.area() > 0){
+				vkCmdDispatch(cmd, dispatches.x, dispatches.y, 1);
+			}
+
 
 			// 4. 生产阶段：为刚修改过的 Blit Attachment 埋入“待决状态”
 			for(const auto& e : inout.get_output_entries()){

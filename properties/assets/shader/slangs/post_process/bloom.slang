@@ -12,6 +12,7 @@ struct bloom_defines {
     uint mip_index;
     uint up_scaling;
     uint total_layer;
+    uint target_scale; // 新增：用于对齐物理与逻辑 mipmap 层级
 }
 
 [[vk::push_constant]]
@@ -34,7 +35,6 @@ Sampler2D down_mipmap_sample;
 Sampler2D up_mipmap_sample;
 
 [[vk::binding(3, 0)]]
-[[format("rgba16f")]]
 restrict WTexture2D target;
 
 [[vk::binding(4, 0)]]
@@ -67,7 +67,6 @@ float4 down_sample_optimized(float2 uv, float2 size_inv, uint mip) {
 
 [[ForceInline]]
 float4 down_blur(const float2 where, const float2 size_inv, const float scale, const uint raw_mip_index) {
-    // 恢复原版逻辑：确保降采样阶段 100% 覆盖像素，不丢失任何亮度能量（拒绝变灰）
     if (raw_mip_index == 0) {
         var color = float4(0);
         float weight = 0;
@@ -78,7 +77,6 @@ float4 down_blur(const float2 where, const float2 size_inv, const float scale, c
 
             float l;
             if (IS_PURE_BLUR != 0) {
-                // 纯模糊模式：不压制高光，保持线性
                 l = ker.z;
             } else {
                 l = ker.z * rcp(1 + pp::luma(sampled));
@@ -95,12 +93,10 @@ float4 down_blur(const float2 where, const float2 size_inv, const float scale, c
 
 [[ForceInline]]
 float4 up_blur(const float2 where, const float2 size_inv, const float scale, const uint raw_mip_index) {
-    // 升采样阶段：纯模糊模式下采用 9 采样 Tent Filter 替代 4 采样 Box Filter
     if (IS_PURE_BLUR != 0) {
         var color = float4(0);
         float weight = 0;
 
-        // 注意：这里不再乘以 1.5，使用原始 size_inv 确保双线性插值的采集范围完美互锁，没有缝隙
         [[ForceUnroll]]
         for (int i = 0; i < 9; ++i) {
             let ker = tent_kernal[i];
@@ -135,13 +131,14 @@ void main(
 
     if (bool(defines.up_scaling)){
         float4 colorSrc;
-        // 这里的 up_blur 现在在纯模糊模式下将返回更柔和的结果
         let colorDst = up_blur(uv, size_inv / 2, param.scale, current_index);
 
         if (current_index == defines.total_layer - 1) {
             colorSrc = down_mipmap_sample.SampleLevel(uv, current_index);
         } else {
-            colorSrc = up_mipmap_sample.SampleLevel(uv, current_index + 1);
+            // 修正点：up_sample_image 如果整体变小，它的物理 mip 0 对应着逻辑上的 target_scale 层
+            // 因此原本读取的 current_index + 1 需要减去 target_scale 映射回正确的物理层级
+            colorSrc = up_mipmap_sample.SampleLevel(uv, current_index + 1 - defines.target_scale);
         }
 
         float4 src;
@@ -155,7 +152,6 @@ void main(
 
         target.Store(mipPos, src);
     } else {
-        // down_blur 现在在纯模糊模式下也能输出更大的模糊半径
         let src = down_blur(uv, size_inv * 2, param.scale, defines.mip_index);
         target.Store(mipPos, src);
     }

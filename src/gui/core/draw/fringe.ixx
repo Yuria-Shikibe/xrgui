@@ -91,8 +91,8 @@ FORCE_INLINE void poly_partial_with_cap(renderer_frontend& r, const instruction:
 	if(is_draw_meaningful(src_cap_fringe)) [[likely]] {
 		const auto radscl_src = src_cap_fringe / radius / math::pi_2;
 		instr_src.range.extent = std::copysign(radscl_src, -instr.range.extent);
-		instr_src.color.v01.a = {};
-		instr_src.color.v11.a = {};
+		instr_src.color.v01 = instr_src.color.v00.make_transparent();
+		instr_src.color.v11 = instr_src.color.v10.make_transparent();
 		instr_src.segments = 1;
 		poly_partial(r, instr_src, fringe);
 
@@ -103,8 +103,8 @@ FORCE_INLINE void poly_partial_with_cap(renderer_frontend& r, const instruction:
 		const auto off = std::copysign(radscl_dst, instr.range.extent);
 		instr_dst.range.base = instr.range.dst() + off;
 		instr_dst.range.extent = -off;
-		instr_dst.color.v00.a = {};
-		instr_dst.color.v10.a = {};
+		instr_dst.color.v00 = instr_dst.color.v01.make_transparent();
+		instr_dst.color.v10 = instr_dst.color.v11.make_transparent();
 		instr_src.segments = 1;
 		poly_partial(r, instr_dst, fringe);
 	}

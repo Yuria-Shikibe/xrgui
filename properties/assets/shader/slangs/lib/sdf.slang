@@ -31,6 +31,23 @@ public float msdf(Sampler2D samp, float2 uv, float pxRange = 4.f) {
     float _;
     samp.GetDimensions(0, size.x, size.y, _);
 
+    let col = samp.SampleLevel(uv, 0.0).rgb;
+
+    float sigDist = median(col) - 0.5f;
+
+    sigDist *= max(0.5 * dot(float2(pxRange) * rcp(size), rcp(fw)), 1.0);
+
+    return sigDist;
+}
+
+[[ForceInline]]
+public float msdf_with_lod(Sampler2D samp, float2 uv, float pxRange = 4.f) {
+    let fw = fwidth(uv);
+
+    float2 size;
+    float _;
+    samp.GetDimensions(0, size.x, size.y, _);
+
     float2 texelsPerPixel = fw * size;
     float lod = max(0.0, log2(max(texelsPerPixel.x, texelsPerPixel.y)));
 
