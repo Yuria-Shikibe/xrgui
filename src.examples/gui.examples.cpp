@@ -14,7 +14,7 @@ import mo_yanxi.gui.global;
 import mo_yanxi.react_flow;
 import mo_yanxi.react_flow.common;
 
-import mo_yanxi.gui.elem.manual_table;
+import mo_yanxi.gui.elem.scaling_stack;
 import mo_yanxi.gui.elem.sequence;
 import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.elem.collapser;
@@ -103,30 +103,50 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 					sequence.set_has_smooth_pos_animation(false);
 					{
 						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Bloom Sample Scale", 50.f);
-						hdl->body().set_smooth_drag(true);
-						hdl->body().set_progress(1.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(1.f);
 						result.shader_bloom_scale = &hdl.elem().get_slider_provider();
 
 					}
 
 					{
 						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "BloomSrcFactor", 50.f);
-						hdl->body().set_smooth_drag(true);
-						hdl->body().set_progress(.5f);
-						result.shader_bloom_src_factor = &hdl.elem().get_slider_provider();
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
+
+						auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
+							return math::lerp(0.f, 2.f, val);
+						}));
+						auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer([](float val){
+							return std::format("{:.2f}", val);
+						}));
+						react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
+						hdl->get_slider_provider().update_value();
+
+						result.shader_bloom_src_factor = &trans;
 					}
 
 					{
 						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "BloomDstFactor", 50.f);
-						hdl->body().set_smooth_drag(true);
-						hdl->body().set_progress(.5f);
-						result.shader_bloom_dst_factor = &hdl.elem().get_slider_provider();
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
+
+						auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
+							return math::lerp(0.f, 2.f, val);
+						}));
+						auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer([](float val){
+							return std::format("{:.2f}", val);
+						}));
+						react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
+						hdl->get_slider_provider().update_value();
+
+						result.shader_bloom_dst_factor = &trans;
 					}
 
 					{
 						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "BloomMixFactor", 50.f);
-						hdl->body().set_smooth_drag(true);
-						hdl->body().set_progress(.5f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
 						result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
 					}
 				});

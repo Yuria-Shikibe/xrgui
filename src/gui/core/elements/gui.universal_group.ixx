@@ -171,9 +171,6 @@ protected:
 	bool has_smooth_pos_animation_{};
 	mr::heap_vector<adaptor_type> cells_{get_heap_allocator<adaptor_type>()};
 
-private:
-	// mr::heap_vector<children_position_state> children_smooth_pos_state_{get_heap_allocator<children_position_state>()};
-
 public:
 	using basic_group::basic_group;
 

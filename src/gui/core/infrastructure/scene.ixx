@@ -472,6 +472,13 @@ public:
 		return ptr;
 	}
 
+	template <typename T, std::derived_from<elem> E>
+	T& request_embedded_react_node(E& elem, T&& args){
+		T& ptr = react_flow_->add_node(std::forward<T>(args));
+		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
+		return ptr;
+	}
+
 
 
 private:

@@ -931,6 +931,13 @@ public:
 		return self.get_scene().template request_react_node<T>(self, std::forward<T>(args));
 	}
 
+
+	template <typename T, typename S>
+	T& request_embedded_react_node(this S& self, T&& args){
+		return self.get_scene().template request_embedded_react_node<T>(self, std::forward<T>(args));
+	}
+
+
 protected:
 	template <typename T = std::byte>
 	auto get_heap_allocator() const noexcept{

@@ -134,6 +134,10 @@ export struct glyph_layout {
 	std::vector<line> lines;
 	math::vec2 extent;
 	layout_direction direction;
+
+	constexpr bool empty() const noexcept{
+		return lines.empty();
+	}
 };
 
 font::hb::font_ptr create_harfbuzz_font(const font::font_face_handle& face){

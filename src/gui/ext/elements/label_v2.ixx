@@ -36,6 +36,22 @@ enum struct change_type{
 BITMASK_OPS(, change_type);
 
 export
+struct label_v2;
+
+export
+struct label_v2_text_prov : react_flow::terminal<std::string>{
+	label_v2_text_prov() = default;
+
+	explicit label_v2_text_prov(label_v2& label)
+		: terminal(react_flow::propagate_type::eager), label(&label){
+	}
+
+protected:
+	label_v2* label;
+	void on_update(react_flow::data_carrier<std::string>& data) override;
+};
+
+
 struct label_v2 : text_holder<typesetting::glyph_layout>{
 	struct from_string{
 		label_v2* label_;
@@ -177,7 +193,7 @@ protected:
 	}
 
 	virtual text_layout_result layout_text(math::vec2 bound){
-		if(bound.area() < 32) return {};
+		if(!fit_ && bound.area() < 32) return {};
 
 		if((change_mark_ & change_type::text) != change_type{}){
 			tokenized_text_.reset(raw_string_);
@@ -193,13 +209,16 @@ protected:
 			}
 
 			if(is_layout_expired_()){
-				change_mark_ = change_type::none;
-
-				if(context_.set_max_extent(math::vectors::constant2<float>::inf_positive_vec2)){
+				if(
+					context_.set_max_extent(math::vectors::constant2<float>::inf_positive_vec2) ||
+					((change_mark_ & change_type::config) != change_type{}) || ((change_mark_ & change_type::text) != change_type{})
+					){
 					context_.layout(glyph_layout_, tokenized_text_);
 					update_draw_buffer(glyph_layout_);
 					return {bound, true};
 				}
+
+				change_mark_ = change_type::none;
 			}
 		}else if(context_.set_max_extent(bound) || is_layout_expired_()){
 			context_.layout(glyph_layout_, tokenized_text_);

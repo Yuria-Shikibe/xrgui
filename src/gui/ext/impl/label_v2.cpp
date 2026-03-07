@@ -53,6 +53,10 @@ void layout_record<typesetting::glyph_layout>::record_glyph_draw_instructions(
 
 }
 
+void label_v2_text_prov::on_update(react_flow::data_carrier<std::string>& data){
+	label->set_text(data.get());
+}
+
 void label_v2::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
 	text_holder::draw_layer(clipSpace, param);
 	draw_style(param);

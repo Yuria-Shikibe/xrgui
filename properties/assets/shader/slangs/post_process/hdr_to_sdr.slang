@@ -51,6 +51,11 @@ float3 hdr_to_sdr_advanced(float3 hdrColor, float exp, float cont, float gam, fl
     return saturate(color);
 }
 
+float InterleavedGradientNoise(float2 screenPos) {
+    constexpr let magic = float3(0.06711056, 0.00583715, 52.9829189);
+    return fract(magic.z * fract(dot(screenPos, magic.xy)));
+}
+
 [shader("compute")]
 [numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
 void main(
@@ -67,7 +72,9 @@ void main(
 
     // 应用高级色调映射管线
     let mapped = hdr_to_sdr_advanced(hdrColor.rgb, exp, cont, gam, sat);
-
+    float dither = (InterleavedGradientNoise(float2(pos)) - 0.5) / 255.0;
+    var result = float4(mapped, hdrColor.a);
+    result += dither;
     // 输出最终映射的 SDR 颜色
-    output.Store(pos, float4(mapped, hdrColor.a));
+    output.Store(pos, result);
 }

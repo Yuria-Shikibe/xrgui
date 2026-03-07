@@ -412,7 +412,7 @@ void app_run(
 					});
 
 				trail.iterate(1.f,
-					[&, last = trail.head_pos_or({})](
+					[last = trail.head_pos_or({})](
 						const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable {
 						using namespace graphic;
 						math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
@@ -430,9 +430,7 @@ void app_run(
 
 						factor_global = math::curve(factor_global | math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)), 1.f);
 
-						return trail_node_data{
-								n, factor_global, color
-							};
+						return trail_node_data{n, factor_global, color};
 					}, [&](std::span<const trail_node_data, 4> sspn){
 						using namespace graphic;
 						using namespace graphic::draw;
@@ -460,22 +458,9 @@ void app_run(
 				{.pipeline_index = 1}
 			});
 
-			// for(int i = 0; i < 12; ++i){
-			//
-			//
-			// 	r.update_state(gui::fx::blit_config{
-			// 		{
-			// 			.src = {},
-			// 			.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-			// 		},
-			// 		{.pipeline_index = 1}
-			// 	});
-			//
-			// }
-
 		}
 
-		// gui::global::manager.draw();
+		gui::global::manager.draw();
 		renderer.batch_host.end_rendering();
 		renderer.upload();
 		renderer.create_command();
@@ -778,10 +763,10 @@ void prepare(){
 			p.set_scale(val);
 		}));
 		auto& bloom_src_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
-			p.set_strength_src(math::map(val, 0.f, 1.f, 0.f, 2.f));
+			p.set_strength_src(val);
 		}));
 		auto& bloom_dst_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
-			p.set_strength_dst(math::map(val, 0.f, 1.f, 0.f, 2.f));
+			p.set_strength_dst(val);
 		}));
 		auto& bloom_mix_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
 			p.set_mix_factor(val);

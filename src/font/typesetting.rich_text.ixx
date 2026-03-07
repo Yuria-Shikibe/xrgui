@@ -397,17 +397,21 @@ struct tokenized_text{
 	};
 
 private:
-	std::u32string codes{};
+	std::u32string chars_{};
 
 	std::vector<posed_token_argument> tokens_{};
 
 public:
-	using pos_t = decltype(codes)::size_type;
+	using pos_t = decltype(chars_)::size_type;
 	using token_iterator = decltype(tokens_)::const_iterator;
 	using token_subrange = std::ranges::subrange<token_iterator>;
 
+	constexpr bool empty() const noexcept{
+		return chars_.empty();
+	}
+
 	constexpr std::u32string_view get_text() const noexcept{
-		return codes;
+		return chars_;
 	}
 
 	constexpr token_iterator get_token(const pos_t pos, const token_iterator& last) const noexcept{
@@ -440,7 +444,7 @@ public:
 	[[nodiscard]] constexpr explicit(false) tokenized_text(std::in_place_t, std::string_view string);
 
 	constexpr void reset(std::string_view string, const rich_text_look_up_table* table = look_up_table){
-		codes.clear();
+		chars_.clear();
 		tokens_.clear();
 		parse_from_(string, table);
 	}
@@ -713,14 +717,14 @@ constexpr void append_utf8_to_u32(std::u32string& dest, std::string_view source)
 }
 
 constexpr tokenized_text::tokenized_text(std::in_place_t, const std::string_view string){
-	append_utf8_to_u32(this->codes, string);
+	append_utf8_to_u32(this->chars_, string);
 }
 
 constexpr void tokenized_text::parse_from_(const std::string_view string, const rich_text_look_up_table* table){
 	const char* ptr = string.data();
 	const size_t size = string.size();
 
-	codes.reserve(size);
+	chars_.reserve(size);
 
 	std::size_t text_start_idx = 0;
 	std::size_t i = 0;
@@ -730,7 +734,7 @@ constexpr void tokenized_text::parse_from_(const std::string_view string, const 
 		if(current_end > text_start_idx){
 			// 增加判空，虽然 append 内部也会处理
 			std::string_view pending(ptr + text_start_idx, current_end - text_start_idx);
-			append_utf8_to_u32(codes, pending);
+			append_utf8_to_u32(chars_, pending);
 		}
 	};
 
@@ -746,10 +750,10 @@ constexpr void tokenized_text::parse_from_(const std::string_view string, const 
 				std::size_t skip_len{};
 
 				if(next == '\\'){
-					codes.push_back(U'\\');
+					chars_.push_back(U'\\');
 					skip_len = 2;
 				} else if(next == '{' || next == '}'){
-					codes.push_back(static_cast<char32_t>(next));
+					chars_.push_back(static_cast<char32_t>(next));
 					skip_len = 2;
 				} else if(next == '\r'){
 					// Windows (\r\n) or Old Mac (\r)
@@ -763,7 +767,7 @@ constexpr void tokenized_text::parse_from_(const std::string_view string, const 
 					// 未知转义：保留后续字符作为字面量 (例如 \a -> a)
 					// 如果你想保留反斜杠 (例如 \a -> \a)，则需要 push U'\\' 和 next
 					// 这里采用常见做法：转义为字面量
-					codes.push_back(static_cast<char32_t>(next));
+					chars_.push_back(static_cast<char32_t>(next));
 					skip_len = 2;
 				}
 
@@ -781,7 +785,7 @@ constexpr void tokenized_text::parse_from_(const std::string_view string, const 
 			// 检查双括号 '{{' -> 转义为 '{'
 			if(i + 1 < size && ptr[i + 1] == '{'){
 				flush_pending_text(i);
-				codes.push_back(U'{');
+				chars_.push_back(U'{');
 				i += 2;
 				text_start_idx = i;
 				continue;
@@ -819,7 +823,7 @@ constexpr void tokenized_text::parse_from_(const std::string_view string, const 
 					arg = content.substr(colon_pos + 1);
 				}
 
-				parse_tokens_(table, codes.size(), name, colon_pos != std::string_view::npos, arg);
+				parse_tokens_(table, chars_.size(), name, colon_pos != std::string_view::npos, arg);
 
 				// i 跳到 '}' 之后
 				i = end_content_idx + 1;
@@ -836,7 +840,7 @@ constexpr void tokenized_text::parse_from_(const std::string_view string, const 
 		if(c == '}'){
 			if(i + 1 < size && ptr[i + 1] == '}'){
 				flush_pending_text(i);
-				codes.push_back(U'}');
+				chars_.push_back(U'}');
 				i += 2;
 				text_start_idx = i;
 				continue;
@@ -864,7 +868,7 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 			{}){
 			for(std::size_t i = 0; i < count; ++i){
 				const std::size_t src_index = original_size - 1 - i;
-				tokens_.emplace_back(tokens_[src_index].make_fallback(), codes.size());
+				tokens_.emplace_back(tokens_[src_index].make_fallback(), chars_.size());
 			}
 		} else{
 			const auto limit = std::min(name.size(), original_size);
@@ -872,14 +876,14 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 			for(std::size_t i = 0; i < limit; ++i){
 				if(name[i] != '/') break;
 				const std::size_t src_index = original_size - 1 - i;
-				tokens_.emplace_back(tokens_[src_index].make_fallback(), codes.size());
+				tokens_.emplace_back(tokens_[src_index].make_fallback(), chars_.size());
 			}
 		}
 		break;
 	}
 
 
-	default : tokens_.emplace_back(rich_text_token_argument{table, name, has_arg, args}, codes.size());
+	default : tokens_.emplace_back(rich_text_token_argument{table, name, has_arg, args}, chars_.size());
 	}
 }
 }
