@@ -495,9 +495,11 @@ template <typename D>
 struct guard_base{
 private:
 	friend D;
-	renderer_frontend* renderer_;
+	renderer_frontend* renderer_{};
 
 public:
+	[[nodiscard]] guard_base() = default;
+
 	[[nodiscard]] explicit guard_base(renderer_frontend& renderer)
 		: renderer_(std::addressof(renderer)){
 	}
@@ -608,6 +610,8 @@ private:
 	}
 
 public:
+	[[nodiscard]] state_guard() = default;
+
 	[[nodiscard]] state_guard(renderer_frontend& renderer,
 		const std::span<const std::byte> data, const graphic::draw::instruction::state_tag tag, unsigned offset = 0) :
 		guard_base(renderer), tag_(tag), fix_(renderer.state_trace_.load_tag(tag)){
@@ -636,6 +640,12 @@ public:
 	[[nodiscard]] state_guard(renderer_frontend& renderer, const T& value, unsigned offset = 0) :
 		state_guard(renderer, value, gui::make_state_tag(fx::state_type_deduce<T>::type), offset){
 	}
+
+
+	[[nodiscard]] state_guard(renderer_frontend& renderer, fx::batch_draw_mode mode) : state_guard(renderer, mode, make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)){
+	}
+
+
 };
 
 

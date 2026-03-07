@@ -60,9 +60,9 @@ struct base{
 		return fx::primitive_draw_mode{};
 	}
 
-	[[nodiscard]] constexpr explicit(false) operator fx::batch_draw_mode() const noexcept  requires(!any_convertible_to<fx::batch_draw_mode, Ts...>){
-		return fx::batch_draw_mode{};
-	}
+	// [[nodiscard]] constexpr explicit(false) operator fx::batch_draw_mode() const noexcept  requires(!any_convertible_to<fx::batch_draw_mode, Ts...>){
+	// 	return fx::batch_draw_mode{};
+	// }
 };
 
 export
@@ -99,7 +99,6 @@ template<typename ...Comps>
 struct EMPTY_BASE combined_components : Comps..., base<Comps...>{
 
 };
-
 
 }
 

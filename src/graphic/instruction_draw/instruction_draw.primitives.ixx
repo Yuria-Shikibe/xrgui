@@ -2,6 +2,7 @@ module;
 
 #include <vulkan/vulkan.h>
 #include <mo_yanxi/adapted_attributes.hpp>
+#include <mo_yanxi/enum_operator_gen.hpp>
 
 export module mo_yanxi.graphic.draw.instruction;
 
@@ -424,6 +425,24 @@ constexpr inline curve_trait_matrix b_spline{
 	};
 }
 
+export enum struct row_patch_flags : std::uint32_t{
+	none,
+
+	//(是否转置)
+	transposed = 1 << 0,
+	//(主轴坐标反转)
+	flip_major_pos = 1 << 1,
+	//(副轴坐标反转)
+	flip_minor_pos = 1 << 2,
+	//(主轴UV反转)
+	flip_major_uv = 1 << 3,
+	//(副轴UV反转)
+	flip_minor_uv = 1 << 4,
+};
+
+BITMASK_OPS(export,row_patch_flags);
+
+
 //TODO support transpose?
 export struct row_patch{
 	primitive_generic generic;
@@ -447,8 +466,12 @@ export struct row_patch{
 	 */
 	std::array<float, 6> uvs;
 
-
 	quad_vert_color vert_color;
+
+	row_patch_flags flags;
+	float _cap;
+	float skew_major;
+	float skew_minor;
 
 	[[nodiscard]] FORCE_INLINE CONST_FN static constexpr std::uint32_t get_vertex_count() noexcept{
 		return 8;

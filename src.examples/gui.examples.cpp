@@ -76,19 +76,23 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 		return v.x;
 	}));
 
-	referenced_ptr<style::round_style> round_style{std::in_place};
-	round_style->edge.pal = style::pal::white.border;
-	round_style->edge = assets::builtin::default_round_square_boarder_thin;
+	{
+		referenced_ptr<style::round_style> round_style{std::in_place};
+		round_style->edge.pal = style::pal::white.border;
+		round_style->edge = assets::builtin::default_round_square_boarder_thin;
+		round_style->back.pal = style::pal::dark;
+		round_style->back = assets::builtin::default_round_square_base;
 
-	// round_style->base.pal = style::pal::white.background;
-	// round_style->base.pal.mul_alpha(.05f);
-	// round_style->base.pal.mul_rgb(.6f);
-	// round_style->base = assets::builtin::default_round_square_base;
+		style::global_default_style_drawer = round_style;
+	}
 
-	round_style->back.pal = style::pal::dark;
-	round_style->back = assets::builtin::default_round_square_base;
+	{
+		referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
+		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
+		round_scroll_bar_style->bar_palette = style::pal::white.border.copy().mul_rgb(.8f);
 
-	gui::style::global_default_style_drawer = round_style;
+		style::global_scroll_pane_bar_drawer = round_scroll_bar_style;
+	}
 
 	ui_outputs result{};
 
@@ -104,8 +108,16 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 					{
 						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Bloom Sample Scale", 50.f);
 						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(1.f);
-						result.shader_bloom_scale = &hdl.elem().get_slider_provider();
+						hdl->get_slider().set_progress(.25f);
+
+
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.25f, 4.f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.shader_bloom_scale = &trans;
 
 					}
 
@@ -121,7 +133,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							return std::format("{:.2f}", val);
 						}));
 						react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
-						hdl->get_slider_provider().update_value();
 
 						result.shader_bloom_src_factor = &trans;
 					}
@@ -131,15 +142,12 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						hdl->get_slider().set_smooth_drag(true);
 						hdl->get_slider().set_progress(.5f);
 
-						auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
+						auto& trans = hdl->add_relay_func([](float val){
 							return math::lerp(0.f, 2.f, val);
-						}));
-						auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer([](float val){
+						});
+						hdl->add_formatter_func([](float val){
 							return std::format("{:.2f}", val);
-						}));
-						react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
-						hdl->get_slider_provider().update_value();
-
+						});
 						result.shader_bloom_dst_factor = &trans;
 					}
 
@@ -149,6 +157,81 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						hdl->get_slider().set_progress(.5f);
 						result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
 					}
+
+					{
+						sequence.emplace_back<row_separator>().cell().set_size(8);
+					}
+
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "HighlightThres", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.25f);
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.5f, 2.5f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.highlight_filter_threshold = &trans;
+					}
+
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "HighlightSmooth", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.highlight_filter_smooth = &hdl.elem().get_slider_provider();
+					}
+
+					{
+						sequence.emplace_back<row_separator>().cell().set_size(8);
+					}
+
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Contrast", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(1.f);
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.tonemap_contrast = &hdl->get_slider_provider();
+					}
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Exposure", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.f, 2.f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.tonemap_exposure = &hdl->get_slider_provider();
+					}
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Saturation", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(1.f);
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.tonemap_saturation = &hdl->get_slider_provider();
+					}
+					{
+						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Gamma", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(math::map(2.2f, 0.5f, 3.f, 0.f, 1.f));
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.5f, 3.f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.tonemap_gamma = &trans;
+					}
+
 				});
 			},
 				[&](scroll_pane& pane){
@@ -185,7 +268,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						}).cell().set_size(60);
 
 						sequence.create_back([&](progress_bar& prog){
-							prog.set_style(round_style);
 							prog.progress.set_state(progress_state::approach_smooth);
 							prog.progress.set_speed(.0001f);
 							referenced_ptr<style::progress_drawer_arc> drawer{std::in_place};

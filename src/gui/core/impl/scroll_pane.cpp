@@ -7,6 +7,24 @@ module mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
+namespace style{
+referenced_ptr<const scroll_pane_bar_drawer> global_scroll_pane_bar_drawer = default_scroll_pane_drawer;
+}
+
+
+void style::scroll_pane_bar_drawer::draw_layer_impl(const scroll_pane& element, math::frect region, float opacityScl,
+	fx::layer_param layer_param) const{
+
+	if(layer_param.is_top() && opacityScl > 0.001f){
+		each_scroll_rect(element, region, [&](math::raw_frect bar_rect, bool){
+			element.renderer().push(graphic::draw::instruction::rect_aabb{
+					.v00 = bar_rect.vert_00(),
+					.v11 = bar_rect.vert_11(),
+					.vert_color = graphic::colors::light_gray.copy_set_a(opacityScl)
+				});
+		});
+	}
+}
 
 bool scroll_pane::update(const float delta_in_ticks){
 	if(!elem::update(delta_in_ticks))return false;
@@ -87,12 +105,9 @@ void scroll_pane::draw_layer(rect clipSpace, fx::layer_param_pass_t param) const
 
 	const bool activeHori = is_hori_scroll_active();
 	const bool activeVert = is_vert_scroll_active();
-    const bool logicHori = is_hori_scroll_enabled();
-    const bool logicVert = is_vert_scroll_enabled();
 
 	assert(item_);
 
-    // [逻辑不变] 只有在内容真正溢出时，才开启 Scissor 和 Transform
 	if(activeHori || activeVert){
 		scissor_guard guard{r, {get_viewport()}};
 		transform_guard transform_guard{r, math::mat3{}.idt().set_translation(-scroll_.temp)};
@@ -101,81 +116,8 @@ void scroll_pane::draw_layer(rect clipSpace, fx::layer_param_pass_t param) const
 		item_->draw_layer(clipSpace, param);
 	}
 
-    // --- 滚动条绘制 ---
-	if(param == 0 && bar_opacity_ > 0.001f){ // [优化] 完全透明时不绘制
-        // 获取颜色并应用透明度
-        auto get_color = [&](auto base_color) {
-            auto c = base_color;
-            c.a *= bar_opacity_ * get_draw_opacity();
-            return c;
-        };
+	if(drawer)drawer->draw_layer(*this, content_bound_abs(), bar_opacity_ * get_draw_opacity(), param);
 
-		if(logicHori){
-			float shrink = scroll_bar_stroke_ * .25f;
-			auto bar_rect = get_hori_bar_rect();
-			bar_rect.add_height(-shrink);
-
-            if(activeHori) {
-			    r.push(graphic::draw::instruction::rect_aabb{
-				    .v00 = bar_rect.vert_00(),
-				    .v11 = bar_rect.vert_11(),
-				    .vert_color = get_color(graphic::colors::light_gray) // [修改] 应用透明度
-			    });
-            } else if (draw_track_if_locked) {
-                // (锁定状态绘制逻辑，同样应用透明度)
-                const auto [x, y] = content_src_pos_abs();
-                const auto barSize = get_bar_extent();
-                float fullWidth = get_viewport_extent().x;
-
-                gui::rect lockedRect = {
-                    x,
-                    y - barSize.y + content_height(),
-                    fullWidth,
-                    barSize.y
-                };
-                lockedRect.add_height(-shrink); 
-
-                r.push(graphic::draw::instruction::rect_aabb{
-                    .v00 = lockedRect.vert_00(),
-                    .v11 = lockedRect.vert_11(),
-                    .vert_color = get_color(graphic::colors::gray) // [修改] 应用透明度
-                });
-            }
-		}
-
-        // --- 垂直滚动条绘制 ---
-		if(logicVert){
-			float shrink = scroll_bar_stroke_ * .25f;
-			auto bar_rect = get_vert_bar_rect();
-			bar_rect.add_width(-shrink);
-
-            if(activeVert) {
-			    r.push(graphic::draw::instruction::rect_aabb{
-				    .v00 = bar_rect.vert_00(),
-				    .v11 = bar_rect.vert_11(),
-				    .vert_color = get_color(graphic::colors::light_gray) // [修改] 应用透明度
-			    });
-            } else if (draw_track_if_locked) {
-                const auto [x, y] = content_src_pos_abs();
-                const auto barSize = get_bar_extent();
-                float fullHeight = get_viewport_extent().y;
-
-                gui::rect lockedRect = {
-                    x - barSize.x + content_width(),
-                    y,
-                    barSize.x,
-                    fullHeight
-                };
-                lockedRect.add_width(-shrink);
-
-                r.push(graphic::draw::instruction::rect_aabb{
-                    .v00 = lockedRect.vert_00(),
-                    .v11 = lockedRect.vert_11(),
-                    .vert_color = get_color(graphic::colors::gray) // [修改] 应用透明度
-                });
-            }
-		}
-	}
 }
 
 events::op_afterwards scroll_pane::on_scroll(const events::scroll e, std::span<elem* const> aboves){

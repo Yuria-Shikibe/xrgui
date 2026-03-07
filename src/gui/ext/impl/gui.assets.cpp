@@ -9,6 +9,7 @@ import mo_yanxi.gui.assets.manager;
 //TODO import image page from other place...
 import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.gui.infrastructure;
+import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.image_regions;
 import align;
 
@@ -27,7 +28,7 @@ void load_default_assets(graphic::image_atlas& image_atlas, const std::filesyste
 			math::usize2{80u, 64u}, 2
 		});
 
-	auto line_region = gui::row_patch{line, line.get_region(), 32, 32, 8};
+	auto line_region = gui::image_row_patch{line, line.get_region(), 32, 32, 8};
 
 	using namespace gui::assets::builtin;
 	get_page().insert(white, {});
@@ -58,10 +59,9 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 	constexpr static math::usize2 extent{96, 96};
 
 	auto& line = load(page, "line", {
-			graphic::msdf::msdf_generator{graphic::msdf::create_capsule(32, 16), 16, 8},
+			graphic::msdf::msdf_generator{graphic::msdf::create_capsule(32, 16), 4},
 			math::usize2{80u, 64u}, 2
 		});
-
 
 	auto& boarder = load(page,
 			"edge",
@@ -98,6 +98,8 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 
 void dispose_generated_shapes(){
 	style::global_default_style_drawer = {};
+	style::global_scroll_pane_bar_drawer = {};
+
 	builtin::default_round_square_boarder = {};
 	builtin::default_round_square_boarder_thin = {};
 	builtin::default_round_square_base = {};

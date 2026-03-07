@@ -96,7 +96,7 @@ public:
 		return display_text_recv_.node;
 	}
 
-	react_flow::node& add_transformer(react_flow::node_pointer&& node){
+	react_flow::node& add_relay(react_flow::node_pointer&& node){
 		progress_transformer_ = (std::move(node));
 		//TODO check the node is update on pulse?
 		if(progress_transformer_->get_propagate_type() == react_flow::propagate_type::pulse){
@@ -116,7 +116,26 @@ public:
 	template <typename T>
 		requires (std::derived_from<std::remove_cvref_t<T>, react_flow::node>)
 	T& add_relay(T&& node){
-		return static_cast<T&>(add_transformer(react_flow::node_pointer{std::in_place_type<std::remove_cvref_t<T>>, std::forward<T>(node)}));
+		return static_cast<T&>(add_relay(react_flow::node_pointer{std::in_place_type<std::remove_cvref_t<T>>, std::forward<T>(node)}));
+	}
+
+	template <std::invocable<float> Fn>
+	auto& add_relay_func(Fn&& fn){
+		return this->add_relay(react_flow::make_transformer(std::forward<Fn>(fn)));
+	}
+
+	template <typename T>
+		requires (std::derived_from<std::remove_cvref_t<T>, react_flow::type_aware_node<std::string>>)
+	T& add_formatter(T&& node){
+		auto& formatter = this->request_embedded_react_node(std::forward<T>(node));
+		react_flow::connect_chain(progress_transformer_ ? *progress_transformer_ : get_slider().get_provider(), formatter, get_display_text_receiver());
+		return formatter;
+	}
+
+	template <typename Fn>
+		requires (std::is_invocable_r_v<std::string, Fn, float>)
+	auto& add_formatter_func(Fn&& function){
+		return this->add_formatter(react_flow::make_transformer(std::forward<Fn>(function)));
 	}
 
 	void set_progress(float value){

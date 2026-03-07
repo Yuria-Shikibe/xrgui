@@ -346,7 +346,7 @@ void app_run(
 				gui::make_state_tag(gui::fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
 
 			r << gui::fx::nine_patch_draw_vert_color{
-				.nine_region = &gui::assets::builtin::default_round_square_boarder,
+				.patch = &gui::assets::builtin::default_round_square_boarder,
 				.region = {200, 200, 600, 600},
 				.color = {graphic::colors::white, graphic::colors::CYAN, graphic::colors::ROYAL, graphic::colors::GREEN}
 			};
@@ -668,21 +668,21 @@ void prepare(){
 	vk::shader_module shader_bloom{ctx.get_device(), shader_spv_path / "post_process.bloom.spv"};
 
 	auto& ui_input_base = manager.add_external_resource(compositor::resource_entity_external{
-			compositor::image_entity{.handle = renderer.get_base()}, compositor::resource_dependency{
+			compositor::image_entity{}, compositor::resource_dependency{
 				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 			}
 		});
 
 	auto& ui_input_back = manager.add_external_resource(compositor::resource_entity_external{
-			compositor::image_entity{.handle = renderer.get_blit_attachments()[1]}, compositor::resource_dependency{
+			compositor::image_entity{}, compositor::resource_dependency{
 				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 			}
 		});
 
 	auto& input_background = manager.add_external_resource(compositor::resource_entity_external{
-			compositor::image_entity{.handle = renderer.get_blit_attachments()[2]}, compositor::resource_dependency{
+			compositor::image_entity{}, compositor::resource_dependency{
 				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 			}
@@ -753,10 +753,21 @@ void prepare(){
 	pass_h2s.id()->add_dep({pass_merge.id(), 0, 0});
 	pass_h2s.id()->add_local({compositor::no_slot, 0});
 
-
 	manager.sort();
+
+	renderer.resize({64, 64});
+	ui_input_base.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[0]};
+	ui_input_back.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[1]};
+	input_background.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[2]};
+	manager.resize({64, 64}, true);
+
+	pass_blur.data.set_scale(1.25f);
+	pass_blur.data.set_mix_factor(.025f);
+	pass_blur.data.set_strength(1.f, 1.f);
+
 #pragma endregion
 
+#pragma region GuiBinding
 	{
 		auto& m = gui::global::manager.get_current_focus();
 		auto& bloom_scale = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
@@ -772,11 +783,44 @@ void prepare(){
 			p.set_mix_factor(val);
 		}));
 
+		auto& highlight_thres_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_filter_high_light.data](float val){
+			p.set_ubo_value(&high_light_filter_args::threshold, val);
+		}));
+		auto& highlight_smooth_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_filter_high_light.data](float val){
+			p.set_ubo_value(&high_light_filter_args::smoothness, val);
+		}));
+
+		auto& tonemap_contrast = m.request_independent_react_node(react_flow::make_listener([&p = pass_h2s.data](float val){
+			p.set_ubo_value(&tonemap_args::contrast, val);
+		}));
+		auto& tonemap_exposure = m.request_independent_react_node(react_flow::make_listener([&p = pass_h2s.data](float val){
+			p.set_ubo_value(&tonemap_args::exposure, val);
+		}));
+		auto& tonemap_saturation = m.request_independent_react_node(react_flow::make_listener([&p = pass_h2s.data](float val){
+			p.set_ubo_value(&tonemap_args::saturation, val);
+		}));
+		auto& tonemap_gamma = m.request_independent_react_node(react_flow::make_listener([&p = pass_h2s.data](float val){
+			p.set_ubo_value(&tonemap_args::gamma, val);
+		}));
+
 		bloom_scale.connect_predecessor(*ui_providers.shader_bloom_scale);
 		bloom_src_recv.connect_predecessor(*ui_providers.shader_bloom_src_factor);
 		bloom_dst_recv.connect_predecessor(*ui_providers.shader_bloom_dst_factor);
 		bloom_mix_recv.connect_predecessor(*ui_providers.shader_bloom_mix_factor);
+
+		highlight_thres_recv.connect_predecessor(*ui_providers.highlight_filter_threshold);
+		highlight_smooth_recv.connect_predecessor(*ui_providers.highlight_filter_smooth);
+
+		tonemap_contrast.connect_predecessor(*ui_providers.tonemap_contrast);
+		tonemap_exposure.connect_predecessor(*ui_providers.tonemap_exposure);
+		tonemap_saturation.connect_predecessor(*ui_providers.tonemap_saturation);
+		tonemap_gamma.connect_predecessor(*ui_providers.tonemap_gamma);
+
+		ui_providers.apply();
 	}
+
+#pragma endregion
+
 
 	auto post_process_cmd = ctx.get_compute_command_pool().obtain();
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
@@ -788,12 +832,6 @@ void prepare(){
 		input_background.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[2]};
 
 		manager.resize(event.size, true);
-		//
-		// pass_bloom.meta.set_scale(.5f);/.65f, .65f);
-
-		pass_blur.data.set_scale(1.25f);
-		pass_blur.data.set_mix_factor(.025f);
-		pass_blur.data.set_strength(1.f, 1.f);
 
 		{
 			vk::scoped_recorder r{post_process_cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};

@@ -450,7 +450,7 @@ public:
 		return smooth_scroll_;
 	}
 
-	void set_smooth_scroll(const bool smooth) {
+	void set_smooth_scroll(const bool smooth = true) {
 		set_smooth(&slider::smooth_scroll_, smooth);
 	}
 
@@ -458,7 +458,7 @@ public:
 		return smooth_drag_;
 	}
 
-	void set_smooth_drag(const bool smooth){
+	void set_smooth_drag(const bool smooth = true){
 		set_smooth(&slider::smooth_drag_, smooth);
 	}
 
@@ -466,9 +466,8 @@ public:
 		return smooth_jump_;
 	}
 
-	void set_smooth_jump(const bool smooth){
+	void set_smooth_jump(const bool smooth = true){
 		set_smooth(&slider::smooth_jump_, smooth);
-
 	}
 
 protected:

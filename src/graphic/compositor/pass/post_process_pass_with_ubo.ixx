@@ -51,7 +51,8 @@ public:
 	template <typename T>
 	void set_ubo_value(const T& value){
 		static constexpr auto Idx = tuple_index_v<T, value_type>;
-		const auto& cur_value = std::get<Idx>(uniform_data_);
+		static_assert(Idx < sizeof...(Ts), "Parameter Type Not Found");
+		auto& cur_value = std::get<Idx>(uniform_data_);
 		if constexpr (std::equality_comparable<T>){
 			if(cur_value == value){
 				return;
@@ -65,8 +66,9 @@ public:
 
 	template <typename C, typename T>
 	void set_ubo_value(T C::* mptr, const T& value){
-		static constexpr auto Idx = tuple_index_v<T, value_type>;
-		const auto& cur_value = std::get<Idx>(uniform_data_).*mptr;
+		static constexpr auto Idx = tuple_index_v<C, value_type>;
+		static_assert(Idx < sizeof...(Ts), "Parameter Type Not Found");
+		auto& cur_value = std::get<Idx>(uniform_data_).*mptr;
 		if constexpr (std::equality_comparable<T>){
 			if(cur_value == value){
 				return;

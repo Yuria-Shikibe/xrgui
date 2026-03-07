@@ -25,7 +25,7 @@ export using image_region_borrow = graphic::universal_borrowed_image_region<imag
 
 
 export
-struct row_patch{
+struct image_row_patch{
 	enum uv_idx{
 		uv_idx_y0,
 		uv_idx_y1,
@@ -51,19 +51,17 @@ private:
 
 	image_region_borrow image_region_{};
 
-
 	/**
 	 * @brief [0]y_src, [1]y_dst, [2]x_src, [3]x_cap_l, [4]x_cap_r, [5]x_dst
 	 */
 	std::array<float, 6> uv_coords_;
-	// std::array<graphic::uniformed_rect_uv, 3> regions{};
 
 public:
 	float margin{};
 
-	[[nodiscard]] row_patch() = default;
+	[[nodiscard]] image_row_patch() = default;
 
-	constexpr row_patch(
+	constexpr image_row_patch(
 		const image_region_borrow& imageRegion,
 		const math::urect region,
 		const float src_len,
@@ -134,36 +132,65 @@ public:
 		return extent_;
 	}
 
-	[[nodiscard]] std::array<float, 6> get_ortho_draw_coords(const math::vec2 pos, const math::vec2 size) const noexcept{
-		const auto y0 = pos.y;
-		const auto y1 = pos.y + size.y;
+private:
+	// 将原来的具体 X/Y 逻辑抽象为主轴(Major)和副轴(Minor)逻辑，消除重复代码
+	[[nodiscard]] std::array<float, 6> calc_sliced_coords(
+		const float major_pos, const float major_size,
+		const float minor_pos, const float minor_size
+	) const noexcept {
+		const auto minor_0 = minor_pos;
+		const auto minor_1 = minor_pos + minor_size;
 
-		const auto src_h = std::abs(extent_.y) > std::numeric_limits<float>::epsilon() ? extent_.y : 1.0f;
-		const auto scale = std::abs(size.y / src_h);
+		// 缩放基准始终使用副轴的实际渲染大小与源纹理的高度(extent_.y)进行对比
+		const auto src_minor_extent = std::abs(extent_.y) > std::numeric_limits<float>::epsilon() ? extent_.y : 1.0f;
+		const auto scale = std::abs(minor_size / src_minor_extent);
 
 		auto cap_inner_len = cap_width();
-
 		auto src_len_ = src_margin;
 		auto end_len_ = end_margin;
 
-		if(const auto absX = std::abs(size.x); cap_inner_len > absX){
-			src_len_ = absX * src_len_ / cap_inner_len;
-			end_len_ = absX * end_len_ / cap_inner_len;
+		if(const auto abs_major = std::abs(major_size); cap_inner_len > abs_major){
+			src_len_ = abs_major * src_len_ / cap_inner_len;
+			end_len_ = abs_major * end_len_ / cap_inner_len;
 		}
 
 		src_len_ *= scale;
 		end_len_ *= scale;
 
-		const auto x0 = pos.x;
-		const auto x3 = pos.x + size.x;
+		const auto major_0 = major_pos;
+		const auto major_3 = major_pos + major_size;
 
-		const auto x1 = x0 + std::copysign(src_len_, size.x);
-		const auto x2 = x3 - std::copysign(end_len_, size.x);
+		const auto major_1 = major_0 + std::copysign(src_len_, major_size);
+		const auto major_2 = major_3 - std::copysign(end_len_, major_size);
 
-		const auto mg = margin /2.f;
-		const auto mX = std::copysign(mg, size.x);
-		const auto mY = std::copysign(mg, size.y);
-		return { x0 - mX, x1, x2, x3 + mX, y0 - mY, y1 + mY};
+		const auto mg = margin / 2.f;
+		const auto m_major = std::copysign(mg, major_size);
+		const auto m_minor = std::copysign(mg, minor_size);
+
+		// 返回格式：[major_0, major_1, major_2, major_3, minor_0, minor_1]
+		return {
+			major_0 - m_major, major_1, major_2, major_3 + m_major,
+			minor_0 - m_minor, minor_1 + m_minor
+		};
+	}
+
+public:
+	/**
+	 * @brief 生成正常的横向坐标（X为主轴，Y为副轴）
+	 * @return array 布局为: [x0, x1, x2, x3, y0, y1]
+	 */
+	[[nodiscard]] std::array<float, 6> get_ortho_draw_coords(const math::raw_frect region) const noexcept{
+		auto [pos, size] = region;
+		return calc_sliced_coords(pos.x, size.x, pos.y, size.y);
+	}
+
+	/**
+	 * @brief 生成转置的纵向坐标（Y为主轴，X为副轴）
+	 * @return array 布局为: [y0, y1, y2, y3, x0, x1] (完美契合之前设计的 Shader 中的 major_pos 和 minor_pos)
+	 */
+	[[nodiscard]] std::array<float, 6> get_ortho_draw_coords_transposed(const math::raw_frect region) const noexcept{
+		auto [pos, size] = region;
+		return calc_sliced_coords(pos.y, size.y, pos.x, size.x);
 	}
 
 	//TODO return vtx instead
@@ -439,7 +466,7 @@ struct image_nine_region : nine_patch_layout{
 namespace assets::builtin{
 
 
-export row_patch get_separator_row_patch();
+export image_row_patch get_separator_row_patch();
 
 // export inline row_patch default_row_seperator;
 

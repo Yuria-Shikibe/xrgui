@@ -2,6 +2,9 @@ module;
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
+//TODO remove this after pipeline transition
+#include <vulkan/vulkan.h>
+
 export module mo_yanxi.gui.region_drawable.derives;
 
 export import mo_yanxi.gui.region_drawable;
@@ -58,14 +61,14 @@ struct icon final : drawable_base{
 export
 template <typename ...Components>
 struct drawable_row_patch final : drawable_base{
-	row_patch image_region;
+	image_row_patch image_region;
 	ADAPTED_NO_UNIQUE_ADDRESS component::combined_components<Components...> components;
 
 	[[nodiscard]] drawable_row_patch() = default;
 
 	template <typename RegionTy>
-		requires (std::constructible_from<row_patch, RegionTy&&>)
-	[[nodiscard]] explicit(std::convertible_to<RegionTy&&, row_patch>) drawable_row_patch(
+		requires (std::constructible_from<image_row_patch, RegionTy&&>)
+	[[nodiscard]] explicit(std::convertible_to<RegionTy&&, image_row_patch>) drawable_row_patch(
 		RegionTy&& image_region,
 		const component::combined_components<Components...>& components = {})
 	: image_region(std::forward<RegionTy>(image_region)),
@@ -163,13 +166,20 @@ void drawable_row_patch<Components...>::draw(renderer_frontend& renderer, const 
 	const fx::primitive_draw_mode mode = components;
 	graphic::draw::quad_group<graphic::color> vcolor = components;
 	vcolor *= color_scl;
+	[[maybe_unused]] state_guard guard{};
+
+	if constexpr (mo_yanxi::is_any_of<component::batch_draw_mode, Components...>){
+
+		fx::batch_draw_mode bm = components;
+		guard = {renderer, bm, make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)};
+	}
 
 	renderer.push(graphic::draw::instruction::row_patch{
 		.generic = {
 			.image = {image_region.get_image_view()},
 			.mode = {std::to_underlying(mode)},
 		},
-		.coords = image_region.get_ortho_draw_coords(region.src, region.extent),
+		.coords = image_region.get_ortho_draw_coords({region.src, region.extent}),
 		.uvs = image_region.get_uvs(),
 		.vert_color = vcolor
 	});

@@ -236,12 +236,12 @@ struct icon_frame : image_frame_single<drawable_image<>>{
 
 
 export
-struct row_separator : image_frame_single<drawable_row_patch<>>{
+struct row_separator : image_frame_single<drawable_row_patch<component::batch_draw_mode>>{
 	[[nodiscard]] row_separator(
 		scene& scene, elem* group,
-		const row_patch& patch = assets::builtin::get_separator_row_patch(),
+		const image_row_patch& patch = assets::builtin::get_separator_row_patch(),
 		const image_display_style& style = {align::scale::stretch, align::pos::center})
-	: image_frame_single(scene, group, drawable_row_patch<>{patch}, style){
+	: image_frame_single(scene, group, drawable_row_patch{patch, component::combined_components<component::batch_draw_mode>{fx::batch_draw_mode::msdf}}, style){
 		set_style();
 	}
 };

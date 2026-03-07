@@ -58,12 +58,12 @@ export struct debug_elem_drawer final : elem_style_drawer{
 export struct empty_drawer final : elem_style_drawer{
 	[[nodiscard]] constexpr empty_drawer() : elem_style_drawer(tags::persistent, layer_top_only){}
 
+
 	void draw_layer_impl(
 		const elem& element,
 		math::frect region,
 		float opacityScl,
 		fx::layer_param layer_param) const override{
-
 	}
 };
 

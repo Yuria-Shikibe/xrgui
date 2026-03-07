@@ -705,52 +705,89 @@ struct rectangle_ortho_outline : instr_resolver{
     }
 };
 
-struct row_patch : instr_resolver{
+[Flags]
+enum row_patch_flags  {
+    //(是否转置)
+    transposed,
+    //(主轴坐标反转)
+    flip_major_pos,
+    //(副轴坐标反转)
+    flip_minor_pos,
+    //(主轴UV反转)
+    flip_major_uv,
+    //(副轴UV反转)
+    flip_minor_uv
+};
+
+struct row_patch : instr_resolver {
+
     primitive_generic generic;
 
-    float[4] x;
-    float[2] y;
-    float[2] uv_y;
-    float[4] uv_x;
+    float[4] major_pos;
+    float[2] minor_pos;
+    float[2] minor_uv;
+    float[4] major_uv;
 
     quad_vert_color color;
 
-    [ForceInline]
+    row_patch_flags flags;
+    float depth_bias;
+    float2 skew;
+
+    [[ForceInline]]
     float2 access_pos_at(uint2 coord) {
-        return float2(x[coord.x], y[coord.y]);
+        // 无分支计算 XOR 遮罩：如果开启翻转，mask为3/1，否则为0
+        let mask_x = select(bool(flags & row_patch_flags::flip_major_pos), 3u, 0u);
+        let mask_y = select(bool(flags & row_patch_flags::flip_minor_pos), 1u, 0u);
+
+        // 坐标索引翻转 (核心 Trick)
+        let fetch_coord = uint2(coord.x ^ mask_x, coord.y ^ mask_y);
+
+        float2 base_pos = float2(major_pos[fetch_coord.x], minor_pos[fetch_coord.y]);
+
+        base_pos.x += base_pos.y * skew.x;
+        base_pos.y += base_pos.x * skew.y;
+
+        return select(bool(flags & row_patch_flags::transposed), base_pos.yx, base_pos);
     }
 
-    [ForceInline]
+    [[ForceInline]]
     float2 access_uv_at(uint2 coord) {
-        return float2(uv_x[coord.x], uv_y[coord.y]);
+        let mask_x = select(bool(flags & row_patch_flags::flip_major_uv), 3u, 0u);
+        let mask_y = select(bool(flags & row_patch_flags::flip_minor_uv), 1u, 0u);
+
+        let fetch_coord = uint2(coord.x ^ mask_x, coord.y ^ mask_y);
+        let base_uv = float2(major_uv[fetch_coord.x], minor_uv[fetch_coord.y]);
+
+        return float2(major_uv[fetch_coord.x], minor_uv[fetch_coord.y]);
     }
 
-    [ForceInline]
+    [[ForceInline]]
     Vertex push_vertex(
         resolve_param param,
-
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
+        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices
+    )
     {
         let cur_coord = uint2(param.vtx_skip / 2u, param.vtx_skip & 1u);
 
-        let pos = access_pos_at(cur_coord);
+        let position = access_pos_at(cur_coord);
         let uv = access_uv_at(cur_coord);
 
-        let mixX = (pos.x - x[0]) / (x[3] - x[0]);
-        // let colorY1 = bool(cur_coord.y) ? color.c01 : color.c00;
-        // let colorY2 = bool(cur_coord.y) ? color.c11 : color.c10;
-        let colorY1 = select(bool(cur_coord.y), color.c01, color.c00);
-        let colorY2 = select(bool(cur_coord.y), color.c11, color.c10);
-        let c = lerp(colorY1, colorY2, mixX);
-        
+        // // 颜色插值依然严格沿 Major 轴线性进行
+        let mixMajor = (major_pos[cur_coord.x] - major_pos[0]) / (major_pos[3] - major_pos[0]);
+
+        let colorMinor1 = select(bool(cur_coord.y), color.c01, color.c00);
+        let colorMinor2 = select(bool(cur_coord.y), color.c11, color.c10);
+        let c = lerp(colorMinor1, colorMinor2, mixMajor);
+
         if (param.vtx_skip > 1) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
         }
 
-        return Vertex(float3(pos, generic.depth), c, uv);
+        return Vertex(float3(position, generic.depth), c, uv);
     }
 };
 
