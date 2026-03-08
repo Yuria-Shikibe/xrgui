@@ -713,7 +713,7 @@ svg_info msdf::create_boarder(double radius, double width, double k){
 
 	// 2. 内圈：防止内半径出现负数导致的路径翻转交叉
 	double inner_radius = std::max(0.0, radius - width);
-	add_ring_contour_split(shape, boarder_size, inner_radius, width, -.85);
+	add_ring_contour_split(shape, boarder_size, inner_radius, width, -1.);
 
 	if(!shape.validate()) return {};
 

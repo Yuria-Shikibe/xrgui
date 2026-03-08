@@ -3,6 +3,13 @@ module mo_yanxi.gui.infrastructure;
 import std;
 
 namespace mo_yanxi::gui{
+style::style_manager scene_base::init_style_manager_(){
+	style::style_manager manager{};
+	manager.reserve(64);
+	manager.register_style<style::elem_style_drawer>(referenced_ptr<style::debug_elem_drawer>{std::in_place, style_config{}});
+	return manager;
+}
+
 scene::scene(scene&& other) noexcept: scene_base{std::move(other)}{
 	root().relocate_scene_(this);
 	inputs_.main_binds.set_context(std::ref(*this));

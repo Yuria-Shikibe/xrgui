@@ -159,12 +159,12 @@ FragOut main_frag(
 
     switch (global_draw_mode_type(constant_flags.mode)) {
     case global_draw_mode_type::def:
-        let tex_color = (no_tex ? float4(1) : textures[primit.texture_index].Sample(vtx.uv)) * vtx.color;
+        let tex_color = (no_tex ? float4(1.f) : textures[primit.texture_index].Sample(vtx.uv)) * vtx.color;
         out_color_base = tex_color;
         break;
     case global_draw_mode_type::sdf:
-        var alpha = no_tex ? 1 : sdf::msdf(textures[primit.texture_index], vtx.uv);
-        out_color_base = float4(1, 1, 1, smoothstep(-0.6, 0.6, alpha)) * vtx.color;
+        var alpha = no_tex ? 1.f : sdf::msdf(textures[primit.texture_index], vtx.uv);
+        out_color_base = float4(1.f, 1.f, 1.f, smoothstep(-0.6f, 0.6f, alpha)) * vtx.color;
         break;
     default: out_color_base = vtx.color;
     }

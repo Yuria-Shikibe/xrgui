@@ -278,7 +278,7 @@ public:
 	}
 
 	std::uint32_t add_image_to_heap(VkImageViewCreateInfo create_info, VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) const{
-		return target_descriptor_heap_->push_back_images(target_descriptor_heap_section_, std::views::single(create_info), image_layout, type);
+		return target_descriptor_heap_->push_back_images(target_descriptor_heap_section_, std::span(&create_info, 1), image_layout, type);
 	}
 
 	void push(allocated_image_load_description&& desc){

@@ -5,12 +5,38 @@ module;
 
 export module mo_yanxi.gui.fx.instruction_extension;
 
+import std;
+
+export import mo_yanxi.gui.fx;
 export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.gui.image_regions;
 export import mo_yanxi.graphic.draw.instruction;
 export import mo_yanxi.graphic.color;
 
 namespace mo_yanxi::gui::fx{
+export
+struct circle{
+	math::vec2 pos;
+	math::range radius;
+	math::section<graphic::float4> color;
+
+	explicit(false) operator graphic::draw::instruction::poly() const noexcept{
+	 	return {
+	 		.pos = pos,
+			 .segments = (std::uint32_t)get_smooth_circle_vertex_count(radius.abs_max(), 1),
+			 .radius = radius,
+			 .color = color
+		 };
+	 }
+
+	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const circle& instr) {
+		using namespace graphic::draw::instruction;
+		renderer.push(poly(instr));
+
+		return renderer;
+	}
+};
+
 export
 struct row_patch_draw{
 	const image_row_patch* patch;
@@ -24,18 +50,21 @@ struct row_patch_draw{
 		renderer.push(row_patch{
 				.generic = {.image = instr.patch->get_image_view()},
 				.coords = (instr.flags & row_patch_flags::transposed) == row_patch_flags{}
-					          ? instr.patch->get_ortho_draw_coords(instr.region)
-					          : instr.patch->get_ortho_draw_coords_transposed(instr.region),
+					          ? instr.patch->get_ortho_draw_coords_axis_scaled(instr.region)
+					          : instr.patch->get_ortho_draw_coords_axis_scaled_transsrced(instr.region),
 				.uvs = instr.patch->get_uvs(),
 				.vert_color = {instr.color},
 				.flags = instr.flags
 			});
-		
+
 		return renderer;
 	}
 };
 
+using nine_patch_coord_fn_mtpr_type = decltype(&image_nine_region::get_row_coords);
+
 export
+template <nine_patch_coord_fn_mtpr_type getter = &image_nine_region::get_row_coords>
 struct nine_patch_draw{
 	const image_nine_region* patch;
 	math::raw_frect region;
@@ -43,8 +72,8 @@ struct nine_patch_draw{
 
 	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const nine_patch_draw& instr) {
 		assert(instr.patch != nullptr);
-		auto coords = instr.patch->get_row_coords(instr.region);
 		auto uvs = instr.patch->get_row_uvs();
+		auto coords = std::invoke(getter, instr.patch, instr.region);
 		for(int i = 0; i < 3; ++i){
 			renderer.push(graphic::draw::instruction::row_patch{
 				.generic = {.image = instr.patch->image_view->view},

@@ -1,6 +1,7 @@
 export module mo_yanxi.gui.global;
 
 export import mo_yanxi.gui.infrastructure;
+export import mo_yanxi.gui.style.manager;
 import std;
 namespace mo_yanxi::gui::global{
 

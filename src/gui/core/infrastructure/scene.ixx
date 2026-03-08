@@ -14,7 +14,9 @@ import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.math.rect_ortho;
 
-import mo_yanxi.gui.util;
+export import mo_yanxi.gui.util;
+export import mo_yanxi.gui.style.manager;
+
 export import mo_yanxi.input_handle;
 export import mo_yanxi.gui.alloc;
 export import mo_yanxi.gui.fx.config;
@@ -243,9 +245,13 @@ private:
 		return resource_.get();
 	}
 
+	style::style_manager init_style_manager_();
+public:
+	style::style_manager style_manager{init_style_manager_()};
 
 protected:
 	rect region_{};
+
 
 	std::array<mouse_state, std::to_underlying(input_handle::mouse::Count)> mouse_states_{};
 	input_handle::input_manager<scene&> inputs_{};

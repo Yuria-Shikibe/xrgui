@@ -440,7 +440,7 @@ void app_run(
 						const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 4U, 12U);
 
 						r.push(parametric_curve{
-								.param = curve_trait_mat::catmull_rom<> * (sspn | std::views::transform(&trail_node_data::pos)),
+								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(&trail_node_data::pos)),
 								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 8.f,
 								.segments = seg,
 								.color = {sspn[1].color, sspn[1].color, sspn[2].color, sspn[2].color},
@@ -883,6 +883,7 @@ int main(){
 		vk::enable_validation_layers = true;
 	}
 #endif
+	vk::enable_validation_layers = true;
 
 	font::initialize();
 	backend::glfw::initialize();

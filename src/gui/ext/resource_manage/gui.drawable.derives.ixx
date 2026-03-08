@@ -179,7 +179,7 @@ void drawable_row_patch<Components...>::draw(renderer_frontend& renderer, const 
 			.image = {image_region.get_image_view()},
 			.mode = {std::to_underlying(mode)},
 		},
-		.coords = image_region.get_ortho_draw_coords({region.src, region.extent}),
+		.coords = image_region.get_ortho_draw_coords_axis_scaled({region.src, region.extent}),
 		.uvs = image_region.get_uvs(),
 		.vert_color = vcolor
 	});

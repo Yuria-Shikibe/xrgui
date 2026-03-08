@@ -40,17 +40,24 @@ constexpr style_config layer_draw_until{{(1uz << Count) - 1uz}};
 }
 
 export
+struct style_drawer_base : referenced_object_persistable{
+	virtual ~style_drawer_base() = default;
+
+	using referenced_object_persistable::referenced_object_persistable;
+};
+
+
+
+export
 template <typename T>
-struct style_drawer : referenced_object_persistable{
+struct style_drawer : style_drawer_base{
 public:
 	style_config config;
-
-	virtual ~style_drawer() = default;
 
 	[[nodiscard]] constexpr style_drawer() = default;
 
 	[[nodiscard]] constexpr explicit style_drawer(const tags::persistent_tag_t& persistent_tag)
-		: referenced_object_persistable(persistent_tag){
+		: style_drawer_base(persistent_tag){
 	}
 
 	constexpr explicit style_drawer(const style_config& config)
@@ -58,7 +65,7 @@ public:
 	}
 
 	constexpr style_drawer(const tags::persistent_tag_t& persistent_tag, const style_config& config)
-		: referenced_object_persistable(persistent_tag),
+		: style_drawer_base(persistent_tag),
 		config(config){
 	}
 

@@ -174,7 +174,12 @@ public:
 	[[nodiscard]] FORCE_INLINE constexpr float diff(const color& other) const noexcept{
 		const auto lhsv = to_hsv();
 		const auto rhsv = other.to_hsv();
-		return math::abs(lhsv.h - rhsv.h) / 360 + math::abs(lhsv.s - rhsv.s) + math::abs(lhsv.v - rhsv.v);
+
+		// 色相是环形的 (0.0 与 1.0 首尾相连)，需要计算环形最短距离
+		const float h_diff = math::abs(lhsv.h - rhsv.h);
+		const float h_dist = math::min(h_diff, 1.0f - h_diff);
+
+		return h_dist + math::abs(lhsv.s - rhsv.s) + math::abs(lhsv.v - rhsv.v);
 	}
 
 	FORCE_INLINE constexpr color& set(const color& color) noexcept{
@@ -760,33 +765,25 @@ struct ::std::formatter<mo_yanxi::graphic::color>{
 		using mo_yanxi::graphic::color;
 		using ColorBits = color::rgba8_bits;
 
-		if(haveWrapper){
-			context.advance_to(std::format_to(context.out(), "["));
-		}
-
-		if(haveHexHead){
-			context.advance_to(std::format_to(context.out(), "#"));
-		}
+		const char* prefix1 = haveWrapper ? "[" : "";
+		const char* prefix2 = haveHexHead ? "#" : "";
+		const char* suffix = haveWrapper ? "]" : "";
 
 		if(haveAlpha){
-			context.advance_to(std::format_to(context.out(), "{:02X}{:02X}{:02X}{:02X}",
+			return std::format_to(context.out(), "{}{}{:02X}{:02X}{:02X}{:02X}{}",
+				prefix1, prefix2,
 				static_cast<ColorBits>(color::max_val * c.r),
 				static_cast<ColorBits>(color::max_val * c.g),
 				static_cast<ColorBits>(color::max_val * c.b),
-				static_cast<ColorBits>(color::max_val * c.a)));
+				static_cast<ColorBits>(color::max_val * c.a),
+				suffix);
 		} else{
-			context.advance_to(std::format_to(context.out(), "{:02X}{:02X}{:02X}",
-					static_cast<ColorBits>(color::max_val * c.r),
-					static_cast<ColorBits>(color::max_val * c.g),
-					static_cast<ColorBits>(color::max_val * c.b))
-			);
+			return std::format_to(context.out(), "{}{}{:02X}{:02X}{:02X}{}",
+				prefix1, prefix2,
+				static_cast<ColorBits>(color::max_val * c.r),
+				static_cast<ColorBits>(color::max_val * c.g),
+				static_cast<ColorBits>(color::max_val * c.b),
+				suffix);
 		}
-
-
-		if(haveWrapper){
-			context.advance_to(std::format_to(context.out(), "]"));
-		}
-
-		return context.out();
 	}
 };

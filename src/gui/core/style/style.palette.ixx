@@ -4,12 +4,12 @@
 
 export module mo_yanxi.gui.style.palette;
 
+import std;
 import mo_yanxi.graphic.image_region;
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.graphic.color;
 export import align;
 
-import std;
 
 export import mo_yanxi.gui.image_regions;
 
@@ -129,6 +129,33 @@ struct palette{
 };
 
 export
+[[nodiscard]] constexpr palette make_theme_palette(
+	const graphic::color theme_color,
+	const color_blend_mode disable_mode = color_blend_mode::replace,
+	const color_blend_mode toggled_mode = color_blend_mode::replace) noexcept {
+
+	return palette{
+		// general: 基础主题色
+		.general = theme_color,
+
+		// on_focus: 亮感大于 general，通过提升明度并微降饱和度，保持颜色通透不刺眼
+		.on_focus = theme_color.copy().shift_value(0.15f).shift_saturation(-0.05f),
+
+		// on_press: 亮感最高，进一步提升明度并适当降低饱和度模拟高光按压
+		.on_press = theme_color.copy().shift_value(0.25f).shift_saturation(-0.10f),
+
+		// disable: 比 general 更灰且暗，大幅抽离饱和度并压低明度
+		.disable = theme_color.copy().shift_saturation(-0.60f).shift_value(-0.30f),
+
+		// toggled: 亮度介于 on_focus 和 on_press 之间
+		.toggled = theme_color.copy().shift_value(0.20f).shift_saturation(-0.08f),
+
+		.disable_blend_mode = disable_mode,
+		.toggled_blend_mode = toggled_mode
+	};
+}
+
+export
 struct component_palette{
 	palette background;
 	palette border;
@@ -168,6 +195,8 @@ struct component_palette{
 // 莫兰迪 / 马卡龙色系预设定义
 // ==========================================
 
+constexpr graphic::color c = graphic::color::from_string("F2F4F7");
+
 export namespace pal{
 	inline constexpr palette dark = make_palette(
 		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .5f),
@@ -176,9 +205,9 @@ export namespace pal{
 		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .85f));
 
 	inline constexpr component_palette white{
-			.background = make_palette("F2F4F7", "F9FAFB", "FFFFFF", "E4E7EC"),
-			.border = make_palette("D0D5DD", "E4E7EC", "F2F4F7", "98A2B3")
-		};
+		.background = make_palette("F2F4F7", "F9FAFB", "FFFFFF", "E4E7EC"),
+		.border = make_palette("D0D5DD", "E4E7EC", "F2F4F7", "98A2B3")
+	};
 
 	// 2. 豆沙绿 (清新不刺眼的微灰绿色)
 	inline constexpr component_palette green{
@@ -188,8 +217,8 @@ export namespace pal{
 
 	// 3. 灰雾蓝 (宁静的低保饱和度蓝)
 	inline constexpr component_palette blue{
-			.background = make_palette("E1E7F0", "ECF0F6", "F5F8FA", "CCD4DF"),
-			.border = make_palette("A1B0C6", "BCC9D9", "D6E0EC", "8997AB")
+			.background = make_palette("8EA1F5", "ECF0F6", "F5F8FA", "CCD4DF"),
+			.border = make_palette("A5BCF5", "BCC9D9", "D6E0EC", "8997AB")
 		};
 
 	// 4. 奶酪黄 (偏暖调的奶油色，不荧光)

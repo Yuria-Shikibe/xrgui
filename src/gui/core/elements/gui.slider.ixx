@@ -185,7 +185,7 @@ protected:
 		update_approach_state();
 	}
 
-	referenced_ptr<const style::slider_drawer> drawer_{style::get_global_default_slider_drawer()};
+	referenced_ptr<const style::slider_drawer> drawer_{get_scene().style_manager.get_default<style::slider_drawer>()};
 
 	bool smooth_scroll_{};
 	bool smooth_drag_{};
@@ -490,10 +490,13 @@ protected:
 
 public:
 	[[nodiscard]] constexpr math::vec2 get_bar_handle_extent() const noexcept{
+		return get_bar_handle_extent(content_extent());
+	}
+
+	[[nodiscard]] constexpr math::vec2 get_bar_handle_extent(math::vec2 content_extent) const noexcept{
 		return {
-				is_clamped_to_vert() ?
-				content_width() : bar_handle_extent.x,
-				is_clamped_to_hori() ? content_height() : bar_handle_extent.y,
+				is_clamped_to_vert() ? content_extent.x : bar_handle_extent.x,
+				is_clamped_to_hori() ? content_extent.y : bar_handle_extent.y,
 			};
 	}
 };

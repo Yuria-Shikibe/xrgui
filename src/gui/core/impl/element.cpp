@@ -140,6 +140,10 @@ void style::debug_elem_drawer::draw_background(const elem& element, math::frect 
 		});
 }
 
+style::elem_style_ptr elem::get_elem_default_style_() const{
+	return get_scene().style_manager.get_default<style::elem_style_drawer>();
+}
+
 tooltip::align_config elem::tooltip_get_align_config() const{
 	tooltip::align_config cfg{
 			tooltip_create_config.layout_info.follow,
@@ -170,17 +174,7 @@ bool elem::update(float delta_in_ticks){
 
 	if(sleep)return false;
 
-	for(float actionDelta = delta_in_ticks; !actions.empty();){
-		const auto& current = actions.front();
-
-		actionDelta = current->update(actionDelta, *this);
-
-		if(actionDelta >= 0) [[unlikely]] {
-			actions.pop_front();
-		} else{
-			break;
-		}
-	}
+	update_action(delta_in_ticks);
 
 	return true;
 }

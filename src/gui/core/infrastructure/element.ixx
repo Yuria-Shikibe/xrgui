@@ -44,6 +44,10 @@ export struct debug_elem_drawer final : elem_style_drawer{
 	[[nodiscard]] constexpr debug_elem_drawer() : elem_style_drawer(tags::persistent, layer_draw_until<2>){
 	}
 
+	[[nodiscard]] explicit debug_elem_drawer(const style_config& config)
+		: elem_style_drawer(config){
+	}
+
 	boarder get_boarder() const noexcept override{
 		return default_boarder;
 	}
@@ -188,9 +192,11 @@ private:
 	boarder boarder_{};
 
 public:
-	style::elem_style_ptr style{style::get_default_style_drawer()};
+	style::elem_style_ptr style{get_elem_default_style_()};
 
 private:
+	[[nodiscard]] style::elem_style_ptr get_elem_default_style_() const;
+
 	boarder style_boarder_cache_{style ? style->get_boarder() : gui::boarder{}};
 
 	//TODO make it async?
@@ -451,6 +457,20 @@ public:
 public:
 
 	virtual bool update(float delta_in_ticks);
+
+	void update_action(float delta_in_ticks){
+		for(float actionDelta = delta_in_ticks; !actions.empty();){
+			const auto& current = actions.front();
+
+			actionDelta = current->update(actionDelta, *this);
+
+			if(actionDelta >= 0) [[unlikely]] {
+				actions.pop_front();
+			} else{
+				break;
+			}
+		}
+	}
 
 protected:
 	void propagate_update_requirement_since_self(bool required){

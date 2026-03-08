@@ -42,6 +42,7 @@ public:
 			s.template_cell.region_scale = {0, 0, 1, 1};
 
 			s.create_back([&](slider_with_output& slider){
+				slider.bar_handle_extent.set(bar_size);
 				slider.set_style();
 				slider.set_clamp_from_layout_policy(layout_policy);
 			});

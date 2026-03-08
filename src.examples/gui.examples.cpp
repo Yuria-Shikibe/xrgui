@@ -43,7 +43,46 @@ import mo_yanxi.backend.vulkan.context;
 
 
 namespace mo_yanxi::gui::example{
+
+void make_styles(scene& scene){
+	auto& sm = scene.style_manager;
+
+	{
+		referenced_ptr<style::round_style> round_style{std::in_place};
+		round_style->edge.pal = style::pal::white.border;
+		round_style->edge = assets::builtin::default_round_square_boarder_thin;
+		round_style->back.pal = style::pal::dark;
+		round_style->back = assets::builtin::default_round_square_base;
+
+		sm.register_style<style::elem_style_drawer>(round_style);
+	}
+
+	{
+		referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
+		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
+		round_scroll_bar_style->bar_palette = style::pal::white.border.copy().mul_rgb(.8f);
+
+		sm.register_style<style::scroll_pane_bar_drawer>(std::move(round_scroll_bar_style));
+	}
+
+	{
+
+		referenced_ptr<style::thin_slider_drawer> round_scroll_bar_style{std::in_place};
+
+		constexpr auto pal = gui::style::make_theme_palette(graphic::colors::ROYAL);
+		round_scroll_bar_style->handle_palette = pal;
+		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
+		round_scroll_bar_style->bar_palette = pal;
+
+		sm.register_style<style::slider_drawer>(std::move(round_scroll_bar_style));
+	}
+
+
+}
+
 ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
+	make_styles(scene);
+
 	scene.set_pass_config({
 			{
 				fx::scene_render_pass_config::value_type{

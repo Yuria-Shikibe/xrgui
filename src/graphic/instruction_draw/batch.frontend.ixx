@@ -361,6 +361,7 @@ public:
 			// 非幂等操作也需要支持 offset
 			non_idempotent_config.push(tag, payload, offset);
 			force_break_and_insert(std::move(non_idempotent_config));
+			break;
 		}
 		default: std::unreachable();
 		}
