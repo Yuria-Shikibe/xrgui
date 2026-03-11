@@ -573,7 +573,7 @@ Edge Cases:
 									label.set_style();
 									label.create([](label_v2& l){
 										l.set_expand_policy(layout::expand_policy::prefer);
-										l.text_line_align = typesetting::content_alignment::justify;
+										// l.text_line_align = typesetting::content_alignment::justify;
 										l.set_fit(false);
 										l.set_typesetting_config(typesetting::layout_config{
 												.throughout_scale = 1.75f

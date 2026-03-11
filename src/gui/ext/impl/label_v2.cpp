@@ -24,18 +24,32 @@ void layout_record<typesetting::glyph_layout>::record_glyph_draw_instructions(
 
 	for (const auto & current_line : layout.lines){
 		auto [line_src, spacing] = current_line.calculate_alignment(layout.extent, line_align, layout.direction);
-		for (const auto & [idx, layout_result] : std::span{layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size} | std::views::enumerate){
-			if(!layout_result.texture->view)continue;
-			auto start = math::fma(idx, spacing, line_src + layout_result.aabb.src);
+
+		for (const auto & [idx, val] : std::span{layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size} | std::views::enumerate){
+			if(!val.texture->view)continue;
+			auto start = math::fma(idx, spacing, line_src + val.aabb.src);
 			buffer.push(rect_aabb{
-				.generic = {layout_result.texture->view},
+				.generic = {val.texture->view},
 				.v00 = start,
-				.v11 = start + layout_result.aabb.extent(),
-				.uv00 = layout_result.texture->uv.v00(),
-				.uv11 = layout_result.texture->uv.v11(),
-				.vert_color = {layout_result.color * color_scl}
+				.v11 = start + val.aabb.extent(),
+				.uv00 = val.texture->uv.v00(),
+				.uv11 = val.texture->uv.v11(),
+				.vert_color = {val.color * color_scl}
 			});
 		}
+
+		// for (const auto & [idx, val] : std::span{layout.clusters.begin() + current_line.cluster_range.pos, current_line.cluster_range.size} | std::views::enumerate){
+		// 	// auto start = math::fma(idx, spacing, line_src + val.logical_rect.src);
+		// 	auto start = val.logical_rect.src;
+		//
+		//
+		// 	buffer.push(rect_aabb_outline{
+		// 		.v00 = start,
+		// 		.v11 = start + val.logical_rect.extent(),
+		// 		.stroke = {1.25f},
+		// 		.vert_color = {graphic::colors::YELLOW.copy_set_a(.5f)}
+		// 	});
+		// }
 
 		for (const auto & ul : std::span{layout.underlines.begin() + current_line.underline_range.pos, current_line.underline_range.size}){
 
