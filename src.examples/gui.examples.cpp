@@ -29,6 +29,7 @@ import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.drag_split;
 import mo_yanxi.gui.elem.label_v2;
+import mo_yanxi.gui.elem.viewport;
 
 import mo_yanxi.gui.compound.color_picker;
 import mo_yanxi.gui.compound.named_slider;
@@ -43,6 +44,38 @@ import mo_yanxi.backend.vulkan.context;
 
 
 namespace mo_yanxi::gui::example{
+
+struct vp : gui::viewport{
+	[[nodiscard]] vp(scene& scene, elem* parent)
+		: viewport(scene, parent){
+	}
+
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
+		viewport::draw_layer(clipSpace, param);
+
+		if(param.is_top()){
+			viewport_begin();
+
+			renderer() << graphic::draw::instruction::rect_aabb{
+				.v00 = {-50, -50},
+				.v11 = {50, 50},
+				.vert_color = {graphic::colors::white}
+			};
+
+			auto trans = renderer().top_viewport().get_element_to_root_screen();
+
+
+			// renderer() << graphic::draw::instruction::rect_aabb{
+			// 	.v00 = {content_bound_abs().vert_00()},
+			// 	.v11 = {content_bound_abs().vert_11()},
+			// 	.vert_color = {graphic::colors::white}
+			// };
+
+			viewport_end();
+		}
+
+	}
+};
 
 void make_styles(scene& scene){
 	auto& sm = scene.style_manager;
@@ -604,6 +637,14 @@ Edge Cases:
 
 							}).cell().set_size({600, 600});
 						});
+				},
+				[](scroll_pane& pane){
+					pane.set_layout_policy(layout::layout_policy::none);
+					pane.create(
+						[](sequence& table){
+							table.set_expand_policy(layout::expand_policy::prefer);
+							table.emplace_back<vp>();
+						});
 				}
 			};
 
@@ -625,7 +666,7 @@ Edge Cases:
 	menu_hdl->get_head_template_cell().set_pad({4, 4});
 
 	for(const auto& [idx, creator] : make_create_table() | std::views::enumerate){
-		menu_hdl->create_back([&](label& label){
+		menu_hdl->create_back([&](label_v2& label){
 				label.set_text(std::format("Test: {}", idx));
 				label.text_entire_align = align::pos::center;
 				label.interactivity = interactivity_flag::enabled;

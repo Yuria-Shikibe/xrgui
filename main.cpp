@@ -883,7 +883,6 @@ int main(){
 		vk::enable_validation_layers = true;
 	}
 #endif
-	vk::enable_validation_layers = true;
 
 	font::initialize();
 	backend::glfw::initialize();

@@ -8,7 +8,7 @@ export import mo_yanxi.gui.elem.label;
 export import mo_yanxi.gui.elem.text_holder;
 
 import mo_yanxi.gui.alloc;
-import mo_yanxi.font.typesetting;
+import mo_yanxi.font.__legacy__typesetting;
 import mo_yanxi.graphic.color;
 import mo_yanxi.math;
 import mo_yanxi.encode;

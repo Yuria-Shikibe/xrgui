@@ -277,6 +277,10 @@ protected:
 	};
 
 	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> cursor_event_active_elems_{};
+public:
+	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> active_update_elems{};
+
+protected:
 
 	//TODO own node_pointer instead?
 	std::unordered_multimap<

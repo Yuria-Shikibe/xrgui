@@ -35,6 +35,12 @@ void scene::update(double delta_in_tick){
 	}
 
 	root().update(delta_in_tick);
+
+	for (auto active_update_elem : active_update_elems){
+		active_update_elem->update(delta_in_tick);
+	}
+
+
 	current_time_ += delta_in_tick;
 	current_frame_++;
 }
@@ -392,7 +398,10 @@ void scene::drop_(const elem* target) noexcept{
 	std::erase(inbounds_.get_cur(), target);
 	// asyncTaskOwners.erase(const_cast<elem*>(target));
 	cursor_event_active_elems_.erase(const_cast<elem*>(target));
+	active_update_elems.erase(const_cast<elem*>(target));
+
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
+
 	layer_altitude_record_.erase(target->get_altitude());
 	// erase_independent_draw(target);
 	// erase_direct_access({}, target);

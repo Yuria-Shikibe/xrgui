@@ -2,7 +2,7 @@ module;
 
 #include <cassert>
 
-module mo_yanxi.font.typesetting;
+module mo_yanxi.font.__legacy__typesetting;
 
 namespace mo_yanxi::font::typesetting{
 const parser global_parser{

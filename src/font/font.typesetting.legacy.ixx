@@ -7,7 +7,7 @@ module;
 #include <gch/small_vector.hpp>
 #endif
 
-export module mo_yanxi.font.typesetting;
+export module mo_yanxi.font.__legacy__typesetting;
 
 export import mo_yanxi.typesetting.util;
 

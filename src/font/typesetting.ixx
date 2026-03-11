@@ -133,7 +133,7 @@ export struct glyph_layout {
 	std::vector<underline> underlines;
 	std::vector<line> lines;
 	math::vec2 extent;
-	layout_direction direction;
+	layout_direction direction; //should never be deduced.
 
 	constexpr bool empty() const noexcept{
 		return lines.empty();

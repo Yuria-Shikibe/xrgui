@@ -79,8 +79,8 @@ namespace mo_yanxi::graphic {
             stablePos += vec * speed_scale;
         }
 
-        [[nodiscard]] constexpr math::mat3 get_v2v_mat(math::vec2 offset) const noexcept {
-            return math::mat3{}.set_rect_transform(viewport.src, viewport.extent(), offset, screenSize);
+        [[nodiscard]] constexpr math::mat3 get_v2v_mat(math::vec2 dst_src) const noexcept {
+            return math::mat3{}.set_rect_transform(viewport.src, viewport.extent(), dst_src, screenSize);
         }
 
         [[nodiscard]] constexpr math::vec2 get_stable_center() const noexcept { return stablePos; }

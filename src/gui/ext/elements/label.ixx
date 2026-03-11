@@ -7,7 +7,7 @@ export module mo_yanxi.gui.elem.label;
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.gui.elem.text_holder;
 export import mo_yanxi.font;
-export import mo_yanxi.font.typesetting;
+export import mo_yanxi.font.__legacy__typesetting;
 export import mo_yanxi.typesetting;
 export import mo_yanxi.graphic.draw.instruction.recorder;
 import mo_yanxi.concurrent.atomic_shared_mutex;

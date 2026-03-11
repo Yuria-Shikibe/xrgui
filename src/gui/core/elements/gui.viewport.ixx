@@ -2,7 +2,7 @@
 // Created by Matrix on 2025/5/26.
 //
 
-export module mo_yanxi.gui.viewport;
+export module mo_yanxi.gui.elem.viewport;
 
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.graphic.camera;
@@ -26,11 +26,12 @@ namespace mo_yanxi::gui{
 		viewport(scene& scene, elem* parent)
 			: elem(scene, parent){
 
+			get_scene().active_update_elems.insert(this);
 			this->interactivity = interactivity_flag::enabled;
+			extend_focus_until_mouse_drop = true;
 			camera.speed_scale = 0;
 		}
 
-	protected:
 		bool update(const float delta_in_ticks) override{
 			if(!elem::update(delta_in_ticks)) return false;
 			const auto [w, h]{viewport_clamp_region - camera.get_viewport().extent()};
@@ -39,6 +40,7 @@ namespace mo_yanxi::gui{
 			return true;
 		}
 
+	protected:
 		bool resize_impl(const math::vec2 size) override{
 			if(elem::resize_impl(size)){
 				auto [x, y] = this->content_extent();
@@ -47,6 +49,7 @@ namespace mo_yanxi::gui{
 			}
 			return false;
 		}
+	public:
 
 		void on_focus_changed(bool is_focused) override{
 			// this->get_scene().set_camera_focus(is_focused ? &camera : nullptr);
@@ -76,12 +79,15 @@ namespace mo_yanxi::gui{
 		}
 
 		void viewport_begin() const {
-			const auto proj = camera.get_world_to_clip();
+			// const auto proj = camera.get_world_to_clip();
+			auto camera_vp = camera.get_v2v_mat(content_src_pos_abs());
 			auto& r = renderer();
 
-			r.push_viewport(this->content_bound_abs());
+			// r.push_viewport({tags::from_extent, {}, content_extent()});
+			// r.push_viewport(this->content_bound_abs());
 			r.push_scissor({this->content_bound_abs()});
-			r.top_viewport().push_local_transform(proj);
+			r.top_viewport().push_local_transform(camera_vp);
+			r.notify_viewport_changed();
 		}
 
 		void viewport_end() const {
@@ -89,7 +95,7 @@ namespace mo_yanxi::gui{
 
 			r.top_viewport().pop_local_transform();
 			r.pop_scissor();
-			r.pop_viewport();
+			r.notify_viewport_changed();
 		}
 
 		[[nodiscard]] math::vec2 get_transferred_pos(const math::vec2 content_local_pos) const noexcept{

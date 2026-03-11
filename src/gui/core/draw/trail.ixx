@@ -51,18 +51,6 @@ constexpr auto make_sliding_spans(R&& range) noexcept {
            });
 }
 
-template <typename Fn, typename E, std::size_t WindowSize, std::size_t Stride>
-struct fnwrap{
-	Fn* pfn;
-
-	constexpr void operator()(
-		const auto& buf) const noexcept(std::is_nothrow_invocable_v<Fn&, std::span<E, WindowSize>>){
-		for(auto&& nodes : graphic::make_sliding_spans<WindowSize, Stride>(buf)){
-			std::invoke(*pfn, nodes);
-		}
-	}
-};
-
 export
 struct trail{
 	using vec_t = math::vec2;
@@ -293,23 +281,21 @@ public:
 		}
 	}
 
-	template <trail_foreach_func Func, std::output_iterator<std::invoke_result_t<Func, const node_type&, size_type, size_type>> OutIt>
-	FORCE_INLINE OutIt trivial_each(
+	template <trail_foreach_func Func, std::invocable<std::invoke_result_t<Func, const node_type&, size_type, size_type>> CallBack>
+	FORCE_INLINE void trivial_each(
 		float percent,
 		Func consumer,
-		OutIt output
+		CallBack output_callback
 	) const noexcept{
 		percent = math::clamp(percent);
 
 		const auto len = static_cast<size_type>(points.size() * percent);
-		if(!len) return output;
+		if(!len) return;
 
 		for(size_type idx{}; idx < len; ++idx){
 			auto ptr = points.data_at(idx);
-			*output = std::invoke(consumer, *ptr, idx, len);
-			++output;
+			std::invoke(output_callback, std::invoke(consumer, *ptr, idx, len));
 		}
-		return output;
 	}
 
 
@@ -420,9 +406,14 @@ public:
 		using BufferTy = slide_window_buffer<ResultType, WindowSize + Stride * 2 + (Stride - 1), WindowSize - 1>;
 		BufferTy buffer{};
 
-		slide_window_output_iterator outputIt{buffer, fnwrap<NodeCons, ResultType, WindowSize, Stride>{std::addressof(nodeCons)}};
-
-		this->trivial_each(percent, std::move(nodeProv), outputIt);
+		this->trivial_each(percent, std::move(nodeProv), [&](ResultType&& rst){
+			if (buffer.push_back(std::move(rst))) {
+				for(auto&& nodes : graphic::make_sliding_spans<WindowSize, Stride>(buffer)){
+					std::invoke(nodeCons, nodes);
+				}
+				buffer.advance();
+			}
+		});
 
 		if(buffer.finalize()){
 			for(auto&& nodes : graphic::make_sliding_spans<WindowSize, Stride>(buffer)){
