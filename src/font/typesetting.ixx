@@ -157,17 +157,21 @@ export struct glyph_layout {
 	[[nodiscard]] hit_result hit_test(math::vec2 mouse_pos) const noexcept {
 		if (lines.empty() || clusters.empty()) return {0, false, false};
 
+		const bool is_vertical = (direction == layout_direction::ttb || direction == layout_direction::btt);
+
 		const line* target_line = &lines.front();
 		bool line_hit = false;
 		for (const auto& l : lines) {
-			float line_top = l.start_pos.y - l.rect.ascender;
-			float line_bottom = l.start_pos.y + l.rect.descender;
-			if (mouse_pos.y >= line_top && mouse_pos.y <= line_bottom) {
+			float line_min = is_vertical ? (l.start_pos.x - l.rect.descender) : (l.start_pos.y - l.rect.ascender);
+			float line_max = is_vertical ? (l.start_pos.x + l.rect.ascender) : (l.start_pos.y + l.rect.descender);
+			float mouse_minor = is_vertical ? mouse_pos.x : mouse_pos.y;
+
+			if (mouse_minor >= line_min && mouse_minor <= line_max) {
 				target_line = &l;
 				line_hit = true;
 				break;
 			}
-			if (mouse_pos.y > line_bottom) target_line = &l;
+			if (mouse_minor > line_max) target_line = &l;
 		}
 
 		if (target_line->cluster_range.size == 0) return {0, false, false};
@@ -175,21 +179,25 @@ export struct glyph_layout {
 		std::size_t start_idx = target_line->cluster_range.pos;
 		std::size_t end_idx = start_idx + target_line->cluster_range.size;
 
+		float mouse_major = is_vertical ? mouse_pos.y : mouse_pos.x;
+
 		for (std::size_t i = start_idx; i < end_idx; ++i) {
 			const auto& c = clusters[i];
+			float c_min = is_vertical ? c.logical_rect.vert_00().y : c.logical_rect.vert_00().x;
+			float c_max = is_vertical ? c.logical_rect.vert_11().y : c.logical_rect.vert_11().x;
 
-			if (mouse_pos.x >= c.logical_rect.get_src_x() && mouse_pos.x <= c.logical_rect.get_end_x()) {
-				float width = c.logical_rect.width();
+			if (mouse_major >= c_min && mouse_major <= c_max) {
+				float width = c_max - c_min;
 				float slice_width = width / static_cast<float>(c.cluster_span);
-				float relative_x = mouse_pos.x - c.logical_rect.get_src_x();
+				float relative_pos = mouse_major - c_min;
 
-				std::size_t slice_idx = static_cast<std::size_t>(relative_x / slice_width);
+				std::size_t slice_idx = static_cast<std::size_t>(relative_pos / slice_width);
 				if (slice_idx >= c.cluster_span) slice_idx = c.cluster_span - 1;
 
-				float slice_relative_x = relative_x - (slice_idx * slice_width);
-				bool trailing = slice_relative_x > (slice_width / 2.f);
+				float slice_relative = relative_pos - (slice_idx * slice_width);
+				bool trailing = slice_relative > (slice_width / 2.f);
 
-				if (c.is_rtl) {
+				if (c.is_rtl || direction == layout_direction::btt) {
 					slice_idx = (c.cluster_span - 1) - slice_idx;
 					trailing = !trailing;
 				}
@@ -200,34 +208,50 @@ export struct glyph_layout {
 
 		const auto& first_c = clusters[start_idx];
 		const auto& last_c = clusters[end_idx - 1];
-		if (mouse_pos.x < first_c.logical_rect.get_src_x()) {
-			return {first_c.cluster_index, first_c.is_rtl, false};
+		float first_min = is_vertical ? first_c.logical_rect.vert_00().y : first_c.logical_rect.vert_00().x;
+
+		if (mouse_major < first_min) {
+			return {first_c.cluster_index, first_c.is_rtl || direction == layout_direction::btt, false};
 		} else {
-			return {last_c.cluster_index + last_c.cluster_span - 1, !last_c.is_rtl, false};
+			return {last_c.cluster_index + last_c.cluster_span - 1, !(last_c.is_rtl || direction == layout_direction::btt), false};
 		}
 	}
 
 	[[nodiscard]] math::frect get_cursor_rect(std::size_t target_index, bool trailing, float cursor_thickness = 1.0f) const noexcept {
 		if (clusters.empty()) return {};
 
+		const bool is_vertical = (direction == layout_direction::ttb || direction == layout_direction::btt);
+
 		for (const auto& c : clusters) {
 			if (target_index >= c.cluster_index && target_index < c.cluster_index + c.cluster_span) {
-				float slice_width = c.logical_rect.width() / static_cast<float>(c.cluster_span);
+				float c_min = is_vertical ? c.logical_rect.vert_00().y : c.logical_rect.vert_00().x;
+				float c_max = is_vertical ? c.logical_rect.vert_11().y : c.logical_rect.vert_11().x;
+				float width = c_max - c_min;
+				float slice_width = width / static_cast<float>(c.cluster_span);
+
 				std::size_t slice_idx = target_index - c.cluster_index;
 
-				if (c.is_rtl) {
+				if (c.is_rtl || direction == layout_direction::btt) {
 					slice_idx = (c.cluster_span - 1) - slice_idx;
 					trailing = !trailing;
 				}
 
-				float offset_x = c.logical_rect.get_src_x() + (slice_idx * slice_width);
-				if (trailing) offset_x += slice_width;
+				float offset = c_min + (slice_idx * slice_width);
+				if (trailing) offset += slice_width;
 
-				return math::frect{
-					tags::unchecked, tags::from_vertex,
-					math::vec2{offset_x - cursor_thickness / 2.f, c.logical_rect.get_src_y()},
-					math::vec2{offset_x + cursor_thickness / 2.f, c.logical_rect.get_end_y()}
-				};
+				if (is_vertical) {
+					return math::frect{
+						tags::unchecked, tags::from_vertex,
+						math::vec2{c.logical_rect.vert_00().x, offset - cursor_thickness / 2.f},
+						math::vec2{c.logical_rect.vert_11().x, offset + cursor_thickness / 2.f}
+					};
+				} else {
+					return math::frect{
+						tags::unchecked, tags::from_vertex,
+						math::vec2{offset - cursor_thickness / 2.f, c.logical_rect.vert_00().y},
+						math::vec2{offset + cursor_thickness / 2.f, c.logical_rect.vert_11().y}
+					};
+				}
 			}
 		}
 		return {};
@@ -922,6 +946,20 @@ private:
 
 		std::optional<logical_cluster> active_cluster;
 
+		auto get_cluster_span = [&](unsigned int idx) -> std::size_t {
+			std::size_t c = infos[idx].cluster;
+			if (is_reversed_()) {
+				for (int j = static_cast<int>(idx) - 1; j >= 0; --j) {
+					if (infos[j].cluster != c) return infos[j].cluster - c;
+				}
+			} else {
+				for (unsigned int j = idx + 1; j < len; ++j) {
+					if (infos[j].cluster != c) return infos[j].cluster - c;
+				}
+			}
+			return (start + length > c) ? (start + length - c) : 1;
+		};
+
 		// 辅助计算：根据当前字符是否为空格，推算正确的间隙倍数
 		auto get_current_gap_index = [&](bool is_delimiter) -> unsigned {
 			unsigned size = state_.line_buffer_.elems.size() + state_.current_block.glyphs.size();
@@ -1021,23 +1059,21 @@ private:
 			if (!active_cluster.has_value()) {
 				active_cluster = logical_cluster{
 					current_cluster,
-					1,
+					get_cluster_span(i),
 					current_logic_rect,
 					is_reversed_()
 				};
 			} else if (active_cluster->cluster_index == current_cluster) {
-				active_cluster->logical_rect.expand_by(current_logic_rect);
+				active_cluster->logical_rect = {
+					tags::unchecked, tags::from_vertex,
+					math::min(active_cluster->logical_rect.vert_00(), current_logic_rect.vert_00()),
+					math::max(active_cluster->logical_rect.vert_11(), current_logic_rect.vert_11())
+				};
 			} else {
-				std::size_t diff = (current_cluster > active_cluster->cluster_index)
-								   ? (current_cluster - active_cluster->cluster_index)
-								   : (active_cluster->cluster_index - current_cluster);
-				active_cluster->cluster_span = std::max<std::size_t>(1, diff);
-
 				state_.current_block.push_cluster(*active_cluster);
-
 				active_cluster = logical_cluster{
 					current_cluster,
-					1,
+					get_cluster_span(i),
 					current_logic_rect,
 					is_reversed_()
 				};
