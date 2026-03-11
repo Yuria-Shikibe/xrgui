@@ -1045,16 +1045,24 @@ private:
 					font::normalize_len(pos[i].x_advance), font::normalize_len(pos[i].y_advance)
 				} * run_scale_factor;
 
-			math::vec2 logic_size;
-			math::vec2 logic_pos = state_.current_block.cursor;
-			if(is_vertical_()){
-				logic_size = { get_scaled_default_line_thickness(), advance.y };
-				logic_pos.x -= logic_size.x / 2.f;
+			math::vec2 logic_pos_start = state_.current_block.cursor;
+			math::vec2 logic_pos_end = move_pen(logic_pos_start, advance);
+
+			if (is_vertical_()) {
+				float half_thick = get_scaled_default_line_thickness() / 2.f;
+				logic_pos_start.x -= half_thick;
+				logic_pos_end.x += half_thick;
 			} else {
-				logic_size = { advance.x, get_scaled_default_line_thickness() };
-				logic_pos.y -= state_.current_block.block_ascender > 0 ? state_.current_block.block_ascender : get_scaled_default_line_thickness() * 0.8f;
+				float asc = state_.current_block.block_ascender > 0 ? state_.current_block.block_ascender : get_scaled_default_line_thickness() * 0.8f;
+				float desc = state_.current_block.block_descender > 0 ? state_.current_block.block_descender : get_scaled_default_line_thickness() * 0.2f;
+				logic_pos_start.y -= asc;
+				logic_pos_end.y += desc;
 			}
-			math::frect current_logic_rect = { tags::unchecked, tags::from_extent, logic_pos, logic_size };
+
+			math::frect current_logic_rect = { tags::unchecked, tags::from_vertex,
+				math::vec2{math::min(logic_pos_start.x, logic_pos_end.x), math::min(logic_pos_start.y, logic_pos_end.y)},
+				math::vec2{math::max(logic_pos_start.x, logic_pos_end.x), math::max(logic_pos_start.y, logic_pos_end.y)}
+			};
 
 			if (!active_cluster.has_value()) {
 				active_cluster = logical_cluster{
