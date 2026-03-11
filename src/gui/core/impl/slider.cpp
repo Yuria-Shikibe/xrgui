@@ -8,8 +8,8 @@ namespace mo_yanxi::gui{
 		fx::layer_param layer_param) const{
 
 		const auto extent = element.get_bar_handle_extent();
-		auto pos1 = element.content_src_pos_abs() + element.bar.get_progress() * element.content_extent().fdim(extent);
-		auto pos2 = element.content_src_pos_abs() + element.bar.get_temp_progress() * element.content_extent().fdim(extent);
+		auto pos1 = element.content_src_pos_abs() + element.get_progress() * element.content_extent().fdim(extent);
+		auto pos2 = element.content_src_pos_abs() + element.get_temp_progress() * element.content_extent().fdim(extent);
 
 		auto& renderer = element.get_scene().renderer();
 		using namespace graphic;
@@ -28,8 +28,8 @@ namespace mo_yanxi::gui{
 
 void style::default_slider_drawer::draw(const slider& element, math::frect region, float opacityScl) const{
 	const auto extent = element.get_bar_handle_extent();
-	auto pos1 = region.src + element.bar.get_progress() * region.extent().fdim(extent);
-	auto pos2 = region.src + element.bar.get_temp_progress() * region.extent().fdim(extent);
+	auto pos1 = region.src + element.get_progress() * region.extent().fdim(extent);
+	auto pos2 = region.src + element.get_temp_progress() * region.extent().fdim(extent);
 
 	auto& renderer = element.get_scene().renderer();
 	using namespace graphic;
@@ -54,4 +54,56 @@ void slider::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) cons
 		drawer_->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
 	}
 }
+
+void style::default_slider_1d_drawer::draw_layer_impl(const slider_1d& element, math::frect region, float opacityScl,
+	fx::layer_param layer_param) const{
+
+	const auto extent = element.get_bar_handle_extent();
+	auto pos1 = element.content_src_pos_abs() + element.get_progress_vec() * element.content_extent().fdim(extent);
+	auto pos2 = element.content_src_pos_abs() + element.get_temp_progress_vec() * element.content_extent().fdim(extent);
+
+	auto& renderer = element.get_scene().renderer();
+	using namespace graphic;
+	using namespace graphic::draw::instruction;
+	renderer.push(rect_aabb{
+		.v00 = pos1,
+		.v11 = pos1 + extent,
+		.vert_color = {colors::white}
+	});
+	renderer.push(rect_aabb{
+		.v00 = pos2,
+		.v11 = pos2 + extent,
+		.vert_color = {colors::white.copy().mul_a(.5f)}
+	});
+}
+
+void style::default_slider_1d_drawer::draw(const slider_1d& element, math::frect region, float opacityScl) const{
+	const auto extent = element.get_bar_handle_extent();
+	auto pos1 = region.src + element.get_progress_vec() * region.extent().fdim(extent);
+	auto pos2 = region.src + element.get_temp_progress_vec() * region.extent().fdim(extent);
+
+	auto& renderer = element.get_scene().renderer();
+	using namespace graphic;
+	using namespace graphic::draw::instruction;
+	renderer.push(rect_aabb{
+		.v00 = pos1,
+		.v11 = pos1 + extent,
+		.vert_color = {colors::white.copy().mul_a(.5f * opacityScl)}
+	});
+	renderer.push(rect_aabb{
+		.v00 = pos2,
+		.v11 = pos2 + extent,
+		.vert_color = {colors::white.copy().mul_a(opacityScl)}
+	});
+}
+
+
+void slider_1d::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
+	elem::draw_layer(clipSpace, param);
+
+	if(drawer_){
+		drawer_->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
+	}
+}
+
 }
