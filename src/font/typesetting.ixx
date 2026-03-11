@@ -208,8 +208,8 @@ export struct glyph_layout {
 			std::size_t c_idx = hit_line.cluster_range.pos + i;
 			const auto& cluster = clusters[c_idx];
 
-			float rect_major_min = is_vertical ? cluster.logical_rect.min_y() : cluster.logical_rect.min_x();
-			float rect_major_max = is_vertical ? cluster.logical_rect.max_y() : cluster.logical_rect.max_x();
+			float rect_major_min = is_vertical ? cluster.logical_rect.get_src_y() : cluster.logical_rect.get_src_x();
+			float rect_major_max = is_vertical ? cluster.logical_rect.get_end_y() : cluster.logical_rect.get_end_x();
 			float query_major = is_vertical ? local_pos.y : local_pos.x;
 
 			if (query_major >= rect_major_min && query_major <= rect_major_max) {
@@ -230,8 +230,8 @@ export struct glyph_layout {
 		}
 
 		const auto& hit_cluster = clusters[best_cluster_idx];
-		float rect_major_min = is_vertical ? hit_cluster.logical_rect.min_y() : hit_cluster.logical_rect.min_x();
-		float rect_major_max = is_vertical ? hit_cluster.logical_rect.max_y() : hit_cluster.logical_rect.max_x();
+		float rect_major_min = is_vertical ? hit_cluster.logical_rect.get_src_y() : hit_cluster.logical_rect.get_src_x();
+		float rect_major_max = is_vertical ? hit_cluster.logical_rect.get_end_y() : hit_cluster.logical_rect.get_end_x();
 		float query_major = is_vertical ? local_pos.y : local_pos.x;
 
 		float mid_point = (rect_major_min + rect_major_max) / 2.f;
@@ -277,25 +277,22 @@ export struct glyph_layout {
 						math::frect rect = cluster.logical_rect;
 						rect.move(align_offset);
 
-						math::vec2 p_min = rect.vert_00();
-						math::vec2 p_max = rect.vert_11();
-
 						if (is_vertical) {
 							float y_pos;
 							if (direction == layout_direction::ttb) {
-								y_pos = is_trailing ? p_max.y : p_min.y;
+								y_pos = is_trailing ? rect.get_end_y() : rect.get_src_y();
 							} else {
-								y_pos = is_trailing ? p_min.y : p_max.y;
+								y_pos = is_trailing ? rect.get_src_y() : rect.get_end_y();
 							}
-							return {tags::unchecked, tags::from_vertex, math::vec2{p_min.x, y_pos}, math::vec2{p_max.x, y_pos}};
+							return {tags::unchecked, tags::from_vertex, math::vec2{rect.get_src_x(), y_pos}, math::vec2{rect.get_end_x(), y_pos}};
 						} else {
 							float x_pos;
 							if (direction == layout_direction::ltr) {
-								x_pos = is_trailing ? p_max.x : p_min.x;
+								x_pos = is_trailing ? rect.get_end_x() : rect.get_src_x();
 							} else {
-								x_pos = is_trailing ? p_min.x : p_max.x;
+								x_pos = is_trailing ? rect.get_src_x() : rect.get_end_x();
 							}
-							return {tags::unchecked, tags::from_vertex, math::vec2{x_pos, p_min.y}, math::vec2{x_pos, p_max.y}};
+							return {tags::unchecked, tags::from_vertex, math::vec2{x_pos, rect.get_src_y()}, math::vec2{x_pos, rect.get_end_y()}};
 						}
 					}
 				}
@@ -312,25 +309,22 @@ export struct glyph_layout {
 			math::frect rect = last_cluster.logical_rect;
 			rect.move(align_offset);
 
-			math::vec2 p_min = rect.vert_00();
-			math::vec2 p_max = rect.vert_11();
-
 			if (is_vertical) {
 				float y_pos;
 				if (direction == layout_direction::ttb) {
-					y_pos = p_max.y;
+					y_pos = rect.get_end_y();
 				} else {
-					y_pos = p_min.y;
+					y_pos = rect.get_src_y();
 				}
-				return {tags::unchecked, tags::from_vertex, math::vec2{p_min.x, y_pos}, math::vec2{p_max.x, y_pos}};
+				return {tags::unchecked, tags::from_vertex, math::vec2{rect.get_src_x(), y_pos}, math::vec2{rect.get_end_x(), y_pos}};
 			} else {
 				float x_pos;
 				if (direction == layout_direction::ltr) {
-					x_pos = p_max.x;
+					x_pos = rect.get_end_x();
 				} else {
-					x_pos = p_min.x;
+					x_pos = rect.get_src_x();
 				}
-				return {tags::unchecked, tags::from_vertex, math::vec2{x_pos, p_min.y}, math::vec2{x_pos, p_max.y}};
+				return {tags::unchecked, tags::from_vertex, math::vec2{x_pos, rect.get_src_y()}, math::vec2{x_pos, rect.get_end_y()}};
 			}
 		}
 
@@ -1073,11 +1067,12 @@ private:
 			math::vec2 p_max = math::max(pending_cluster_start_cursor, end_cursor);
 
 			if (is_vertical_()) {
-				p_min.x -= asc;
-				p_max.x += desc;
+				p_min.x = pending_cluster_start_cursor.x - asc;
+				p_max.x = pending_cluster_start_cursor.x + desc;
 			} else {
-				p_min.y -= asc;
-				p_max.y += desc;
+				// y 轴向下为正方向
+				p_min.y = pending_cluster_start_cursor.y - asc;
+				p_max.y = pending_cluster_start_cursor.y + desc;
 			}
 
 			lc.logical_rect = {tags::unchecked, tags::from_vertex, p_min, p_max};
