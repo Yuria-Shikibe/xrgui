@@ -50,6 +50,13 @@ export struct subrange {
 };
 
 
+export struct logical_cluster {
+	std::size_t cluster_index;
+	std::size_t cluster_span;
+	math::frect logical_rect;
+	bool is_rtl;
+};
+
 export struct line {
 	struct align_result {
 		math::vec2 start_pos;
@@ -58,6 +65,7 @@ export struct line {
 
 	subrange glyph_range;
 	subrange underline_range;
+	subrange cluster_range;
 	layout_rect rect;
 	math::vec2 start_pos;
 
@@ -132,11 +140,201 @@ export struct glyph_layout {
 	std::vector<glyph_elem> elems;
 	std::vector<underline> underlines;
 	std::vector<line> lines;
+	std::vector<logical_cluster> clusters;
 	math::vec2 extent;
 	layout_direction direction; //should never be deduced.
 
+	struct hit_result {
+		std::size_t cluster_index;
+		bool is_trailing;
+		bool is_hit;
+	};
+
 	constexpr bool empty() const noexcept{
 		return lines.empty();
+	}
+
+	[[nodiscard]] hit_result hit_test(math::vec2 pos, content_alignment line_align) const noexcept {
+		if (lines.empty() || clusters.empty()) return {0, false, false};
+
+		const bool is_vertical = (direction == layout_direction::ttb || direction == layout_direction::btt);
+
+		std::size_t best_line_idx = 0;
+		float min_minor_dist = std::numeric_limits<float>::max();
+
+		for (std::size_t i = 0; i < lines.size(); ++i) {
+			const auto& line = lines[i];
+			auto align_res = line.calculate_alignment(extent, line_align, direction);
+			math::vec2 align_offset = align_res.start_pos - line.start_pos;
+
+			float line_minor_min, line_minor_max;
+			if (is_vertical) {
+				line_minor_min = line.start_pos.x + align_offset.x - line.rect.ascender;
+				line_minor_max = line.start_pos.x + align_offset.x + line.rect.descender;
+			} else {
+				line_minor_min = line.start_pos.y + align_offset.y - line.rect.ascender;
+				line_minor_max = line.start_pos.y + align_offset.y + line.rect.descender;
+			}
+
+			float query_minor = is_vertical ? pos.x : pos.y;
+			if (query_minor >= line_minor_min && query_minor <= line_minor_max) {
+				best_line_idx = i;
+				min_minor_dist = 0.f;
+				break;
+			} else {
+				float dist = std::min(std::abs(query_minor - line_minor_min), std::abs(query_minor - line_minor_max));
+				if (dist < min_minor_dist) {
+					min_minor_dist = dist;
+					best_line_idx = i;
+				}
+			}
+		}
+
+		const auto& hit_line = lines[best_line_idx];
+		auto align_res = hit_line.calculate_alignment(extent, line_align, direction);
+		math::vec2 align_offset = align_res.start_pos - hit_line.start_pos;
+
+		math::vec2 local_pos = pos - align_offset;
+
+		if (hit_line.cluster_range.size == 0) {
+			return {0, false, false};
+		}
+
+		std::size_t best_cluster_idx = hit_line.cluster_range.pos;
+		float min_major_dist = std::numeric_limits<float>::max();
+		bool is_hit = min_minor_dist == 0.f;
+
+		for (std::size_t i = 0; i < hit_line.cluster_range.size; ++i) {
+			std::size_t c_idx = hit_line.cluster_range.pos + i;
+			const auto& cluster = clusters[c_idx];
+
+			float rect_major_min = is_vertical ? cluster.logical_rect.min_y() : cluster.logical_rect.min_x();
+			float rect_major_max = is_vertical ? cluster.logical_rect.max_y() : cluster.logical_rect.max_x();
+			float query_major = is_vertical ? local_pos.y : local_pos.x;
+
+			if (query_major >= rect_major_min && query_major <= rect_major_max) {
+				best_cluster_idx = c_idx;
+				min_major_dist = 0.f;
+				break;
+			} else {
+				float dist = std::min(std::abs(query_major - rect_major_min), std::abs(query_major - rect_major_max));
+				if (dist < min_major_dist) {
+					min_major_dist = dist;
+					best_cluster_idx = c_idx;
+				}
+			}
+		}
+
+		if (min_major_dist > 0.f) {
+			is_hit = false;
+		}
+
+		const auto& hit_cluster = clusters[best_cluster_idx];
+		float rect_major_min = is_vertical ? hit_cluster.logical_rect.min_y() : hit_cluster.logical_rect.min_x();
+		float rect_major_max = is_vertical ? hit_cluster.logical_rect.max_y() : hit_cluster.logical_rect.max_x();
+		float query_major = is_vertical ? local_pos.y : local_pos.x;
+
+		float mid_point = (rect_major_min + rect_major_max) / 2.f;
+		bool is_trailing;
+
+		if (direction == layout_direction::rtl || direction == layout_direction::btt) {
+			is_trailing = (query_major < mid_point);
+		} else {
+			is_trailing = (query_major > mid_point);
+		}
+
+		return {hit_cluster.cluster_index, is_trailing, is_hit};
+	}
+
+	[[nodiscard]] math::frect get_cursor_rect(std::size_t cluster_index, bool is_trailing, content_alignment line_align) const noexcept {
+		if (lines.empty() || clusters.empty()) return {};
+
+		const bool is_vertical = (direction == layout_direction::ttb || direction == layout_direction::btt);
+
+		for (std::size_t i = 0; i < lines.size(); ++i) {
+			const auto& line = lines[i];
+			if (line.cluster_range.size == 0) continue;
+
+			std::size_t start_idx = clusters[line.cluster_range.pos].cluster_index;
+			std::size_t end_idx = clusters[line.cluster_range.pos + line.cluster_range.size - 1].cluster_index;
+
+			bool in_range = false;
+			if (direction == layout_direction::rtl || direction == layout_direction::btt) {
+				in_range = (cluster_index >= end_idx && cluster_index <= start_idx);
+			} else {
+				in_range = (cluster_index >= start_idx && cluster_index <= end_idx);
+			}
+
+			if (in_range) {
+				auto align_res = line.calculate_alignment(extent, line_align, direction);
+				math::vec2 align_offset = align_res.start_pos - line.start_pos;
+
+				for (std::size_t j = 0; j < line.cluster_range.size; ++j) {
+					std::size_t c_idx = line.cluster_range.pos + j;
+					const auto& cluster = clusters[c_idx];
+
+					if (cluster_index >= cluster.cluster_index && cluster_index < cluster.cluster_index + cluster.cluster_span) {
+						math::frect rect = cluster.logical_rect;
+						rect.move(align_offset);
+
+						math::vec2 p_min = rect.vert_00();
+						math::vec2 p_max = rect.vert_11();
+
+						if (is_vertical) {
+							float y_pos;
+							if (direction == layout_direction::ttb) {
+								y_pos = is_trailing ? p_max.y : p_min.y;
+							} else {
+								y_pos = is_trailing ? p_min.y : p_max.y;
+							}
+							return {tags::unchecked, tags::from_vertex, math::vec2{p_min.x, y_pos}, math::vec2{p_max.x, y_pos}};
+						} else {
+							float x_pos;
+							if (direction == layout_direction::ltr) {
+								x_pos = is_trailing ? p_max.x : p_min.x;
+							} else {
+								x_pos = is_trailing ? p_min.x : p_max.x;
+							}
+							return {tags::unchecked, tags::from_vertex, math::vec2{x_pos, p_min.y}, math::vec2{x_pos, p_max.y}};
+						}
+					}
+				}
+			}
+		}
+
+		// Fallback: Return the end of the last cluster if out of bounds
+		const auto& last_line = lines.back();
+		auto align_res = last_line.calculate_alignment(extent, line_align, direction);
+		math::vec2 align_offset = align_res.start_pos - last_line.start_pos;
+
+		if (last_line.cluster_range.size > 0) {
+			const auto& last_cluster = clusters[last_line.cluster_range.pos + last_line.cluster_range.size - 1];
+			math::frect rect = last_cluster.logical_rect;
+			rect.move(align_offset);
+
+			math::vec2 p_min = rect.vert_00();
+			math::vec2 p_max = rect.vert_11();
+
+			if (is_vertical) {
+				float y_pos;
+				if (direction == layout_direction::ttb) {
+					y_pos = p_max.y;
+				} else {
+					y_pos = p_min.y;
+				}
+				return {tags::unchecked, tags::from_vertex, math::vec2{p_min.x, y_pos}, math::vec2{p_max.x, y_pos}};
+			} else {
+				float x_pos;
+				if (direction == layout_direction::ltr) {
+					x_pos = p_max.x;
+				} else {
+					x_pos = p_min.x;
+				}
+				return {tags::unchecked, tags::from_vertex, math::vec2{x_pos, p_min.y}, math::vec2{x_pos, p_max.y}};
+			}
+		}
+
+		return {};
 	}
 };
 
@@ -213,6 +411,7 @@ export struct layout_config{
 struct layout_block{
 	std::vector<glyph_elem> glyphs;
 	std::vector<underline> underlines;
+	std::vector<logical_cluster> clusters;
 
 	math::vec2 cursor{};
 
@@ -225,11 +424,16 @@ struct layout_block{
 	FORCE_INLINE inline void clear(){
 		glyphs.clear();
 		underlines.clear();
+		clusters.clear();
 		cursor = {};
 		pos_min = math::vectors::constant2<float>::inf_positive_vec2;
 		pos_max = -math::vectors::constant2<float>::inf_positive_vec2;
 		block_ascender = 0.f;
 		block_descender = 0.f;
+	}
+
+	FORCE_INLINE inline void push_cluster(const logical_cluster& cluster) {
+		clusters.push_back(cluster);
 	}
 
 	FORCE_INLINE inline void push_back(math::frect glyph_region, const glyph_elem& glyph){
@@ -264,6 +468,9 @@ struct layout_block{
 			ul.start += glyph_advance;
 			ul.end += glyph_advance;
 		}
+		for(auto&& c : clusters){
+			c.logical_rect.move(glyph_advance);
+		}
 
 		glyphs.insert(glyphs.begin(), glyph);
 		pos_min += glyph_advance;
@@ -285,6 +492,7 @@ private:
 	struct line_buffer_t{
 		std::vector<glyph_elem> elems{};
 		std::vector<underline> underlines{};
+		std::vector<logical_cluster> clusters{};
 		layout_rect line_bound{};
 
 		// 追踪当前行的局部包围盒 (相对于行起始点)
@@ -294,6 +502,7 @@ private:
 		FORCE_INLINE inline void clear(){
 			elems.clear();
 			underlines.clear();
+			clusters.clear();
 			line_bound = {};
 
 			// 重置包围盒
@@ -326,6 +535,12 @@ private:
 				ul.start += move_vec;
 				ul.end += move_vec;
 				underlines.push_back(std::move(ul));
+			}
+
+			clusters.reserve(clusters.size() + block.clusters.size());
+			for(auto& c : block.clusters){
+				c.logical_rect.move(move_vec);
+				clusters.push_back(std::move(c));
 			}
 
 			line_bound.width += block.cursor.*major_axis;
@@ -613,6 +828,13 @@ private:
 		new_line.glyph_range = subrange(results.elems.size(), state_.line_buffer_.elems.size());
 		new_line.underline_range = subrange(results.underlines.size(), state_.line_buffer_.underlines.size());
 
+		new_line.cluster_range = subrange(results.clusters.size(), state_.line_buffer_.clusters.size());
+
+		for(auto& c : state_.line_buffer_.clusters){
+			c.logical_rect.move(offset_vec);
+			results.clusters.push_back(std::move(c));
+		}
+
 		// 计算全局包围盒，并将元素（保持局部相对坐标）移动到大数组
 		for(auto& elem : state_.line_buffer_.elems){
 			state_.min_bound.min(elem.aabb.vert_00() + offset_vec);
@@ -835,9 +1057,58 @@ private:
 			state_.current_block.push_back_underline(ul);
 		};
 
+		std::optional<unsigned int> pending_cluster_id;
+		math::vec2 pending_cluster_start_cursor;
+
+		auto commit_cluster = [&](unsigned int cluster_id, math::vec2 end_cursor, std::size_t span, float asc, float desc, bool is_rtl) {
+			auto ch = full_text.get_text()[cluster_id];
+			if (ch == '\n' || ch == '\r') return;
+
+			logical_cluster lc;
+			lc.cluster_index = cluster_id;
+			lc.cluster_span = span;
+			lc.is_rtl = is_rtl;
+
+			math::vec2 p_min = math::min(pending_cluster_start_cursor, end_cursor);
+			math::vec2 p_max = math::max(pending_cluster_start_cursor, end_cursor);
+
+			if (is_vertical_()) {
+				p_min.x -= asc;
+				p_max.x += desc;
+			} else {
+				p_min.y -= asc;
+				p_max.y += desc;
+			}
+
+			lc.logical_rect = {tags::unchecked, tags::from_vertex, p_min, p_max};
+			state_.current_block.push_cluster(lc);
+		};
+
 		for(unsigned int i = 0; i < len; ++i){
 			const font::glyph_index_t gid = infos[i].codepoint;
 			const auto current_cluster = infos[i].cluster;
+
+			if (!pending_cluster_id.has_value()) {
+				pending_cluster_id = current_cluster;
+				pending_cluster_start_cursor = state_.current_block.cursor;
+			} else if (pending_cluster_id.value() != current_cluster) {
+				std::size_t span = is_reversed_() ?
+					(pending_cluster_id.value() - current_cluster) :
+					(current_cluster - pending_cluster_id.value());
+
+				float asc = is_vertical_() ? (get_scaled_default_line_thickness() / 2.f) : state_.current_block.block_ascender;
+				float desc = is_vertical_() ? (get_scaled_default_line_thickness() / 2.f) : state_.current_block.block_descender;
+
+				if (asc == 0.f && desc == 0.f) {
+					asc = get_scaled_default_line_thickness() / 2.f;
+					desc = get_scaled_default_line_thickness() / 2.f;
+				}
+
+				commit_cluster(pending_cluster_id.value(), state_.current_block.cursor, span, asc, desc, is_reversed_());
+
+				pending_cluster_id = current_cluster;
+				pending_cluster_start_cursor = state_.current_block.cursor;
+			}
 
 			// 将字符获取和判定提前
 			const auto ch = full_text.get_text()[current_cluster];
@@ -981,6 +1252,21 @@ private:
 			if(!is_reversed_()){
 				state_.current_block.cursor = move_pen(state_.current_block.cursor, advance);
 			}
+		}
+
+		if (pending_cluster_id.has_value()) {
+			std::size_t span = is_reversed_() ?
+				(pending_cluster_id.value() - start) + 1 :
+				(start + length - pending_cluster_id.value());
+
+			float asc = is_vertical_() ? (get_scaled_default_line_thickness() / 2.f) : state_.current_block.block_ascender;
+			float desc = is_vertical_() ? (get_scaled_default_line_thickness() / 2.f) : state_.current_block.block_descender;
+
+			if (asc == 0.f && desc == 0.f) {
+				asc = get_scaled_default_line_thickness() / 2.f;
+				desc = get_scaled_default_line_thickness() / 2.f;
+			}
+			commit_cluster(pending_cluster_id.value(), state_.current_block.cursor, span, asc, desc, is_reversed_());
 		}
 
 		if(active_ul_start.has_value()){
