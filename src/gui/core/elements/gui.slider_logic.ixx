@@ -162,7 +162,7 @@ public:
 };
 
 export
-template <typename ValueType, size_t Dim>
+template <typename ValueType, std::size_t Dim>
 struct slider_nd {
     std::array<slider_slot<ValueType>, Dim> slots;
 
@@ -173,14 +173,14 @@ struct slider_nd {
 
     std::optional<std::array<ValueType, Dim>> drag_src_ = std::nullopt;
 
-    void set_progress(size_t dim_index, ValueType progress) noexcept {
+    void set_progress(std::size_t dim_index, ValueType progress) noexcept {
         if (dim_index < Dim) {
             slots[dim_index].set_progress(progress);
         }
     }
 
     void set_progress(const std::array<ValueType, Dim>& progresses) noexcept {
-        for (size_t i = 0; i < Dim; ++i) {
+        for (std::size_t i = 0; i < Dim; ++i) {
             slots[i].set_progress(progresses[i]);
         }
     }
@@ -219,14 +219,14 @@ struct slider_nd {
     }
 
     void clamp(const std::array<ValueType, Dim>& from, const std::array<ValueType, Dim>& to) noexcept {
-        for (size_t i = 0; i < Dim; ++i) {
+        for (std::size_t i = 0; i < Dim; ++i) {
             slots[i].clamp(from[i], to[i]);
         }
     }
 
     std::array<ValueType, Dim> get_progress() const noexcept {
         std::array<ValueType, Dim> result{};
-        for (size_t i = 0; i < Dim; ++i) {
+        for (std::size_t i = 0; i < Dim; ++i) {
             result[i] = slots[i].get_progress();
         }
         return result;
@@ -234,31 +234,31 @@ struct slider_nd {
 
     std::array<ValueType, Dim> get_temp_progress() const noexcept {
         std::array<ValueType, Dim> result{};
-        for (size_t i = 0; i < Dim; ++i) {
+        for (std::size_t i = 0; i < Dim; ++i) {
             result[i] = slots[i].get_temp_progress();
         }
         return result;
     }
 
     void move_progress(const std::array<ValueType, Dim>& movement, const std::array<ValueType, Dim>& bases) noexcept {
-        for (size_t i = 0; i < Dim; ++i) {
+        for (std::size_t i = 0; i < Dim; ++i) {
             slots[i].move_progress(movement[i], bases[i]);
         }
     }
 
     void move_progress_target(const std::array<ValueType, Dim>& movement, bool smooth = true) noexcept {
-        for (size_t i = 0; i < Dim; ++i) {
+        for (std::size_t i = 0; i < Dim; ++i) {
             slots[i].move_progress(movement[i], smooth ? &snap_shot<ValueType>::temp : &snap_shot<ValueType>::base);
         }
     }
 
     void move_minimum_delta(const std::array<ValueType, Dim>& moves) noexcept {
-        for (size_t i = 0; i < Dim; ++i) {
+        for (std::size_t i = 0; i < Dim; ++i) {
             slots[i].move_minimum_delta(moves[i], smooth_scroll_ ? &snap_shot<ValueType>::temp : &snap_shot<ValueType>::base);
         }
     }
 
-    bool set_progress_from_segments(size_t dim_index, unsigned current, unsigned total) {
+    bool set_progress_from_segments(std::size_t dim_index, unsigned current, unsigned total) {
         if (dim_index < Dim) {
             return slots[dim_index].set_progress_from_segments(current, total);
         }
