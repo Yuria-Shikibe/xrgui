@@ -35,13 +35,6 @@ export struct glyph_elem{
 	font::glyph_borrow texture;
 };
 
-export struct logical_cluster {
-	std::size_t cluster_index; // 对应的 u32string 起始索引
-	std::size_t cluster_span;  // 该包围盒涵盖的字符数量（用于连字切片）
-	math::frect logical_rect;  // 逻辑排版包围盒（严格首尾相连，无重叠或留白）
-	bool is_rtl;               // 排版方向，影响切片时的前后缘计算
-};
-
 export struct underline{
 	math::vec2 start;
 	math::vec2 end;
@@ -65,7 +58,6 @@ export struct line {
 
 	subrange glyph_range;
 	subrange underline_range;
-	subrange cluster_range;
 	layout_rect rect;
 	math::vec2 start_pos;
 
@@ -139,122 +131,12 @@ export struct line {
 export struct glyph_layout {
 	std::vector<glyph_elem> elems;
 	std::vector<underline> underlines;
-	std::vector<logical_cluster> clusters;
 	std::vector<line> lines;
 	math::vec2 extent;
 	layout_direction direction; //should never be deduced.
 
 	constexpr bool empty() const noexcept{
 		return lines.empty();
-	}
-
-	struct hit_result {
-		std::size_t cluster_index; // 命中的字符索引
-		bool is_trailing;          // 是否在字符的后半部分（决定光标插入点）
-		bool is_hit;               // 是否真实命中（false 表示越界吸附）
-	};
-
-	[[nodiscard]] hit_result hit_test(math::vec2 mouse_pos) const noexcept {
-		if (lines.empty() || clusters.empty()) return {0, false, false};
-
-		const bool is_vertical = (direction == layout_direction::ttb || direction == layout_direction::btt);
-
-		const line* target_line = &lines.front();
-		bool line_hit = false;
-		for (const auto& l : lines) {
-			float line_min = is_vertical ? (l.start_pos.x - l.rect.descender) : (l.start_pos.y - l.rect.ascender);
-			float line_max = is_vertical ? (l.start_pos.x + l.rect.ascender) : (l.start_pos.y + l.rect.descender);
-			float mouse_minor = is_vertical ? mouse_pos.x : mouse_pos.y;
-
-			if (mouse_minor >= line_min && mouse_minor <= line_max) {
-				target_line = &l;
-				line_hit = true;
-				break;
-			}
-			if (mouse_minor > line_max) target_line = &l;
-		}
-
-		if (target_line->cluster_range.size == 0) return {0, false, false};
-
-		std::size_t start_idx = target_line->cluster_range.pos;
-		std::size_t end_idx = start_idx + target_line->cluster_range.size;
-
-		float mouse_major = is_vertical ? mouse_pos.y : mouse_pos.x;
-
-		for (std::size_t i = start_idx; i < end_idx; ++i) {
-			const auto& c = clusters[i];
-			float c_min = is_vertical ? c.logical_rect.vert_00().y : c.logical_rect.vert_00().x;
-			float c_max = is_vertical ? c.logical_rect.vert_11().y : c.logical_rect.vert_11().x;
-
-			if (mouse_major >= c_min && mouse_major <= c_max) {
-				float width = c_max - c_min;
-				float slice_width = width / static_cast<float>(c.cluster_span);
-				float relative_pos = mouse_major - c_min;
-
-				std::size_t slice_idx = static_cast<std::size_t>(relative_pos / slice_width);
-				if (slice_idx >= c.cluster_span) slice_idx = c.cluster_span - 1;
-
-				float slice_relative = relative_pos - (slice_idx * slice_width);
-				bool trailing = slice_relative > (slice_width / 2.f);
-
-				if (c.is_rtl || direction == layout_direction::btt) {
-					slice_idx = (c.cluster_span - 1) - slice_idx;
-					trailing = !trailing;
-				}
-
-				return {c.cluster_index + slice_idx, trailing, line_hit};
-			}
-		}
-
-		const auto& first_c = clusters[start_idx];
-		const auto& last_c = clusters[end_idx - 1];
-		float first_min = is_vertical ? first_c.logical_rect.vert_00().y : first_c.logical_rect.vert_00().x;
-
-		if (mouse_major < first_min) {
-			return {first_c.cluster_index, first_c.is_rtl || direction == layout_direction::btt, false};
-		} else {
-			return {last_c.cluster_index + last_c.cluster_span - 1, !(last_c.is_rtl || direction == layout_direction::btt), false};
-		}
-	}
-
-	[[nodiscard]] math::frect get_cursor_rect(std::size_t target_index, bool trailing, float cursor_thickness = 1.0f) const noexcept {
-		if (clusters.empty()) return {};
-
-		const bool is_vertical = (direction == layout_direction::ttb || direction == layout_direction::btt);
-
-		for (const auto& c : clusters) {
-			if (target_index >= c.cluster_index && target_index < c.cluster_index + c.cluster_span) {
-				float c_min = is_vertical ? c.logical_rect.vert_00().y : c.logical_rect.vert_00().x;
-				float c_max = is_vertical ? c.logical_rect.vert_11().y : c.logical_rect.vert_11().x;
-				float width = c_max - c_min;
-				float slice_width = width / static_cast<float>(c.cluster_span);
-
-				std::size_t slice_idx = target_index - c.cluster_index;
-
-				if (c.is_rtl || direction == layout_direction::btt) {
-					slice_idx = (c.cluster_span - 1) - slice_idx;
-					trailing = !trailing;
-				}
-
-				float offset = c_min + (slice_idx * slice_width);
-				if (trailing) offset += slice_width;
-
-				if (is_vertical) {
-					return math::frect{
-						tags::unchecked, tags::from_vertex,
-						math::vec2{c.logical_rect.vert_00().x, offset - cursor_thickness / 2.f},
-						math::vec2{c.logical_rect.vert_11().x, offset + cursor_thickness / 2.f}
-					};
-				} else {
-					return math::frect{
-						tags::unchecked, tags::from_vertex,
-						math::vec2{offset - cursor_thickness / 2.f, c.logical_rect.vert_00().y},
-						math::vec2{offset + cursor_thickness / 2.f, c.logical_rect.vert_11().y}
-					};
-				}
-			}
-		}
-		return {};
 	}
 };
 
@@ -331,7 +213,6 @@ export struct layout_config{
 struct layout_block{
 	std::vector<glyph_elem> glyphs;
 	std::vector<underline> underlines;
-	std::vector<logical_cluster> clusters;
 
 	math::vec2 cursor{};
 
@@ -344,7 +225,6 @@ struct layout_block{
 	FORCE_INLINE inline void clear(){
 		glyphs.clear();
 		underlines.clear();
-		clusters.clear();
 		cursor = {};
 		pos_min = math::vectors::constant2<float>::inf_positive_vec2;
 		pos_max = -math::vectors::constant2<float>::inf_positive_vec2;
@@ -376,10 +256,6 @@ struct layout_block{
 		pos_max.max(ul_max);
 	}
 
-	FORCE_INLINE inline void push_cluster(const logical_cluster& cluster) {
-		clusters.push_back(cluster);
-	}
-
 	FORCE_INLINE inline void push_front(math::frect glyph_region, const glyph_elem& glyph, math::vec2 glyph_advance){
 		for(auto&& layout_result : glyphs){
 			layout_result.aabb.move(glyph_advance);
@@ -387,9 +263,6 @@ struct layout_block{
 		for(auto&& ul : underlines){
 			ul.start += glyph_advance;
 			ul.end += glyph_advance;
-		}
-		for(auto&& cl : clusters){
-			cl.logical_rect.move(glyph_advance);
 		}
 
 		glyphs.insert(glyphs.begin(), glyph);
@@ -412,7 +285,6 @@ private:
 	struct line_buffer_t{
 		std::vector<glyph_elem> elems{};
 		std::vector<underline> underlines{};
-		std::vector<logical_cluster> clusters{};
 		layout_rect line_bound{};
 
 		// 追踪当前行的局部包围盒 (相对于行起始点)
@@ -422,7 +294,6 @@ private:
 		FORCE_INLINE inline void clear(){
 			elems.clear();
 			underlines.clear();
-			clusters.clear();
 			line_bound = {};
 
 			// 重置包围盒
@@ -436,7 +307,7 @@ private:
 			elems.reserve(elems.size() + block.glyphs.size());
 
 			// 在添加元素时同时更新行缓存的包围盒
-			if (!block.glyphs.empty() || !block.underlines.empty() || !block.clusters.empty()) {
+			if (!block.glyphs.empty() || !block.underlines.empty()) {
 				// 计算 block 移动后的包围盒
 				math::vec2 block_min = block.pos_min + move_vec;
 				math::vec2 block_max = block.pos_max + move_vec;
@@ -455,12 +326,6 @@ private:
 				ul.start += move_vec;
 				ul.end += move_vec;
 				underlines.push_back(std::move(ul));
-			}
-
-			clusters.reserve(clusters.size() + block.clusters.size());
-			for(auto& c : block.clusters){
-				c.logical_rect.move(move_vec);
-				clusters.push_back(std::move(c));
 			}
 
 			line_bound.width += block.cursor.*major_axis;
@@ -541,7 +406,6 @@ public:
 		glyph_layout results{};
 		results.direction = get_actual_direction();
 		results.elems.reserve(full_text.get_text().size()); // 预留全局元素空间
-		results.clusters.reserve(full_text.get_text().size());
 
 		if(process_layout(full_text, results)){
 
@@ -555,13 +419,11 @@ public:
 
 		layout_ref.elems.clear();
 		layout_ref.underlines.clear();
-		layout_ref.clusters.clear();
 		layout_ref.lines.clear();
 		layout_ref.extent = {};
 		layout_ref.direction = get_actual_direction();
 
 		layout_ref.elems.reserve(full_text.get_text().size());
-		layout_ref.clusters.reserve(full_text.get_text().size());
 
 		if(process_layout(full_text, layout_ref)){
 
@@ -748,9 +610,8 @@ private:
 		new_line.rect = state_.line_buffer_.line_bound;
 
 		// 记录在全局大数组中的索引范围
-		new_line.glyph_range = subrange{static_cast<unsigned>(results.elems.size()), static_cast<unsigned>(state_.line_buffer_.elems.size())};
-		new_line.underline_range = subrange{static_cast<unsigned>(results.underlines.size()), static_cast<unsigned>(state_.line_buffer_.underlines.size())};
-		new_line.cluster_range = subrange{static_cast<unsigned>(results.clusters.size()), static_cast<unsigned>(state_.line_buffer_.clusters.size())};
+		new_line.glyph_range = subrange(results.elems.size(), state_.line_buffer_.elems.size());
+		new_line.underline_range = subrange(results.underlines.size(), state_.line_buffer_.underlines.size());
 
 		// 计算全局包围盒，并将元素（保持局部相对坐标）移动到大数组
 		for(auto& elem : state_.line_buffer_.elems){
@@ -769,11 +630,6 @@ private:
 			state_.min_bound.min(ul_min);
 			state_.max_bound.max(ul_max);
 			results.underlines.push_back(std::move(ul));
-		}
-
-		for(auto& c : state_.line_buffer_.clusters){
-			c.logical_rect.move(offset_vec);
-			results.clusters.push_back(std::move(c));
 		}
 
 		results.lines.push_back(std::move(new_line));
@@ -944,22 +800,6 @@ private:
 		};
 		std::optional<ul_start_info> active_ul_start;
 
-		std::optional<logical_cluster> active_cluster;
-
-		auto get_cluster_span = [&](unsigned int idx) -> std::size_t {
-			std::size_t c = infos[idx].cluster;
-			if (is_reversed_()) {
-				for (int j = static_cast<int>(idx) - 1; j >= 0; --j) {
-					if (infos[j].cluster != c) return infos[j].cluster - c;
-				}
-			} else {
-				for (unsigned int j = idx + 1; j < len; ++j) {
-					if (infos[j].cluster != c) return infos[j].cluster - c;
-				}
-			}
-			return (start + length > c) ? (start + length - c) : 1;
-		};
-
 		// 辅助计算：根据当前字符是否为空格，推算正确的间隙倍数
 		auto get_current_gap_index = [&](bool is_delimiter) -> unsigned {
 			unsigned size = state_.line_buffer_.elems.size() + state_.current_block.glyphs.size();
@@ -1041,44 +881,6 @@ private:
 				};
 			}
 
-			const auto advance = math::vec2{
-					font::normalize_len(pos[i].x_advance), font::normalize_len(pos[i].y_advance)
-				} * run_scale_factor;
-
-			math::vec2 logic_size;
-			math::vec2 logic_pos = state_.current_block.cursor;
-			if(is_vertical_()){
-				logic_size = { get_scaled_default_line_thickness(), advance.y };
-				logic_pos.x -= logic_size.x / 2.f;
-			} else {
-				logic_size = { advance.x, get_scaled_default_line_thickness() };
-				logic_pos.y -= state_.current_block.block_ascender > 0 ? state_.current_block.block_ascender : get_scaled_default_line_thickness() * 0.8f;
-			}
-			math::frect current_logic_rect = { tags::unchecked, tags::from_extent, logic_pos, logic_size };
-
-			if (!active_cluster.has_value()) {
-				active_cluster = logical_cluster{
-					current_cluster,
-					get_cluster_span(i),
-					current_logic_rect,
-					is_reversed_()
-				};
-			} else if (active_cluster->cluster_index == current_cluster) {
-				active_cluster->logical_rect = {
-					tags::unchecked, tags::from_vertex,
-					math::min(active_cluster->logical_rect.vert_00(), current_logic_rect.vert_00()),
-					math::max(active_cluster->logical_rect.vert_11(), current_logic_rect.vert_11())
-				};
-			} else {
-				state_.current_block.push_cluster(*active_cluster);
-				active_cluster = logical_cluster{
-					current_cluster,
-					get_cluster_span(i),
-					current_logic_rect,
-					is_reversed_()
-				};
-			}
-
 			if(is_delimiter){
 				if(active_ul_start.has_value()){
 					// 分隔符断行/断词时的提交
@@ -1156,6 +958,9 @@ private:
 			default : break;
 			}
 
+			const auto advance = math::vec2{
+					font::normalize_len(pos[i].x_advance), font::normalize_len(pos[i].y_advance)
+				} * run_scale_factor;
 			const float x_offset = font::normalize_len(pos[i].x_offset) * run_scale_factor.x;
 
 			const float y_offset = font::normalize_len(pos[i].y_offset) * run_scale_factor.y;
@@ -1180,15 +985,6 @@ private:
 
 		if(active_ul_start.has_value()){
 			commit_underline(active_ul_start.value(), state_.current_block.cursor, state_.rich_text_context_.get_color(), true);
-		}
-
-		if (active_cluster.has_value()) {
-			std::size_t text_end_idx = start + length;
-			std::size_t diff = (text_end_idx > active_cluster->cluster_index)
-							   ? (text_end_idx - active_cluster->cluster_index)
-							   : 1;
-			active_cluster->cluster_span = std::max<std::size_t>(1, diff);
-			state_.current_block.push_cluster(*active_cluster);
 		}
 
 		if(last_applied_pos < static_cast<long long>(start + length - 1)){
