@@ -27,7 +27,10 @@ FORCE_INLINE CONST_FN bool is_nearly_zero_assume_positive(T f) noexcept{
 }
 
 export
-FORCE_INLINE void poly_fringe_at_from(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
+inline constexpr float fringe_size = .72f;
+
+export
+FORCE_INLINE void poly_fringe_at_from(renderer_frontend& r, const instruction::poly& instr, float fringe = fringe_size){
 	auto instr_inner = instr;
 	instr_inner.radius.to = instr_inner.radius.from - fringe;
 	instr_inner.color.to = instr_inner.color.from.make_transparent();
@@ -35,7 +38,7 @@ FORCE_INLINE void poly_fringe_at_from(renderer_frontend& r, const instruction::p
 }
 
 export
-FORCE_INLINE void poly_fringe_at_to(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
+FORCE_INLINE void poly_fringe_at_to(renderer_frontend& r, const instruction::poly& instr, float fringe = fringe_size){
 	auto instr_outer = instr;
 	instr_outer.radius.from = instr_outer.radius.to + fringe;
 	instr_outer.color.from = instr_outer.color.to.make_transparent();
@@ -43,7 +46,7 @@ FORCE_INLINE void poly_fringe_at_to(renderer_frontend& r, const instruction::pol
 }
 
 export
-FORCE_INLINE void poly_fringe_only(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
+FORCE_INLINE void poly_fringe_only(renderer_frontend& r, const instruction::poly& instr, float fringe = fringe_size){
 	if(is_draw_meaningful(instr.radius.from)){
 		poly_fringe_at_from(r, instr, fringe);
 	}
@@ -54,13 +57,13 @@ FORCE_INLINE void poly_fringe_only(renderer_frontend& r, const instruction::poly
 }
 
 export
-FORCE_INLINE void poly(renderer_frontend& r, const instruction::poly& instr, float fringe = 2.0f){
+FORCE_INLINE void poly(renderer_frontend& r, const instruction::poly& instr, float fringe = fringe_size){
 	r.push(instr);
 	poly_fringe_only(r, instr, fringe);
 }
 
 export
-FORCE_INLINE void poly_partial(renderer_frontend& r, const instruction::poly_partial& instr, float fringe = 2.0f){
+FORCE_INLINE void poly_partial(renderer_frontend& r, const instruction::poly_partial& instr, float fringe = fringe_size){
 	r.push(instr);
 
 	if(is_draw_meaningful(instr.radius.from)){
@@ -81,7 +84,7 @@ FORCE_INLINE void poly_partial(renderer_frontend& r, const instruction::poly_par
 }
 
 export
-FORCE_INLINE void poly_partial_with_cap(renderer_frontend& r, const instruction::poly_partial& instr, float src_cap_fringe = 2.f, float dst_cap_fringe = 2.f, float fringe = 2.0f){
+FORCE_INLINE void poly_partial_with_cap(renderer_frontend& r, const instruction::poly_partial& instr, float src_cap_fringe = fringe_size, float dst_cap_fringe = fringe_size, float fringe = fringe_size){
 	auto instr_src = instr;
 	auto instr_dst = instr;
 	const auto radius = instr.radius.mid();
@@ -111,7 +114,7 @@ FORCE_INLINE void poly_partial_with_cap(renderer_frontend& r, const instruction:
 }
 
 export
-FORCE_INLINE void curve(renderer_frontend& r, const instruction::parametric_curve& instr, float fringe = 2.0f){
+FORCE_INLINE void curve(renderer_frontend& r, const instruction::parametric_curve& instr, float fringe = fringe_size){
 	auto instr_inner = instr;
 	instr_inner.offset += instr.stroke / 2;
 	instr_inner.offset += fringe / 2;
@@ -135,7 +138,7 @@ FORCE_INLINE void curve(renderer_frontend& r, const instruction::parametric_curv
 export
 FORCE_INLINE void curve_with_cap(
 	renderer_frontend& r, const instruction::parametric_curve& instr,
-	float cap_length_src = 2.0f, float cap_length_dst = 2.0f, float fringe = 2.0f) {
+	float cap_length_src = fringe_size, float cap_length_dst = fringe_size, float fringe = fringe_size) {
     // 1. 渲染中间的主体部分（包含侧向抗锯齿）
     curve(r, instr, fringe);
 
@@ -348,7 +351,7 @@ public:
 	}
 
 	FORCE_INLINE math::section<instruction::line_node&> add_cap() noexcept {
-		 return add_cap(front().stroke / 2.f, back().stroke / 2.f);
+		 return this->add_cap(front().stroke / 2.f, back().stroke / 2.f);
 	}
 
 	FORCE_INLINE void add_fringe_cap_src(float cap_stroke){
@@ -363,7 +366,7 @@ public:
 		node.color.invoke(&graphic::color::set_a, 0);
 	}
 
-	FORCE_INLINE void add_fringe_cap(float cap_stroke_src, float cap_stroke_dst){
+	FORCE_INLINE void add_fringe_cap(float cap_stroke_src = fringe_size, float cap_stroke_dst = fringe_size){
 		using namespace graphic::draw::instruction;
 		auto [src, dst] = add_cap(cap_stroke_src, cap_stroke_dst);
 		src.color.invoke(&graphic::color::set_a, 0);
@@ -378,11 +381,11 @@ public:
 		dump_fringe_impl(renderer, head, stroke, false);
 	}
 
-	FORCE_INLINE void dump_fringe_inner(renderer_frontend& renderer, const instruction::line_segments& head, float stroke){
+	FORCE_INLINE void dump_fringe_inner(renderer_frontend& renderer, const instruction::line_segments& head, float stroke = fringe_size){
 		dump_fringe_impl(renderer, head, stroke, true);
 	}
 
-	FORCE_INLINE void dump_fringe_outer(renderer_frontend& renderer, const instruction::line_segments& head, float stroke){
+	FORCE_INLINE void dump_fringe_outer(renderer_frontend& renderer, const instruction::line_segments& head, float stroke = fringe_size){
 		dump_fringe_impl(renderer, head, stroke, false);
 	}
 

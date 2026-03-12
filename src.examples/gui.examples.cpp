@@ -77,6 +77,18 @@ struct vp : gui::viewport{
 	}
 };
 
+void set_cursors(scene& scene){
+	auto& cm = scene.cursor_collection_manager;
+
+	cm.add_cursor<assets::builtin::cursor::default_cursor_regular>(style::cursor_type::regular);
+	cm.add_cursor<assets::builtin::cursor::default_cursor_drag>(style::cursor_type::drag);
+
+	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_left, style::cursor_arrow_direction::left);
+	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_right, style::cursor_arrow_direction::right);
+	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_up, style::cursor_arrow_direction::up);
+	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_down, style::cursor_arrow_direction::down);
+}
+
 void make_styles(scene& scene){
 	auto& sm = scene.style_manager;
 
@@ -115,6 +127,7 @@ void make_styles(scene& scene){
 
 ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
 	make_styles(scene);
+	set_cursors(scene);
 
 	scene.set_pass_config({
 			{

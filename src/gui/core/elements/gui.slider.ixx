@@ -216,6 +216,14 @@ public:
 		extend_focus_until_mouse_drop = true;
 	}
 
+	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
+		if(is_disabled())return elem::get_cursor_type(cursor_pos_at_content_local);
+		if(cursor_state().pressed || cursor_pos_at_content_local.axis_greater(vec2{}) && cursor_pos_at_content_local.axis_less(content_extent())){
+			return {style::cursor_type::drag, {style::cursor_decoration_type::to_left, style::cursor_decoration_type::to_right}};
+		}
+		return elem::get_cursor_type(cursor_pos_at_content_local);
+	}
+
 	// ==========================================
 	// 状态获取与控制 (Getters & Setters)
 	// ==========================================

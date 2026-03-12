@@ -115,7 +115,7 @@ void scene::draw(rect clip){
 			graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
 		);
 
-		cursor_collection_.draw(*this);
+		cursor_collection_manager.draw(*this);
 
 	}
 
@@ -222,9 +222,13 @@ void scene::update_cursor(){
 
 	if(!focus_cursor_) return;
 
+
 	const auto rng = get_inbounds();
 	const auto cursor_transform_delta = util::transform_scene2local(rng, {});
 	const auto cursor_transformed = get_cursor_pos() + cursor_transform_delta;
+
+	auto cursor_type = focus_cursor_->get_cursor_type(cursor_transformed);
+	cursor_collection_manager.set_drawers(cursor_type);
 
 	for(const auto& [i, state] : mouse_states_ | std::views::enumerate){
 		if(!state.pressed) continue;

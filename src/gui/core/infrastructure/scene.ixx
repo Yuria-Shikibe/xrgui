@@ -248,6 +248,7 @@ private:
 	style::style_manager init_style_manager_();
 public:
 	style::style_manager style_manager{init_style_manager_()};
+	cursor_collection cursor_collection_manager{};
 
 protected:
 	rect region_{};
@@ -291,7 +292,6 @@ protected:
 
 	layer_altitude_record layer_altitude_record_{get_heap()};
 
-	cursor_collection cursor_collection_{};
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 

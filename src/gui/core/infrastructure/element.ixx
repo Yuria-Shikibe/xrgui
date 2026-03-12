@@ -688,8 +688,8 @@ public:
 		return util::try_modify(disabled, isDisabled);
 	}
 
-	virtual style::cursor_type get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept{
-		return style::cursor_type::regular;
+	virtual style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept{
+		return {style::cursor_type::regular, style::cursor_decoration_type::none};
 	}
 
 #pragma endregion

@@ -38,18 +38,19 @@ void layout_record<typesetting::glyph_layout>::record_glyph_draw_instructions(
 			});
 		}
 
-		// for (const auto & [idx, val] : std::span{layout.clusters.begin() + current_line.cluster_range.pos, current_line.cluster_range.size} | std::views::enumerate){
-		// 	// auto start = math::fma(idx, spacing, line_src + val.logical_rect.src);
-		// 	auto start = val.logical_rect.src;
-		//
-		//
-		// 	buffer.push(rect_aabb_outline{
-		// 		.v00 = start,
-		// 		.v11 = start + val.logical_rect.extent(),
-		// 		.stroke = {1.25f},
-		// 		.vert_color = {graphic::colors::YELLOW.copy_set_a(.5f)}
-		// 	});
-		// }
+		for (const auto & [idx, val] : std::span{layout.clusters.begin() + current_line.cluster_range.pos, current_line.cluster_range.size} | std::views::enumerate){
+			// auto start = math::fma(idx, spacing, line_src + val.logical_rect.src);
+			// auto start = val.logical_rect.src;
+			auto start = line_src + val.logical_rect.src;
+
+
+			buffer.push(rect_aabb_outline{
+				.v00 = start,
+				.v11 = start + val.logical_rect.extent(),
+				.stroke = {1.25f},
+				.vert_color = {graphic::colors::YELLOW.copy_set_a(.5f)}
+			});
+		}
 
 		for (const auto & ul : std::span{layout.underlines.begin() + current_line.underline_range.pos, current_line.underline_range.size}){
 
