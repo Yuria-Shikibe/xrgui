@@ -10,7 +10,7 @@ namespace mo_yanxi::gui{
 void layout_record<font::typesetting::glyph_layout>::record_glyph_draw_instructions(
 	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
 	const font::typesetting::glyph_layout& layout,
-	graphic::color color_scl, typesetting::content_alignment line_align
+	graphic::color color_scl, typesetting::line_alignment line_align
 ){
 		using namespace mo_yanxi::graphic;
 		color tempColor{};

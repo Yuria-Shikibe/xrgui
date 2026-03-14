@@ -10,6 +10,8 @@ module;
 export module mo_yanxi.typesetting;
 
 import std;
+export import :result;
+
 import mo_yanxi.font;
 import mo_yanxi.font.manager;
 import mo_yanxi.typesetting.util;
@@ -23,250 +25,44 @@ export import mo_yanxi.math.vector2;
 import mo_yanxi.cache;
 
 namespace mo_yanxi::typesetting{
-using typst_szt = unsigned;
 
-#pragma region Constants_And_Enums
 
 constexpr bool is_separator(char32_t c) noexcept {
-	// 1. 首先检查原有的标点符号分隔符
-	switch(c) {
-	case U',' : case U'.' : case U';' : case U':' :
-	case U'!' : case U'?' : case U'\u3002' : case U'\uFF0C' :
-	case U'\u3001' : case U'\uFF1B' : case U'\uFF1A' :
-	case U'\uFF01' : case U'\uFF1F' : case U'\u2026' :
-		return true;
+	if (c < 0x80) {
+		return c == U',' || c == U'.' || c == U';' || c == U':' || c == U'!' || c == U'?';
 	}
 
-	// 2. 检查 CJK 字符范围 (中日韩越统一表意文字及拼音/注音系统)
-	if ((c >= U'\u4E00' && c <= U'\u9FFF') ||     // CJK 统一表意文字 (常用汉字)
-		(c >= U'\u3400' && c <= U'\u4DBF') ||     // CJK 扩展 A 区
-		(c >= U'\u3040' && c <= U'\u309F') ||     // 日文平假名
-		(c >= U'\u30A0' && c <= U'\u30FF') ||     // 日文片假名
-		(c >= U'\uAC00' && c <= U'\uD7AF') ||     // 韩文/朝鲜文谚文音节
-		(c >= U'\u1100' && c <= U'\u11FF') ||     // 韩文字母 (Jamo)
-		(c >= U'\u3100' && c <= U'\u312F') ||     // 注音符号 (Bopomofo)
-		(c >= U'\u31A0' && c <= U'\u31BF') ||     // 注音符号扩展
-		(c >= U'\u2E80' && c <= U'\u2EFF') ||     // CJK 部首补充
-		(c >= U'\u2F00' && c <= U'\u2FDF') ||     // 康熙字典部首
-		(c >= U'\u31F0' && c <= U'\u31FF')) {     // 片假名语音扩展
-		return true;
-	}
+	// 2. Unicode 范围处理：无分支二分查找 (Branchless Binary Search)
+	// 拆分结构体并填充至 16 个元素（2的幂次），以利于完全展开判断
+	constexpr char32_t starts[16] = {
+		0x0000, // 底部哨兵
+		0x1100, 0x2026, 0x2E80, 0x3001, 0x3040, 0x3100, 0x31F0, 0x3400,
+		0x4E00, 0xAC00, 0xFF01, 0xFF0C, 0xFF1A, 0xFF1F,
+		0xFFFFFFFF // 顶部哨兵
+	};
+	constexpr char32_t ends[16] = {
+		0x0000,
+		0x11FF, 0x2026, 0x2FDF, 0x3002, 0x30FF, 0x31BF, 0x31FF, 0x4DBF,
+		0x9FFF, 0xD7AF, 0xFF01, 0xFF0C, 0xFF1B, 0xFF1F,
+		0xFFFFFFFF
+	};
 
-	return false;
+	// 将布尔值强转为整型，消除 if 分支，直接累加目标索引 (idx)
+	std::uint32_t idx = 0;
+	idx |= (static_cast<std::uint32_t>(c >= starts[idx | 8]) << 3);
+	idx |= (static_cast<std::uint32_t>(c >= starts[idx | 4]) << 2);
+	idx |= (static_cast<std::uint32_t>(c >= starts[idx | 2]) << 1);
+	idx |=  static_cast<std::uint32_t>(c >= starts[idx | 1]);
+
+	// 最终的 idx 指向了所有满足 starts[idx] <= c 的最大索引
+	return c <= ends[idx];
 }
-
-export enum struct layout_direction{ ltr, rtl, ttb, btt, deduced };
-
-export enum struct linefeed{ LF, CRLF };
-export enum struct content_alignment{ start, center, end, justify };
-
-#pragma endregion
-
-#pragma region Core_Data_Structures
-
-export struct glyph_elem{
-	math::frect aabb;
-	graphic::color color;
-	font::glyph_borrow texture;
-};
-
-export struct underline{
-	math::vec2 start;
-	math::vec2 end;
-	float thickness;
-	typst_szt start_gap_count;
-	typst_szt end_gap_count;
-	graphic::color color;
-};
-
-export struct subrange{
-	typst_szt pos{};
-	typst_szt size{};
-};
-
-export struct logical_cluster{
-	typst_szt cluster_index;
-	typst_szt cluster_span;
-	math::frect logical_rect;
-};
-
-export struct line{
-	struct align_result{
-		math::vec2 start_pos;
-		math::vec2 letter_spacing;
-	};
-	subrange glyph_range;
-	subrange underline_range;
-	subrange cluster_range;
-
-	layout_rect rect;
-	math::vec2 start_pos;
-
-	[[nodiscard]] align_result calculate_alignment(
-		math::vec2 extent,
-		content_alignment align,
-		layout_direction dir) const noexcept{
-		align_result result{start_pos, math::vec2{0.f, 0.f}};
-		const bool is_vertical = (dir == layout_direction::ttb || dir == layout_direction::btt);
-		const bool is_reversed = (dir == layout_direction::rtl || dir == layout_direction::btt);
-
-		const float container_width = is_vertical ? extent.y : extent.x;
-		const float abs_content = std::abs(rect.width);
-		const float remaining = container_width - abs_content;
-
-		float align_offset = 0.f;
-		float spacing = 0.f;
-		if(!std::isinf(container_width)){
-			if(remaining > 0.001f){
-				if(is_reversed){
-					switch(align){
-					case content_alignment::start : align_offset = container_width;
-						break;
-					case content_alignment::center : align_offset = container_width - (remaining / 2.0f);
-						break;
-					case content_alignment::end : align_offset = abs_content;
-						break;
-					case content_alignment::justify : align_offset = container_width;
-						if(glyph_range.size > 1) spacing = remaining / static_cast<float>(glyph_range.size - 1);
-						break;
-					}
-				} else{
-					switch(align){
-					case content_alignment::start : align_offset = 0.f;
-						break;
-					case content_alignment::center : align_offset = remaining / 2.0f;
-						break;
-					case content_alignment::end : align_offset = remaining;
-						break;
-					case content_alignment::justify : align_offset = 0.f;
-						if(glyph_range.size > 1) spacing = remaining / static_cast<float>(glyph_range.size - 1);
-						break;
-					}
-				}
-			} else if(is_reversed){
-				align_offset = container_width;
-			}
-		} else{
-			if(is_reversed) align_offset = abs_content;
-		}
-
-		if(is_vertical){
-			result.start_pos.y += align_offset;
-			result.letter_spacing.y = (dir == layout_direction::ttb) ? -spacing : spacing;
-		} else{
-			result.start_pos.x += align_offset;
-			result.letter_spacing.x = (dir == layout_direction::ltr) ? spacing : -spacing;
-		}
-
-		return result;
-	}
-};
-
-export struct glyph_layout{
-	std::vector<glyph_elem> elems;
-	std::vector<underline> underlines;
-	std::vector<logical_cluster> clusters;
-
-	std::vector<line> lines;
-
-	math::vec2 extent;
-	layout_direction direction;
-
-	struct hit_result{
-		const line* source_line;
-		const logical_cluster* source;
-		bool is_trailing;
-		bool is_hit;
-
-		constexpr explicit operator bool() const noexcept{
-			return source != nullptr;
-		}
-	};
-
-	constexpr bool empty() const noexcept{ return lines.empty(); }
-
-	[[nodiscard]] hit_result hit_test(math::vec2 pos, content_alignment line_align) const noexcept{
-		if(line_align == content_alignment::justify || direction != layout_direction::ltr){
-			return {};
-		}
-		if(lines.empty() || clusters.empty()) return {};
-
-		const bool is_vertical = (direction == layout_direction::ttb || direction == layout_direction::btt);
-
-		auto get_line_cross_center = [&](const line& l){
-			auto align = l.calculate_alignment(extent, line_align, direction);
-			if(is_vertical){
-				return align.start_pos.x + (l.rect.descender - l.rect.ascender) / 2.0f;
-			} else{
-				return align.start_pos.y + (l.rect.descender - l.rect.ascender) / 2.0f;
-			}
-		};
-
-		const auto line_it = std::ranges::lower_bound(lines, is_vertical ? pos.x : pos.y, {}, get_line_cross_center);
-
-		typst_szt best_line_idx = 0;
-		if(line_it == lines.end()){
-			best_line_idx = lines.size() - 1;
-		} else if(line_it == lines.begin()){
-			best_line_idx = 0;
-		} else{
-			auto prev_it = std::ranges::prev(line_it);
-			float dist_current = std::abs(get_line_cross_center(*line_it) - (is_vertical ? pos.x : pos.y));
-			float dist_prev = std::abs(get_line_cross_center(*prev_it) - (is_vertical ? pos.x : pos.y));
-			best_line_idx = (dist_prev < dist_current)
-				                ? std::ranges::distance(lines.begin(), prev_it)
-				                : std::ranges::distance(lines.begin(), line_it);
-		}
-
-		const auto& best_line = lines[best_line_idx];
-		if(best_line.cluster_range.size == 0) return {};
-
-		const auto align = best_line.calculate_alignment(extent, line_align, direction);
-		const math::vec2 local_pos = pos - align.start_pos;
-
-		const auto cluster_begin = clusters.begin() + best_line.cluster_range.pos;
-		const auto cluster_end = cluster_begin + best_line.cluster_range.size;
-
-		auto cluster_it = std::lower_bound(cluster_begin, cluster_end, local_pos,
-			[&](const logical_cluster& c, const math::vec2& p){
-				const math::vec2 center = c.logical_rect.get_center();
-				return is_vertical ? (center.y < p.y) : (center.x < p.x);
-			});
-
-		auto best_cluster_it = cluster_begin;
-		if(cluster_it == cluster_end){
-			best_cluster_it = std::prev(cluster_end);
-		} else if(cluster_it == cluster_begin){
-			best_cluster_it = cluster_begin;
-		} else{
-			auto prev_it = std::prev(cluster_it);
-			float dist_current = (local_pos - cluster_it->logical_rect.get_center()).length2();
-			float dist_prev = (local_pos - prev_it->logical_rect.get_center()).length2();
-			best_cluster_it = (dist_prev < dist_current) ? prev_it : cluster_it;
-		}
-
-		const math::vec2 center = best_cluster_it->logical_rect.get_center();
-		bool is_hit = best_cluster_it->logical_rect.contains_loose(local_pos);
-		bool is_trailing = is_vertical ? (local_pos.y > center.y) : (local_pos.x > center.x);
-
-		return {&best_line, std::to_address(best_cluster_it), is_trailing, is_hit};
-	}
-
-	void clear() noexcept{
-		elems.clear();
-		underlines.clear();
-		clusters.clear();
-		lines.clear();
-		extent = {};
-		direction = {};
-	}
-};
 
 export struct layout_config{
 	layout_direction direction;
 	math::vec2 max_extent = math::vectors::constant2<float>::inf_positive_vec2;
 	math::optional_vec2<float> default_font_size{math::nullopt_vec2<float>};
-	linefeed line_feed_type;
+	linefeed_type line_feed_type;
 	float throughout_scale = 1.f;
 	float tab_scale = 4.f;
 	float line_spacing_scale = 1.5f;
@@ -287,7 +83,6 @@ export struct layout_config{
 	constexpr bool operator==(const layout_config&) const noexcept = default;
 };
 
-#pragma endregion
 
 font::hb::font_ptr create_harfbuzz_font(const font::font_face_handle& face){
 	hb_font_t* font = hb_ft_font_create_referenced(face);
@@ -377,32 +172,32 @@ private:
 			pos_max = -math::vectors::constant2<float>::inf_positive_vec2;
 		}
 
-		FORCE_INLINE inline void append(layout_block& block, float math::vec2::* major_axis){
+		FORCE_INLINE inline void append(layout_block& block, float math::vec2::* major_axis) {
 			math::vec2 move_vec{};
 			move_vec.*major_axis = line_bound.width;
 
-			elems.reserve(elems.size() + block.glyphs.size());
-			if(!block.glyphs.empty() || !block.underlines.empty()){
+			if (!block.glyphs.empty() || !block.underlines.empty()) {
 				pos_min.min(block.pos_min + move_vec);
 				pos_max.max(block.pos_max + move_vec);
 			}
 
-			for(auto& g : block.glyphs){
+			elems.reserve(elems.size() + block.glyphs.size());
+			for (auto& g : block.glyphs) {
 				g.aabb.move(move_vec);
-				elems.push_back(std::move(g));
+				elems.emplace_back(std::move(g)); // 避免多余的拷贝/移动构造
 			}
 
 			underlines.reserve(underlines.size() + block.underlines.size());
-			for(auto& ul : block.underlines){
+			for (auto& ul : block.underlines) {
 				ul.start += move_vec;
 				ul.end += move_vec;
-				underlines.push_back(std::move(ul));
+				underlines.emplace_back(std::move(ul));
 			}
 
 			clusters.reserve(clusters.size() + block.clusters.size());
-			for(auto& c : block.clusters){
+			for (auto& c : block.clusters) {
 				c.logical_rect.move(move_vec);
-				clusters.push_back(std::move(c));
+				clusters.emplace_back(std::move(c));
 			}
 
 			line_bound.width += block.cursor.*major_axis;
@@ -612,9 +407,45 @@ private:
 				const auto& m = g.metrics();
 				const auto advance = m.advance * base_scale_factor;
 				math::vec2 adv{};
-				adv.*state_.major_p = advance.*state_.major_p * (is_vertical() ? -1 : 1);
+
+				// 提取有效步进值：借用水平宽度或自身垂直跨度
+				// 提取有效步进值：借用水平宽度或自身垂直跨度
+				float fallback_adv = (std::abs(advance.*state_.major_p) > 0.001f)
+										 ? std::abs(advance.*state_.major_p)
+										 : std::abs(advance.*state_.minor_p);
+
+				// 严格映射四个排版方向的真实物理坐标位移
+				if (state_.target_hb_dir == HB_DIRECTION_LTR) {
+					adv.x = fallback_adv;
+				} else if (state_.target_hb_dir == HB_DIRECTION_RTL) {
+					adv.x = -fallback_adv;
+				} else if (state_.target_hb_dir == HB_DIRECTION_TTB) {
+					adv.y = fallback_adv;
+				} else if (state_.target_hb_dir == HB_DIRECTION_BTT) {
+					adv.y = -fallback_adv;
+				}
 
 				math::frect local_aabb = m.place_to({}, base_scale_factor);
+
+				// ==========================================
+				// --- 新增：将换行指示符居中对齐到它分配的网格空间中 ---
+				// ==========================================
+				if (state_.target_hb_dir == HB_DIRECTION_RTL) {
+					// RTL: 水平向左排版，分配的格子在 [-adv, 0]，将其移入其中
+					local_aabb.move({-fallback_adv, 0.f});
+				} else if (state_.target_hb_dir == HB_DIRECTION_TTB) {
+					// TTB: 水平居中 (将原本在[0, w]的字形移到[-w/2, w/2])
+					float cx = -(local_aabb.vert_11().x + local_aabb.vert_00().x) / 2.f;
+					// 垂直居中 (将字形移到 [0, adv.y] 的中心)
+					float cy = fallback_adv / 2.f - (local_aabb.vert_11().y + local_aabb.vert_00().y) / 2.f;
+					local_aabb.move({cx, cy});
+				} else if (state_.target_hb_dir == HB_DIRECTION_BTT) {
+					float cx = -(local_aabb.vert_11().x + local_aabb.vert_00().x) / 2.f;
+					// BTT: 向上排版，格子在 [-adv, 0] 之间
+					float cy = -fallback_adv / 2.f - (local_aabb.vert_11().y + local_aabb.vert_00().y) / 2.f;
+					local_aabb.move({cx, cy});
+				}
+
 				cached_indicator_ = indicator_cache{std::move(g), local_aabb, adv};
 			} else{
 				const_cast<layout_config&>(config_).wrap_indicator_char = 0;
@@ -970,7 +801,7 @@ private:
 
 				state_.current_block.push_cluster(logical_cluster{current_cluster, 1, r_rect});
 
-				if(config_.line_feed_type == linefeed::CRLF){
+				if(config_.line_feed_type == linefeed_type::crlf){
 					state_.line_buffer.line_bound.width = {};
 					ctx.active_ul_start.reset();
 				}
@@ -988,7 +819,7 @@ private:
 
 				if(!flush_block(results) || !advance_line(results)) return false;
 				state_.current_block.cursor = {};
-				if(config_.line_feed_type == linefeed::CRLF) state_.current_block.cursor.*state_.minor_p = 0;
+				if(config_.line_feed_type == linefeed_type::crlf) state_.current_block.cursor.*state_.minor_p = 0;
 				ctx.active_ul_start.reset();
 				continue;
 			} else if(ch == U'\t'){
@@ -1046,11 +877,22 @@ private:
 						const float scale = get_current_relative_scale();
 						auto scaled_aabb = cached_indicator_.glyph_aabb.copy();
 						scaled_aabb = { tags::unchecked, tags::from_vertex, scaled_aabb.vert_00() * scale, scaled_aabb.vert_11() * scale };
+
+						const math::vec2 shift_adv = cached_indicator_.advance * scale;
 						state_.current_block.push_front(
 							scaled_aabb,
 							{ scaled_aabb.copy().expand(font::font_draw_expand), graphic::colors::white * .68f, cached_indicator_.texture },
-							cached_indicator_.advance * scale
+							shift_adv
 						);
+
+						// --- 新增修复：同步平移挂起状态 ---
+						if (ctx.current_logic_cluster) {
+							ctx.current_logic_cluster->logical_rect.move(shift_adv);
+						}
+						if (ctx.active_ul_start) {
+							ctx.active_ul_start->pos += shift_adv;
+						}
+						// --------------------------------
 					}
 				} else {
 					// 判定 2：单词本身长于整行最大宽度，或者当前已经在行首，必须强制截断 (Break-All)

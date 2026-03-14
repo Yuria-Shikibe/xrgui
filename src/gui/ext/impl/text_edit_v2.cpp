@@ -20,6 +20,7 @@ bool text_edit_v2::update(float delta_in_ticks) {
     if (is_focused_key()) {
         caret_blink_timer_ += delta_in_ticks;
         if (caret_blink_timer_ > 60.f) caret_blink_timer_ = 0.f;
+    	// update_ime_position();
     }
 
     return true;
@@ -162,16 +163,29 @@ void text_edit_v2::draw_selection_and_caret() const {
             }
         }
 
-        if (show_caret && !caret_drawn) {
-            for (std::size_t i = 0; i < line.cluster_range.size; ++i) {
-                const auto& cluster = glyph_layout_.clusters[line.cluster_range.pos + i];
-                if (cluster.cluster_index == caret.dst) {
-                    final_caret_ext = {2.0f, line_height};
-                    final_caret_pos = line_src + math::vec2{cluster.logical_rect.src.x, line_top_y};
-                    caret_drawn = true;
-                    break;
-                }
-            }
+    	if (show_caret && !caret_drawn) {
+    		for (std::size_t i = 0; i < line.cluster_range.size; ++i) {
+    			const auto& cluster = glyph_layout_.clusters[line.cluster_range.pos + i];
+
+    			// 检查光标目标是否落在该 cluster (及其组合字形) 范围内
+    			if (caret.dst >= cluster.cluster_index && caret.dst < cluster.cluster_index + cluster.cluster_span) {
+    				final_caret_ext = {2.0f, line_height};
+
+    				float span_ratio = 0.0f;
+    				if (cluster.cluster_span > 1) {
+    					span_ratio = static_cast<float>(caret.dst - cluster.cluster_index) / static_cast<float>(cluster.cluster_span);
+    				}
+
+    				float left_x = cluster.logical_rect.vert_00().x;
+    				float right_x = cluster.logical_rect.vert_11().x;
+    				// 在整个 logical_rect 宽度上线性插值出实际的等分落点
+    				float target_x = left_x + (right_x - left_x) * span_ratio;
+
+    				final_caret_pos = line_src + math::vec2{target_x, line_top_y};
+    				caret_drawn = true;
+    				break;
+    			}
+    		}
 
             if (!caret_drawn && caret.dst == line_end_idx) {
                 bool is_last_line = (line_idx == glyph_layout_.lines.size() - 1);
@@ -251,16 +265,18 @@ events::op_afterwards text_edit_v2::on_unicode_input(const char32_t val) {
     if (prohibited_codes_.contains(val)) {
         set_input_invalid();
     } else {
-        std::u32string buf{val};
+        const std::u32string_view buf{&val, 1};
         if (core_.insert_text(buf)) {
             sync_view_from_core();
             reset_blink();
+        	update_ime_position();
         }
     }
     return events::op_afterwards::intercepted;
 }
 
 events::op_afterwards text_edit_v2::on_key_input(const input_handle::key_set key) {
+	update_ime_position();
     return events::op_afterwards::intercepted;
 }
 
@@ -319,6 +335,13 @@ void text_edit_v2::set_focus(bool keyFocused) {
             }
         }
     }
+
+	if (const auto cmt = get_scene().get_communicator()) {
+		cmt->set_ime_enabled(keyFocused);
+		if (keyFocused) {
+			update_ime_position(); // 聚焦时顺便推一次位置
+		}
+	}
 }
 
 // --- 剪贴板支持 ---
@@ -347,6 +370,8 @@ void text_edit_v2::action_cut() {
     action_copy();
     action_do_delete();
 }
+
+
 
 // --- Key Bindings 加载 ---
 template <auto Fn, auto ...Args>

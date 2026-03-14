@@ -195,10 +195,19 @@ struct native_communicator{
 		set_clipboard_impl(text, assume_zero_terminated);
 	}
 
+	virtual void set_ime_enabled(bool enabled){
+
+	}
+
+	virtual void set_ime_cursor_rect(const math::raw_frect region){
+
+	}
+
 protected:
 	virtual void set_clipboard_impl(std::string_view text, bool assume_zero_terminated){
 
 	}
+
 public:
 	virtual void set_native_cursor_visibility(bool show){
 

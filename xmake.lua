@@ -116,6 +116,11 @@ target("xrgui.example")
     add_files("src.examples/**.ixx", {public = true})
     add_files("src.examples/**.cpp")
 
+
+    if is_plat("windows") then
+        add_syslinks("imm32")
+    end
+
     after_build(function (target)
         import("core.base.option")
 

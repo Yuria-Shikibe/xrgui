@@ -866,16 +866,49 @@ void prepare(){
 	ctx.wait_on_device();
 }
 
+#pragma optimize("", off)
+template <typename T>
+void DoNotOptimize(T const& value) {
+	auto volatile* dummy = &value;
+}
+#pragma optimize("", on)
 
 int main(){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
-	//shader_runtime_compiler shader_runtime_compiler{};
-	//shader_wrapper wrapper{shader_runtime_compiler, (std::filesystem::current_path() / "assets/shader/spv").make_preferred()};
-	//wrapper.compile(R"(D:\projects\xrgui\properties\assets\shader\glsl\ui.frag)");
-	//wrapper.compile(R"(D:\projects\xrgui\properties\assets\shader\glsl\ui.draw_bindless.glsl)");
+	constexpr static auto test_text =
+	R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
+{u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâã ä åx̂̃ñ
+{color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
 
+Escapes Test:
+1. Backslash: \\ {_}(Should see single backslash){/}
+2. Braces {size:128}with{/} slash: \{ and \} (Should see literal { and })
+3. Braces with double: {{ and }} (Should see literal { and })
+
+Line Continuation Test:
+This is a very long line that \
+{font:gui}should be joined together{/} \
+without newlines.
+
+{feature:liga}0 ff {feature:-liga}1 ff {feature:liga} 2 ff{feature} 3 ff{feature} 4 ff
+
+O{ftr:liga}off file flaff{/} ff
+
+Edge Cases:
+1. Token without arg: {bold}Bold Text{/bold}
+2. {u}Unclosed brace{/}: { This is just text because no closing bracket
+3. Unknown escape: \z (Should show 'z')
+4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
+)";
+
+	typesetting::tokenized_text text;
+	for(int i = 0; i < 1000000; ++i){
+		text.reset(test_text);
+		DoNotOptimize(text);
+	}
+//
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
 		vk::enable_validation_layers = false;

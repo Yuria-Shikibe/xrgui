@@ -60,7 +60,7 @@ struct layout_record{
 		graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
 		const LayoutType& glyph_layout,
 		graphic::color color_scl,
-		typesetting::content_alignment line_align
+		typesetting::line_alignment line_align
 	){
 		static_assert(false);
 	}
@@ -91,7 +91,7 @@ protected:
 
 public:
 	align::pos text_entire_align{align::pos::top_left};
-	typesetting::content_alignment text_line_align{};
+	typesetting::line_alignment text_line_align{};
 
 	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
 		return expand_policy_;

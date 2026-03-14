@@ -10,10 +10,8 @@ import mo_yanxi.unicode;
 import :argument;
 
 namespace mo_yanxi::typesetting{
-
 export
 enum struct tokenize_tag{
-
 	/**
 	 * @brief apply escape and token and clip token command
 	 */
@@ -79,207 +77,215 @@ public:
 
 	[[nodiscard]] constexpr tokenized_text() = default;
 
-	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string, tokenize_tag tag = tokenize_tag::def, const rich_text_look_up_table* table){
+	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::u32string_view string, tokenize_tag tag,
+		const rich_text_look_up_table* table){
 		parse_from_(string, table, tag);
 	}
 
-	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::u32string_view string, tokenize_tag tag = tokenize_tag::def, const rich_text_look_up_table* table){
+	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string, tokenize_tag tag,
+		const rich_text_look_up_table* table){
 		parse_from_(string, table, tag);
 	}
 
-	constexpr void reset(std::string_view string, const rich_text_look_up_table* table = look_up_table, tokenize_tag tag = tokenize_tag::def){
-		chars_.clear();
-		tokens_.clear();
+	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::u32string_view string,
+		tokenize_tag tag = tokenize_tag::def) : tokenized_text(string, tag, nullptr){
+	}
+
+	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string,
+		tokenize_tag tag = tokenize_tag::def) : tokenized_text(string, tag, nullptr){
+	}
+
+	constexpr void reset(std::string_view string, const rich_text_look_up_table* table = look_up_table,
+		tokenize_tag tag = tokenize_tag::def){
+		parse_from_(string, table, tag);
+	}
+
+	constexpr void reset(std::u32string_view string, const rich_text_look_up_table* table = look_up_table,
+		tokenize_tag tag = tokenize_tag::def){
 		parse_from_(string, table, tag);
 	}
 
 private:
-	template <bool IsKepMode, typename CharT>
-	constexpr void parse_state_machine_(std::basic_string_view<CharT> string, const rich_text_look_up_table* table);
+	template <bool IsKepMode>
+	constexpr void parse_state_machine_(const rich_text_look_up_table* table);
 
 	template <typename CharT>
-	constexpr void parse_from_impl_(std::basic_string_view<CharT> string, const rich_text_look_up_table* table, tokenize_tag tag);
+	constexpr void parse_from_impl_(std::basic_string_view<CharT> string, const rich_text_look_up_table* table,
+		tokenize_tag tag);
 
-	constexpr void parse_from_(std::string_view string, const rich_text_look_up_table* table, tokenize_tag tag = tokenize_tag::def) {
+	constexpr void parse_from_(std::string_view string, const rich_text_look_up_table* table,
+		tokenize_tag tag = tokenize_tag::def){
 		parse_from_impl_(string, table, tag);
 	}
 
-	constexpr void parse_from_(std::u32string_view string, const rich_text_look_up_table* table, tokenize_tag tag = tokenize_tag::def) {
+	constexpr void parse_from_(std::u32string_view string, const rich_text_look_up_table* table,
+		tokenize_tag tag = tokenize_tag::def){
 		parse_from_impl_(string, table, tag);
 	}
 
-	constexpr void parse_tokens_(const rich_text_look_up_table* table, std::uint32_t pos, std::string_view name, bool has_arg,
+	constexpr void parse_tokens_(const rich_text_look_up_table* table, std::uint32_t pos, std::string_view name,
+		bool has_arg,
 		std::string_view args);
 };
-
 }
 
 namespace mo_yanxi::typesetting{
-
 constexpr void append_to_u32(std::u32string& dest, std::string_view source){
 	unicode::append_utf8_to_utf32(source, dest);
 }
+
 constexpr void append_to_u32(std::u32string& dest, std::u32string_view source){
 	dest.append_range(source);
 }
 
-template <bool IsKepMode, typename CharT>
-constexpr void tokenized_text::parse_state_machine_(std::basic_string_view<CharT> string, const rich_text_look_up_table* table){
-	const CharT* ptr = string.data();
-	const size_t size = string.size();
-	std::size_t text_start_idx = 0;
-	std::size_t i = 0;
+template <bool IsKepMode>
+constexpr void tokenized_text::parse_state_machine_(const rich_text_look_up_table* table){
+	const std::size_t size = chars_.size();
+	if(size == 0) return;
 
-	const auto flush_pending_text = [&](std::size_t current_end){
-		if constexpr (!IsKepMode) {
-			if(current_end > text_start_idx){
-				auto pending = string.substr(text_start_idx, current_end - text_start_idx);
-				typesetting::append_to_u32(chars_, pending);
-			}
-		}
-	};
+	char32_t* const base_ptr = chars_.data();
+	char32_t* read_ptr = base_ptr;
+	char32_t* write_ptr = base_ptr;
+	const char32_t* const end_ptr = base_ptr + size;
 
-	while(i < size){
-		const auto c = ptr[i];
+	std::string token_buffer;
 
-		switch(c) {
-			case CharT('\\'): {
-				flush_pending_text(i);
-				if(i + 1 < size){
-					auto next = ptr[i + 1];
-					std::size_t skip_len = 0;
+	while(read_ptr < end_ptr){
+		char32_t c = *read_ptr;
 
-					switch(next) {
-						case CharT('\\'):
-						case CharT('{'):
-						case CharT('}'):
-							if constexpr (!IsKepMode) chars_.push_back(static_cast<char32_t>(next));
-							skip_len = 2;
-							break;
-						case CharT('\r'):
-							skip_len = 2;
-							if(i + 2 < size && ptr[i + 2] == CharT('\n')) skip_len = 3;
-							break;
-						case CharT('\n'):
-							skip_len = 2;
-							if(i + 2 < size && ptr[i + 2] == CharT('\r')) skip_len = 3;
-							break;
-						default:
-							if constexpr (!IsKepMode) chars_.push_back(static_cast<char32_t>(next));
-							skip_len = 2;
-							break;
-					}
-					i += skip_len;
-				} else{
-					i++;
+		if(c == U'\\'){
+			if(read_ptr + 1 < end_ptr){
+				std::ptrdiff_t skip_len{};
+				switch(const auto next = read_ptr[1]){
+				case U'\\' :
+				case U'{' :
+				case U'}' : if constexpr(!IsKepMode) *write_ptr++ = next;
+					skip_len = 2;
+					break;
+				case U'\r' :
+					skip_len = 2 + (read_ptr + 2 < end_ptr && read_ptr[2] == U'\n');
+					break;
+				case U'\n' :
+					skip_len = 2 + (read_ptr + 2 < end_ptr && read_ptr[2] == U'\r');
+					break;
+				default : if constexpr(!IsKepMode) *write_ptr++ = next;
+					skip_len = 2;
+					break;
 				}
-				if constexpr (!IsKepMode) text_start_idx = i;
+				read_ptr += skip_len;
+			} else{
+				read_ptr++;
+			}
+		} else if(c == U'{'){
+			if(read_ptr + 1 < end_ptr && read_ptr[1] == U'{'){
+				if constexpr(!IsKepMode) *write_ptr++ = U'{';
+				read_ptr += 2;
 				continue;
 			}
 
-			case CharT('{'): {
-				if(i + 1 < size && ptr[i + 1] == CharT('{')){
-					flush_pending_text(i);
-					if constexpr (!IsKepMode) chars_.push_back(U'{');
-					i += 2;
-					if constexpr (!IsKepMode) text_start_idx = i;
+			char32_t* const start_content = read_ptr + 1;
+			const std::size_t remaining_len = static_cast<std::size_t>(end_ptr - start_content);
+			const std::u32string_view view(start_content, remaining_len);
+			const auto relative_pos = view.find(U'}');
+
+			if(relative_pos != std::u32string_view::npos){
+				const auto content = view.substr(0, relative_pos);
+
+				// 检查是否有嵌套的 '{'，如果有，则当前标签无效
+				if(content.find(U'{') != std::u32string_view::npos){
+					if constexpr(!IsKepMode) *write_ptr++ = U'{';
+					read_ptr++;
 					continue;
 				}
 
-				const std::size_t start_content = i + 1;
-				const auto post_string = string.substr(start_content);
-				const auto relative_pos = post_string.find(CharT('}'));
+				const auto csz = content.size();
+				// 使用 resize_and_overwrite 和基于下标的写入，彻底干掉 push_back 扩容惩罚
+				token_buffer.resize_and_overwrite(csz, [&](char* p, std::size_t /*sz*/){
+					for(std::size_t k = 0; k < csz; ++k){
+						p[k] = static_cast<char>(content[k]);
+					}
+					return csz;
+				});
 
-				if(relative_pos != std::basic_string_view<CharT>::npos){
-					if(post_string.substr(0, relative_pos).find(CharT('{')) != std::basic_string_view<CharT>::npos){
-						flush_pending_text(i);
-						if constexpr (!IsKepMode) chars_.push_back(U'{');
-						i++;
-						if constexpr (!IsKepMode) text_start_idx = i;
-						continue;
+				auto dispatch_parse = [&](std::string_view name_view){
+					std::string_view arg_view;
+					auto colon_pos = name_view.find(':');
+					if(colon_pos != std::string_view::npos){
+						arg_view = name_view.substr(colon_pos + 1);
+						name_view = name_view.substr(0, colon_pos);
 					}
 
-					flush_pending_text(i);
-					const std::size_t end_content_idx = start_content + relative_pos;
-					auto content = string.substr(start_content, relative_pos);
+					// 通过指针运算恢复绝对下标位置
+					const auto token_pos = IsKepMode
+						                          ? read_ptr - base_ptr
+						                          : write_ptr - base_ptr;
 
-					auto dispatch_parse = [&](std::string_view name_view) {
-						std::string_view arg_view;
-						auto colon_pos = name_view.find(':');
-						if(colon_pos != std::string_view::npos){
-							arg_view = name_view.substr(colon_pos + 1);
-							name_view = name_view.substr(0, colon_pos);
-						}
-						std::uint32_t token_pos = IsKepMode ? static_cast<std::uint32_t>(i) : static_cast<std::uint32_t>(chars_.size());
-						parse_tokens_(table, token_pos, name_view, colon_pos != std::string_view::npos, arg_view);
-					};
+					parse_tokens_(table, static_cast<std::uint32_t>(token_pos), name_view, colon_pos != std::string_view::npos, arg_view);
+				};
 
-					if constexpr (std::is_same_v<CharT, char>) {
-						dispatch_parse(content);
-					} else {
-						std::string token_buffer;
-						token_buffer.reserve(content.size());
-						for(char32_t ch : content) {
-							token_buffer.push_back(static_cast<char>(ch & 0xFF));
-						}
-						dispatch_parse(token_buffer);
-					}
-
-					i = end_content_idx + 1;
-					if constexpr (!IsKepMode) text_start_idx = i;
-					continue;
-				}
-
-				flush_pending_text(i);
-				if constexpr (!IsKepMode) chars_.push_back(U'{');
-				i++;
-				if constexpr (!IsKepMode) text_start_idx = i;
+				dispatch_parse(token_buffer);
+				// 跳过整个标签及其内容，加上相对位置和闭合的大括号 '}'
+				read_ptr = start_content + relative_pos + 1;
+			} else{
+				if constexpr(!IsKepMode) *write_ptr++ = U'{';
+				read_ptr++;
+			}
+		} else if(c == U'}'){
+			if(read_ptr + 1 < end_ptr && read_ptr[1] == U'}'){
+				if constexpr(!IsKepMode) *write_ptr++ = U'}';
+				read_ptr += 2;
 				continue;
 			}
-
-			case CharT('}'): {
-				if(i + 1 < size && ptr[i + 1] == CharT('}')){
-					flush_pending_text(i);
-					if constexpr (!IsKepMode) chars_.push_back(U'}');
-					i += 2;
-					if constexpr (!IsKepMode) text_start_idx = i;
-					continue;
+			read_ptr++;
+		} else{
+			if constexpr(!IsKepMode){
+				// 只有当写指针落后于读指针时才发生赋值，最大限度减少不必要的内存覆写
+				if(write_ptr != read_ptr){
+					*write_ptr = c;
 				}
-				i++;
-				continue;
+				write_ptr++;
 			}
-
-			default: {
-				i++;
-				break;
-			}
+			read_ptr++;
 		}
 	}
 
-	if constexpr (!IsKepMode) flush_pending_text(size);
+	// 最终只做一次裁剪
+	if constexpr(!IsKepMode){
+		chars_.resize(static_cast<std::size_t>(write_ptr - base_ptr));
+	}
 }
 
 template <typename CharT>
-constexpr void tokenized_text::parse_from_impl_(std::basic_string_view<CharT> string, const rich_text_look_up_table* table, tokenize_tag tag){
-	const size_t size = string.size();
-	chars_.reserve(std::bit_ceil((size * sizeof(CharT) / 2) | 31));
+constexpr void tokenized_text::parse_from_impl_(std::basic_string_view<CharT> string,
+	const rich_text_look_up_table* table, tokenize_tag tag){
+	const std::size_t size = string.size();
+	chars_.clear();
+	tokens_.clear();
 
-	if (tag == tokenize_tag::raw || tag == tokenize_tag::kep) {
-		typesetting::append_to_u32(chars_, string);
+	// 提前为 tokens_ 分配内存，假设平均每 16 个字符出现一个 token，避免 emplace_back 的扩容开销
+	tokens_.reserve((size / 64) + 1);
 
-		if (tag == tokenize_tag::raw) {
-			return;
-		}
+	// 第一步：直接全部转码进 chars_
+	typesetting::append_to_u32(chars_, string);
 
-		std::u32string_view u32_view = chars_;
-		this->parse_state_machine_<true>(u32_view, table);
-	} else {
-		this->parse_state_machine_<false>(string, table);
+	switch(tag){
+	case tokenize_tag::kep :{
+		this->parse_state_machine_<true>(table);
+		return;
+	}
+	case tokenize_tag::raw :{
+		return;
+	}
+	case tokenize_tag::def :{
+		// 第二步：触发原地双指针擦除
+		this->parse_state_machine_<false>(table);
+		return;
+	}
 	}
 }
 
-
-constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* table, std::uint32_t pos, std::string_view name,
+constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* table, std::uint32_t pos,
+	std::string_view name,
 	bool has_arg, std::string_view args){
 	if(name.empty()){
 		return;
@@ -294,7 +300,7 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 			{}){
 			for(std::size_t i = 0; i < count; ++i){
 				const std::size_t src_index = original_size - 1 - i;
-				tokens_.emplace_back(tokens_[src_index].make_fallback(), chars_.size());
+				tokens_.emplace_back(tokens_[src_index].make_fallback(), pos);
 			}
 		} else{
 			const auto limit = std::min(name.size(), original_size);
@@ -302,15 +308,13 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 			for(std::size_t i = 0; i < limit; ++i){
 				if(name[i] != '/') break;
 				const std::size_t src_index = original_size - 1 - i;
-				tokens_.emplace_back(tokens_[src_index].make_fallback(), chars_.size());
+				tokens_.emplace_back(tokens_[src_index].make_fallback(), pos);
 			}
 		}
 		break;
 	}
 
-
 	default : tokens_.emplace_back(rich_text_token_argument{table, name, has_arg, args}, pos);
 	}
 }
-
 }

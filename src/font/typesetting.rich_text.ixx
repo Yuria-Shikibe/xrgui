@@ -40,7 +40,7 @@ bool check_token_group_need_another_run(const tokenized_text::token_subrange& ra
 
 
 template <typename T>
-using stack_of = optional_stack<gch::small_vector<T>>;
+using stack_of = optional_stack<gch::small_vector<T, 2>>;
 
 export
 enum struct context_update_mode{

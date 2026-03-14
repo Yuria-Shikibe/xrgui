@@ -5,8 +5,8 @@
 module mo_yanxi.gui.examples;
 
 
-import std;
 
+import std;
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.group;
 import mo_yanxi.gui.global;
@@ -317,7 +317,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 								"Gamma", 50.f);
 							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(math::map(2.2f, 0.5f, 3.f, 0.f, 1.f));
+							hdl->get_slider().set_progress(math::map(1.2f, 0.5f, 3.f, 0.f, 1.f));
 							auto& trans = hdl->add_relay_func([](float val){
 								return math::lerp(0.5f, 3.f, val);
 							});
@@ -375,13 +375,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						}).cell().set_size(400);
 
 						sequence.create_back([&](text_edit_v2& area){
-							area.set_update_required(update_channel::custom);
-							// auto& nd = area.set_as_string_prov();
-							// react_flow::connect_chain({&nd, &node_format, &node_layout});
-							// react_flow::connect_chain({&nd, &node_stoint, &node_format});
-						}).cell().set_pending();
-						sequence.create_back([&](text_edit& area){
-							area.set_update_required(update_channel::custom);
 							// auto& nd = area.set_as_string_prov();
 							// react_flow::connect_chain({&nd, &node_format, &node_layout});
 							// react_flow::connect_chain({&nd, &node_stoint, &node_format});
@@ -569,7 +562,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						[](split_pane& table){
 							constexpr static auto test_text =
 								R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
-{u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâãäåx̂̃ñ
+{u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâã ä åx̂̃ñ
 {color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
 
 Escapes Test:

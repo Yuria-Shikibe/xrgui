@@ -22,7 +22,7 @@ struct layout_record<typesetting::glyph_layout>{
 	static void record_glyph_draw_instructions(
 		graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
 		const typesetting::glyph_layout& glyph_layout,
-		graphic::color color_scl, typesetting::content_alignment line_align
+		graphic::color color_scl, typesetting::line_alignment line_align
 	);
 };
 

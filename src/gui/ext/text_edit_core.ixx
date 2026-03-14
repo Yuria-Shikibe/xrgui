@@ -378,7 +378,7 @@ public:
 		caret_.dst = text_buffer_.size();
 	}
 
-	bool action_hit_test(const typesetting::glyph_layout& layout, math::vec2 pos, typesetting::content_alignment align,
+	bool action_hit_test(const typesetting::glyph_layout& layout, math::vec2 pos, typesetting::line_alignment align,
 		bool select){
 		reset_preferred_cross_pos();
 		if(layout.empty()){
@@ -387,10 +387,8 @@ public:
 		}
 		auto hit = layout.hit_test(pos, align);
 		if(hit){
-			std::size_t new_index = hit.source->cluster_index;
-			if(hit.is_trailing){
-				new_index += hit.source->cluster_span;
-			}
+			// 直接将 span_offset 加到 cluster_index 上
+			std::size_t new_index = hit.source->cluster_index + hit.span_offset;
 			merge_caret(new_index, select);
 		}
 		return bool(hit);
@@ -398,7 +396,7 @@ public:
 
 	// --- 修正后的垂直移动逻辑 ---
 
-	void move_vertical(const typesetting::glyph_layout& layout, bool move_down, typesetting::content_alignment align, bool select) {
+	void move_vertical(const typesetting::glyph_layout& layout, bool move_down, typesetting::line_alignment align, bool select) {
         if (layout.empty() || layout.lines.empty()) return;
         std::size_t line_idx = get_line_index(layout, caret_.dst);
 
@@ -474,27 +472,24 @@ public:
         }
 
         // 4. Hit Test，并将索引严格钳制（Clamp）在目标视觉行的边界内，拦截溢出 Bug
-        auto hit = layout.hit_test(target_pos, align);
-
-        if (hit) {
-            std::size_t new_index = hit.source->cluster_index;
-            if (hit.is_trailing) {
-                new_index += hit.source->cluster_span;
-            }
-            auto bounds = get_line_bounds(layout, target_line_idx);
-            new_index = std::clamp(new_index, bounds.start_idx, bounds.visual_end);
-            merge_caret(new_index, select);
-        } else {
-            auto bounds = get_line_bounds(layout, target_line_idx);
-            merge_caret(bounds.visual_end, select);
-        }
+		// 4. Hit Test，并将索引严格钳制（Clamp）在目标视觉行的边界内，拦截溢出 Bug
+		auto hit = layout.hit_test(target_pos, align);
+		if (hit) {
+			std::size_t new_index = hit.source->cluster_index + hit.span_offset;
+			auto bounds = get_line_bounds(layout, target_line_idx);
+			new_index = std::clamp(new_index, bounds.start_idx, bounds.visual_end);
+			merge_caret(new_index, select);
+		} else {
+			auto bounds = get_line_bounds(layout, target_line_idx);
+			merge_caret(bounds.visual_end, select);
+		}
     }
 
-	void action_move_up(const typesetting::glyph_layout& layout, typesetting::content_alignment align, bool select){
+	void action_move_up(const typesetting::glyph_layout& layout, typesetting::line_alignment align, bool select){
 		move_vertical(layout, false, align, select);
 	}
 
-	void action_move_down(const typesetting::glyph_layout& layout, typesetting::content_alignment align, bool select){
+	void action_move_down(const typesetting::glyph_layout& layout, typesetting::line_alignment align, bool select){
 		move_vertical(layout, true, align, select);
 	}
 };

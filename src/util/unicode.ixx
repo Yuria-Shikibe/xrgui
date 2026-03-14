@@ -261,6 +261,9 @@ constexpr std::basic_string<OutChar> utf32_to_utf8(R&& src_rng) {
 // ==========================================
 // Append 系列 API (ptr, size) - 对外导出
 // ==========================================
+// ==========================================
+// Append 系列 API (ptr, size) - 对外导出
+// ==========================================
 
 export template <utf8_type InChar, utf32_type OutChar, typename Traits, typename Alloc>
 constexpr void append_utf8_to_utf32(const InChar* source, std::size_t length, std::basic_string<OutChar, Traits, Alloc>& target) {
@@ -269,9 +272,10 @@ constexpr void append_utf8_to_utf32(const InChar* source, std::size_t length, st
     if !consteval { append_max_len = simdutf::utf32_length_from_utf8(reinterpret_cast<const char*>(source), length); }
 #endif
     std::size_t old_size = target.size();
-    target.resize(old_size + append_max_len);
-    std::size_t actual_added = unicode::utf8_to_utf32(source, length, target.data() + old_size, append_max_len);
-    target.resize(old_size + actual_added);
+    target.resize_and_overwrite(old_size + append_max_len, [source, length, old_size](OutChar* buf, std::size_t buf_size) {
+        std::size_t actual_added = unicode::utf8_to_utf32(source, length, buf + old_size, buf_size - old_size);
+        return old_size + actual_added;
+    });
 }
 
 export template <utf8_type InChar, utf32_type OutChar, typename Alloc>
@@ -293,9 +297,10 @@ constexpr void append_utf32_to_utf8(const InChar* source, std::size_t length, st
     if !consteval { append_max_len = simdutf::utf8_length_from_utf32(reinterpret_cast<const char32_t*>(source), length); }
 #endif
     std::size_t old_size = target.size();
-    target.resize(old_size + append_max_len);
-    std::size_t actual_added = unicode::utf32_to_utf8(source, length, target.data() + old_size, append_max_len);
-    target.resize(old_size + actual_added);
+    target.resize_and_overwrite(old_size + append_max_len, [source, length, old_size](OutChar* buf, std::size_t buf_size) {
+        std::size_t actual_added = unicode::utf32_to_utf8(source, length, buf + old_size, buf_size - old_size);
+        return old_size + actual_added;
+    });
 }
 
 export template <utf32_type InChar, utf8_type OutChar, typename Alloc>
