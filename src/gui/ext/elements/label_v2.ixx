@@ -26,6 +26,7 @@ struct layout_record<typesetting::glyph_layout>{
 	);
 };
 
+export
 enum struct change_type{
 	none = 0,
 	text = 1 << 0,
@@ -33,7 +34,7 @@ enum struct change_type{
 	config = 1 << 2,
 };
 
-BITMASK_OPS(, change_type);
+BITMASK_OPS(export, change_type);
 
 export
 struct label_v2;
@@ -129,7 +130,7 @@ protected:
 		notify_isolated_layout_changed();
 	}
 
-	std::string_view get_text() const noexcept final{
+	std::string_view get_text() const noexcept override{
 		return raw_string_;
 	}
 

@@ -29,6 +29,7 @@ import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.drag_split;
 import mo_yanxi.gui.elem.label_v2;
+import mo_yanxi.gui.elem.text_edit_v2;
 import mo_yanxi.gui.elem.viewport;
 
 import mo_yanxi.gui.compound.color_picker;
@@ -44,7 +45,6 @@ import mo_yanxi.backend.vulkan.context;
 
 
 namespace mo_yanxi::gui::example{
-
 struct vp : gui::viewport{
 	[[nodiscard]] vp(scene& scene, elem* parent)
 		: viewport(scene, parent){
@@ -57,10 +57,10 @@ struct vp : gui::viewport{
 			viewport_begin();
 
 			renderer() << graphic::draw::instruction::rect_aabb{
-				.v00 = {-50, -50},
-				.v11 = {50, 50},
-				.vert_color = {graphic::colors::white}
-			};
+					.v00 = {-50, -50},
+					.v11 = {50, 50},
+					.vert_color = {graphic::colors::white}
+				};
 
 			auto trans = renderer().top_viewport().get_element_to_root_screen();
 
@@ -73,7 +73,6 @@ struct vp : gui::viewport{
 
 			viewport_end();
 		}
-
 	}
 };
 
@@ -83,10 +82,14 @@ void set_cursors(scene& scene){
 	cm.add_cursor<assets::builtin::cursor::default_cursor_regular>(style::cursor_type::regular);
 	cm.add_cursor<assets::builtin::cursor::default_cursor_drag>(style::cursor_type::drag);
 
-	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_left, style::cursor_arrow_direction::left);
-	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_right, style::cursor_arrow_direction::right);
-	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_up, style::cursor_arrow_direction::up);
-	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_down, style::cursor_arrow_direction::down);
+	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_left,
+		style::cursor_arrow_direction::left);
+	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_right,
+		style::cursor_arrow_direction::right);
+	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_up,
+		style::cursor_arrow_direction::up);
+	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_down,
+		style::cursor_arrow_direction::down);
 }
 
 void make_styles(scene& scene){
@@ -111,7 +114,6 @@ void make_styles(scene& scene){
 	}
 
 	{
-
 		referenced_ptr<style::thin_slider_drawer> round_scroll_bar_style{std::in_place};
 
 		constexpr auto pal = gui::style::make_theme_palette(graphic::colors::ROYAL);
@@ -121,8 +123,6 @@ void make_styles(scene& scene){
 
 		sm.register_style<style::slider_drawer>(std::move(round_scroll_bar_style));
 	}
-
-
 }
 
 ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
@@ -184,141 +184,150 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 	auto make_create_table = [&]{
 		using function_signature = void(scroll_pane&);
 		std::vector<std::function<function_signature>> creators{
-			[&](scroll_pane& pane){
-				pane.create([&](sequence& sequence){
-					sequence.set_expand_policy(layout::expand_policy::prefer);
-					sequence.template_cell.set_pending();
-					sequence.template_cell.pad = {4, 4};
-					sequence.set_has_smooth_pos_animation(false);
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Bloom Sample Scale", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.25f);
+				[&](scroll_pane& pane){
+					pane.create([&](sequence& sequence){
+						sequence.set_expand_policy(layout::expand_policy::prefer);
+						sequence.template_cell.set_pending();
+						sequence.template_cell.pad = {4, 4};
+						sequence.set_has_smooth_pos_animation(false);
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"Bloom Sample Scale", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.25f);
 
 
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.25f, 4.f, val);
-						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.shader_bloom_scale = &trans;
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.25f, 4.f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.shader_bloom_scale = &trans;
+						}
 
-					}
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"BloomSrcFactor", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
 
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "BloomSrcFactor", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
+							auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
+								return math::lerp(0.f, 2.f, val);
+							}));
+							auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer(
+								[](float val){
+									return std::format("{:.2f}", val);
+								}));
+							react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
 
-						auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
-							return math::lerp(0.f, 2.f, val);
-						}));
-						auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer([](float val){
-							return std::format("{:.2f}", val);
-						}));
-						react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
+							result.shader_bloom_src_factor = &trans;
+						}
 
-						result.shader_bloom_src_factor = &trans;
-					}
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"BloomDstFactor", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
 
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "BloomDstFactor", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.f, 2.f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.shader_bloom_dst_factor = &trans;
+						}
 
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.f, 2.f, val);
-						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.shader_bloom_dst_factor = &trans;
-					}
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"BloomMixFactor", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
+							result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
+						}
 
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "BloomMixFactor", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
-						result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
-					}
+						{
+							sequence.emplace_back<row_separator>().cell().set_size(8);
+						}
 
-					{
-						sequence.emplace_back<row_separator>().cell().set_size(8);
-					}
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"HighlightThres", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.25f);
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.5f, 2.5f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.highlight_filter_threshold = &trans;
+						}
 
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "HighlightThres", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.25f);
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.5f, 2.5f, val);
-						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.highlight_filter_threshold = &trans;
-					}
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"HighlightSmooth", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.highlight_filter_smooth = &hdl.elem().get_slider_provider();
+						}
 
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "HighlightSmooth", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.highlight_filter_smooth = &hdl.elem().get_slider_provider();
-					}
+						{
+							sequence.emplace_back<row_separator>().cell().set_size(8);
+						}
 
-					{
-						sequence.emplace_back<row_separator>().cell().set_size(8);
-					}
-
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Contrast", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(1.f);
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.tonemap_contrast = &hdl->get_slider_provider();
-					}
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Exposure", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.f, 2.f, val);
-						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.tonemap_exposure = &hdl->get_slider_provider();
-					}
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Saturation", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(1.f);
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.tonemap_saturation = &hdl->get_slider_provider();
-					}
-					{
-						auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Gamma", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(math::map(2.2f, 0.5f, 3.f, 0.f, 1.f));
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.5f, 3.f, val);
-						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.tonemap_gamma = &trans;
-					}
-
-				});
-			},
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"Contrast", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(1.f);
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.tonemap_contrast = &hdl->get_slider_provider();
+						}
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"Exposure", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.f, 2.f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.tonemap_exposure = &hdl->get_slider_provider();
+						}
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"Saturation", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(1.f);
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.tonemap_saturation = &hdl->get_slider_provider();
+						}
+						{
+							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+								"Gamma", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(math::map(2.2f, 0.5f, 3.f, 0.f, 1.f));
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.5f, 3.f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.tonemap_gamma = &trans;
+						}
+					});
+				},
 				[&](scroll_pane& pane){
 					pane.create([&](sequence& sequence){
 						sequence.template_cell.set_pad({4, 4});
@@ -365,11 +374,18 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							react_flow::connect_chain({&progNode, &node_proj_x, &t});
 						}).cell().set_size(400);
 
-						// sequence.create_back([&](text_edit& area){
-						// 	auto& nd = area.set_as_string_prov();
-						// 	react_flow::connect_chain({&nd, &node_format, &node_layout});
-						// 	react_flow::connect_chain({&nd, &node_stoint, &node_format});
-						// }).cell().set_pending();
+						sequence.create_back([&](text_edit_v2& area){
+							area.set_update_required(update_channel::custom);
+							// auto& nd = area.set_as_string_prov();
+							// react_flow::connect_chain({&nd, &node_format, &node_layout});
+							// react_flow::connect_chain({&nd, &node_stoint, &node_format});
+						}).cell().set_pending();
+						sequence.create_back([&](text_edit& area){
+							area.set_update_required(update_channel::custom);
+							// auto& nd = area.set_as_string_prov();
+							// react_flow::connect_chain({&nd, &node_format, &node_layout});
+							// react_flow::connect_chain({&nd, &node_stoint, &node_format});
+						}).cell().set_pending();
 					});
 				},
 				[&](scroll_pane& pane){
@@ -647,7 +663,6 @@ Edge Cases:
 						[](table& table){
 							table.set_expand_policy(layout::expand_policy::prefer);
 							table.create_back([](cpd::rgb_picker& picker){
-
 							}).cell().set_size({600, 600});
 						});
 				},

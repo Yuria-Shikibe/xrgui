@@ -83,12 +83,15 @@ void label_v2::draw_text() const{
 
 	math::mat3 mat;
 	math::vec2 reg_ext = get_glyph_draw_extent();
+	math::vec2 localpos = util::transform_scene2local(*this, get_scene().get_cursor_pos()) - get_glyph_src_local();
 	if(fit_){
 		mat.set_rect_transform({}, glyph_layout_.extent, get_glyph_src_abs(), reg_ext);
 	} else{
 		mat = math::mat3_idt;
 		mat.set_translation(get_glyph_src_abs());
 	}
+
+	auto hit = glyph_layout_.hit_test(localpos, text_line_align);
 
 	state_guard guard{
 		renderer(),
@@ -98,6 +101,20 @@ void label_v2::draw_text() const{
 
 	transform_guard _t{renderer(), mat};
 	push_text_draw_buffer();
+	renderer() << graphic::draw::instruction::rect_aabb_outline{
+		.v00 = {},
+		.v11 = reg_ext,
+		.stroke = {2},
+		.vert_color = {graphic::colors::CRIMSON.copy_set_a(.6f)}
+	};
+	if(hit){
+		auto src = hit.source_line->calculate_alignment(glyph_layout_.extent, text_line_align, glyph_layout_.direction);
+		renderer() << graphic::draw::instruction::rect_aabb{
+			.v00 = src.start_pos + hit.source->logical_rect.vert_00(),
+			.v11 = src.start_pos + hit.source->logical_rect.vert_11(),
+			.vert_color = {graphic::colors::ACID.copy_set_a(.6f)}
+		};
+	}
 
 }
 
