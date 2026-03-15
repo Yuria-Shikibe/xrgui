@@ -39,6 +39,26 @@ struct borrowed_image_region;
 export
 struct cached_image_region;
 
+struct non_propagate_atomic_bool{
+	std::atomic_bool tag;
+
+	[[nodiscard]] non_propagate_atomic_bool() = default;
+
+	non_propagate_atomic_bool(const non_propagate_atomic_bool& other){
+	}
+
+	non_propagate_atomic_bool(non_propagate_atomic_bool&& other) noexcept{
+	}
+
+	non_propagate_atomic_bool& operator=(const non_propagate_atomic_bool& other){
+		return *this;
+	}
+
+	non_propagate_atomic_bool& operator=(non_propagate_atomic_bool&& other) noexcept{
+		return *this;
+	}
+};
+
 export
 struct allocated_image_region :
 	region_type,
@@ -46,6 +66,9 @@ struct allocated_image_region :
 protected:
 	math::urect region{};
 	exclusive_handle_member<sub_page*> page{};
+
+private:
+	non_propagate_atomic_bool tag;
 
 public:
 	[[nodiscard]] constexpr allocated_image_region() = default;
@@ -83,6 +106,20 @@ public:
 
 	[[nodiscard]] sub_page* get_page() const noexcept{
 		return page;
+	}
+
+	bool set_protected(bool to_protected) noexcept{
+		bool expected = !to_protected;
+		// 使用原子变量保证并发安全，且只递增一次引用计数
+		if(tag.tag.compare_exchange_strong(expected, true, std::memory_order_acq_rel)){
+			if(to_protected){
+				ref_incr();
+			}else{
+				ref_decr();
+			}
+			return true;
+		}
+		return false;
 	}
 
 	using referenced_object_atomic_nonpropagation::droppable;

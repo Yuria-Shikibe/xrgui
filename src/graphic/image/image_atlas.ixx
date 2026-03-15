@@ -315,27 +315,6 @@ public:
 	}
 };
 
-void prepare_command(VkCommandBuffer commandBuffer){
-	static constexpr VkCommandBufferBeginInfo BeginInfo{
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		nullptr,
-		VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-	};
-	vkBeginCommandBuffer(commandBuffer, &BeginInfo);
-
-}
-
-void submit_command(VkCommandBuffer commandBuffer, VkQueue queue){
-	vkEndCommandBuffer(commandBuffer);
-
-	const VkSubmitInfo submitInfo{
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &commandBuffer,
-	};
-
-	vkQueueSubmit(queue, 1, &submitInfo, nullptr);
-}
 
 struct image_register_result{
 	allocated_image_region& region;
@@ -376,9 +355,6 @@ private:
 	//TODO using shared mutex instead?
 	std::mutex named_image_regions_mtx_{};
 	string_hash_map<allocated_image_region> named_image_regions{};
-
-	std::mutex protected_regionss_mtx_{};
-	std::unordered_set<allocated_image_region*> protected_regions{};
 
 public:
 	[[nodiscard]] image_page() = default;
@@ -541,74 +517,16 @@ public:
 		}
 
 		if(mark_as_protected){
-			mark_protected(sv);
+			rst->set_protected(true);
 		}
 
 		return {*rst, true};
 	}
 
-	bool mark_protected(const std::string_view localName) noexcept{
-		allocated_image_region* page;
-		{
-			std::lock_guard lg{named_image_regions_mtx_};
-			page = named_image_regions.try_find(localName);
-		}
-
-		if(page){
-			bool inserted;
-			{
-				std::lock_guard lg{protected_regionss_mtx_};
-				inserted = protected_regions.insert(page).second;
-			}
-
-			if(inserted){
-				//not inserted
-				page->ref_incr();
-				return true;
-			}
-
-			//already marked
-			return true;
-		}
-
-		return false;
-	}
-
-	bool mark_unprotected(const std::string_view localName) noexcept{
-		allocated_image_region* page;
-		{
-			std::lock_guard lg{named_image_regions_mtx_};
-			page = named_image_regions.try_find(localName);
-		}
-
-		if(page){
-			bool erased;
-			{
-				std::lock_guard lg{protected_regionss_mtx_};
-				erased = protected_regions.erase(page);
-			}
-
-			if(erased){
-				page->ref_decr();
-				return true;
-			}
-		}
-
-		return false;
-	}
-
 	void clear_unused() noexcept{
 		std::lock_guard lg{named_image_regions_mtx_};
 
-		auto cur = named_image_regions.begin();
-		while(cur != named_image_regions.end()){
-			auto check = cur->second.check_droppable_and_retire();
-			if(check){
-				cur = named_image_regions.erase(cur);
-			}else{
-				++cur;
-			}
-		}
+		unlocked_clean_unused_();
 	}
 
 	template <typename T>
@@ -629,18 +547,30 @@ public:
 		return self.named_image_regions.at(localName);
 	}
 
-
 	~image_page(){
 		drop();
 	}
 
 protected:
-	void drop(){
-		std::lock_guard _{protected_regionss_mtx_};
-		for (auto& protected_region : protected_regions){
-			protected_region->ref_decr();
+	void unlocked_clean_unused_(){
+		auto cur = named_image_regions.begin();
+		while(cur != named_image_regions.end()){
+			auto check = cur->second.check_droppable_and_retire();
+			if(check){
+				cur = named_image_regions.erase(cur);
+			}else{
+				++cur;
+			}
 		}
-		if(!subpages_.empty())clear_unused();
+	}
+
+	void drop(){
+		std::lock_guard lg{named_image_regions_mtx_};
+		for (auto& region : named_image_regions | std::views::values){
+			region.set_protected(false);
+		}
+
+		unlocked_clean_unused_();
 	}
 };
 

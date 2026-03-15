@@ -1,6 +1,7 @@
 module;
 
 #include <cassert>
+#include <freetype/fttypes.h>
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 //no sense the compiler cannot find std::hash<sv>
@@ -24,6 +25,7 @@ import mo_yanxi.heterogeneous;
 import mo_yanxi.heterogeneous.open_addr_hash;
 import std;
 import mo_yanxi.cache;
+import mo_yanxi.cache.map;
 import mo_yanxi.static_string;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
@@ -31,13 +33,14 @@ import mo_yanxi.static_string;
 import <msdfgen/msdfgen-ext.h>;
 #endif
 
-export namespace mo_yanxi::font{
-
-
+namespace mo_yanxi::font{
+export
 using glyph_texture_region = graphic::combined_image_region<graphic::uniformed_rect_uv>;
+export
 using glyph_borrow = graphic::universal_borrowed_image_region<glyph_texture_region,
 	referenced_object_atomic_nonpropagation>;
 
+export
 struct glyph : glyph_borrow{
 private:
 	glyph_metrics metrics_{};
@@ -73,6 +76,53 @@ struct glyph_size_identity{
 	}
 };
 
+struct font_metrics{
+	struct key{
+		const font_face_handle* source;
+		glyph_identity desc;
+
+		constexpr bool operator==(const key&) const noexcept = default;
+	};
+
+	struct val{
+		glyph_metrics metrics;
+		math::vector2<FT_UShort> ppem;
+
+		bool drawable() const noexcept{
+			return ppem.x != 0 && ppem.y != 0;
+		}
+	};
+};
+
+}
+
+template<>
+struct std::hash<mo_yanxi::font::font_metrics::key>{
+	std::size_t operator()(const mo_yanxi::font::font_metrics::key& key) const noexcept{
+		return (std::hash<const void*>{}(key.source) << 31) ^ std::hash<mo_yanxi::font::glyph_identity>{}(key.desc);
+	}
+};
+
+namespace mo_yanxi::font{
+
+struct font_global_cache{
+	using tls_lru_cache_t = lru_cache<const font_family*, std::span<font_face_handle>, 8>;
+	tls_lru_cache_t family;
+	mapped_lru_cache<font_metrics::key, font_metrics::val> metrics;
+
+	auto get_metrics(const font_metrics::key key){
+		if(!metrics.capacity())metrics = mapped_lru_cache<font_metrics::key, font_metrics::val>{4096};
+		return metrics.get_ptr(key);
+	}
+
+	auto put_metrics(const font_metrics::key key, const font_metrics::val& val){
+		return metrics.put(key, val);
+	}
+};
+
+thread_local font_global_cache cache;
+
+export
 struct font_manager{
 	using family_name_t = static_string<23>;
 
@@ -93,22 +143,15 @@ private:
     global_storage_t handle_storage_;
 
     using tls_lru_cache_t = lru_cache<const font_family*, std::span<font_face_handle>, 8>;
+
 	static tls_lru_cache_t& get_thread_local_lru(){
-		thread_local tls_lru_cache_t cache;
-		return cache;
+		return cache.family;
 	}
 
-	[[nodiscard]] static std::string format(glyph_size_identity identity){
+	[[nodiscard]] static std::string_view format(glyph_size_identity& identity/*use lr to make sure no dangling*/){
 		//This function assumes that glyph size is snapped to 0/64/128 and fit the string under SSO.
-		std::string str;
-		str.resize_and_overwrite(
-			sizeof(glyph_size_identity), //fit into sso
-			[&](char* buf, std::size_t n){
-				std::memcpy(buf, &identity, sizeof(glyph_size_identity));
-				return sizeof(glyph_size_identity);
-			}
-		);
-		return str;
+
+		return std::string_view{reinterpret_cast<const char *>(&identity), sizeof(identity)};
 	}
 
 
@@ -133,26 +176,43 @@ public:
 public:
 	[[nodiscard]] glyph get_glyph_exact(
 		font_face_handle& handle, const glyph_identity key){
-		const auto [mtx, gen, ext] = handle.obtain(key.index, key.size);
 
-		if(!gen.face){
-			return glyph{mtx};
+		auto mtr_cache = cache.get_metrics({&handle, key});
+		acquire_result acq_rst;
+		if(mtr_cache){
+			acq_rst.metrics = mtr_cache->metrics;
+			acq_rst.generator = graphic::msdf::msdf_glyph_generator{
+				mtr_cache->drawable() ? handle.get_msdf_handle() : nullptr,
+				mtr_cache->ppem.x, mtr_cache->ppem.y
+			};
+		}else{
+			acq_rst = handle.obtain(key.index, key.size);
+			cache.put_metrics({&handle, key}, {
+				.metrics = acq_rst.metrics,
+				.ppem = math::vector2<FT_UShort>(acq_rst.generator.font_h, acq_rst.generator.font_h)
+			});
 		}
 
-		auto name = format({handle.get_source(), key.index, key.size});
+		if(!acq_rst.has_drawable_glyph()){
+			return glyph{acq_rst.metrics};
+		}
+
+		glyph_size_identity idt{handle.get_source(), key.index, key.size};
+		auto name = format(idt);
 		if(const auto prev = page().find(name)){
 			if(auto borrow = prev->make_universal_borrow<glyph_texture_region>()){
-				return glyph{std::move(*borrow), mtx};
+				return glyph{std::move(*borrow), acq_rst.metrics};
 			}
 		}
 
 		graphic::sdf_load load{
-				gen.crop(msdfgen::GlyphIndex(key.index), handle.get_source()->get_loader_msdf_handle()), ext
+				acq_rst.generator.crop(msdfgen::GlyphIndex(key.index), handle.get_source()->get_loader_msdf_handle()),
+				acq_rst.get_extent()
 			};
 		const auto aloc = page().register_named_region(
 			std::move(name),
 			graphic::image_load_description{std::move(load)});
-		return glyph{*aloc.region.make_universal_borrow<glyph_texture_region>(), mtx};
+		return glyph{*aloc.region.make_universal_borrow<glyph_texture_region>(), acq_rst.metrics};
 	}
 
 

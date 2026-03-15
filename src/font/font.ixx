@@ -232,7 +232,14 @@ export struct font_face_handle;
 export struct acquire_result{
 	glyph_metrics metrics;
 	graphic::msdf::msdf_glyph_generator generator;
-	math::usize2 extent;
+
+	constexpr bool has_drawable_glyph() const noexcept{
+		return generator.face != nullptr;
+	}
+
+	[[nodiscard]] constexpr math::usize2 get_extent() const noexcept{
+		return metrics.size.copy().ceil().as<unsigned>() + (graphic::msdf::sdf_image_boarder * 2);
+	}
 };
 
 export struct font_face_meta;
@@ -356,31 +363,23 @@ public:
 		return handle->glyph;
 	}
 
-	acquire_result obtain(const glyph_index_t code, const glyph_size_type size){
+	acquire_result obtain(const glyph_index_t code, const glyph_size_type size) const{
 		check(set_size(size.x, size.y));
 		if(const auto shot = load_and_get_by_index(code, FT_LOAD_NO_HINTING)){
-			const bool is_empty = shot.value()->bitmap.width == 0 ||
-				shot.value()->bitmap.rows == 0;
+			auto glyph = shot.value();
+			const bool is_empty = glyph->bitmap.width == 0 || glyph->bitmap.rows == 0;
 			return acquire_result{
-					handle->glyph->metrics,
+					glyph->metrics,
 					graphic::msdf::msdf_glyph_generator{
 						is_empty ? nullptr : msdfHdl.get(),
 						handle->size->metrics.x_ppem, handle->size->metrics.y_ppem
-					},
-					get_extent()
+					}
 				};
 		}
 
 		return {};
 	}
 
-
-	[[nodiscard]] math::usize2 get_extent() noexcept{
-		return {
-			static_cast<unsigned>(std::ceil(normalize_len<float>(handle->glyph->metrics.width))) + graphic::msdf::sdf_image_boarder * 2,
-			static_cast<unsigned>(std::ceil(normalize_len<float>(handle->glyph->metrics.height))) + graphic::msdf::sdf_image_boarder * 2
-		};
-	}
 };
 
 export struct glyph_wrap{

@@ -7,6 +7,9 @@ module mo_yanxi.gui.examples;
 
 
 import std;
+
+import binary_trace;
+
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.group;
 import mo_yanxi.gui.global;
@@ -21,16 +24,31 @@ import mo_yanxi.gui.elem.collapser;
 import mo_yanxi.gui.elem.table;
 import mo_yanxi.gui.elem.grid;
 import mo_yanxi.gui.elem.menu;
-import mo_yanxi.gui.elem.label;
 import mo_yanxi.gui.elem.slider;
 import mo_yanxi.gui.elem.progress_bar;
 import mo_yanxi.gui.elem.image_frame;
-import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.drag_split;
 import mo_yanxi.gui.elem.label_v2;
 import mo_yanxi.gui.elem.text_edit_v2;
 import mo_yanxi.gui.elem.viewport;
+
+import mo_yanxi.gui.elem.text_holder;
+
+import mo_yanxi.gui.infrastructure;
+import mo_yanxi.gui.elem.text_holder;
+import mo_yanxi.font;
+
+import mo_yanxi.typesetting.util;
+import mo_yanxi.font;
+import mo_yanxi.font.manager;
+import mo_yanxi.graphic.color;
+import mo_yanxi.heterogeneous.open_addr_hash;
+import align;
+
+import mo_yanxi.typesetting;
+import mo_yanxi.graphic.draw.instruction.recorder;
+
 
 import mo_yanxi.gui.compound.color_picker;
 import mo_yanxi.gui.compound.named_slider;

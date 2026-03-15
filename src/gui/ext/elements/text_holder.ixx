@@ -11,18 +11,24 @@ import mo_yanxi.graphic.color;
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.typesetting;
 
-namespace mo_yanxi::gui{
 
+
+namespace mo_yanxi::gui{
 export
 struct text_layout_result{
 	math::vec2 required_extent;
 	bool updated;
 };
 
+void record_glyph_draw_instructions(
+	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
+	const typesetting::glyph_layout& glyph_layout,
+	graphic::color color_scl, typesetting::line_alignment line_align
+);
+
 export
-template <typename LayoutType>
 struct exclusive_glyph_layout{
-	using layout_type = LayoutType;
+	using layout_type = typesetting::glyph_layout;
 
 private:
 	const layout_type* layout;
@@ -32,11 +38,12 @@ public:
 	[[nodiscard]] exclusive_glyph_layout() = default;
 
 	[[nodiscard]] explicit(false) exclusive_glyph_layout(const layout_type* layout)
-	: layout(layout){
+		: layout(layout){
 	}
 
 	[[nodiscard]] exclusive_glyph_layout(const layout_type* layout, ccur::shared_lock&& lock)
-	: layout(layout), lock_(std::move(lock)){}
+		: layout(layout), lock_(std::move(lock)){
+	}
 
 	explicit operator bool() const noexcept{
 		return layout != nullptr;
@@ -53,23 +60,10 @@ public:
 
 void push(gui::renderer_frontend& r, const graphic::draw::instruction::draw_record_storage<mr::heap_allocator<>>& buf);
 
-export
-template <typename LayoutType>
-struct layout_record{
-	static void record_glyph_draw_instructions(
-		graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
-		const LayoutType& glyph_layout,
-		graphic::color color_scl,
-		typesetting::line_alignment line_align
-	){
-		static_assert(false);
-	}
-};
 
 export
-template <typename LayoutType>
 struct text_holder : elem{
-	using layout_type = LayoutType;
+	using layout_type = typesetting::glyph_layout;
 
 	text_holder(scene& scene, elem* parent)
 		: elem(scene, parent){
@@ -77,7 +71,9 @@ struct text_holder : elem{
 
 private:
 	layout::expand_policy expand_policy_{};
-	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<>> draw_instr_buffer_{mr::get_default_heap_allocator()};
+	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<>> draw_instr_buffer_{
+			mr::get_default_heap_allocator()
+		};
 	std::optional<graphic::color> text_color_scl_{};
 
 protected:
@@ -118,14 +114,13 @@ public:
 	[[nodiscard]] virtual std::string_view get_text() const noexcept = 0;
 
 protected:
-
 	void on_opacity_changed(float previous) override{
 		if(const auto buf = get_glyph_layout()){
 			this->update_draw_buffer(*buf);
 		}
 	}
 
-	virtual exclusive_glyph_layout<LayoutType> get_glyph_layout() const noexcept = 0;
+	virtual exclusive_glyph_layout get_glyph_layout() const noexcept = 0;
 
 	virtual void notify_text_changed() = 0;
 
@@ -148,8 +143,8 @@ protected:
 		return false;
 	}
 
-	void update_draw_buffer(const LayoutType& glyph_layout){
-		layout_record<LayoutType>::record_glyph_draw_instructions(draw_instr_buffer_, glyph_layout, get_text_draw_color(), text_line_align);
+	void update_draw_buffer(const layout_type& glyph_layout){
+		record_glyph_draw_instructions(draw_instr_buffer_, glyph_layout, get_text_draw_color(), text_line_align);
 	}
 
 	void push_text_draw_buffer() const{
@@ -225,5 +220,4 @@ protected:
 	 }
 };
 */
-
 }

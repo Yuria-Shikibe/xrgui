@@ -45,60 +45,56 @@ import mo_yanxi.typesetting.rich_text;
 import mo_yanxi.react_flow;
 import mo_yanxi.react_flow.common;
 
-template <std::size_t Stride, typename Tup, typename Proj, std::size_t Offset = 0>
-using tuple_stride_t = decltype([]{
-	static_assert(Stride > 0);
-	static constexpr auto total = std::tuple_size_v<Tup>;
-	static constexpr auto count_raw = total / Stride;
-	static constexpr auto count = Offset < (total - count_raw * Stride) ? count_raw + 1 : count_raw;
-	return []<std::size_t ...Idx>(std::index_sequence<Idx...>){
-		return std::type_identity<std::tuple<std::invoke_result_t<Proj, std::tuple_element_t<Idx * Stride + Offset, Tup>>...>>{};
-	}(std::make_index_sequence<count>{});
-}())::type;
+// template <typename FWIT, typename ...Args>
+// auto copy_classify(FWIT begin, FWIT end, Args&& ...args){
+// 	static_assert(sizeof...(Args) & 1);
+// 	using ParamTup = std::tuple<Args&&...>;
+// 	using IteratorFwdTup = tuple_stride_t<2, ParamTup, std::identity, 1>;
+// 	using PredFwdTup = tuple_stride_t<2, ParamTup, decltype([](auto&& decay) -> auto {return decay;})>;
+//
+// 	auto forward = std::forward_as_tuple(std::forward<Args>(args)...);
+// 	auto pred_tup = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
+// 		return PredFwdTup{std::get<Idx * 2>(std::move(forward)) ...};
+// 	}(std::make_index_sequence<std::tuple_size_v<PredFwdTup>>{});
+//
+// 	auto iter_tup = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
+// 		return IteratorFwdTup{std::get<Idx * 2 + 1>(std::move(forward)) ...};
+// 	}(std::make_index_sequence<std::tuple_size_v<IteratorFwdTup>>{});
+//
+// 	auto write = []<typename OutputItr, typename Val>(OutputItr& itr, Val&& input){
+// 		*itr = std::forward<Val>(input);
+// 		++itr;
+// 	};
+//
+// 	auto cur = begin;
+// 	while(cur != end){
+// 		auto&& value = *cur;
+// 		bool any = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
+// 			return ([&]<std::size_t I>(){
+// 				auto&& pred = std::get<I>(pred_tup);
+// 				if(pred(value)){
+// 					std::get<I>(pred_tup) = iter_tup;
+// 					write(std::get<I>(pred_tup), std::forward<decltype(value)>(value));
+// 					return true;
+// 				}
+// 				return false;
+// 			}.template operator()<Idx>() || ...);
+// 		}(std::make_index_sequence<std::tuple_size_v<PredFwdTup>>{});
+// 		if(!any){
+// 			write(std::get<std::tuple_size_v<PredFwdTup>>(pred_tup), std::forward<decltype(value)>(value));
+// 		}
+// 		++cur;
+// 	}
+//
+// 	return iter_tup;
+// }
 
-template <typename FWIT, typename ...Args>
-auto copy_classify(FWIT begin, FWIT end, Args&& ...args){
-	static_assert(sizeof...(Args) & 1);
-	using ParamTup = std::tuple<Args&&...>;
-	using IteratorFwdTup = tuple_stride_t<2, ParamTup, std::identity, 1>;
-	using PredFwdTup = tuple_stride_t<2, ParamTup, decltype([](auto&& decay) -> auto {return decay;})>;
-
-	auto forward = std::forward_as_tuple(std::forward<Args>(args)...);
-	auto pred_tup = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
-		return PredFwdTup{std::get<Idx * 2>(std::move(forward)) ...};
-	}(std::make_index_sequence<std::tuple_size_v<PredFwdTup>>{});
-
-	auto iter_tup = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
-		return IteratorFwdTup{std::get<Idx * 2 + 1>(std::move(forward)) ...};
-	}(std::make_index_sequence<std::tuple_size_v<IteratorFwdTup>>{});
-
-	auto write = []<typename OutputItr, typename Val>(OutputItr& itr, Val&& input){
-		*itr = std::forward<Val>(input);
-		++itr;
-	};
-
-	auto cur = begin;
-	while(cur != end){
-		auto&& value = *cur;
-		bool any = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
-			return ([&]<std::size_t I>(){
-				auto&& pred = std::get<I>(pred_tup);
-				if(pred(value)){
-					std::get<I>(pred_tup) = iter_tup;
-					write(std::get<I>(pred_tup), std::forward<decltype(value)>(value));
-					return true;
-				}
-				return false;
-			}.template operator()<Idx>() || ...);
-		}(std::make_index_sequence<std::tuple_size_v<PredFwdTup>>{});
-		if(!any){
-			write(std::get<std::tuple_size_v<PredFwdTup>>(pred_tup), std::forward<decltype(value)>(value));
-		}
-		++cur;
-	}
-
-	return iter_tup;
+#pragma optimize("", off)
+template <typename T>
+void DoNotOptimize(T const& value) {
+	auto volatile* dummy = &value;
 }
+#pragma optimize("", on)
 
 struct alignas(16) high_light_filter_args{
 	float threshold{1.3f};
@@ -856,22 +852,50 @@ void prepare(){
 
 	ctx.record_post_command(true);
 
+
+	constexpr static auto test_text =
+	R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
+{u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâã ä åx̂̃ñ
+{color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
+
+Escapes Test:
+1. Backslash: \\ {_}(Should see single backslash){/}
+2. Braces {size:128}with{/} slash: \{ and \} (Should see literal { and })
+3. Braces with double: {{ and }} (Should see literal { and })
+
+Line Continuation Test:
+This is a very long line that \
+{font:gui}should be joined together{/} \
+without newlines.
+
+{feature:liga}0 ff {feature:-liga}1 ff {feature:liga} 2 ff{feature} 3 ff{feature} 4 ff
+
+O{ftr:liga}off file flaff{/} ff
+
+Edge Cases:
+1. Token without arg: {bold}Bold Text{/bold}
+2. {u}Unclosed brace{/}: { This is just text because no closing bracket
+3. Unknown escape: \z (Should show 'z')
+4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
+)";
+
+	// typesetting::tokenized_text text = {test_text};
+	// typesetting::layout_context layout_ctx{std::in_place};
+	// for(int i = 0; i < 10000; ++i){
+	// 	auto rst = layout_ctx.layout(text);
+	// 	DoNotOptimize(rst);
+	// }
 	app_run(ctx, renderer, manager, post_process_cmd);
 
 	gui::assets::dispose_generated_shapes();
 	gui::global::terminate_assets_manager();
 	gui::global::terminate();
 
+	ctx.window().poll_events();
 	image_atlas.wait_load();
 	ctx.wait_on_device();
 }
 
-#pragma optimize("", off)
-template <typename T>
-void DoNotOptimize(T const& value) {
-	auto volatile* dummy = &value;
-}
-#pragma optimize("", on)
 
 int main(){
 	using namespace mo_yanxi;
@@ -903,11 +927,11 @@ Edge Cases:
 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
 )";
 
-	typesetting::tokenized_text text;
-	for(int i = 0; i < 1000000; ++i){
-		text.reset(test_text);
-		DoNotOptimize(text);
-	}
+	//typesetting::tokenized_text text;
+	//for(int i = 0; i < 1000000; ++i){
+	//	text.reset(test_text);
+	//	DoNotOptimize(text);
+	//}
 //
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){

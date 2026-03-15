@@ -17,16 +17,6 @@ import mo_yanxi.concurrent.atomic_shared_mutex;
 namespace mo_yanxi::gui{
 
 export
-template <>
-struct layout_record<typesetting::glyph_layout>{
-	static void record_glyph_draw_instructions(
-		graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
-		const typesetting::glyph_layout& glyph_layout,
-		graphic::color color_scl, typesetting::line_alignment line_align
-	);
-};
-
-export
 enum struct change_type{
 	none = 0,
 	text = 1 << 0,
@@ -53,7 +43,7 @@ protected:
 };
 
 
-struct label_v2 : text_holder<typesetting::glyph_layout>{
+struct label_v2 : text_holder{
 	struct from_string{
 		label_v2* label_;
 		void operator()(std::string&& ){
@@ -122,7 +112,7 @@ public:
 
 
 protected:
-	exclusive_glyph_layout<typesetting::glyph_layout> get_glyph_layout() const noexcept final{
+	exclusive_glyph_layout get_glyph_layout() const noexcept final{
 		return &glyph_layout_;
 	}
 
