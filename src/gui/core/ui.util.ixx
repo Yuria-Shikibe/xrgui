@@ -93,9 +93,9 @@ export
  * @return true if modification happens
  */
 template <typename T>
-	requires (std::equality_comparable<T> && std::is_move_assignable_v<T> && !std::is_trivial_v<T>)
+	requires (std::equality_comparable<T> && std::is_move_assignable_v<T>)
 constexpr bool try_modify(
-	T& target, std::type_identity_t<T>&& value) noexcept(noexcept(target != value) && std::is_nothrow_move_assignable_v<T>){
+	T& target, T&& value) noexcept(noexcept(target != value) && std::is_nothrow_move_assignable_v<T>){
 	if(target != value){
 		target = std::move(value);
 		return true;

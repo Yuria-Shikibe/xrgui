@@ -117,7 +117,7 @@ rect default_cursor_drag::draw(gui::renderer_frontend& renderer, math::raw_frect
 	};
 	for (const auto & p : ps){
 		circle.pos = p;
-		fx::fringe::poly(renderer, circle, .75f);
+		fx::fringe::poly(renderer, circle);
 	}
 
 	return get_bound(region);

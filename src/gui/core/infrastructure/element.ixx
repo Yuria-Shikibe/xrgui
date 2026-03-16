@@ -944,21 +944,24 @@ public:
 #pragma endregion
 
 public:
+	//TODO give them a better name
+
 	template <typename T, typename S, typename ...Args>
+		requires std::constructible_from<T, S&, Args&&...>
 	T& request_react_node(this S& self, Args&& ...args){
 		return self.get_scene().template request_react_node<T>(self, std::forward<Args>(args)...);
 	}
 
 	template <typename T, typename S>
 		requires (std::derived_from<std::remove_cvref_t<T>, react_flow::node>)
-	T& request_react_node(this S& self, T&& args){
-		return self.get_scene().template request_react_node<T>(self, std::forward<T>(args));
+	T& request_react_node(this S& self, T&& node){
+		return self.get_scene().template request_react_node<T>(self, std::forward<T>(node));
 	}
 
 
 	template <typename T, typename S>
-	T& request_embedded_react_node(this S& self, T&& args){
-		return self.get_scene().template request_embedded_react_node<T>(self, std::forward<T>(args));
+	T& request_embedded_react_node(this S& self, T&& node){
+		return self.get_scene().template request_embedded_react_node<T>(self, std::forward<T>(node));
 	}
 
 
@@ -977,7 +980,7 @@ protected:
 		if(self.*cache){
 			return *(self.*cache);
 		}else{
-			auto& node = self.template request_react_node<T>(self, std::forward<Args>(args)...);
+			auto& node = self.template request_react_node<T>(std::forward<Args>(args)...);
 			self.*cache = std::addressof(node);
 			return node;
 		}
@@ -1201,6 +1204,17 @@ FORCE_INLINE inline events::op_afterwards thoroughly_esc(elem& where) noexcept{
 	return thoroughly_esc(std::addressof(where));
 }
 
+export
+template <typename T>
+FORCE_INLINE constexpr bool contains(math::vector2<T> pos, math::vector2<T> extent) noexcept{
+	return pos.x >= 0 && pos.x < extent.x && pos.y >= 0 && pos.y < extent.y;
+}
+
+export
+template <std::unsigned_integral T>
+FORCE_INLINE constexpr bool contains(math::vector2<T> pos, math::vector2<T> extent) noexcept{
+	return pos.x < extent.x && pos.y < extent.y;
+}
 
 }
 

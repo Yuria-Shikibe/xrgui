@@ -50,20 +50,15 @@ template <typename Dst, typename ...Args>
 concept any_convertible_to = (... || std::convertible_to<const Args&, Dst>);
 
 export
-template <typename ...Ts>
-struct base{
-	[[nodiscard]] constexpr explicit(false) operator graphic::draw::quad_group<graphic::color>() const noexcept requires(!any_convertible_to<graphic::draw::quad_group<graphic::color>, Ts...>){
-		return graphic::draw::quad_group{graphic::colors::white};
-	}
+struct EMPTY_BASE draw_switch{
+	bool enabled;
 
-	[[nodiscard]] constexpr explicit(false) operator fx::primitive_draw_mode() const noexcept  requires(!any_convertible_to<fx::primitive_draw_mode, Ts...>){
-		return fx::primitive_draw_mode{};
+	[[nodiscard]] constexpr explicit operator bool() const noexcept{
+		return enabled;
 	}
-
-	// [[nodiscard]] constexpr explicit(false) operator fx::batch_draw_mode() const noexcept  requires(!any_convertible_to<fx::batch_draw_mode, Ts...>){
-	// 	return fx::batch_draw_mode{};
-	// }
 };
+
+
 
 export
 struct EMPTY_BASE vertex_color{
@@ -94,11 +89,37 @@ struct EMPTY_BASE batch_draw_mode{
 	}
 };
 
+template <bool enable>
+struct vtx_color_base{
+	// [[nodiscard]] constexpr explicit(false) operator graphic::draw::quad_group<graphic::color>() const noexcept = delete;
+};
+
+template <>
+struct vtx_color_base<true>{
+	[[nodiscard]] constexpr explicit(false) operator graphic::draw::quad_group<graphic::color>() const noexcept{
+		return graphic::draw::quad_group{graphic::colors::white};
+	}
+};
+
+export
+template <typename ...Ts>
+struct base : vtx_color_base<!is_any_of<vertex_color, Ts...>>{
+
+	[[nodiscard]] constexpr explicit(false) operator fx::primitive_draw_mode() const noexcept  requires(!is_any_of<primitive_draw_mode, Ts...>){
+		return fx::primitive_draw_mode{};
+	}
+
+	[[nodiscard]] constexpr explicit(false) operator draw_switch() const noexcept  requires(!is_any_of<draw_switch, Ts...>){
+		return draw_switch{true};
+	}
+};
+
 export
 template<typename ...Comps>
 struct EMPTY_BASE combined_components : Comps..., base<Comps...>{
 
 };
+
 
 }
 

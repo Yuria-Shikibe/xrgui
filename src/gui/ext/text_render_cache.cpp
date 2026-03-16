@@ -1,8 +1,11 @@
-module mo_yanxi.gui.elem.text_holder;
+module mo_yanxi.gui.text_render_cache;
 
 import mo_yanxi.graphic.draw.instruction;
 
-void mo_yanxi::gui::record_glyph_draw_instructions(
+
+namespace mo_yanxi::gui{
+
+void record_glyph_draw_instructions(
 	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout& glyph_layout, graphic::color color_scl, typesetting::line_alignment line_align){
 	using namespace mo_yanxi::graphic;
@@ -60,8 +63,4 @@ void mo_yanxi::gui::record_glyph_draw_instructions(
 		}
 	}
 }
-
-void mo_yanxi::gui::push(gui::renderer_frontend& r,
-	const graphic::draw::instruction::draw_record_storage<mr::heap_allocator<>>& buf){
-	r.push(buf.heads(), buf.data());
 }

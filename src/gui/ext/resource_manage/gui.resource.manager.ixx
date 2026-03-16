@@ -23,7 +23,7 @@ struct duplicated_error : std::invalid_argument{
 	}
 };
 
-struct image_page{
+struct assets_page{
 	struct image_entry;
 
 	using alias_map = string_hash_map<
@@ -55,8 +55,8 @@ public:
 		return ++last_id_;
 	}
 
-	[[nodiscard]] explicit image_page(
-		const mr::heap_allocator<image_page>& allocator) :
+	[[nodiscard]] explicit assets_page(
+		const mr::heap_allocator<assets_page>& allocator) :
 	image_regions_(allocator),
 	alias_map_(allocator){
 	}
@@ -65,6 +65,12 @@ public:
 		auto [itr, suc] = image_regions_.try_emplace(id, mr::heap_allocator<alias_map::iterator>{image_regions_.get_allocator()}, region);
 		if(!suc)throw duplicated_error{"Image ID Duplicated"};
 		return itr->second.image_borrow;
+	}
+
+	template <typename T>
+		requires (std::is_scoped_enum_v<T> && std::convertible_to<std::underlying_type_t<T>, resource_id>)
+	image_region_borrow& insert(T id, const image_region_borrow& region){
+		return this->insert(std::to_underlying(id), region);
 	}
 
 	bool erase(resource_id id) noexcept {
@@ -119,11 +125,22 @@ public:
 		return std::nullopt;
 	}
 
+	template <typename T>
+		requires (std::is_scoped_enum_v<T> && std::convertible_to<std::underlying_type_t<T>, resource_id>)
+	[[nodiscard]] std::optional<image_region_borrow> operator[](T id) const noexcept{
+		return this->operator[](std::to_underlying(id));
+	}
+
 	[[nodiscard]] const image_region_borrow* find(resource_id id) const noexcept{
 		if(auto itr = image_regions_.find(id); itr != image_regions_.end()){
 			return std::addressof(itr->second.image_borrow);
 		}
 		return nullptr;
+	}
+	template <typename T>
+		requires (std::is_scoped_enum_v<T> && std::convertible_to<std::underlying_type_t<T>, resource_id>)
+	[[nodiscard]] const image_region_borrow* find(T id) const noexcept{
+		return this->find(std::to_underlying(id));
 	}
 
 	[[nodiscard]] const image_region_borrow* find(std::string_view alias) const noexcept{
@@ -141,22 +158,22 @@ export
 struct resource_manager{
 private:
 	mr::heap heap_{};
-	string_hash_map<image_page, mr::heap_allocator<std::pair<const std::string, image_page>>> pages_{};
+	string_hash_map<assets_page, mr::heap_allocator<std::pair<const std::string, assets_page>>> pages_{};
 
 public:
 	[[nodiscard]] explicit resource_manager(const mr::arena_id_t arena_id)
-	: heap_(arena_id, 1), pages_(mr::heap_allocator{heap_.get()}){
+	: heap_(arena_id, 1), pages_(mr::heap_allocator<std::pair<const std::string, assets_page>>{heap_.get()}){
 	}
 
 	template <typename T>
 		requires (std::constructible_from<std::string, T&&> && std::constructible_from<std::string_view, const T&>)
-	image_page& create_page(T&& page_name){
+	assets_page& create_page(T&& page_name){
 		std::string_view str{page_name};
 		if(str.contains(':')){
 			throw std::invalid_argument{"page_name should not contains ':'"};
 		}
 
-		std::pair<decltype(pages_)::iterator, bool> rst = pages_.try_emplace(std::forward<T>(page_name), mr::heap_allocator<image_page>{pages_.get_allocator()});
+		std::pair<decltype(pages_)::iterator, bool> rst = pages_.try_emplace(std::forward<T>(page_name), mr::heap_allocator<assets_page>{pages_.get_allocator()});
 		if(!rst.second){
 			throw duplicated_error{"Image Page Duplicated"};
 		}
@@ -193,25 +210,21 @@ namespace mo_yanxi::gui{
 
 
 namespace assets::builtin{
-export inline constexpr auto page_name_str_array = std::to_array("__builtin");
+export inline constexpr auto page_name_str_array = std::to_array("__builtin_shape");
 export inline constexpr std::string_view page_name = {page_name_str_array.data(), page_name_str_array.size() - 1};
 
 export
-enum id_enum{
+enum struct shape_id{
 	white,
 	row_separator,
 	round_square_edge,
 	round_square_edge_thin,
 	round_square_base,
-	COUNT,
+
+	check,
+	close,
 };
 
-export
-enum icon{
-	close = COUNT,
-	check,
-	blender_icon_physics,
-};
 
 }
 
@@ -239,7 +252,7 @@ bool terminate_assets_manager() noexcept;
 
 namespace assets::builtin{
 export
-[[nodiscard]] image_page& get_page() noexcept;
+[[nodiscard]] assets_page& get_page() noexcept;
 }
 }
 

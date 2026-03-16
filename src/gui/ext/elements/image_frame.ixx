@@ -119,22 +119,22 @@ protected:
 };
 
 
-export struct check_box;
+// export struct check_box;
+//
+// struct check_box_receiver : react_flow::terminal<std::size_t>{
+// private:
+// 	check_box* check_box_;
+//
+// public:
+// 	[[nodiscard]] explicit check_box_receiver(check_box& check_box)
+// 	: terminal(react_flow::propagate_type::eager), check_box_(&check_box){
+// 	}
+//
+// protected:
+// 	void on_update(react_flow::data_carrier<std::size_t>& data) override;
+// };
 
-struct check_box_receiver : react_flow::terminal<std::size_t>{
-private:
-	check_box* check_box_;
-
-public:
-	[[nodiscard]] explicit check_box_receiver(check_box& check_box)
-	: terminal(react_flow::propagate_type::eager), check_box_(&check_box){
-	}
-
-protected:
-	void on_update(react_flow::data_carrier<std::size_t>& data) override;
-};
-
-struct check_box : image_frame{
+/*struct check_box : image_frame{
 	using image_frame::image_frame;
 private:
 	using node_provider_type = react_flow::provider_cached<std::size_t>;
@@ -160,13 +160,13 @@ public:
 		return false;
 	}
 
-	node_provider_type& request_provider(){
-		return request_and_cache_node(&check_box::node_prov_, react_flow::propagate_type::eager);
-	}
-
-	node_terminal_type& request_terminal(){
-		return request_and_cache_node(&check_box::node_rcvr_);
-	}
+	// node_provider_type& request_provider(){
+	// 	return request_and_cache_node(&check_box::node_prov_, react_flow::propagate_type::eager);
+	// }
+	//
+	// node_terminal_type& request_terminal(){
+	// 	return request_and_cache_node(&check_box::node_rcvr_);
+	// }
 
 	//TODO tooltip dropdown
 
@@ -183,11 +183,13 @@ protected:
 
 		return events::op_afterwards::intercepted;
 	}
-};
+};*/
 
+/*
 void check_box_receiver::on_update(react_flow::data_carrier<std::size_t>& data){
 	this->check_box_->set_index(data.get());
 }
+*/
 
 export
 template <std::derived_from<drawable_base> T>

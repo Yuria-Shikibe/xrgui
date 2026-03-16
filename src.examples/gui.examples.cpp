@@ -29,9 +29,11 @@ import mo_yanxi.gui.elem.progress_bar;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.drag_split;
+import mo_yanxi.gui.elem.label;
 import mo_yanxi.gui.elem.label_v2;
 import mo_yanxi.gui.elem.text_edit_v2;
 import mo_yanxi.gui.elem.viewport;
+import mo_yanxi.gui.elem.check_box;
 
 import mo_yanxi.gui.elem.text_holder;
 
@@ -392,11 +394,20 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							react_flow::connect_chain({&progNode, &node_proj_x, &t});
 						}).cell().set_size(400);
 
-						sequence.create_back([&](text_edit_v2& area){
-							// auto& nd = area.set_as_string_prov();
-							// react_flow::connect_chain({&nd, &node_format, &node_layout});
-							// react_flow::connect_chain({&nd, &node_stoint, &node_format});
-						}).cell().set_pending();
+						{
+							auto label = sequence.create_back([&](direct_label& l){});
+							label.cell().set_pending();
+
+							auto& ln = label->request_react_node<direct_label_text_prov>();
+							auto& trans = label->request_embedded_react_node(react_flow::make_transformer([](std::u32string_view sv){
+								return typesetting::tokenized_text{sv};
+							}));
+
+							sequence.create_back([&](text_edit_prov& area){
+								area.set_on_changed_interval(30.f);
+							   react_flow::connect_chain(area.get_provider(), trans, ln);
+						   }).cell().set_pending();
+						}
 					});
 				},
 				[&](scroll_pane& pane){
@@ -495,22 +506,18 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						}
 					});
 				},
-				/*[](scroll_pane& pane){
+				[](scroll_pane& pane){
 					pane.create([](table& table){
 						table.set_expand_policy(layout::expand_policy::prefer);
 						table.set_entire_align(align::pos::center);
 						for(int i = 0; i < 4; ++i){
-							auto check_box = table.emplace_back<gui::check_box>();
+							auto check_box = table.emplace_back<gui::check_box>(std::in_place);
 							check_box.cell().set_size({60, 60});
-							check_box->set_drawable<drawable_image<>>(1,
-							                                          assets::builtin::get_page()[
-								                                          assets::builtin::icon::check].
-							                                          value_or({}));
 
 							auto receiver = table.emplace_back<label>();
 							receiver->set_fit();
-							auto& listener = receiver->request_react_node(react_flow::make_listener(
-								[&e = receiver.elem()](std::size_t i){
+							auto& listener = receiver->request_embedded_react_node(react_flow::make_listener(
+								[&e = receiver.elem()](bool i){
 									e.set_toggled(i);
 									if(i){
 										e.set_text("Toggled");
@@ -518,7 +525,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 										e.set_text("");
 									}
 								}));
-							listener.connect_predecessor(check_box->request_provider());
+							listener.connect_predecessor(check_box->get_prov());
 
 							receiver.cell().set_end_line();
 						}
@@ -534,7 +541,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							table.end_line();
 						}
 					});
-				},*/
+				},
 				[](scroll_pane& pane){
 					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create(
@@ -609,9 +616,10 @@ Edge Cases:
 							table.create_head([](split_pane& inner){
 								inner.set_expand_policy(layout::expand_policy::passive);
 								inner.set_layout_policy(layout::layout_policy::hori_major);
-								inner.create_head([](scroll_pane& label){
-									label.set_style();
-									label.create([](label_v2& l){
+								inner.create_head([](scroll_pane& p){
+									p.set_style();
+									p.create([](label& l){
+										l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
 										l.set_expand_policy(layout::expand_policy::prefer);
 										// l.text_line_align = typesetting::content_alignment::justify;
 										l.set_fit(false);
@@ -705,10 +713,13 @@ Edge Cases:
 	menu_hdl->get_head_template_cell().set_pad({4, 4});
 
 	for(const auto& [idx, creator] : make_create_table() | std::views::enumerate){
-		menu_hdl->create_back([&](label_v2& label){
+		menu_hdl->create_back([&](label& label){
 				label.set_text(std::format("Test: {}", idx));
 				label.text_entire_align = align::pos::center;
 				label.interactivity = interactivity_flag::enabled;
+			label.set_transform_config({
+				.rotation = text_rotation::deg_270
+			});
 			}, [&](scroll_pane& scroll_pane){
 				creator(scroll_pane);
 			});

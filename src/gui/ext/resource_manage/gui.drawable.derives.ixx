@@ -138,16 +138,24 @@ void drawable_image<Components...>::draw(renderer_frontend& renderer, const math
 
 }
 
-template <typename ... Components>
+template <typename... Components>
 void icon<Components...>::draw(renderer_frontend& renderer, const math::raw_frect& region,
 	const graphic::color& color_scl) const{
-		const fx::primitive_draw_mode mode = components;
-		graphic::draw::quad_group<graphic::color> vcolor = components;
-		vcolor *= color_scl;
+	if(!component::draw_switch{components})return;
 
-	// state_guard s{renderer, fx::ma, fx::batch_draw_mode::msdf};
+	const fx::primitive_draw_mode mode = components;
+	graphic::draw::quad_group<graphic::color> vcolor;
+	vcolor = components;
+	vcolor *= color_scl;
 
-		renderer.push(rect_aabb{
+	[[maybe_unused]] state_guard guard{};
+
+	if constexpr(mo_yanxi::is_any_of<component::batch_draw_mode, Components...>){
+		fx::batch_draw_mode bm = components;
+		guard = {renderer, bm};
+	}
+
+	renderer.push(rect_aabb{
 			.generic = {
 				.image = {.view = image_region->view},
 				.mode = {std::to_underlying(mode)},
@@ -169,9 +177,8 @@ void drawable_row_patch<Components...>::draw(renderer_frontend& renderer, const 
 	[[maybe_unused]] state_guard guard{};
 
 	if constexpr (mo_yanxi::is_any_of<component::batch_draw_mode, Components...>){
-
 		fx::batch_draw_mode bm = components;
-		guard = {renderer, bm, make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)};
+		guard = {renderer, bm};
 	}
 
 	renderer.push(graphic::draw::instruction::row_patch{

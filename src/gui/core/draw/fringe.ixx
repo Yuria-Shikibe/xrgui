@@ -27,7 +27,7 @@ FORCE_INLINE CONST_FN bool is_nearly_zero_assume_positive(T f) noexcept{
 }
 
 export
-inline constexpr float fringe_size = .72f;
+inline constexpr float fringe_size = 1.12f;
 
 export
 FORCE_INLINE void poly_fringe_at_from(renderer_frontend& r, const instruction::poly& instr, float fringe = fringe_size){

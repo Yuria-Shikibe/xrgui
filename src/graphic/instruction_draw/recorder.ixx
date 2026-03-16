@@ -35,6 +35,14 @@ public:
 
 	[[nodiscard]] explicit(false) constexpr draw_record_storage(const Alloc& alloc) : heads_(alloc), data_(alloc){}
 
+	void reserve_heads(std::size_t count){
+		heads_.reserve(count);
+	}
+
+	void reserve_bytes(std::size_t size){
+		data_.reserve(size);
+	}
+
 	void clear() noexcept{
 		heads_.clear();
 		data_.clear();

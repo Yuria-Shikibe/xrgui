@@ -10,10 +10,10 @@ import std;
 namespace mo_yanxi::gui::assets{
 
 export
-void load_default_assets(const std::filesystem::path& svg_root);
+void generate_default_shapes(graphic::image_atlas& image_atlas);
 
 export
-void generate_default_shapes(graphic::image_atlas& image_atlas);
+void load_default_icons(graphic::image_atlas& image_atlas);
 
 export
 void dispose_generated_shapes();

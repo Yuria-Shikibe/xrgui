@@ -22,8 +22,8 @@ struct rich_text_look_up_table{
 
 export inline rich_text_look_up_table* look_up_table{};
 
-namespace rich_text_token{
-export enum struct setter_type{
+export namespace rich_text_token{
+enum struct setter_type{
 	/** @brief set current to specified */
 	absolute,
 
@@ -38,19 +38,27 @@ export enum struct setter_type{
 struct set_offset{
 	setter_type type = setter_type::relative_add;
 	math::vec2 offset;
+
+	constexpr bool operator==(const set_offset&) const noexcept = default;
 };
 
 struct set_color{
 	setter_type type = setter_type::absolute;
 	graphic::color color;
+
+	constexpr bool operator==(const set_color&) const noexcept = default;
 };
 
 struct set_font_by_name{
 	static_string<23> font_name;
+
+	constexpr bool operator==(const set_font_by_name&) const noexcept = default;
 };
 
 struct set_font_directly{
 	const font::font_family* family;
+
+	constexpr bool operator==(const set_font_directly&) const noexcept = default;
 };
 
 
@@ -63,15 +71,26 @@ private:
 public:
 	setter_type type = setter_type::absolute;
 	math::vec2 size;
+
+	constexpr bool operator==(const set_size&) const noexcept = default;
 };
+
+constexpr bool operator==(const hb_feature_t& lhs, const hb_feature_t& rhs) noexcept{
+	return lhs.start == rhs.start && lhs.end == rhs.end && lhs.tag == rhs.tag && lhs.value == rhs.value;
+}
 
 
 struct set_feature{
 	hb_feature_t feature;
+	constexpr bool operator==(const set_feature& other) const noexcept{
+		return feature == other.feature;
+	}
 };
 
 struct set_underline{
 	bool enabled;
+	constexpr bool operator==(const set_underline&) const noexcept = default;
+
 };
 
 
@@ -83,24 +102,30 @@ enum struct script_type{
 
 struct set_script{
 	script_type type;
+	constexpr bool operator==(const set_script&) const noexcept = default;
 };
 
 /**
  * @brief using empty arguments to spec fallback
  */
 struct fallback_offset{
+	constexpr bool operator==(const fallback_offset&) const noexcept = default;
 };
 
 struct fallback_color{
+	constexpr bool operator==(const fallback_color&) const noexcept = default;
 };
 
 struct fallback_font{
+	constexpr bool operator==(const fallback_font&) const noexcept = default;
 };
 
 struct fallback_size{
+	constexpr bool operator==(const fallback_size&) const noexcept = default;
 };
 
 struct fallback_feature{
+	constexpr bool operator==(const fallback_feature&) const noexcept = default;
 };
 
 struct setter_parse_result{
@@ -150,6 +175,9 @@ constexpr inline std::size_t token_index_of = mo_yanxi::tuple_index_v<T, variant
 
 [[nodiscard]] constexpr set_color parse_set_color(const rich_text_look_up_table* table, std::string_view args) noexcept{
 	auto [type, remain] = get_setter_type_from(args);
+	if(remain.empty()){
+		return {setter_type::absolute, graphic::colors::white};
+	}
 	if(remain.front() == '#'){
 		return {type, graphic::color::from_string(remain.substr(1))};
 	}
@@ -358,5 +386,7 @@ struct rich_text_token_argument{
 
 		return map[token.index()];
 	}
+
+	constexpr bool operator==(const rich_text_token_argument&) const noexcept = default;
 };
 }

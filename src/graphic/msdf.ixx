@@ -15,6 +15,8 @@ namespace mo_yanxi::graphic::msdf{
 export constexpr inline int sdf_image_boarder = 4;
 export constexpr inline double sdf_image_range = 4.;
 
+
+
 export msdfgen::FreetypeHandle* HACK_get_ft_library_from(const void* address_of_ft_lib) noexcept{
 	return static_cast<msdfgen::FreetypeHandle*>(const_cast<void*>(address_of_ft_lib));
 }

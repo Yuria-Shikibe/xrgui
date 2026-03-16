@@ -642,6 +642,7 @@ void prepare(){
 
 	{
 		gui::assets::generate_default_shapes(image_atlas);
+		gui::assets::load_default_icons(image_atlas);
 	}
 #pragma endregion
 

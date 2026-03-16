@@ -39,6 +39,8 @@ struct tokenized_text{
 			rich_text_token_argument(t)
 			, pos(pos){
 		}
+
+		constexpr bool operator==(const posed_token_argument&) const noexcept = default;
 	};
 
 private:
@@ -50,6 +52,8 @@ public:
 	using pos_t = decltype(chars_)::size_type;
 	using token_iterator = decltype(tokens_)::const_iterator;
 	using token_subrange = std::ranges::subrange<token_iterator>;
+
+	constexpr bool operator==(const tokenized_text&) const noexcept = default;
 
 	constexpr bool empty() const noexcept{
 		return chars_.empty();
@@ -95,13 +99,66 @@ public:
 		tokenize_tag tag = tokenize_tag::def) : tokenized_text(string, tag, nullptr){
 	}
 
-	constexpr void reset(std::string_view string, const rich_text_look_up_table* table = look_up_table,
-		tokenize_tag tag = tokenize_tag::def){
+	template <std::invocable<std::u32string&> Fn>
+	constexpr void modify(tokenize_tag tag, Fn fn, const rich_text_look_up_table* table = look_up_table){
+		auto apply = [&]{
+			tokens_.clear();
+			switch(tag){
+			case tokenize_tag::kep :{
+				this->parse_state_machine_<true>(table);
+				return;
+			}
+			case tokenize_tag::raw :{
+				return;
+			}
+			case tokenize_tag::def :{
+				// 第二步：触发原地双指针擦除
+				this->parse_state_machine_<false>(table);
+				return;
+			}
+			}
+		};
+
+		if constexpr (std::predicate<Fn&, std::u32string&>){
+			if(std::invoke_r<bool>(fn, chars_)){
+				apply();
+			}
+		}else{
+			std::invoke(fn, chars_);
+			apply();
+		}
+
+	}
+
+	constexpr void reset(std::string_view string,
+		tokenize_tag tag = tokenize_tag::def, const rich_text_look_up_table* table = look_up_table){
 		parse_from_(string, table, tag);
 	}
 
-	constexpr void reset(std::u32string_view string, const rich_text_look_up_table* table = look_up_table,
-		tokenize_tag tag = tokenize_tag::def){
+	constexpr void reset(std::u32string_view string,
+		tokenize_tag tag = tokenize_tag::def, const rich_text_look_up_table* table = look_up_table){
+		parse_from_(string, table, tag);
+	}
+
+	constexpr void reset(std::u32string&& string, tokenize_tag tag = tokenize_tag::def, const rich_text_look_up_table* table = look_up_table){
+		const std::size_t size = string.size();
+		chars_ = std::move(string);
+		tokens_.clear();
+		tokens_.reserve((size / 64) + 1);
+
+		switch(tag){
+		case tokenize_tag::kep :{
+			this->parse_state_machine_<true>(table);
+			return;
+		}
+		case tokenize_tag::raw :{
+			return;
+		}
+		case tokenize_tag::def :{
+			this->parse_state_machine_<false>(table);
+			return;
+		}
+		}
 		parse_from_(string, table, tag);
 	}
 
@@ -288,6 +345,18 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 	std::string_view name,
 	bool has_arg, std::string_view args){
 	if(name.empty()){
+		return;
+	}
+
+	if(name.front() == '#' || (name.size() > 1 && (name.front() == '*' || name.front() == '+' || name.front() == '=') && name[1] == '#')){
+		// 特殊处理仅有 "{#}" 的情况，将其映射为 fallback_color
+		if(name.size() == 1){
+			tokens_.emplace_back(rich_text_token_argument{table, "c", false, ""}, pos);
+		} else{
+			// 将整个 name（例如 "#FF0000" 或 "+#112233"）作为参数，
+			// 伪装成名称为 "c" 的标准颜色 token 发送给参数解析器
+			tokens_.emplace_back(rich_text_token_argument{table, "c", true, name}, pos);
+		}
 		return;
 	}
 

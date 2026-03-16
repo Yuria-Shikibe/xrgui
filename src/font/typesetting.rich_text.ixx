@@ -58,6 +58,7 @@ struct update_param{
 	bool is_vertical;
 };
 
+
 export
 struct rich_text_context{
 private:

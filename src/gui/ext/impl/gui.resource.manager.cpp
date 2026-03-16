@@ -6,7 +6,7 @@ module mo_yanxi.gui.assets.manager;
 
 namespace mo_yanxi::gui::global{
 
-assets::image_page* builtin_page_{};
+assets::assets_page* builtin_page_{};
 
 U u;
 
@@ -36,7 +36,7 @@ bool terminate_assets_manager() noexcept{
 
 namespace mo_yanxi::gui::assets::builtin{
 
-image_page& get_page() noexcept{
+assets_page& get_page() noexcept{
 	assert(global::builtin_page_ != nullptr);
 	return *global::builtin_page_;
 }

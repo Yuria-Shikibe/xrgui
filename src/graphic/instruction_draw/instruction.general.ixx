@@ -11,6 +11,7 @@ export module mo_yanxi.graphic.draw.instruction.general;
 
 import std;
 import mo_yanxi.meta_programming;
+import mo_yanxi.concepts;
 import binary_trace;
 
 namespace mo_yanxi::graphic::draw::instruction{
@@ -518,19 +519,23 @@ public:
 export
 template <typename T>
 struct quad_group{
+	using value_type = T;
 	T v00{}, v10{}, v01{}, v11{};
 
 	[[nodiscard]] FORCE_INLINE constexpr quad_group() = default;
 
-	[[nodiscard]] FORCE_INLINE explicit(false) constexpr quad_group(const T& v) noexcept : v00(v), v10(v), v01(v), v11(v){}
+	// [[nodiscard]] FORCE_INLINE explicit(false) constexpr quad_group(const T& v) noexcept : v00(v), v10(v), v01(v), v11(v){}
 
 	template <typename Ty>
-		requires (std::constructible_from<T, const Ty&>)
+		requires (std::constructible_from<T, const Ty&> && !std::convertible_to<const Ty&, quad_group> && !spec_of<Ty, quad_group>)
 	[[nodiscard]] FORCE_INLINE explicit(false) constexpr quad_group(const Ty& v) noexcept : v00(v), v10(v), v01(v), v11(v){}
 
 	template <typename Ty>
-		requires (std::constructible_from<T, const Ty&>)
-	[[nodiscard]] FORCE_INLINE explicit(false) constexpr quad_group(const quad_group<Ty>& v) noexcept : v00(v.v00), v10(v.v10), v01(v.v01), v11(v.v11){}
+		requires (std::constructible_from<T, const typename std::remove_cvref_t<Ty>::value_type&> && spec_of<std::remove_cvref_t<Ty>, quad_group>)
+	[[nodiscard]] FORCE_INLINE explicit(!std::convertible_to<const typename std::remove_cvref_t<Ty>::value_type&, T> && !std::derived_from<T, typename std::remove_cvref_t<Ty>::value_type>) constexpr
+	quad_group(Ty&& v) noexcept : v00(std::forward_like<Ty>(v.v00)), v10(std::forward_like<Ty>(v.v10)),
+		v01(std::forward_like<Ty>(v.v01)), v11(std::forward_like<Ty>(v.v11)){
+	}
 
 	template <typename T1, typename T2, typename T3, typename T4>
 		requires (std::constructible_from<T, const T1&> && std::constructible_from<T, const T2&> && std::constructible_from<T, const T3&> && std::constructible_from<T, const T4&>)
@@ -606,5 +611,8 @@ struct quad_group{
 		return *this;
 	}
 };
+
+template <typename T>
+quad_group(const T&) -> quad_group<T>;
 
 }
