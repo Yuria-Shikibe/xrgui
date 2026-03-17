@@ -59,6 +59,11 @@ public:
 		}(std::index_sequence_for<Fn...>{});
 	}
 
+	template <typename SourceIDT>
+	void operator()(SourceIDT&& source_identity,const T& value){
+		this->operator()(source_identity, auto(value));
+	}
+
 	void operator()(T&& value){
 		if(last_ == value)return;
 		last_ = std::move(value);
@@ -70,6 +75,10 @@ public:
 				}
 			}.template operator()<Idx>(), ...);
 		}(std::index_sequence_for<Fn...>{});
+	}
+
+	void operator()(const T& value){
+		this->operator()(auto(value));
 	}
 
 };

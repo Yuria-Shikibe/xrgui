@@ -383,7 +383,7 @@ void app_run(
 						const auto color = math::lerp(colors::black, colors::aqua.to_light(2.5f),
 							factor_global);
 						return trail_node_data{
-								n, factor_global | math::interp::pow2In | math::interp::reverse, color
+								n, factor_global | math::interp::pow2In | math::interp::interp_func{math::interp::spec::concave_curve_fixed{.1f}} | math::interp::reverse, color
 							};
 					}, [&](std::span<const trail_node_data, 4> sspn){
 						using namespace graphic;
@@ -424,7 +424,7 @@ void app_run(
 						const auto color = math::lerp(colors::aqua.to_light(2.5f), colors::pale_green.to_light(1.5f),
 							factor_global);
 
-						factor_global = math::curve(factor_global | math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)), 1.f);
+						factor_global = math::curve(factor_global | math::interp::interp_func{math::interp::spec::concave_curve_fixed{.1f}} | math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)), 1.f);
 
 						return trail_node_data{n, factor_global, color};
 					}, [&](std::span<const trail_node_data, 4> sspn){
@@ -494,6 +494,7 @@ void prepare(){
 		vk::shader_module shader_draw{ctx.get_device(), shader_spv_path / "ui.draw_v2.spv"};
 		vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
 		vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
+		vk::shader_module shader_inverse{ctx.get_device(), shader_spv_path / "ui.inverse.spv"};
 
 		using namespace backend::vulkan;
 		return {
@@ -568,6 +569,20 @@ void prepare(){
 							compute_pipeline_create_config::config{
 								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
 								.shader_module = shader_blend.get_create_info_compute(),
+								.option = {
+									.inout = compute_pipeline_blit_inout_config{
+										{
+											{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+										},
+										{
+											{1, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+										}
+									},
+								}
+							},
+							compute_pipeline_create_config::config{
+								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
+								.shader_module = shader_inverse.get_create_info_compute(),
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{

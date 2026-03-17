@@ -44,7 +44,7 @@ inline ArrowGeometry calculate_rect_arrow(
 	vec2 extent,
 	cursor_arrow_direction dir,
 	float arrow_size = 8.0f,
-	float margin = 4.0f,
+	float margin = 8.0f,
 	float thickness = 2.0f) noexcept{
 	// 1. 获取方向向量
 	vec2 dir_v{0.0f, 0.0f};

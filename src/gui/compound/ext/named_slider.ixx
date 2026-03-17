@@ -41,10 +41,10 @@ public:
 			s.set_style();
 			s.template_cell.region_scale = {0, 0, 1, 1};
 
-			s.create_back([&](slider_with_output& slider){
-				slider.bar_handle_extent.set(bar_size);
+			s.create_back([&](slider1d_with_output& slider){
+				slider.bar_handle_extent[0] = bar_size;
 				slider.set_style();
-				slider.set_clamp_from_layout_policy(layout_policy);
+				slider.set_vertical(layout_policy);
 			});
 
 			s.create_back([&](label_v2& value){
@@ -81,8 +81,8 @@ public:
 		return elem_cast<scaling_stack>(head_body::body());
 	}
 
-	[[nodiscard]] slider_with_output& get_slider() const noexcept{
-		return elem_cast<slider_with_output>(*body().children()[0]);
+	[[nodiscard]] auto& get_slider() const noexcept{
+		return elem_cast<slider1d_with_output>(*body().children()[0]);
 	}
 
 	[[nodiscard]] label_v2& get_slider_display_label() const noexcept{

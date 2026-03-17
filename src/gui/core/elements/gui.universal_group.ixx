@@ -313,9 +313,11 @@ protected:
 		basic_group::on_element_add(*adaptor.element);
 	}
 
+private:
 	void on_element_add(elem& adaptor) const final{
 	}
 
+protected:
 	bool update_children_src(float delta){
 		auto speed = .5f * delta;
 
@@ -338,16 +340,24 @@ protected:
 	}
 
 	void layout_elem() override{
-		if(has_smooth_pos_animation_){
+		if(!has_smooth_pos_animation_){
 			update_children_src_instantly();
 		}else{
 			if(layout_state.any_lower_changed()){
-				if(update_children_src(0.001f)){
-					set_update_required(update_channel::position);
-				}
+				set_update_required(update_channel::position);
 			}
 		}
 		basic_group::layout_elem();
+	}
+
+	bool resize_impl(const math::vec2 size) override{
+		if(basic_group::resize_impl(size)){
+			if(has_smooth_pos_animation_){
+				set_update_required(update_channel::position);
+			}
+			return true;
+		}
+		return false;
 	}
 };
 

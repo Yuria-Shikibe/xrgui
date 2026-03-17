@@ -403,7 +403,7 @@ public:
 	void iterate(float percent, NodeProv nodeProv, NodeCons nodeCons) const {
 		using ResultType = std::invoke_result_t<NodeProv, const node_type&, size_type, size_type>;
 
-		using BufferTy = slide_window_buffer<ResultType, WindowSize + Stride * 2 + (Stride - 1), WindowSize - 1>;
+		using BufferTy = slide_window_buffer<ResultType, WindowSize + Stride * 4 + (Stride - 1), WindowSize - 1>;
 		BufferTy buffer{};
 
 		this->trivial_each(percent, std::move(nodeProv), [&](ResultType&& rst){

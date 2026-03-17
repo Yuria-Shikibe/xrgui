@@ -48,9 +48,6 @@ private:
 	unsigned total_children_required_{};
 
 	update_channel self_update_required_channels_{};
-	lru_set<elem*, 4> update_required_cache_{};
-
-
 
 public:
 	constexpr bool is_update_required() const noexcept{
@@ -72,7 +69,6 @@ public:
 	constexpr requirement_set_result clear_children_update_requirement() noexcept{
 		if(!total_children_required_)return {};
 
-		clear_cache();
 		if(!is_self_update_required()){
 			total_children_required_ = 0;
 			return  {true, false};
@@ -87,14 +83,12 @@ public:
 	 */
 	constexpr requirement_set_result set_child_mark_update_changed(elem* children, bool is_update_required) noexcept{
 		if(is_update_required){
-			update_required_cache_.insert(children);
 
 			const auto last = total_children_required_++;
 			if(!last && !is_self_update_required()){
 				return {true, true};
 			}
 		}else{
-			update_required_cache_.erase(children);
 			assert(total_children_required_ > 0);
 			const auto last = total_children_required_--;
 			if(last == 1 && !is_self_update_required()){
@@ -117,24 +111,8 @@ public:
 		return {};
 	}
 
-	constexpr bool is_cache_holdable() const noexcept{
-		return update_required_cache_.size() <= total_children_required_;
-	}
-
-	/**
-	 *
-	 * @return provide local storage mark to avoid memory access in common children
-	 */
-	constexpr const lru_set<elem*, 4>& get_marked() const noexcept{
-		return update_required_cache_;
-	}
-
-	constexpr void clear_cache() noexcept{
-		update_required_cache_.clear();
-	}
-
-	constexpr bool erase_cache_elem(const elem* e) noexcept {
-		return update_required_cache_.erase(const_cast<elem*>(e));
+	constexpr auto get_children_update_count() const noexcept{
+		return total_children_required_;
 	}
 };
 

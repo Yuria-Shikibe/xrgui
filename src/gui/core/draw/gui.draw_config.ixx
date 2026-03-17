@@ -380,6 +380,16 @@ constexpr inline blend_equation subtractive = {
     .alpha_blend_op         = VK_BLEND_OP_ADD
 };
 
+
+constexpr inline blend_equation inverse = {
+    .src_color_blend_factor = VK_BLEND_FACTOR_ONE,
+    .dst_color_blend_factor = VK_BLEND_FACTOR_ONE,
+    .color_blend_op         = VK_BLEND_OP_SUBTRACT,
+    .src_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+    .dst_alpha_blend_factor = VK_BLEND_FACTOR_ZERO,
+    .alpha_blend_op         = VK_BLEND_OP_ADD
+};
+
 // 完全不透明 / 覆盖
 constexpr inline blend_equation opaque = {
     .src_color_blend_factor = VK_BLEND_FACTOR_ONE,

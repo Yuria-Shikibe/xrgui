@@ -122,7 +122,8 @@ void make_styles(scene& scene){
 		round_style->back.pal = style::pal::dark;
 		round_style->back = assets::builtin::default_round_square_base;
 
-		sm.register_style<style::elem_style_drawer>(round_style);
+		// sm.register_style<style::elem_style_drawer>(round_style);
+		sm.register_style<style::elem_style_drawer>(referenced_ptr<style::debug_elem_drawer>{std::in_place});
 	}
 
 	{
@@ -141,8 +142,11 @@ void make_styles(scene& scene){
 		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
 		round_scroll_bar_style->bar_palette = pal;
 
-		sm.register_style<style::slider_drawer>(std::move(round_scroll_bar_style));
+		sm.register_style<style::slider1d_drawer>(std::move(round_scroll_bar_style));
 	}
+
+	sm.register_style<style::slider2d_drawer>(referenced_ptr<style::default_slider2d_drawer>{std::in_place});
+
 }
 
 ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
@@ -174,12 +178,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 	e->set_fill_parent({true, true});
 	auto& mroot = static_cast<scaling_stack&>(root.insert(0, std::move(e)));
 
-	// auto& node_layout = scene.request_independent_react_node<label_layout_node>();
-	// auto& node_format = scene.request_independent_react_node<format_node>();
-	// auto& node_stoint = scene.request_independent_react_node<react_flow::string_to_arth<int, std::string_view>>();
-	auto& node_proj_x = scene.request_independent_react_node(react_flow::make_transformer([](math::vec2 v){
-		return v.x;
-	}));
 
 	{
 		referenced_ptr<style::round_style> round_style{std::in_place};
@@ -352,11 +350,10 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 					pane.create([&](sequence& sequence){
 						sequence.template_cell.set_pad({4, 4});
 
-						auto slider = sequence.emplace_back<gui::slider_with_2d_output>();
+						auto slider = sequence.emplace_back<gui::slider1d_with_output>();
 						slider->set_smooth_scroll(true);
 						slider->set_smooth_jump(false);
 						slider->set_smooth_drag(true);
-						slider->set_hori_only();
 						slider.cell().set_size(60);
 
 						auto& progNode = slider->get_provider();
@@ -378,7 +375,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							prog.progress.set_state(progress_state::approach_smooth);
 							prog.progress.set_speed(.0001f);
 							auto& t = prog.request_receiver();
-							react_flow::connect_chain({&progNode, &node_proj_x, &t});
+							react_flow::connect_chain(progNode, t);
 						}).cell().set_size(60);
 
 						sequence.create_back([&](progress_bar& prog){
@@ -391,7 +388,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 
 							prog.drawer = std::move(drawer);
 							auto& t = prog.request_receiver();
-							react_flow::connect_chain({&progNode, &node_proj_x, &t});
+							react_flow::connect_chain(progNode, t);
 						}).cell().set_size(400);
 
 						{
@@ -512,6 +509,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						table.set_entire_align(align::pos::center);
 						for(int i = 0; i < 4; ++i){
 							auto check_box = table.emplace_back<gui::check_box>(std::in_place);
+							check_box->icons[1].components.color = {graphic::colors::pale_green};
 							check_box.cell().set_size({60, 60});
 
 							auto receiver = table.emplace_back<label>();

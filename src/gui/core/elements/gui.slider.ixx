@@ -1,552 +1,364 @@
-//
-// Created by Matrix on 2025/11/19.
-//
-
 export module mo_yanxi.gui.elem.slider;
-
 
 export import mo_yanxi.gui.infrastructure;
 
+import mo_yanxi.gui.elem.slider_logic;
 import mo_yanxi.snap_shot;
 import mo_yanxi.math;
-
 import std;
 
-namespace mo_yanxi::gui{
-export
-struct slider2d_slot{
-private:
-	snap_shot<math::vec2> bar_progress_{};
+namespace mo_yanxi::gui {
 
-public:
-	math::upoint2 segments{};
+export template <std::size_t Dim, typename Derived> struct slider_base;
+export struct slider1d;
+export struct slider2d;
 
-	[[nodiscard]] math::vec2 get_segment_unit() const noexcept{
-		return math::vec2{
-				segments.x ? 1.f / static_cast<float>(segments.x) : 1.f,
-				segments.y ?
-				1.f / static_cast<float>(segments.y) : 1.f
-			};
-	}
+namespace style {
+    export struct slider1d_drawer : style_drawer<slider1d> {
+        using style_drawer::style_drawer;
+    };
+    
+    export struct default_slider1d_drawer : slider1d_drawer {
+        [[nodiscard]] constexpr default_slider1d_drawer()
+        : slider1d_drawer(tags::persistent, layer_top_only) {}
 
-	[[nodiscard]] bool is_segment_move_activated() const noexcept{
-		return static_cast<bool>(segments.x) || static_cast<bool>(segments.y);
-	}
+    protected:
+        void draw_layer_impl(
+            const slider1d& element,
+            math::frect region,
+            float opacityScl,
+            fx::layer_param layer_param) const override;
+    };
 
-	void move_progress(const math::vec2 movement_in_percent, vec2 base) noexcept{
-		if(is_segment_move_activated()){
-			bar_progress_.temp = (base + movement_in_percent).round_to(get_segment_unit()).clamp_xy_normalized();
-		} else{
-			bar_progress_.temp = (base + movement_in_percent).clamp_xy({}, {1, 1});
-		}
-	}
+    export struct slider2d_drawer : style_drawer<slider2d> {
+        using style_drawer::style_drawer;
+    };
 
-	void move_progress(const math::vec2 movement_in_percent, snap_shot<math::vec2>::selection_ptr base_ptr = &snap_shot<math::vec2>::base) noexcept{
-		return move_progress(movement_in_percent, bar_progress_.*base_ptr);
-	}
+    export struct default_slider2d_drawer : slider2d_drawer {
+        [[nodiscard]] constexpr default_slider2d_drawer()
+        : slider2d_drawer(tags::persistent, layer_top_only) {}
 
-	void move_minimum_delta(const math::vec2 move, snap_shot<math::vec2>::selection_ptr base_ptr = &snap_shot<math::vec2>::base){
-		if(is_segment_move_activated()){
-			move_progress(move.sign_or_zero().mul(get_segment_unit()), base_ptr);
-		} else{
-			move_progress(move, base_ptr);
-		}
-	}
-
-	void clamp(math::vec2 from, math::vec2 to) noexcept{
-		from.clamp_xy_normalized();
-		to.clamp_xy_normalized();
-		bar_progress_.temp.clamp_xy(from, to);
-		bar_progress_.base.clamp_xy(from, to);
-	}
-
-	void min(math::vec2 min) noexcept{
-		min.max({});
-		bar_progress_.temp.min(min);
-		bar_progress_.base.min(min);
-	}
-
-	void max(math::vec2 max) noexcept{
-		max.min({1, 1});
-		bar_progress_.temp.max(max);
-		bar_progress_.base.max(max);
-	}
-
-	bool apply() noexcept{
-		return bar_progress_.try_apply();
-	}
-
-	bool update(float delta) noexcept{
-		auto dst = bar_progress_.temp - bar_progress_.base;
-		if(dst.is_zero(std::numeric_limits<float>::epsilon() * 8)){
-			return bar_progress_.try_apply();
-		}else{
-			bar_progress_.base += dst * delta;
-			bar_progress_.base.clamp_xy({0, 0}, {1, 1});
-			return true;
-		}
-	}
-
-	void resume(){
-		bar_progress_.resume();
-	}
-
-	bool set_progress_from_segments(math::usize2 current, math::usize2 total){
-		segments = total;
-		return set_progress((current.as<float>() / total.as<float>()).nan_to0());
-	}
-
-	bool set_progress_from_segments_x(unsigned current, unsigned total){
-		return set_progress_from_segments({current, 0}, {total, 0});
-	}
-
-	bool set_progress_from_segments_y(unsigned current, unsigned total){
-		return set_progress_from_segments({0, current}, {0, total});
-	}
-
-	bool set_progress(math::vec2 progress) noexcept{
-		progress.clamp_xy({}, math::vectors::constant2<float>::base_vec2);
-		if(bar_progress_.base != progress){
-			this->bar_progress_ = progress;
-			return true;
-		}
-		return false;
-	}
-
-	[[nodiscard]] math::vec2 get_progress() const noexcept{
-		return bar_progress_.base;
-	}
-
-
-	template <typename T>
-	[[nodiscard]] math::vector2<T> get_segments_progress() const noexcept{
-		return (bar_progress_.base.as<double>() * segments.as<double>()).round<T>();
-	}
-
-	[[nodiscard]] math::vec2 get_temp_progress() const noexcept{
-		return bar_progress_.temp;
-	}
-
-	[[nodiscard]] bool is_sliding() const noexcept{
-		return bar_progress_.base != bar_progress_.temp;
-	}
-};
-
-export
-struct slider;
-
-namespace style{
-export
-struct slider_drawer : style_drawer<slider>{
-	using style_drawer::style_drawer;
-};
-
-export
-struct
-default_slider_drawer : slider_drawer{
-	[[nodiscard]] constexpr default_slider_drawer()
-	: slider_drawer(tags::persistent, layer_top_only){
-	}
-
-	void draw_layer_impl(
-		const slider& element,
-		math::frect region,
-		float opacityScl,
-		fx::layer_param layer_param) const override;
-
-	void draw(const slider& element, math::frect region, float opacityScl) const ;
-};
-
-export inline constexpr default_slider_drawer default_slider_drawer_instance;
-
-export inline const slider_drawer* global_default_slider_drawer{};
-
-export inline const slider_drawer* get_global_default_slider_drawer() noexcept{
-	return global_default_slider_drawer == nullptr ? &default_slider_drawer_instance : global_default_slider_drawer;
+    protected:
+        void draw_layer_impl(
+            const slider2d& element,
+            math::frect region,
+            float opacityScl,
+            fx::layer_param layer_param) const override;
+    };
 }
 
-}
+// ==========================================
+// 泛型滑动条基类 (CRTP)
+// ==========================================
+export template <std::size_t Dim, typename Derived>
+struct slider_base : elem {
+    static_assert(Dim == 1 || Dim == 2, "Only 1D and 2D sliders are supported");
 
+    using value_type = float;
+    using logic_type = slider_nd<value_type, Dim>;
+    using array_type = std::array<value_type, Dim>;
 
-struct slider : elem{
-protected:
-	void update_approach_state() noexcept {
-		if(bar.is_sliding()){
-			set_update_required(update_channel::value_approach);
-		} else {
-			set_update_disabled(update_channel::value_approach);
-		}
-	}
+    logic_type bar;
 
-	void check_apply(){
-		if(bar.apply()){
-			on_changed();
-		}
-		update_approach_state();
-	}
+    float approach_speed_scl = 0.05f;
 
-	referenced_ptr<const style::slider_drawer> drawer_{get_scene().style_manager.get_default<style::slider_drawer>()};
-
-	bool smooth_scroll_{};
-	bool smooth_drag_{};
-	bool smooth_jump_{};
-
-	math::optional_vec2<float> drag_src_{math::nullopt_vec2<float>};
-
-	virtual void on_changed(){
-		// if(submit_node_)submit_node_->update_value(bar.get_progress());
-	}
-public:
-	slider2d_slot bar;
-
-	float approach_speed_scl = 0.05f;
-
-	/**
-	 * @brief Negative value is accepted to flip the operation
-	 */
-	math::vec2 scroll_sensitivity{1 / 25.0f, 1 / 25.0f};
-
-	math::vec2 sensitivity{1.0f, 1.0f};
-
-	math::vec2 bar_handle_extent{10.0f, 10.0f};
-
-	[[nodiscard]] slider(scene& scene, elem* parent)
-	: elem(scene, parent){
-		interactivity = interactivity_flag::enabled;
-		extend_focus_until_mouse_drop = true;
-	}
-
-	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
-		if(is_disabled())return elem::get_cursor_type(cursor_pos_at_content_local);
-		if(cursor_state().pressed || cursor_pos_at_content_local.axis_greater(vec2{}) && cursor_pos_at_content_local.axis_less(content_extent())){
-			return {style::cursor_type::drag, {style::cursor_decoration_type::to_left, style::cursor_decoration_type::to_right}};
-		}
-		return elem::get_cursor_type(cursor_pos_at_content_local);
-	}
-
-	// ==========================================
-	// 状态获取与控制 (Getters & Setters)
-	// ==========================================
-	[[nodiscard]] math::vec2 get_progress() const noexcept{
-		return bar.get_progress();
-	}
-
-	[[nodiscard]] math::vec2 get_temp_progress() const noexcept{
-		return bar.get_temp_progress();
-	}
-
-	template <typename T>
-	[[nodiscard]] math::vector2<T> get_segments_progress() const noexcept{
-		return bar.template get_segments_progress<T>();
-	}
-
-	[[nodiscard]] bool is_sliding() const noexcept{
-		return bar.is_sliding();
-	}
-
-	void set_progress(math::vec2 progress){
-		if(bar.set_progress(progress)){
-			on_changed();
-		}
-	}
-
-	void set_progress(float progress){
-		auto clampX = is_clamped_to_hori();
-		auto clampY = is_clamped_to_vert();
-		if(clampX && clampY)return;
-		if(clampX){
-			set_progress({progress, 0});
-		}else if(clampY){
-			set_progress({0, progress});
-		}else{
-			set_progress({progress, progress});
-		}
-	}
-
-	void set_progress_from_segments(math::usize2 current, math::usize2 total){
-		if(bar.set_progress_from_segments(current, total)){
-			on_changed();
-		}
-	}
-
-	void set_progress_from_segments_x(unsigned current, unsigned total){
-		if(bar.set_progress_from_segments_x(current, total)){
-			on_changed();
-		}
-	}
-
-	void set_progress_from_segments_y(unsigned current, unsigned total){
-		if(bar.set_progress_from_segments_y(current, total)){
-			on_changed();
-		}
-	}
-
-	void clamp_progress(math::vec2 from, math::vec2 to) noexcept{
-		bar.clamp(from, to);
-		check_apply();
-	}
-
-	void move_progress_target(const math::vec2 movement_in_percent, bool smooth = true) noexcept{
-		bar.move_progress(movement_in_percent, smooth ? &snap_shot<math::vec2>::temp : &snap_shot<math::vec2>::base);
-		if(!smooth) {
-			check_apply();
-		} else {
-			update_approach_state();
-		}
-	}
-
-	// react_flow::provider_cached<math::vec2>& request_react_node(){
-	// 	if(submit_node_){
-	// 		return *submit_node_;
-	// 	}
-	// 	auto& node = get_scene().request_react_node<react_flow::provider_cached<math::vec2>>(*this);
-	// 	this->submit_node_ = &node;
-	// 	return node;
-	// }
-
-	[[nodiscard]] bool is_clamped() const noexcept{
-		return is_clamped_to_hori() || is_clamped_to_vert();
-	}
-
-	[[nodiscard]] const style::slider_drawer* get_drawer() const noexcept{
-		return drawer_.get();
-	}
-
-	void set_drawer(const referenced_ptr<const style::slider_drawer>& drawer){
-		drawer_ = drawer;
-		drawer->apply_to(*this);
-	}
-
-	void set_drawer(const style::slider_drawer& drawer){
-		set_drawer(&drawer);
-	}
-
-	void set_hori_only() noexcept{
-		sensitivity.y = 0.0f;
-	}
-
-	void set_vert_only() noexcept{
-		sensitivity.x = 0.0f;
-	}
-
-	void set_clamp_from_layout_policy(layout::layout_policy policy, math::vec2 target_sensitivity = {1, 1}){
-		sensitivity = target_sensitivity;
-		switch(policy){
-		case layout::layout_policy::none: break;
-		case layout::layout_policy::vert_major: set_vert_only(); break;
-		case layout::layout_policy::hori_major: set_hori_only(); break;
-		default: std::unreachable();
-		}
-	}
-
-	[[nodiscard]] bool is_clamped_to_hori() const noexcept{
-		return sensitivity.y == 0.0f;
-	}
-
-	[[nodiscard]] bool is_clamped_to_vert() const noexcept{
-		return sensitivity.x == 0.0f;
-	}
-
-	[[nodiscard]] math::vec2 get_bar_handle_movable_extent() const noexcept{
-		return content_extent().fdim(get_bar_handle_extent());
-	}
+    // 维度完全与模板参数 Dim 对齐
+    array_type scroll_sensitivity;
+    array_type sensitivity;
+    array_type bar_handle_extent;
 
 protected:
-	void on_inbound_changed(bool is_inbounded, bool changed) override{
-		elem::on_inbound_changed(is_inbounded, changed);
-		set_focused_scroll(is_inbounded);
-	}
+    bool smooth_scroll_{};
+    bool smooth_drag_{};
+    bool smooth_jump_{};
 
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
+    std::optional<array_type> drag_src_{std::nullopt};
 
-public:
-	events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override{
-		move_bar(bar, event);
+    // CRTP 静态下行转换
+    [[nodiscard]] Derived& derived() noexcept { return static_cast<Derived&>(*this); }
+    [[nodiscard]] const Derived& derived() const noexcept { return static_cast<const Derived&>(*this); }
 
-		if(!smooth_scroll_) check_apply();
-		else update_approach_state();
+    // 原来的 virtual 接口改为编译期判定并直接完成逻辑
+    [[nodiscard]] array_type extract_vec2(math::vec2 v) const noexcept {
+        if constexpr (Dim == 1) {
+            return {derived().is_vertical() ? v.y : v.x};
+        } else {
+            return {v.x, v.y};
+        }
+    }
 
-		return events::op_afterwards::intercepted;
-	}
+    [[nodiscard]] math::vec2 expand_to_vec2(const array_type& a) const noexcept {
+        if constexpr (Dim == 1) {
+            return derived().is_vertical() ? math::vec2{0.0f, a[0]} : math::vec2{a[0], 0.0f};
+        } else {
+            return {a[0], a[1]};
+        }
+    }
 
-	events::op_afterwards on_drag(const events::drag event) override{
-		if(event.key.mode_bits == input_handle::mode::ctrl)return events::op_afterwards::fall_through;
+    void update_approach_state() noexcept {
+        if(bar.is_sliding()) set_update_required(update_channel::value_approach);
+        else set_update_disabled(update_channel::value_approach);
+    }
 
-		if(!drag_src_)return events::op_afterwards::intercepted;
+    void check_apply() {
+        if(bar.apply()) on_changed();
+        update_approach_state();
+    }
 
-		if(event.key.as_mouse() == input_handle::mouse::LMB){
-			bar.move_progress(event.delta() * sensitivity / content_extent(), drag_src_);
-		}else if(event.key.as_mouse() == input_handle::mouse::RMB){
-			bar.resume();
-		}
-
-
-		update_approach_state();
-
-		return events::op_afterwards::intercepted;
-	}
-
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		elem::on_click(event, aboves);
-		const auto [key, action, mode] = event.key;
-
-		switch(static_cast<input_handle::mouse>(key)){
-		case input_handle::mouse::_1 :{
-			switch(action){
-			case input_handle::act::press :{
-				drag_src_ = bar.get_temp_progress();
-
-				if(mode == input_handle::mode::ctrl){
-					const auto move = (event.get_content_pos(*this) - get_progress() * content_extent()) /
-						content_extent();
-					bar.move_progress(move * sensitivity.sign_or_zero());
-
-					if(!smooth_jump_){
-						check_apply();
-					} else{
-						update_approach_state();
-					}
-				}
-				break;
-			}
-
-			case input_handle::act::release :{
-				drag_src_.reset();
-				if(!smooth_drag_) check_apply();
-				else update_approach_state();
-				break;
-			}
-
-			default : break;
-			}
-			break;
-		}
-		case input_handle::mouse::_2 :{
-			drag_src_.reset();
-			bar.resume();
-			break;
-		}
-		default: break;
-		}
-
-
-		return events::op_afterwards::intercepted;
-	}
-
-protected:
-	void move_bar(slider2d_slot& slot, const events::scroll& event) const{
-		math::vec2 move = event.delta;
-
-		if(input_handle::matched(event.mode, input_handle::mode::shift)){
-			move.swap_xy();
-		}
-
-		const auto mov = -scroll_sensitivity * sensitivity * (is_clamped() ? vec2{move.y, move.y} : move);
-		slot.move_minimum_delta(mov, smooth_scroll_ ? &snap_shot<vec2>::temp : &snap_shot<vec2>::base);
-	}
-
-private:
-	void set_smooth(bool slider::* mptr, bool rst){
-		if(util::try_modify(this->*mptr, rst)){
-			if(!rst){
-				check_apply();
-			}
-		}
-	}
-public:
-	[[nodiscard]] bool is_smooth_scroll() const noexcept{
-		return smooth_scroll_;
-	}
-
-	void set_smooth_scroll(const bool smooth = true) {
-		set_smooth(&slider::smooth_scroll_, smooth);
-	}
-
-	[[nodiscard]] bool is_smooth_drag() const noexcept{
-		return smooth_drag_;
-	}
-
-	void set_smooth_drag(const bool smooth = true){
-		set_smooth(&slider::smooth_drag_, smooth);
-	}
-
-	[[nodiscard]] bool is_smooth_jump() const noexcept{
-		return smooth_jump_;
-	}
-
-	void set_smooth_jump(const bool smooth = true){
-		set_smooth(&slider::smooth_jump_, smooth);
-	}
-
-protected:
-	bool update(float delta_in_ticks) override{
-		if(elem::update(delta_in_ticks)){
-			if(!drag_src_ && (smooth_scroll_ || smooth_jump_ || smooth_drag_)){
-				//TODO user provided speed scl?
-				if(bar.update(delta_in_ticks * approach_speed_scl)){
-					on_changed();
-				}
-
-				if(!bar.is_sliding()){
-					set_update_disabled(update_channel::value_approach);
-				}
-			}
-			return true;
-		}
-		return false;
-	}
+    virtual void on_changed() {}
 
 public:
-	[[nodiscard]] constexpr math::vec2 get_bar_handle_extent() const noexcept{
-		return get_bar_handle_extent(content_extent());
-	}
+    void on_inbound_changed(bool is_inbounded, bool changed) override {
+        elem::on_inbound_changed(is_inbounded, changed);
+        set_focused_scroll(is_inbounded);
+    }
 
-	[[nodiscard]] constexpr math::vec2 get_bar_handle_extent(math::vec2 content_extent) const noexcept{
-		return {
-				is_clamped_to_vert() ? content_extent.x : bar_handle_extent.x,
-				is_clamped_to_hori() ? content_extent.y : bar_handle_extent.y,
-			};
-	}
+    bool update(float delta_in_ticks) override {
+        if(elem::update(delta_in_ticks)) {
+            if(!drag_src_ && (smooth_scroll_ || smooth_jump_ || smooth_drag_)) {
+                if(bar.update(delta_in_ticks * approach_speed_scl)) on_changed();
+                if(!bar.is_sliding()) set_update_disabled(update_channel::value_approach);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] slider_base(scene& scene, elem* parent) : elem(scene, parent) {
+        interactivity = interactivity_flag::enabled;
+        extend_focus_until_mouse_drop = true;
+        scroll_sensitivity.fill(1.0f / 25.0f);
+        sensitivity.fill(1.0f);
+        bar_handle_extent.fill(10.0f);
+    }
+
+    // 编译期内联处理 handle_extent
+    [[nodiscard]] math::vec2 get_bar_handle_extent(math::vec2 content_ext) const noexcept {
+        if constexpr (Dim == 1) {
+            return derived().is_vertical() ? 
+                math::vec2{content_ext.x, bar_handle_extent[0]} : 
+                math::vec2{bar_handle_extent[0], content_ext.y};
+        } else {
+            return {bar_handle_extent[0], bar_handle_extent[1]};
+        }
+    }
+
+    [[nodiscard]] math::vec2 get_bar_handle_extent() const noexcept {
+        return get_bar_handle_extent(content_extent());
+    }
+
+    [[nodiscard]] math::vec2 get_bar_handle_movable_extent() const noexcept {
+        return content_extent().fdim(get_bar_handle_extent());
+    }
+
+    [[nodiscard]] bool is_sliding() const noexcept { return bar.is_sliding(); }
+
+    events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override {
+        math::vec2 move = event.delta;
+        if(input_handle::matched(event.mode, input_handle::mode::shift)) move.swap_xy();
+
+        array_type mov;
+        if constexpr (Dim == 1) {
+            // 对1D滚动进行泛化：吸收所有的滚轮增量
+            mov[0] = -scroll_sensitivity[0] * sensitivity[0] * (move.x + move.y);
+        } else {
+            mov[0] = -scroll_sensitivity[0] * sensitivity[0] * move.x;
+            mov[1] = -scroll_sensitivity[1] * sensitivity[1] * move.y;
+        }
+
+        bar.move_minimum_delta(mov, smooth_scroll_);
+        if(!smooth_scroll_) check_apply();
+        else update_approach_state();
+
+        return events::op_afterwards::intercepted;
+    }
+
+    events::op_afterwards on_drag(const events::drag event) override {
+        if(event.key.mode_bits == input_handle::mode::ctrl) return events::op_afterwards::fall_through;
+        if(!drag_src_) return events::op_afterwards::intercepted;
+
+        if(event.key.as_mouse() == input_handle::mouse::LMB) {
+            auto move_arr = extract_vec2(event.delta() / content_extent());
+            for (std::size_t i = 0; i < Dim; ++i) {
+                move_arr[i] *= sensitivity[i];
+            }
+            bar.move_progress(move_arr, *drag_src_);
+        } else if(event.key.as_mouse() == input_handle::mouse::RMB) {
+            bar.resume();
+        }
+
+        update_approach_state();
+        return events::op_afterwards::intercepted;
+    }
+
+    events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override {
+        elem::on_click(event, aboves);
+        const auto [key, action, mode] = event.key;
+
+        if(static_cast<input_handle::mouse>(key) == input_handle::mouse::_1) {
+            if(action == input_handle::act::press) {
+                drag_src_ = bar.get_temp_progress();
+                if(mode == input_handle::mode::ctrl) {
+                    auto diff = event.get_content_pos(*this) - expand_to_vec2(bar.get_progress()) * content_extent();
+                    auto move_arr = extract_vec2(diff / content_extent());
+                    for (std::size_t i = 0; i < Dim; ++i) {
+                        float sign = sensitivity[i] > 0.0f ? 1.0f : (sensitivity[i] < 0.0f ? -1.0f : 0.0f);
+                        move_arr[i] *= sign;
+                    }
+                    bar.move_progress_target(move_arr, smooth_jump_);
+                    if(!smooth_jump_) check_apply();
+                    else update_approach_state();
+                }
+            } else if(action == input_handle::act::release) {
+                drag_src_.reset();
+                if(!smooth_drag_) check_apply();
+                else update_approach_state();
+            }
+        } else if(static_cast<input_handle::mouse>(key) == input_handle::mouse::_2) {
+            drag_src_.reset();
+            bar.resume();
+        }
+        return events::op_afterwards::intercepted;
+    }
+
+    void set_smooth_scroll(const bool smooth = true) {
+        if(util::try_modify(smooth_scroll_, smooth) && !smooth) check_apply();
+    }
+    void set_smooth_drag(const bool smooth = true) {
+        if(util::try_modify(smooth_drag_, smooth) && !smooth) check_apply();
+    }
+    void set_smooth_jump(const bool smooth = true) {
+        if(util::try_modify(smooth_jump_, smooth) && !smooth) check_apply();
+    }
 };
 
-export
-struct slider_with_2d_output : slider{
+// ==========================================
+// 1D 滑动条特化
+// ==========================================
+export struct slider1d : slider_base<1, slider1d> {
 private:
-	react_flow::node_holder<react_flow::provider_cached<math::vec2>> output_node;
+    bool is_vertical_{false};
 
 public:
+    referenced_ptr<const style::slider1d_drawer> drawer_{get_scene().style_manager.get_default<style::slider1d_drawer>()};
 
-	slider_with_2d_output(scene& scene, elem* parent)
-		: slider(scene, parent){
-	}
+    using slider_base<1, slider1d>::slider_base;
 
-	react_flow::provider_cached<math::vec2>& get_provider() noexcept{
-		return output_node.node;
-	}
+    [[nodiscard]] bool is_vertical() const noexcept{
+        return is_vertical_;
+    }
 
-	void on_changed() override{
-		output_node->update_value(bar.get_progress());
-	}
+    void set_vertical(bool vertical) noexcept{
+        is_vertical_ = vertical;
+    }
+
+    void set_vertical(layout::layout_policy policy) noexcept{
+        switch(policy){
+        case layout::layout_policy::none: break;
+        case layout::layout_policy::hori_major: is_vertical_ = false; break;
+        case layout::layout_policy::vert_major: is_vertical_ = true; break;
+        }
+    }
+
+    [[nodiscard]] float get_progress() const noexcept { return bar.get_progress()[0]; }
+    [[nodiscard]] float get_temp_progress() const noexcept { return bar.get_temp_progress()[0]; }
+
+    void set_progress(float progress) {
+        if(bar.set_progress(0, progress)) on_changed();
+    }
+
+    void set_progress_from_segments(std::uint32_t current, std::uint32_t total) {
+        if(bar.set_progress_from_segments(0, current, total)) on_changed();
+    }
+
+    void clamp_progress(float from, float to) noexcept {
+        bar.clamp({from}, {to});
+        check_apply();
+    }
+
+    void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override {
+        elem::draw_layer(clipSpace, param);
+        if (drawer_) drawer_->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
+    }
+
+
+	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override {
+    	if(is_disabled()) return elem::get_cursor_type(cursor_pos_at_content_local);
+    	if(cursor_state().pressed || (cursor_pos_at_content_local.axis_greater(vec2{}) && cursor_pos_at_content_local.axis_less(content_extent()))) {
+    		if(is_vertical()){
+    			return {style::cursor_type::drag, {style::cursor_decoration_type::to_up, style::cursor_decoration_type::to_down}};
+    		}else{
+    			return {style::cursor_type::drag, {style::cursor_decoration_type::to_left, style::cursor_decoration_type::to_right}};
+    		}
+    	}
+    	return elem::get_cursor_type(cursor_pos_at_content_local);
+    }
+
 };
 
-export
-struct slider_with_output : slider{
-private:
-	react_flow::node_holder<react_flow::provider_cached<float>> output_node;
-
+// ==========================================
+// 2D 滑动条特化
+// ==========================================
+export struct slider2d : slider_base<2, slider2d> {
 public:
+    referenced_ptr<const style::slider2d_drawer> drawer_{get_scene().style_manager.get_default<style::slider2d_drawer>()};
 
-	slider_with_output(scene& scene, elem* parent)
-		: slider(scene, parent){
-	}
+    using slider_base<2, slider2d>::slider_base;
 
-	react_flow::provider_cached<float>& get_provider() noexcept{
-		return output_node.node;
-	}
+    [[nodiscard]] math::vec2 get_progress() const noexcept { return expand_to_vec2(bar.get_progress()); }
+    [[nodiscard]] math::vec2 get_temp_progress() const noexcept { return expand_to_vec2(bar.get_temp_progress()); }
 
-	void on_changed() override{
-		output_node->update_value(bar.get_progress().get_max());
-	}
+    void set_progress(math::vec2 progress) {
+        if(bar.set_progress({progress.x, progress.y})) on_changed();
+    }
+
+	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override {
+    	if(is_disabled()) return elem::get_cursor_type(cursor_pos_at_content_local);
+    	if(cursor_state().pressed || (cursor_pos_at_content_local.axis_greater(vec2{}) && cursor_pos_at_content_local.axis_less(content_extent()))) {
+    		return {style::cursor_type::drag, {style::cursor_decoration_type::to_left, style::cursor_decoration_type::to_right, style::cursor_decoration_type::to_up, style::cursor_decoration_type::to_down}};
+    	}
+    	return elem::get_cursor_type(cursor_pos_at_content_local);
+    }
+
+    void set_progress_from_segments(math::usize2 current, math::usize2 total) {
+        bool c1 = bar.set_progress_from_segments(0, current.x, total.x);
+        bool c2 = bar.set_progress_from_segments(1, current.y, total.y);
+        if(c1 || c2) on_changed();
+    }
+
+    void clamp_progress(math::vec2 from, math::vec2 to) noexcept {
+        bar.clamp({from.x, from.y}, {to.x, to.y});
+        check_apply();
+    }
+
+    void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override {
+        elem::draw_layer(clipSpace, param);
+        if (drawer_) drawer_->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
+    }
 };
 
-}
+export struct slider1d_with_output : slider1d {
+private:
+    react_flow::node_holder<react_flow::provider_cached<float>> output_node;
+public:
+    slider1d_with_output(scene& scene, elem* parent) : slider1d(scene, parent) {}
+
+    react_flow::provider_cached<float>& get_provider() noexcept { return output_node.node; }
+
+protected:
+    void on_changed() override { output_node->update_value(get_progress()); }
+};
+
+export struct slider2d_with_output : slider2d {
+private:
+    react_flow::node_holder<react_flow::provider_cached<math::vec2>> output_node;
+public:
+    slider2d_with_output(scene& scene, elem* parent) : slider2d(scene, parent) {}
+
+    react_flow::provider_cached<math::vec2>& get_provider() noexcept { return output_node.node; }
+
+protected:
+    void on_changed() override { output_node->update_value(get_progress()); }
+};
+
+} // namespace mo_yanxi::gui

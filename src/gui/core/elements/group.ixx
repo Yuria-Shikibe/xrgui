@@ -21,17 +21,13 @@ protected:
 	mr::heap_vector<elem_ptr> children_{get_heap_allocator<elem_ptr>()};
 
 	void update_children(const float delta_in_ticks) const{
-		if(!update_flag.is_children_update_required())return;
+		auto count = update_flag.get_children_update_count();
+		if(!count)return;
 
-		if(update_flag.is_cache_holdable()){
-			update_flag.get_marked().for_each([&](elem* element){
-				element->update(delta_in_ticks);
-			});
-		}else{
-			for(const auto& element : children_){
-				if(!element->update_flag.is_update_required())continue;
-				element->update(delta_in_ticks);
-			}
+		for(const auto& element : children_){
+			if(!element->update_flag.is_update_required())continue;
+			element->update(delta_in_ticks);
+			if(--count == 0)return;
 		}
 	}
 

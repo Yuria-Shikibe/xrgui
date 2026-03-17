@@ -51,6 +51,7 @@ struct style_drawer_base : referenced_object_persistable{
 export
 template <typename T>
 struct style_drawer : style_drawer_base{
+	using target_type = T;
 public:
 	style_config config;
 

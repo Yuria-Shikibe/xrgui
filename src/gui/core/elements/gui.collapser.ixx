@@ -57,6 +57,8 @@ public:
 		layout_state.intercept_lower_to_isolated = true;
 		item_size[0] = {layout::size_category::pending, 1};
 		item_size[1] = {layout::size_category::pending, 1};
+
+		// get_scene().active_update_elems.insert(this);
 	}
 
 	[[nodiscard]] collapser(scene& scene, elem* parent)
@@ -129,7 +131,7 @@ protected:
 
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
 		head_body_elem::on_inbound_changed(is_inbounded, changed);
-		if(changed && expand_cond_ == collapser_expand_cond::inbound)set_update_required(update_channel::layout);
+		if(expand_cond_ == collapser_expand_cond::inbound)set_update_required(update_channel::layout);
 	}
 
 	void on_focus_changed(bool is_focused) override{

@@ -36,7 +36,7 @@ void cursor_collection::draw(scene& scene) const{
 			.src = region.src.as<int>(),
 			.extent = region.extent().as<int>()
 		},
-		{.pipeline_index = 1}});
+		{.pipeline_index = 2}});
 }
 
 namespace assets::builtin::cursor{

@@ -62,7 +62,7 @@ protected:
 };
 
 export
-struct round_slider_drawer : slider_drawer{
+struct round_slider_drawer : slider1d_drawer{
     image_nine_region handle_shape;
     image_nine_region bar_shape;
 
@@ -74,15 +74,22 @@ struct round_slider_drawer : slider_drawer{
 	float vert_margin = 2.0f;
 
 protected:
-    void draw_layer_impl(const slider& element, math::frect region, float opacityScl,
+    void draw_layer_impl(const target_type& element, math::frect region, float opacityScl,
 	    fx::layer_param layer_param) const override{
 	    if(!layer_param.is_top()) return;
 
 	    state_guard _{element.renderer(), fx::batch_draw_mode::msdf};
 
-	    const auto extent = element.get_bar_handle_extent();
-	    auto pos1 = region.src + element.bar.get_progress() * region.extent().fdim(extent);
-	    auto pos2 = region.src + element.bar.get_temp_progress() * region.extent().fdim(extent);
+	    const auto extent = element.get_bar_handle_extent(region.extent());
+    	auto progress_scl = math::vec2{element.bar.get_progress()[0], 1.f};
+    	auto progress_temp_scl = math::vec2{element.bar.get_temp_progress()[0], 1.f};
+    	if(element.is_vertical()){
+    		progress_scl.swap_xy();
+    		progress_temp_scl.swap_xy();
+    	}
+
+	    auto pos1 = region.src + progress_scl * region.extent().fdim(extent);
+	    auto pos2 = region.src + progress_temp_scl * region.extent().fdim(extent);
 
 	    auto& renderer = element.get_scene().renderer();
 	    using namespace graphic;
@@ -91,21 +98,17 @@ protected:
 	    // 计算左侧进度条的矩形区域
 	    math::raw_frect filled_rect = region;
 
-	    if(element.is_clamped_to_hori()){
-		    // 水平滑动条：高度撑满，宽度为从起点到滑块起点的距离减去边距（使用 std::fdim 防止负数）
-		    filled_rect.extent.x = math::fdim(pos1.x - region.src.x, bar_margin);
-		    filled_rect.extent.y = math::fdim(filled_rect.extent.y, 2 * vert_margin);
-		    filled_rect.src.y += vert_margin;
-	    } else if(element.is_clamped_to_vert()){
-		    // 垂直滑动条：宽度撑满，高度为从起点到滑块起点的距离减去边距
-		    filled_rect.extent.y = math::fdim(pos1.y - region.src.y, bar_margin);
+	    if(element.is_vertical()){
+	    	// 垂直滑动条：宽度撑满，高度为从起点到滑块起点的距离减去边距
+	    	filled_rect.extent.y = math::fdim(pos1.y - region.src.y, bar_margin);
 	    	filled_rect.extent.x = math::fdim(filled_rect.extent.x, 2 * vert_margin);
 	    	filled_rect.src.x += vert_margin;
 	    } else{
-		    // 2D 滑动条：宽高均受滑块位置限制
-	    	filled_rect.src += vert_margin;
-		    filled_rect.extent.x = math::fdim(pos1.x - region.src.x, bar_margin + 2 * vert_margin);
-		    filled_rect.extent.y = math::fdim(pos1.y - region.src.y, bar_margin + 2 * vert_margin);
+
+	    	// 水平滑动条：高度撑满，宽度为从起点到滑块起点的距离减去边距（使用 std::fdim 防止负数）
+	    	filled_rect.extent.x = math::fdim(pos1.x - region.src.x, bar_margin);
+	    	filled_rect.extent.y = math::fdim(filled_rect.extent.y, 2 * vert_margin);
+	    	filled_rect.src.y += vert_margin;
 	    }
 
 	    auto color = handle_palette.on_instance(element).mul_a(opacityScl);
@@ -137,7 +140,7 @@ protected:
 };
 
 export
-struct thin_slider_drawer : slider_drawer{
+struct thin_slider_drawer : slider1d_drawer{
     image_row_patch bar_shape;
 
     palette handle_palette;
@@ -148,15 +151,22 @@ struct thin_slider_drawer : slider_drawer{
 	float bar_thick = 12.0f;
 
 protected:
-    void draw_layer_impl(const slider& element, math::frect region, float opacityScl,
+    void draw_layer_impl(const target_type& element, math::frect region, float opacityScl,
 	    fx::layer_param layer_param) const override{
 	    if(!layer_param.is_top()) return;
 
 	    state_guard _{element.renderer(), fx::batch_draw_mode::msdf};
 
-	    const auto extent = element.get_bar_handle_extent(region.extent());
-	    auto base_off = element.bar.get_progress() * region.extent().fdim(extent);
-	    auto curr_off = element.bar.get_temp_progress() * region.extent().fdim(extent);
+    	const auto extent = element.get_bar_handle_extent(region.extent());
+    	auto progress_scl = math::vec2{element.bar.get_progress()[0], 1.f};
+    	auto progress_temp_scl = math::vec2{element.bar.get_temp_progress()[0], 1.f};
+    	if(element.is_vertical()){
+    		progress_scl.swap_xy();
+    		progress_temp_scl.swap_xy();
+    	}
+
+    	auto base_off = progress_scl * region.extent().fdim(extent);
+    	auto curr_off = progress_temp_scl * region.extent().fdim(extent);
     	auto radius = math::fdim(extent.get_min() / 2.f, 4.f);
 
 	    auto& renderer = element.get_scene().renderer();
@@ -166,7 +176,16 @@ protected:
 	    // 计算左侧进度条的矩形区域
 	    math::raw_frect filled_rect{region.src, base_off};
 
-	    if(element.is_clamped_to_hori()){
+	    if(element.is_vertical()){
+		    filled_rect.src.x += extent.x * .5f - bar_thick;
+		    curr_off.x = base_off.x = extent.x * .5f;
+
+		    filled_rect.extent.y += extent.y * .5f;
+		    curr_off.y += extent.y * .5f;
+		    base_off.y += extent.y * .5f;
+
+		    filled_rect.extent.x = bar_thick * 2.f;
+	    } else{
 		    // 水平滑动条：高度撑满，宽度为从起点到滑块起点的距离减去边距（使用 std::fdim 防止负数）
 		    filled_rect.src.y += extent.y * .5f - bar_thick;
 		    curr_off.y = base_off.y = extent.y * .5f;
@@ -176,18 +195,6 @@ protected:
 		    base_off.x += extent.x * .5f;
 
 		    filled_rect.extent.y = bar_thick * 2.f;
-
-	    } else if(element.is_clamped_to_vert()){
-		    filled_rect.src.x += extent.x * .5f - bar_thick;
-		    curr_off.x = base_off.x = extent.x * .5f;
-
-		    filled_rect.extent.y += extent.y * .5f;
-		    curr_off.y += extent.y * .5f;
-	    	base_off.y += extent.y * .5f;
-
-	    	filled_rect.extent.x = bar_thick * 2.f;
-	    } else{
-			throw std::runtime_error{""};
 	    }
 
 	    auto color = handle_palette.on_instance(element).mul_a(opacityScl);
@@ -199,7 +206,7 @@ protected:
 				    .patch = &bar_shape,
 				    .region = filled_rect,
 				    .color = bar_color,
-		    		.flags = element.is_clamped_to_hori() ? row_patch_flags::none : row_patch_flags::transposed
+		    		.flags = element.is_vertical() ? row_patch_flags::transposed : row_patch_flags::none
 			    };
 	    }
 

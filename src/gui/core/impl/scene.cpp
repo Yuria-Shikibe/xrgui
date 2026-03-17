@@ -25,7 +25,6 @@ scene& scene::operator=(scene&& other) noexcept{
 
 void scene::update(double delta_in_tick){
 	react_flow_->update();
-	update_elem_cursor_state_(delta_in_tick);
 
 	tooltip_manager_.update(delta_in_tick, get_cursor_pos(), is_mouse_pressed());
 	overlay_manager_.update(delta_in_tick);
@@ -40,6 +39,7 @@ void scene::update(double delta_in_tick){
 		active_update_elem->update(delta_in_tick);
 	}
 
+	update_elem_cursor_state_(delta_in_tick);
 
 	current_time_ += delta_in_tick;
 	current_frame_++;
@@ -413,7 +413,7 @@ void scene::drop_(const elem* target) noexcept{
 }
 
 void scene::update_elem_cursor_state_(float delta_in_tick) noexcept{
-	cursor_event_active_elems_.modify_and_erase([=](elem* e){
+	cursor_event_active_elems_.modify_and_erase([&](elem* e){
 		e->cursor_states_.update(delta_in_tick);
 		e->draw_flag.set_self_draw_required(1);
 

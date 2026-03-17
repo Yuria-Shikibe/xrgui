@@ -25,10 +25,12 @@ import <beman/inplace_vector.hpp>;
 
 namespace mo_yanxi::gui{
 export
-struct slider_gradient_drawer : style::default_slider_drawer{
+struct slider_gradient_drawer : style::default_slider1d_drawer{
 	graphic::color src;
 	graphic::color dst;
-	void draw_layer_impl(const slider& element, math::frect region, float opacityScl,
+
+protected:
+	void draw_layer_impl(const target_type& element, math::frect region, float opacityScl,
 		fx::layer_param layer_param) const override{
 		if(layer_param.is_top()){
 			auto srca = src.copy().mul_a(opacityScl);
@@ -40,12 +42,12 @@ struct slider_gradient_drawer : style::default_slider_drawer{
 			};
 		}
 
-		default_slider_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
+		default_slider1d_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
 	}
 };
 
-struct hue_gradient_drawer final : gui::style::default_slider_drawer{
-	void draw_layer_impl(const slider& element, math::frect region, float opacityScl,
+struct hue_gradient_drawer final : gui::style::default_slider1d_drawer{
+	void draw_layer_impl(const target_type& element, math::frect region, float opacityScl,
 		fx::layer_param layer_param) const override{
 		if(layer_param.is_top()){
 			static constexpr int segs_size = 128;
@@ -54,14 +56,12 @@ struct hue_gradient_drawer final : gui::style::default_slider_drawer{
 			float math::vec2::* major;
 			float math::vec2::* minor;
 
-			if(element.is_clamped_to_hori()){
-				major = &math::vec2::x;
-				minor = &math::vec2::y;
-			}else if(element.is_clamped_to_vert()){
+			if(element.is_vertical()){
 				major = &math::vec2::y;
 				minor = &math::vec2::x;
-			}else{
-				throw std::invalid_argument{"invalid draw direction"};
+			} else{
+				major = &math::vec2::x;
+				minor = &math::vec2::y;
 			}
 
 			math::vec2 start = region.get_src();
@@ -81,12 +81,13 @@ struct hue_gradient_drawer final : gui::style::default_slider_drawer{
 			context.dump_mid(element.renderer(), graphic::draw::instruction::line_segments{});
 		}
 
-		default_slider_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
+		default_slider1d_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
 	}
 };
 
-struct alpha_gradient_drawer : gui::style::default_slider_drawer{
-	void draw_layer_impl(const slider& element, math::frect region, float opacityScl,
+struct alpha_gradient_drawer : gui::style::default_slider1d_drawer{
+protected:
+	void draw_layer_impl(const target_type& element, math::frect region, float opacityScl,
 		fx::layer_param layer_param) const override{
 
 		if(layer_param.is_top()){
@@ -107,26 +108,7 @@ struct alpha_gradient_drawer : gui::style::default_slider_drawer{
 				.phase = 8,
 			});
 
-			if(element.is_clamped_to_hori()){
-				element.renderer().push(instruction::rect_aabb{
-						.generic = {.mode = std::to_underlying(fx::primitive_draw_mode::draw_slide_line)},
-						.v00 = region.vert_00(),
-						.v11 = region.vert_11(),
-						.vert_color = {
-							graphic::colors::gray.make_transparent(), graphic::colors::gray,
-							graphic::colors::gray.make_transparent(), graphic::colors::gray
-						}
-					});
-
-				element.renderer().push(instruction::rect_aabb{
-						.v00 = region.vert_00(),
-						.v11 = region.vert_11(),
-						.vert_color = {
-							graphic::colors::light_gray, graphic::colors::light_gray.make_transparent(),
-							graphic::colors::light_gray, graphic::colors::light_gray.make_transparent()
-						}
-					});
-			} else if(element.is_clamped_to_vert()){
+			if(element.is_vertical()){
 				element.renderer().push(instruction::rect_aabb{
 						.generic = {.mode = std::to_underlying(fx::primitive_draw_mode::draw_slide_line)},
 						.v00 = region.vert_00(),
@@ -145,12 +127,30 @@ struct alpha_gradient_drawer : gui::style::default_slider_drawer{
 							graphic::colors::light_gray.make_transparent(), graphic::colors::light_gray.make_transparent()
 						}
 					});
+
 			} else{
-				throw std::invalid_argument{"invalid draw direction"};
+				element.renderer().push(instruction::rect_aabb{
+						.generic = {.mode = std::to_underlying(fx::primitive_draw_mode::draw_slide_line)},
+						.v00 = region.vert_00(),
+						.v11 = region.vert_11(),
+						.vert_color = {
+							graphic::colors::gray.make_transparent(), graphic::colors::gray,
+							graphic::colors::gray.make_transparent(), graphic::colors::gray
+						}
+					});
+
+				element.renderer().push(instruction::rect_aabb{
+						.v00 = region.vert_00(),
+						.v11 = region.vert_11(),
+						.vert_color = {
+							graphic::colors::light_gray, graphic::colors::light_gray.make_transparent(),
+							graphic::colors::light_gray, graphic::colors::light_gray.make_transparent()
+						}
+					});
 			}
 		}
 
-		default_slider_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
+		default_slider1d_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
 	}
 
 };
@@ -160,16 +160,18 @@ constexpr alpha_gradient_drawer alpha_gradient_slider_drawer{};
 
 namespace cpd{
 template <typename ...Fns>
-struct obv_slider : slider{
+struct obv_slider : slider1d{
 	util::observable_value<float, std::decay_t<Fns>...> target;
 
 	template <typename ...FnTys>
 	obv_slider(scene& scene, elem* parent, FnTys&&... fns)
-		: slider(scene, parent), target(std::forward<FnTys>(fns)...){
+		: slider1d(scene, parent), target(std::forward<FnTys>(fns)...){
 	}
 
+protected:
 	void on_changed() override{
-		target(*this, bar.get_progress().get_max());
+		auto val = bar.get_progress()[0];
+		target(val);
 	}
 };
 
@@ -184,19 +186,21 @@ elem_ptr make_obv_slider(elem& parent, FnTys&&... fns){
 export
 struct rgb_picker : head_body{
 private:
-	struct sv_selection : slider{
+	struct sv_selection : slider2d{
 		rgb_picker& get_picker() const noexcept{
 			return parent_ref<rgb_picker>();
 		}
 
 		sv_selection(scene& scene, elem* parent)
-			: slider(scene, parent){
+			: slider2d(scene, parent){
 		}
 
+	protected:
 		void on_changed() override{
 			auto [s, v] = bar.get_progress();
 			get_picker().set_color_sv(math::vec2{s, 1 - v});
 		}
+	public:
 
 		void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 			elem::draw_layer(clipSpace, param);
@@ -205,8 +209,8 @@ private:
 
 				auto hue = get_picker().hsv_.h;
 				auto contentext = content_bound_abs();
-				auto v00_full = contentext.vert_00() + bar_handle_extent / 2;
-				auto v11_full = contentext.vert_11() - bar_handle_extent / 2;
+				auto v00_full = contentext.vert_00() + get_bar_handle_extent(content_extent()) / 2;
+				auto v11_full = contentext.vert_11() - get_bar_handle_extent(content_extent()) / 2;
 
 				renderer().push(graphic::draw::instruction::rect_aabb_outline{
 				   .v00 = v00_full,
@@ -245,7 +249,7 @@ private:
 
 			if(param.is_top()){
 				const auto region = content_bound_abs();
-				const auto extent = get_bar_handle_extent();
+				const auto extent = get_bar_handle_extent(content_extent());
 
 				auto& r = renderer();
 				using namespace graphic;
@@ -283,15 +287,15 @@ private:
 						.color = {colors::black.copy_set_a(opacity), colors::black.copy_set_a(opacity)}
 					}, 1.f);
 				};
-				draw_at(bar.get_progress(), .5f, false);
-				draw_at(bar.get_temp_progress(), 1.f, cursor_state().pressed);
+				draw_at(math::vec2{bar.get_progress()[0], bar.get_progress()[1]}, .5f, false);
+				draw_at(math::vec2{bar.get_temp_progress()[0], bar.get_temp_progress()[1]}, 1.f, cursor_state().pressed);
 			}
 		}
 	};
 
 	graphic::hsv hsv_{};
-	slider* slider_HUE_{};
-	slider* slider_alpha_{};
+	slider1d* slider_HUE_{};
+	slider1d* slider_alpha_{};
 
 	graphic::color result_color_{1, 0, 0, 1};
 private:
@@ -300,11 +304,11 @@ private:
 	}
 
 public:
-	slider& get_slider_HUE() const noexcept{
+	auto& get_slider_HUE() const noexcept{
 		return *slider_HUE_;
 	}
 
-	slider* get_slider_alpha() const noexcept{
+	auto* get_slider_alpha() const noexcept{
 		return slider_alpha_;
 	}
 
@@ -315,7 +319,8 @@ public:
 
 		create_head([](sv_selection& s){
 			s.set_style();
-			s.bar_handle_extent /= 1.3f;
+			s.bar_handle_extent[0] /= 1.3f;
+			s.bar_handle_extent[1] /= 1.3f;
 		});
 
 		if(has_alpha){
@@ -325,33 +330,33 @@ public:
 				sliders.set_expand_policy(layout::expand_policy::passive);
 
 				{
-					auto& s = sliders.set_head_elem<slider>(make_obv_slider(sliders, [this](float hue){
+					auto& s = sliders.set_head_elem<slider1d>(make_obv_slider(sliders, [this](float hue){
 						set_color_hue(hue);
 					}));
 					s.set_style();
-					s.set_clamp_from_layout_policy(layout_policy);
-					s.set_drawer(hue_gradient_slider_drawer);
+					s.set_vertical(layout_policy);
+					s.drawer_ = hue_gradient_slider_drawer;
 					slider_HUE_ = &s;
 				}
 
 				{
-					auto& s = sliders.set_body_elem<slider>(make_obv_slider(sliders, [this](float a){
+					auto& s = sliders.set_body_elem<slider1d>(make_obv_slider(sliders, [this](float a){
 						set_color_alpha(a);
 					}));
 					s.set_style();
-					s.set_clamp_from_layout_policy(layout_policy);
-					s.set_drawer(alpha_gradient_slider_drawer);
+					s.set_vertical(layout_policy);
+					s.drawer_ = alpha_gradient_slider_drawer;
 					slider_alpha_ = &s;
 				}
 			}, layout_policy);
 			set_body_size({layout::size_category::mastering, 128});
 		}else{
-			auto& s = set_body_elem<slider>(make_obv_slider(*this, [this](float hue){
+			auto& s = set_body_elem<slider1d>(make_obv_slider(*this, [this](float hue){
 				set_color_hue(hue);
 			}));
 			s.set_style();
-			s.set_clamp_from_layout_policy(layout_policy);
-			s.set_drawer(hue_gradient_slider_drawer);
+			s.set_vertical(layout_policy);
+			s.drawer_ = hue_gradient_slider_drawer;
 			slider_HUE_ = &s;
 			set_body_size({layout::size_category::mastering, 60});
 		}

@@ -31,7 +31,11 @@
     {
       "file": "ui/blend.slang"
     },
-    
+
+    {
+      "file": "ui/inverse.slang"
+    },
+
     {
       "file": "ui/merge.slang"
     },
@@ -43,7 +47,7 @@
     {
       "file": "ui/draw_v2.slang"
     },
-    
+
     {
       "file": "ui/draw_bindless.slang",
       "options": ["-target", "glsl", "-entry", "main_mesh"]
