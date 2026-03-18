@@ -35,7 +35,7 @@ namespace mo_yanxi::typesetting{
 
 
 export
-bool check_token_group_need_another_run(const tokenized_text_view::token_subrange& range) noexcept{
+constexpr bool check_token_group_need_another_run(const tokenized_text_view::token_span& range) noexcept{
 	return std::ranges::any_of(range, &rich_text_token_argument::need_reset_run);
 }
 
@@ -61,6 +61,15 @@ struct update_param{
 
 
 export
+struct rich_text_fallback_style {
+	math::vec2 offset{};
+	graphic::color color{graphic::colors::white};
+	const font::font_family* family{nullptr}; // 若为空，稍后使用 manager 的 default
+	gch::small_vector<hb_feature_t> features{}; // 初始全局 OpenType 特性
+	bool enables_underline{false};
+};
+
+export
 struct rich_text_context{
 private:
 	stack_of<math::vec2> history_offset_;
@@ -69,7 +78,8 @@ private:
 	stack_of<const font::font_family*> history_font_;
 	stack_of<unsigned> history_feature_group_count_;
 
-	bool enables_underline_{};
+	// 使用 optional 记录下划线状态。只有 std::nullopt 时才采用 fallback
+	std::optional<bool> enables_underline_{std::nullopt};
 
 public:
 	void clear() noexcept{
@@ -78,28 +88,30 @@ public:
 		history_color_.clear();
 		history_size_.clear();
 		history_feature_group_count_.clear();
-		enables_underline_ = false;
+		enables_underline_.reset();
 	}
 
-	[[nodiscard]] FORCE_INLINE inline bool is_underline_enabled() const noexcept{
-		return enables_underline_;
+	[[nodiscard]] FORCE_INLINE inline bool is_underline_enabled(const rich_text_fallback_style& fallback) const noexcept{
+		return enables_underline_.value_or(fallback.enables_underline);
 	}
 
 	[[nodiscard]] FORCE_INLINE inline math::vec2 get_size(math::vec2 default_font_size) const noexcept{
+		// 字体基础尺寸通常依然通过排版全局属性控制，如有需要也可以加进 fallback
 		return history_size_.top(default_font_size);
 	}
 
-	[[nodiscard]] FORCE_INLINE inline math::vec2 get_offset() const noexcept{
-		return history_offset_.top({});
+	[[nodiscard]] FORCE_INLINE inline math::vec2 get_offset(const rich_text_fallback_style& fallback) const noexcept{
+		return history_offset_.top(fallback.offset);
 	}
 
-	[[nodiscard]] FORCE_INLINE inline graphic::color get_color() const noexcept{
-		return history_color_.top(graphic::colors::white);
+	[[nodiscard]] FORCE_INLINE inline graphic::color get_color(const rich_text_fallback_style& fallback) const noexcept{
+		return history_color_.top(fallback.color);
 	}
 
 	[[nodiscard]] FORCE_INLINE inline const font::font_family& get_font(
+		const rich_text_fallback_style& fallback,
 		const font::font_family* default_family) const noexcept{
-		auto rst = history_font_.top(default_family);
+		auto rst = history_font_.top(fallback.family ? fallback.family : default_family);
 		assert(rst != nullptr);
 		return *rst;
 	}
@@ -109,13 +121,13 @@ public:
 	void update(
 		font::font_manager& manager,
 		const update_param& param,
-		const tokenized_text_view::token_subrange& tokens,
+		const rich_text_fallback_style& fallback, // 增加 fallback 参数
+		const tokenized_text_view::token_span& tokens,
 		context_update_mode mode = context_update_mode::all,
 		OnAddFn&& on_add = {},
 		OnEraseFn&& on_erase = {}
 	){
 		using namespace rich_text_token;
-
 		bool is_contiguous_feature{};
 		for(const rich_text_token_argument& token : tokens){
 			bool is_hard = token.need_reset_run();
@@ -132,9 +144,9 @@ public:
 						switch(t.type){
 						case setter_type::absolute : history_offset_.push(t.offset);
 							break;
-						case setter_type::relative_add : history_offset_.push(history_offset_.top({}) + t.offset);
+						case setter_type::relative_add : history_offset_.push(history_offset_.top(fallback.offset) + t.offset);
 							break;
-						case setter_type::relative_mul : history_offset_.push(history_offset_.top({}) * t.offset);
+						case setter_type::relative_mul : history_offset_.push(history_offset_.top(fallback.offset) * t.offset);
 							break;
 						default : std::unreachable();
 						}
@@ -144,23 +156,10 @@ public:
 						case setter_type::absolute : history_color_.push(t.color);
 							break;
 						case setter_type::relative_add : history_color_.push(
-								history_color_.top(graphic::colors::white / 2) + t.color);
+								history_color_.top(fallback.color) + t.color);
 							break;
 						case setter_type::relative_mul : history_color_.push(
-								history_color_.top(graphic::colors::white / 2) * t.color);
-							break;
-						default : std::unreachable();
-						}
-					},
-					[&](const set_size& t){
-						switch(t.type){
-						case setter_type::absolute : history_size_.push(t.size);
-							break;
-						case setter_type::relative_add : history_size_.push(
-								history_size_.top(param.default_font_size) + t.size);
-							break;
-						case setter_type::relative_mul : history_size_.push(
-								history_size_.top(param.default_font_size) * t.size);
+								history_color_.top(fallback.color) * t.color);
 							break;
 						default : std::unreachable();
 						}

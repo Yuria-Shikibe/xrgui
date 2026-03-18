@@ -60,6 +60,7 @@ constexpr bool is_separator(char32_t c) noexcept {
 	return c <= ends[idx];
 }
 
+
 export struct layout_config{
 	layout_direction direction;
 	math::vec2 max_extent = math::vectors::constant2<float>::inf_positive_vec2;
@@ -71,6 +72,8 @@ export struct layout_config{
 	float line_spacing_fixed_distance = 0.f;
 	char32_t wrap_indicator_char = U'\u2925';
 	math::optional_vec2<float> screen_ppi{math::nullopt_vec2<float>};
+
+	rich_text_fallback_style rich_text_fallback_style;
 
 	[[nodiscard]] math::vec2 get_default_font_size() const noexcept{
 		return default_font_size.value_or(
@@ -241,8 +244,8 @@ private:
 		math::vec2 max_bound{-math::vectors::constant2<float>::inf_positive_vec2};
 		math::vec2 default_font_size{};
 		float default_line_thickness{};
-		float default_ascender{};  // 新增：默认升部
-		float default_descender{}; // 新增：默认降部
+		float default_ascender{};
+		float default_descender{};
 
 		float default_space_width{};
 		float prev_line_descender{};
@@ -254,9 +257,9 @@ private:
 
 		line_buffer_t line_buffer{};
 		layout_block current_block{};
-		rich_text_context rich_context;
-		tokenized_text_view::token_iterator token_hard_last;
-		tokenized_text_view::token_iterator token_soft_last;
+		rich_text_context rich_context{};
+		tokenized_text_view::token_iterator token_hard_last{};
+		tokenized_text_view::token_iterator token_soft_last{};
 
 		void reset(const tokenized_text_view& t){
 			min_bound = math::vectors::constant2<float>::inf_positive_vec2;
@@ -341,7 +344,9 @@ private:
 	void initialize_state(const tokenized_text_view& full_text, font::font_face_view base_view){
 		base_view = base_view ? base_view : manager_->use_family(manager_->get_default_family());
 		state_.reset(full_text);
+
 		feature_stack_.clear();
+		feature_stack_ = config_.rich_text_fallback_style.features;
         feature_stack_.reserve(8); // --- 预留优化：预分配常用 OpenType feature 的空间 ---
 
 		if(config_.direction != layout_direction::deduced){
@@ -682,12 +687,13 @@ private:
 						state_.default_font_size, state_.current_block.block_ascender,
 						state_.current_block.block_descender, this->is_vertical()
 					},
+					config_.rich_text_fallback_style,
 					tokens, context_update_mode::soft_only
 				);
 				state_.token_soft_last = tokens.end();
 			}
 		}
-		ctx.rich_offset = state_.rich_context.get_offset();
+		ctx.rich_offset = state_.rich_context.get_offset(config_.rich_text_fallback_style);
 		ctx.next_apply_pos = target_cluster + 1;
 	}
 
@@ -746,12 +752,12 @@ private:
 			const auto current_cluster = infos[i].cluster;
 			const auto ch = full_text.get_text()[current_cluster];
 			const bool is_delimiter = (ch == U' ' || ch == U'\t' || ch == U'\r' || ch == U'\n' || mo_yanxi::typesetting::is_separator(ch));
-			ctx.prev_color = state_.rich_context.get_color();
-			const bool was_ul = state_.rich_context.is_underline_enabled();
+			ctx.prev_color = state_.rich_context.get_color(config_.rich_text_fallback_style);
+			const bool was_ul = state_.rich_context.is_underline_enabled(config_.rich_text_fallback_style);
 
 			this->sync_rich_text(full_text, current_cluster, ctx);
 
-			const bool is_ul = state_.rich_context.is_underline_enabled();
+			const bool is_ul = state_.rich_context.is_underline_enabled(config_.rich_text_fallback_style);
 			if(was_ul && !is_ul && ctx.active_ul_start){
 				this->submit_underline(*ctx.active_ul_start, ctx, metrics, is_delimiter);
 				ctx.active_ul_start.reset();
@@ -770,7 +776,7 @@ private:
 
 				if(!this->flush_block(results)) return false;
 
-				if(ch != U'\n' && ch != U'\r' && state_.rich_context.is_underline_enabled()){
+				if(ch != U'\n' && ch != U'\r' && state_.rich_context.is_underline_enabled(config_.rich_text_fallback_style)){
 					ctx.active_ul_start = ul_start_info{state_.current_block.cursor, this->get_current_gap_index(true)};
 				}
 			}
@@ -908,7 +914,7 @@ private:
 							);
 						}
 
-						if (state_.rich_context.is_underline_enabled()) {
+						if (state_.rich_context.is_underline_enabled(config_.rich_text_fallback_style)) {
 							ctx.active_ul_start = ul_start_info{state_.current_block.cursor, this->get_current_gap_index(false)};
 						}
 					}
@@ -958,7 +964,7 @@ private:
 			const math::frect draw_aabb = actual_aabb.copy().expand(font::font_draw_expand * metrics.run_scale_factor);
 
 			state_.current_block.push_back(actual_aabb, {
-					draw_aabb, state_.rich_context.get_color(), std::move(loaded_glyph)
+					draw_aabb, state_.rich_context.get_color(config_.rich_text_fallback_style), std::move(loaded_glyph)
 				});
 			if(!this->is_reversed()) state_.current_block.cursor = this->move_pen(state_.current_block.cursor, run_advance);
 		}
@@ -978,6 +984,7 @@ private:
 							state_.default_font_size, state_.current_block.block_ascender,
 							state_.current_block.block_descender, this->is_vertical()
 						},
+						config_.rich_text_fallback_style,
 						tokens, typesetting::context_update_mode::soft_only);
 					state_.token_soft_last = tokens.end();
 				}
@@ -994,7 +1001,7 @@ private:
 
 		auto resolve_face = [&](font::font_face_handle* current, char32_t codepoint) -> font::font_face_handle*{
 			if(current && current->index_of(codepoint)) return current;
-			const auto* family = &state_.rich_context.get_font(manager_->get_default_family());
+			const auto* family = &state_.rich_context.get_font(config_.rich_text_fallback_style, manager_->get_default_family());
 			auto face_view = manager_->use_family(family);
 			auto [best_face, _] = face_view.find_glyph_of(codepoint);
 			return best_face;
@@ -1014,6 +1021,7 @@ private:
 						state_.default_font_size, state_.current_block.block_ascender,
 						state_.current_block.block_descender, this->is_vertical()
 					},
+					config_.rich_text_fallback_style,
 					tokens, context_update_mode::hard_only,
 					[&](hb_feature_t f){
 						f.start = static_cast<unsigned int>(current_idx);

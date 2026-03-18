@@ -51,17 +51,12 @@ private:
 public:
 	using pos_t = decltype(chars_)::size_type;
 	using token_iterator = decltype(tokens_)::const_iterator;
-	using token_subrange = std::ranges::subrange<token_iterator>;
+	using token_span = std::span<const posed_token_argument>;
 
 	constexpr bool operator==(const tokenized_text&) const noexcept = default;
 
-	constexpr bool empty() const noexcept{
-		return chars_.empty();
-	}
-
-	constexpr std::u32string_view get_text() const noexcept{
-		return chars_;
-	}
+	constexpr bool empty() const noexcept { return chars_.empty(); }
+	constexpr std::u32string_view get_text() const noexcept { return chars_; }
 
 	constexpr token_iterator get_token(const pos_t pos, const token_iterator& last) const noexcept{
 		return std::ranges::lower_bound(last, tokens_.end(), pos, {}, &posed_token_argument::pos);
@@ -75,17 +70,17 @@ public:
 		return get_token(pos, tokens_.begin());
 	}
 
-
-	constexpr token_subrange get_tokens() const noexcept{
-		return {tokens_};
+	constexpr token_span get_tokens() const noexcept{
+		return tokens_;
 	}
 
 	constexpr token_iterator get_init_token() const noexcept{
 		return tokens_.begin();
 	}
 
-	[[nodiscard]] constexpr token_subrange get_token_group(const pos_t pos, const token_iterator& last) const{
-		return std::ranges::equal_range(last, tokens_.end(), pos, {}, &posed_token_argument::pos);
+	[[nodiscard]] constexpr token_span get_token_group(const pos_t pos, const token_iterator& last) const{
+		auto range = std::ranges::equal_range(last, tokens_.end(), pos, {}, &posed_token_argument::pos);
+		return token_span{range.begin(), range.end()};
 	}
 
 	[[nodiscard]] constexpr tokenized_text() = default;
