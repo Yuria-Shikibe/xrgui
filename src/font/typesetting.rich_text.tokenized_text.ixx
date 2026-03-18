@@ -67,8 +67,17 @@ public:
 		return std::ranges::lower_bound(last, tokens_.end(), pos, {}, &posed_token_argument::pos);
 	}
 
+	constexpr token_iterator get_token_sentinel(const pos_t pos, const token_iterator& last) const noexcept{
+		return std::ranges::upper_bound(last, tokens_.end(), pos, {}, &posed_token_argument::pos);
+	}
+
 	constexpr token_iterator get_token(const pos_t pos) const noexcept{
 		return get_token(pos, tokens_.begin());
+	}
+
+
+	constexpr token_subrange get_tokens() const noexcept{
+		return {tokens_};
 	}
 
 	constexpr token_iterator get_init_token() const noexcept{

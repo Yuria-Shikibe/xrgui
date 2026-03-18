@@ -353,7 +353,18 @@ public:
     bool update(float delta_in_ticks) override;
 
     events::op_afterwards on_drag(const events::drag event) override;
-    events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override;
+
+	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+		if (!event.key.on_release()) {
+			set_focus(true); // 保证获取焦点，并处理了 Idle 的清理工作
+
+			math::vec2 localpos = event.pos - get_glyph_src_local();
+			core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), localpos, render_cache_.get_line_align(), false);
+			reset_blink();
+		}
+		return elem::on_click(event, aboves);
+	}
+
     events::op_afterwards on_key_input(const input_handle::key_set key) override;
     events::op_afterwards on_unicode_input(const char32_t val) override;
     events::op_afterwards on_esc() override;
@@ -419,6 +430,10 @@ public:
 
 	void on_changed() override{
 		prov_->pull_and_push(false);
+	}
+
+	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
+		return style::cursor_style{style::cursor_type::textarea};
 	}
 };
 

@@ -21,6 +21,7 @@ import std;
 
 
 export import :tokenized_text;
+export import :tokenized_text_view;
 export import :argument;
 
 export import mo_yanxi.font;
@@ -34,7 +35,7 @@ namespace mo_yanxi::typesetting{
 
 
 export
-bool check_token_group_need_another_run(const tokenized_text::token_subrange& range) noexcept{
+bool check_token_group_need_another_run(const tokenized_text_view::token_subrange& range) noexcept{
 	return std::ranges::any_of(range, &rich_text_token_argument::need_reset_run);
 }
 
@@ -108,7 +109,7 @@ public:
 	void update(
 		font::font_manager& manager,
 		const update_param& param,
-		const tokenized_text::token_subrange& tokens,
+		const tokenized_text_view::token_subrange& tokens,
 		context_update_mode mode = context_update_mode::all,
 		OnAddFn&& on_add = {},
 		OnEraseFn&& on_erase = {}

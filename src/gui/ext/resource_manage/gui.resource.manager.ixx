@@ -222,6 +222,7 @@ enum struct shape_id{
 	round_square_base,
 
 	check,
+	textarea,
 	close,
 };
 

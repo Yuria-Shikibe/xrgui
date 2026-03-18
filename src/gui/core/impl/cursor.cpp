@@ -21,8 +21,6 @@ void cursor_collection::draw(scene& scene) const{
 
 	if(current_drawers_.main){
 		region = current_drawers_.main->draw(scene.renderer(), {scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
-	}else{
-		region = assets::builtin::cursor::default_cursor.draw(scene.renderer(), {scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
 	}
 
 	for (auto dcor : current_drawers_.dcor){

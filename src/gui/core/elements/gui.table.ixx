@@ -7,12 +7,11 @@ export module mo_yanxi.gui.elem.table;
 export import mo_yanxi.gui.layout.policies;
 export import mo_yanxi.gui.layout.cell;
 export import mo_yanxi.gui.elem.celled_group;
-export import mo_yanxi.gui.util;
+import mo_yanxi.gui.util;
 import std;
 
-
 namespace mo_yanxi::gui{
-using table_size_t = unsigned;
+using table_size_t = std::uint32_t;
 
 export struct table_cell_adaptor : cell_adaptor<layout::mastering_cell>{
 	//Against MSVC redefine bug...
@@ -28,20 +27,12 @@ export struct table_cell_adaptor : cell_adaptor<layout::mastering_cell>{
 	}
 };
 
-//TODO allocators for temp vectors
-//TODO apply clamp
-//TODO apply scaling
-
 class layout_line{
 public:
 	std::vector<layout::stated_extent> size_data{};
 };
 
 export struct table;
-
-constexpr auto table_chunk_by = std::views::chunk_by([](const table_cell_adaptor& current, const table_cell_adaptor&){
-	return !current.line_feed();
-});
 
 class table_layout_context{
 	using cell_adaptor_type = table_cell_adaptor;
@@ -61,6 +52,7 @@ class table_layout_context{
 	};
 
 	layout::layout_policy policy_{};
+	std::span<const std::uint32_t> row_counts_{};
 	table_size_t max_major_size_{};
 	std::vector<table_head> masters_{};
 
@@ -70,10 +62,11 @@ public:
 	[[nodiscard]] table_layout_context(
 		const layout::layout_policy policy,
 		const table_size_t max_major_size,
-		const table_size_t max_minor_size
+		std::span<const std::uint32_t> row_counts
 	) :
 		policy_(policy),
-		max_major_size_{max_major_size}, masters_(max_major_size + max_minor_size){
+		row_counts_(row_counts),
+		max_major_size_{max_major_size}, masters_(max_major_size + row_counts.size()){
 	}
 
 	template <typename T>
@@ -89,7 +82,7 @@ public:
 
 
 	[[nodiscard]] constexpr table_size_t max_minor_size() const noexcept{
-		return masters_.size() - max_major_size_;
+		return static_cast<table_size_t>(row_counts_.size());
 	}
 
 	[[nodiscard]] constexpr table_size_t max_major_size() const noexcept{
@@ -142,28 +135,14 @@ public:
 	}
 
 private:
-	/**
-	 * @brief write known max size to table heads and output masterings
-	 * @param cells Cells to layout
-	 * @param scaling
-	 * @return master cell already captured extent and cell counts
-	 */
 	pre_layout_result layout_masters(std::span<const cell_adaptor_type> cells, math::vec2 scaling) noexcept;
 
-	/**
-	 *
-	 * @return elements captured size
-	 */
 	math::vec2 restricted_allocate_pendings(
 		const std::span<const cell_adaptor_type> cells,
 		math::vec2 valid_extent,
 		pre_layout_result pre_result);
 
 public:
-	/**
-	 * @brief
-	 * @return extent of the required
-	 */
 	math::vec2 allocate_cells(
 		std::span<const cell_adaptor_type> cells,
 		math::vec2 valid_size,
@@ -176,8 +155,19 @@ public:
 	);
 };
 
-
 struct table : universal_group<table_cell_adaptor::cell_type, table_cell_adaptor>{
+private:
+	bool grid_dirty_{true};
+	std::vector<std::uint32_t, mr::heap_allocator<std::uint32_t>> grid_row_counts_{get_heap_allocator()};
+	std::uint32_t max_major_size_{0};
+
+	align::pos entire_align_{align::pos::center};
+	layout::layout_policy layout_policy_{
+		search_parent_layout_policy(false).value_or(layout::layout_policy::hori_major)
+	};
+	layout::expand_policy expand_policy_{layout::expand_policy::resize_to_fit};
+
+public:
 	[[nodiscard]] table(scene& scene, elem* parent)
 		: universal_group(scene, parent){
 		layout_state.intercept_lower_to_isolated = true;
@@ -216,27 +206,30 @@ struct table : universal_group<table_cell_adaptor::cell_type, table_cell_adaptor
 	table& end_line(){
 		if(cells_.empty()) return *this;
 		cells_.back().cell.end_line = true;
+		grid_dirty_ = true;
 		return *this;
 	}
 
 	void set_edge_pad(align::spacing pad){
-		const auto grid = util::countRowAndColumn_toVector(cells_, &table_cell_adaptor::line_feed);
-		if(grid.empty()) return;
-		auto end_idx = std::ranges::max(grid) - 1;
-
-		auto view = cells_ | table_chunk_by | std::views::enumerate;
+		update_grid_cache();
+		if(grid_row_counts_.empty()) return;
+		auto end_idx = max_major_size_ - 1;
 
 		bool changed{};
+		std::uint32_t cell_idx = 0;
+		for(std::uint32_t minor = 0; minor < grid_row_counts_.size(); ++minor){
+			std::uint32_t row_len = grid_row_counts_[minor];
+			auto line = std::span(cells_).subspan(cell_idx, row_len);
 
-		for(auto&& [minor, line] : view){
-			for(auto&& [major, elem] : line | std::views::enumerate){
+			for(std::uint32_t major = 0; major < row_len; ++major){
+				auto& elem = line[major];
 				switch(layout_policy_){
 				case layout::layout_policy::hori_major :{
 					if(minor == 0){
 						changed |= util::try_modify(elem.cell.pad.top, pad.top);
 					}
 
-					if(minor == grid.size() - 1){
+					if(minor == grid_row_counts_.size() - 1){
 						changed |= util::try_modify(elem.cell.pad.bottom, pad.bottom);
 					}
 
@@ -244,7 +237,7 @@ struct table : universal_group<table_cell_adaptor::cell_type, table_cell_adaptor
 						changed |= util::try_modify(elem.cell.pad.left, pad.left);
 					}
 
-					if(major == end_idx || (elem.cell.saturate && std::ranges::size(line) == 1)){
+					if(major == end_idx || (elem.cell.saturate && row_len == 1)){
 						changed |= util::try_modify(elem.cell.pad.right, pad.right);
 					}
 					break;
@@ -254,7 +247,7 @@ struct table : universal_group<table_cell_adaptor::cell_type, table_cell_adaptor
 						changed |= util::try_modify(elem.cell.pad.left, pad.left);
 					}
 
-					if(minor == grid.size() - 1){
+					if(minor == grid_row_counts_.size() - 1){
 						changed |= util::try_modify(elem.cell.pad.right, pad.right);
 					}
 
@@ -262,13 +255,14 @@ struct table : universal_group<table_cell_adaptor::cell_type, table_cell_adaptor
 						changed |= util::try_modify(elem.cell.pad.top, pad.top);
 					}
 
-					if(major == end_idx || (elem.cell.saturate && std::ranges::size(line) == 1)){
+					if(major == end_idx || (elem.cell.saturate && row_len == 1)){
 						changed |= util::try_modify(elem.cell.pad.bottom, pad.bottom);
-					}
+				}
 				}
 				default : break;
 				}
 			}
+			cell_idx += row_len;
 		}
 
 		if(changed){
@@ -280,17 +274,37 @@ struct table : universal_group<table_cell_adaptor::cell_type, table_cell_adaptor
 		set_edge_pad({pad, pad, pad, pad});
 	}
 
+	// ---------------- Override 增删查改维护拓扑缓存 ----------------
+	void clear() noexcept override {
+		grid_dirty_ = true;
+		universal_group::clear();
+	}
+
+	void erase_afterward(std::size_t where) override {
+		grid_dirty_ = true;
+		universal_group::erase_afterward(where);
+	}
+
+	void erase_instantly(std::size_t where) override {
+		grid_dirty_ = true;
+		universal_group::erase_instantly(where);
+	}
+
 protected:
+	void on_element_add(table_cell_adaptor& adaptor) override {
+		grid_dirty_ = true;
+		universal_group::on_element_add(adaptor);
+	}
+
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
 		if(expand_policy_ == layout::expand_policy::passive) return std::nullopt;
 
-		const auto grid = util::countRowAndColumn_toVector(cells_, &table_cell_adaptor::line_feed);
-		if(grid.empty()) return std::nullopt;
+		update_grid_cache();
+		if(grid_row_counts_.empty()) return std::nullopt;
 
-		table_layout_context context{layout_policy_, std::ranges::max(grid), static_cast<table_size_t>(grid.size())};
+		table_layout_context context{layout_policy_, max_major_size_, grid_row_counts_};
 
 		auto size = context.allocate_cells(cells_, extent.potential_extent(), get_scaling());
-
 		if(expand_policy_ == layout::expand_policy::prefer){
 			if(const auto v = get_prefer_extent()) size.max(v.value().copy().fdim(boarder_extent()));
 		}
@@ -299,11 +313,9 @@ protected:
 		return extent.potential_extent();
 	}
 
-
 	math::vec2 pre_layout(table_layout_context& context, layout::optional_mastering_extent constrain,
 	                      bool size_to_constrain){
 		auto size = context.allocate_cells(cells_, constrain.potential_extent(), get_scaling());
-
 		const auto [major_target, minor_target] = layout::get_vec_ptr<>(layout_policy_);
 		const auto [dep_major_target, dep_minor_target] = layout::get_vec_ptr<bool>(layout_policy_);
 
@@ -322,23 +334,37 @@ protected:
 	}
 
 	void layout_directional(){
-		const auto grid = util::countRowAndColumn_toVector(cells_, &table_cell_adaptor::line_feed);
-		if(grid.empty()) return;
+		update_grid_cache();
+		if(grid_row_counts_.empty()) return;
 
-		table_layout_context context{layout_policy_, std::ranges::max(grid), static_cast<table_size_t>(grid.size())};
+		table_layout_context context{layout_policy_, max_major_size_, grid_row_counts_};
 
 		auto extent = restriction_extent;
 		extent.collapse(content_extent());
 		const auto size = context.allocate_cells(cells_, extent.potential_extent(), get_scaling());
 		const auto off = align::get_offset_of(entire_align_, size, rect{tags::from_extent, {}, content_extent()});
-
 		context.place_cells(cells_, *this, rect{tags::from_extent, off, size});
 	}
 
-	align::pos entire_align_{align::pos::center};
-	layout::layout_policy layout_policy_{
-			search_parent_layout_policy(false).value_or(layout::layout_policy::hori_major)
-		};
-	layout::expand_policy expand_policy_{layout::expand_policy::resize_to_fit};
+	void update_grid_cache() {
+		if (!grid_dirty_) return;
+		grid_row_counts_.clear();
+		max_major_size_ = 0;
+		std::uint32_t current_row_count = 0;
+		for (const auto& cell : cells_) {
+			current_row_count++;
+			if (cell.line_feed()) {
+				grid_row_counts_.push_back(current_row_count);
+				max_major_size_ = std::max(max_major_size_, current_row_count);
+				current_row_count = 0;
+			}
+		}
+		if (current_row_count > 0) {
+			grid_row_counts_.push_back(current_row_count);
+			max_major_size_ = std::max(max_major_size_, current_row_count);
+		}
+		grid_dirty_ = false;
+	}
+
 };
 }

@@ -15,7 +15,7 @@ export import :result;
 import mo_yanxi.font;
 import mo_yanxi.font.manager;
 import mo_yanxi.typesetting.util;
-import mo_yanxi.typesetting.rich_text;
+export import mo_yanxi.typesetting.rich_text;
 import mo_yanxi.hb.wrap;
 import mo_yanxi.math;
 export import mo_yanxi.graphic.image_region;
@@ -255,10 +255,10 @@ private:
 		line_buffer_t line_buffer{};
 		layout_block current_block{};
 		rich_text_context rich_context;
-		tokenized_text::token_iterator token_hard_last;
-		tokenized_text::token_iterator token_soft_last;
+		tokenized_text_view::token_iterator token_hard_last;
+		tokenized_text_view::token_iterator token_soft_last;
 
-		void reset(const tokenized_text& t){
+		void reset(const tokenized_text_view& t){
 			min_bound = math::vectors::constant2<float>::inf_positive_vec2;
 			max_bound = -math::vectors::constant2<float>::inf_positive_vec2;
 			default_font_size = {};
@@ -296,13 +296,13 @@ public:
 
 #pragma region API
 
-	[[nodiscard]] glyph_layout layout(const tokenized_text& full_text, font::font_face_view default_font_face = {}){
+	[[nodiscard]] glyph_layout layout(const tokenized_text_view& full_text, font::font_face_view default_font_face = {}){
 		glyph_layout results{};
 		this->layout(results, full_text, default_font_face);
 		return results;
 	}
 
-	void layout(glyph_layout& layout_ref, const tokenized_text& full_text, font::font_face_view default_font_face = {}){
+	void layout(glyph_layout& layout_ref, const tokenized_text_view& full_text, font::font_face_view default_font_face = {}){
 		this->initialize_state(full_text, default_font_face);
 
 		layout_ref.elems.clear();
@@ -338,7 +338,7 @@ public:
 private:
 #pragma region Initialization_And_Finalization
 
-	void initialize_state(const tokenized_text& full_text, font::font_face_view base_view){
+	void initialize_state(const tokenized_text_view& full_text, font::font_face_view base_view){
 		base_view = base_view ? base_view : manager_->use_family(manager_->get_default_family());
 		state_.reset(full_text);
 		feature_stack_.clear();
@@ -672,7 +672,7 @@ private:
 
 #pragma region Glyph_Processing_Pipeline
 
-	void sync_rich_text(const tokenized_text& full_text, typst_szt target_cluster, text_run_context& ctx){
+	void sync_rich_text(const tokenized_text_view& full_text, typst_szt target_cluster, text_run_context& ctx){
 		for(typst_szt p = ctx.next_apply_pos; p <= target_cluster; ++p){
 			auto tokens = full_text.get_token_group(p, state_.token_soft_last);
 			if(!tokens.empty()){
@@ -718,7 +718,7 @@ private:
 		}
 	}
 
-	bool process_text_run(const tokenized_text& full_text, glyph_layout& results, typst_szt start, typst_szt length,
+	bool process_text_run(const tokenized_text_view& full_text, glyph_layout& results, typst_szt start, typst_szt length,
 		font::font_face_handle& face){
 		hb_buffer_clear_contents(hb_buffer_.get());
 		hb_buffer_add_utf32(hb_buffer_.get(), reinterpret_cast<const std::uint32_t*>(full_text.get_text().data()),
@@ -987,7 +987,7 @@ private:
 		return true;
 	}
 
-	bool process_layout(const tokenized_text& full_text, glyph_layout& results){
+	bool process_layout(const tokenized_text_view& full_text, glyph_layout& results){
 		typst_szt current_idx = 0;
 		typst_szt run_start = 0;
 		font::font_face_handle* current_face = nullptr;

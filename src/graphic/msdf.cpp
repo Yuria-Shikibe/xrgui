@@ -1,18 +1,26 @@
 module;
 
+// 宏开关：设置是否使用 freetype 和 clipper2 处理复杂的 SVG 图像（如描边），默认关闭 (0)
+#ifndef MO_YANXI_USE_COMPLEX_SVG
+#define MO_YANXI_USE_COMPLEX_SVG 0
+#endif
+
 #include <nanosvg/nanosvg.h>
 
+#if MO_YANXI_USE_COMPLEX_SVG
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_STROKER_H
 #include FT_OUTLINE_H
+#endif
 
 #define MSDFGEN_USE_CPP11
 #include <msdfgen/msdfgen.h>
 #include <msdfgen/msdfgen-ext.h>
 
-
+#if MO_YANXI_USE_COMPLEX_SVG
 #include <clipper2/clipper.h>
+#endif
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
@@ -21,6 +29,7 @@ module mo_yanxi.graphic.msdf;
 import mo_yanxi.font;
 import std;
 
+#if MO_YANXI_USE_COMPLEX_SVG
 namespace{
 namespace clipper2 = Clipper2Lib;
 
@@ -398,6 +407,38 @@ msdfgen::Shape process_nsvg_with_freetype(
 	FT_Stroker_Done(stroker);
 	return final_shape;
 }
+#else
+// 当宏关闭时，使用基础解析降级方案 (仅处理 Fill)，剥离对 FreeType/Clipper2 的依赖
+msdfgen::Shape process_nsvg_basic(NSVGimage* svgimage, msdfgen::Shape& final_shape){
+	if(!svgimage) return final_shape;
+
+	for(const NSVGshape* nsvg_shape = svgimage->shapes; nsvg_shape; nsvg_shape = nsvg_shape->next){
+		const bool has_fill = (nsvg_shape->fill.type != NSVG_PAINT_NONE);
+
+		if(has_fill){
+			msdfgen::Contour& contour = final_shape.addContour();
+			for(const NSVGpath* path = nsvg_shape->paths; path != nullptr; path = path->next){
+				for(const auto& [p1, p2, p3, p4] :
+				    std::span{path->pts, path->npts * 2uz}
+				    | std::views::adjacent<2> | std::views::stride(2) | std::views::transform([](auto&& p){
+					    auto [x, y] = p;
+					    return mo_yanxi::math::vec2{x, y};
+				    })
+				    | std::views::adjacent<4>
+				    | std::views::stride(3)){
+					msdfgen::Point2 p1_(p1.x, p1.y);
+					msdfgen::Point2 p2_(p2.x, p2.y);
+					msdfgen::Point2 p3_(p3.x, p3.y);
+					msdfgen::Point2 p4_(p4.x, p4.y);
+
+					contour.addEdge(new msdfgen::CubicSegment(p1_, p2_, p3_, p4_));
+				}
+			}
+		}
+	}
+	return final_shape;
+}
+#endif
 
 namespace mo_yanxi::graphic::msdf{
 
@@ -501,7 +542,11 @@ svg_info handle_nanosvg(NSVGimage* svg_image){
 
 	msdfgen::Shape shape;
 	try{
+#if MO_YANXI_USE_COMPLEX_SVG
 		process_nsvg_with_freetype(svg_image, shape);
+#else
+		process_nsvg_basic(svg_image, shape);
+#endif
 	} catch(...){
 		nsvgDelete(svg_image);
 		return {};

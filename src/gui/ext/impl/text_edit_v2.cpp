@@ -400,18 +400,6 @@ math::frect text_edit_v2::get_caret_local_aabb() const {
     return caret_cache_.caret_rect_;
 }
 
-
-events::op_afterwards text_edit_v2::on_click(const events::click event, std::span<elem* const> aboves) {
-    if (!event.key.on_release()) {
-        set_focus(true); // 保证获取焦点，并处理了 Idle 的清理工作
-
-        math::vec2 localpos = event.pos - get_glyph_src_local();
-        core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), localpos, render_cache_.get_line_align(), false);
-        reset_blink();
-    }
-    return elem::on_click(event, aboves);
-}
-
 events::op_afterwards text_edit_v2::on_drag(const events::drag event) {
     set_focus(true); // 保证拖拽期间焦点处于激活状态
     math::vec2 localpos = event.dst - get_glyph_src_local();

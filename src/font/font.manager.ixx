@@ -3,15 +3,10 @@ module;
 #include <cassert>
 #include <freetype/fttypes.h>
 
-#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-//no sense the compiler cannot find std::hash<sv>
-#include <string_view>
-#else
-#include <msdfgen/msdfgen-ext.h>
-#endif
-
 
 export module mo_yanxi.font.manager;
+
+import std;
 
 export import mo_yanxi.font;
 
@@ -23,15 +18,9 @@ import mo_yanxi.math.vector2;
 
 import mo_yanxi.heterogeneous;
 import mo_yanxi.heterogeneous.open_addr_hash;
-import std;
 import mo_yanxi.cache;
 import mo_yanxi.cache.map;
 import mo_yanxi.static_string;
-
-#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-//no sense the compiler cannot find std::hash<sv>
-import <msdfgen/msdfgen-ext.h>;
-#endif
 
 namespace mo_yanxi::font{
 export
@@ -175,7 +164,7 @@ public:
 
 public:
 	[[nodiscard]] glyph get_glyph_exact(
-		font_face_handle& handle, const glyph_identity key){
+	font_face_handle& handle, const glyph_identity key){
 
 		auto mtr_cache = cache.get_metrics({&handle, key});
 		acquire_result acq_rst;
@@ -188,9 +177,9 @@ public:
 		}else{
 			acq_rst = handle.obtain(key.index, key.size);
 			cache.put_metrics({&handle, key}, {
-				.metrics = acq_rst.metrics,
-				.ppem = math::vector2<FT_UShort>(acq_rst.generator.font_h, acq_rst.generator.font_h)
-			});
+					.metrics = acq_rst.metrics,
+					.ppem = math::vector2<FT_UShort>(acq_rst.generator.font_h, acq_rst.generator.font_h)
+				});
 		}
 
 		if(!acq_rst.has_drawable_glyph()){
@@ -205,10 +194,13 @@ public:
 			}
 		}
 
+
+		//
 		graphic::sdf_load load{
-				acq_rst.generator.crop(msdfgen::GlyphIndex(key.index), handle.get_source()->get_loader_msdf_handle()),
-				acq_rst.get_extent()
-			};
+			acq_rst.generator.crop(key.index, handle.get_source()->get_loader_msdf_handle()),
+		acq_rst.metrics.size.copy().ceil().as<unsigned>() + (graphic::msdf::sdf_image_boarder * 2)
+		};
+
 		const auto aloc = page().register_named_region(
 			std::move(name),
 			graphic::image_load_description{std::move(load)});

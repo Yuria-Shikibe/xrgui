@@ -123,8 +123,8 @@ struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
 
 export
 struct msdf_glyph_generator : msdf_glyph_generator_base{
-	[[nodiscard]] msdf_glyph_generator_crop crop(msdfgen::GlyphIndex code, msdfgen::FontHandle* face_override) const noexcept{
-		msdf_glyph_generator_crop rst {*this, code};
+	[[nodiscard]] msdf_glyph_generator_crop crop(unsigned code, msdfgen::FontHandle* face_override) const noexcept{
+		msdf_glyph_generator_crop rst {*this, msdfgen::GlyphIndex{code}};
 		rst.face = face_override;
 		return rst;
 	}

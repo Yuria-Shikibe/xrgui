@@ -38,7 +38,8 @@ struct tooltip_instance{
 	elem_ptr element{};
 	spawner* owner{};
 
-	math::vec2 last_pos{math::vectors::constant2<float>::SNaN};
+	math::optional_vec2<float> last_pos{math::vectors::constant2<float>::SNaN};
+	float drop_timer{0.f};
 
 private:
 	void update_layout(const tooltip_manager& manager, math::vec2 cursor_pos);
@@ -53,7 +54,7 @@ export struct tooltip_manager{
 public:
 	static constexpr float RemoveFadeTime = 15.f;
 	static constexpr float MarginSize = 15.f;
-
+	static constexpr float DropDelayTime = 20.f;
 private:
 	struct tooltip_expired{
 		elem_ptr element{};

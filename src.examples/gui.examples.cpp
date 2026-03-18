@@ -45,6 +45,7 @@ import mo_yanxi.typesetting.util;
 import mo_yanxi.font;
 import mo_yanxi.font.manager;
 import mo_yanxi.graphic.color;
+import mo_yanxi.graphic.msdf;
 import mo_yanxi.heterogeneous.open_addr_hash;
 import align;
 
@@ -65,6 +66,35 @@ import mo_yanxi.backend.vulkan.context;
 
 
 namespace mo_yanxi::gui::example{
+
+
+struct image_cursor : style::cursor{
+	gui::image_region_borrow icon_region;
+
+	[[nodiscard]] explicit image_cursor(const gui::image_region_borrow& icon_region)
+		: icon_region(icon_region){
+	}
+
+	rect draw(gui::renderer_frontend& renderer, math::raw_frect region,
+		std::span<const elem* const> inbound_stack) const override{
+		region.expand({mo_yanxi::graphic::msdf::sdf_image_boarder + 4, mo_yanxi::graphic::msdf::sdf_image_boarder + 4});
+		state_guard g{renderer, gui::fx::batch_draw_mode::msdf};
+		renderer << graphic::draw::instruction::rect_aabb{
+				.generic = {icon_region->view},
+				.v00 = region.vert_00(),
+				.v11 = region.vert_11(),
+				.uv00 = icon_region->uv.v00(),
+				.uv11 = icon_region->uv.v11(),
+				.vert_color = {graphic::colors::white}
+			};
+
+		return {tags::from_extent, region.src, region.extent};
+	}
+};
+
+
+
+
 struct vp : gui::viewport{
 	[[nodiscard]] vp(scene& scene, elem* parent)
 		: viewport(scene, parent){
@@ -101,6 +131,7 @@ void set_cursors(scene& scene){
 
 	cm.add_cursor<assets::builtin::cursor::default_cursor_regular>(style::cursor_type::regular);
 	cm.add_cursor<assets::builtin::cursor::default_cursor_drag>(style::cursor_type::drag);
+	cm.add_cursor<image_cursor>(style::cursor_type::textarea, assets::builtin::get_page()[assets::builtin::shape_id::textarea].value_or({}));
 
 	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_left,
 		style::cursor_arrow_direction::left);
@@ -122,8 +153,8 @@ void make_styles(scene& scene){
 		round_style->back.pal = style::pal::dark;
 		round_style->back = assets::builtin::default_round_square_base;
 
-		// sm.register_style<style::elem_style_drawer>(round_style);
-		sm.register_style<style::elem_style_drawer>(referenced_ptr<style::debug_elem_drawer>{std::in_place});
+		sm.register_style<style::elem_style_drawer>(round_style);
+		// sm.register_style<style::elem_style_drawer>(referenced_ptr<style::debug_elem_drawer>{std::in_place});
 	}
 
 	{

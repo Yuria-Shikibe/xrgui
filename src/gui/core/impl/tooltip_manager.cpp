@@ -3,7 +3,7 @@ module;
 #include <cassert>
 
 module mo_yanxi.gui.infrastructure;
-import mo_yanxi.gui.action.generic;
+import mo_yanxi.gui.action.elem;
 
 namespace mo_yanxi::gui::tooltip{
 void tooltip_instance::update_layout(const tooltip_manager& manager, math::vec2 cursor_pos){
@@ -105,6 +105,7 @@ void tooltip_manager::update(
 	}
 
 	if(!is_mouse_pressed){
+		// 1. 找到第一个不再处于 Hover/Maintain 状态的 tooltip
 		const auto lastNotInBound = std::ranges::find_if_not(actives_, [&, this](const tooltip_instance& toolTip){
 			if(toolTip.owner->tooltip_should_drop(cursor_pos))return false;
 
@@ -116,7 +117,26 @@ void tooltip_manager::update(
 			return selfContains || ownerContains || toolTip.owner->tooltip_should_maintain(cursor_pos);
 		});
 
-		drop_since(lastNotInBound);
+		// 2. 对于仍然保持有效范围内（Hovered）的 tooltip，安全重置它们的计时器
+		for(auto it = actives_.begin(); it != lastNotInBound; ++it) {
+			it->drop_timer = 0.f;
+		}
+
+		// 3. 对于不在范围内的 tooltip，累加移出时间，并寻找第一个达到释放阈值的目标
+		auto drop_it = actives_.end();
+		for(auto it = lastNotInBound; it != actives_.end(); ++it) {
+			it->drop_timer += delta_in_time;
+
+			// 如果该 tooltip 达到了释放阈值，且之前尚未记录过 drop_it
+			if (it->drop_timer >= DropDelayTime && drop_it == actives_.end()) {
+				drop_it = it;
+			}
+		}
+
+		// 4. 仅当存在真正到达 Interval 的 tooltip 时，才从该层级开始向下释放
+		if (drop_it != actives_.end()) {
+			drop_since(drop_it);
+		}
 	}
 }
 

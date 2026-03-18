@@ -133,5 +133,25 @@ public:
 
 		}
 	}
+
+	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
+		const auto region = get_seperator_region_element_local();
+		const bool hit = region.contains_loose(cursor_pos_at_content_local - content_src_offset());
+
+		if(hit){
+			style::cursor_style rst{style::cursor_type::none};
+			if(layout_policy_ == layout::layout_policy::vert_major){
+				rst.push_dcor(style::cursor_decoration_type::to_left);
+				rst.push_dcor(style::cursor_decoration_type::to_right);
+			}else{
+				rst.push_dcor(style::cursor_decoration_type::to_up);
+				rst.push_dcor(style::cursor_decoration_type::to_down);
+			}
+			return rst;
+		}else{
+			return style::cursor_style{style::cursor_type::regular};
+		}
+
+	}
 };
 }

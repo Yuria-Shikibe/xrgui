@@ -237,7 +237,7 @@ export struct acquire_result{
 		return generator.face != nullptr;
 	}
 
-	[[nodiscard]] constexpr math::usize2 get_extent() const noexcept{
+	[[nodiscard]] inline constexpr math::usize2 extent() const noexcept{
 		return metrics.size.copy().ceil().as<unsigned>() + (graphic::msdf::sdf_image_boarder * 2);
 	}
 };

@@ -1,7 +1,7 @@
 module mo_yanxi.gui.infrastructure;
 
 import :scene;
-import mo_yanxi.gui.action.generic;
+import mo_yanxi.gui.action.elem;
 import mo_yanxi.utility;
 
 namespace mo_yanxi::gui{
@@ -38,6 +38,7 @@ void overlay_manager::update(float delta_in_tick){
 			return true;
 		}else{
 			dialog.element->update_context_opacity(dialog.duration / overlay_fading::fading_time);
+			dialog.element->update(delta_in_tick);
 			return false;
 		}
 	});

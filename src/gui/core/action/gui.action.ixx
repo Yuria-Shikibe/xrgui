@@ -4,11 +4,11 @@ module;
 
 export module mo_yanxi.gui.action;
 
+import std;
 import mo_yanxi.gui.alloc;
 import mo_yanxi.math.timed;
 import mo_yanxi.meta_programming;
 import mo_yanxi.math.interpolation;
-import std;
 
 namespace mo_yanxi::gui::action{
 export
@@ -101,6 +101,8 @@ private:
 	action<T>* action_;
 
 public:
+	[[nodiscard]] action_ptr() = default;
+
 	template <std::derived_from<action<T>> Ty, typename ...Args>
 		requires std::constructible_from<Ty, const mr::heap_allocator<Ty>&, Args&&...>
 	[[nodiscard]] explicit action_ptr(std::in_place_type_t<Ty>, mr::heap_allocator<std::type_identity_t<Ty>> alloc, Args&& ...args){

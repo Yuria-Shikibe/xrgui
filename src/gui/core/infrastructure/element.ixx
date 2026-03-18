@@ -3,7 +3,11 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
+
+
 export module mo_yanxi.gui.infrastructure:element;
+
+import std;
 
 export import mo_yanxi.gui.util.clamped_size;
 
@@ -13,6 +17,7 @@ export import mo_yanxi.gui.util;
 
 export import mo_yanxi.gui.style.interface;
 export import mo_yanxi.gui.action;
+import mo_yanxi.gui.action.queue;
 
 import mo_yanxi.math;
 import align;
@@ -199,8 +204,7 @@ private:
 
 	boarder style_boarder_cache_{style ? style->get_boarder() : gui::boarder{}};
 
-	//TODO make it async?
-	std::deque<action::action_ptr<elem>, mr::heap_allocator<action::action_ptr<elem>>> actions{scene_->get_heap_allocator()};
+	mpsc_action_queue<elem> actions{};
 
 public:
 	layout::optional_mastering_extent restriction_extent{};
@@ -266,9 +270,7 @@ public:
 	template <std::derived_from<action::action<elem>> ActionType, typename... Args>
 		requires (std::constructible_from<ActionType, mr::heap_allocator<>, Args&&...>)
 	ActionType& push_action(Args&&... args){
-		auto& ptr = actions.emplace_back(std::in_place_type<ActionType>, get_scene().get_heap_allocator(), std::forward<Args>(args)...);
-		auto& ref = static_cast<ActionType&>(*ptr);
-		return ref;
+		return actions.push_action<ActionType>(get_scene().get_heap_allocator(), std::forward<Args>(args)...);
 	}
 
 
@@ -459,17 +461,7 @@ public:
 	virtual bool update(float delta_in_ticks);
 
 	void update_action(float delta_in_ticks){
-		for(float actionDelta = delta_in_ticks; !actions.empty();){
-			const auto& current = actions.front();
-
-			actionDelta = current->update(actionDelta, *this);
-
-			if(actionDelta >= 0) [[unlikely]] {
-				actions.pop_front();
-			} else{
-				break;
-			}
-		}
+		actions.update_action(delta_in_ticks, *this);
 	}
 
 protected:

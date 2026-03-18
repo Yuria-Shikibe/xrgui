@@ -14,6 +14,9 @@ import mo_yanxi.react_flow;
 
 
 namespace mo_yanxi::gui::example{
+
+
+
 struct ui_outputs{
 	react_flow::node* shader_bloom_scale;
 	react_flow::node* shader_bloom_src_factor;

@@ -116,18 +116,30 @@ public:
 			item->try_layout();
 		}
 	}
-protected:
-	void set_item_size(bool isContent, layout::stated_size size) override{
-		if(size.type == layout::size_category::passive){
-			throw layout::illegal_layout{"Passive is not allowd here"};
+
+	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+		if(expand_cond_ == collapser_expand_cond::click){
+			if((!aboves.empty() && aboves.front() == items[0].get())){
+				if(event.key.action == input_handle::act::release){
+					clicked_ = !clicked_;
+					set_update_required(update_channel::layout);
+				}
+				return events::op_afterwards::intercepted;
+			} else if(head().contains(event.pos)){
+				cursor_states_.update_press(event.key);
+				if(event.key.action == input_handle::act::release){
+					clicked_ = !clicked_;
+					set_update_required(update_channel::layout);
+				}
+				return events::op_afterwards::intercepted;
+			}
+
+			return events::op_afterwards::fall_through;
+		}else{
+			set_update_required(update_channel::layout);
+			return elem::on_click(event, aboves);
 		}
-
-		head_body_elem::set_item_size(isContent, size);
 	}
-
-	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override;
-
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override;
 
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
 		head_body_elem::on_inbound_changed(is_inbounded, changed);
@@ -139,8 +151,6 @@ protected:
 		if(expand_cond_ == collapser_expand_cond::focus)set_update_required(update_channel::layout);
 	}
 
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
-
 
 	bool update(float delta_in_ticks) override{
 		if(!head_body_elem::update(delta_in_ticks))return false;
@@ -149,6 +159,19 @@ protected:
 		body().invisible = state_ == collapser_state::un_expand;
 		return true;
 	}
+
+protected:
+	void set_item_size(bool isContent, layout::stated_size size) override{
+		if(size.type == layout::size_category::passive){
+			throw layout::illegal_layout{"Passive is not allowd here"};
+		}
+
+		head_body_elem::set_item_size(isContent, size);
+	}
+
+	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override;
+
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 
 	void set_children_src() const final{
 		auto [_, minor] = layout::get_vec_ptr(layout_policy_);

@@ -13,13 +13,11 @@ module mo_yanxi.gui.elem.table;
 import <gch/small_vector.hpp>;
 #endif
 
-
 namespace mo_yanxi::gui{
 
-//TODO apply scaling
 table_layout_context::pre_layout_result table_layout_context::layout_masters(
 	const std::span<const cell_adaptor_type> cells, math::vec2 scaling) noexcept{
-	auto line_view = cells | table_chunk_by | std::views::enumerate;
+
 	const auto [
 		pad_major_src, pad_major_dst,
 		pad_minor_src, pad_minor_dst
@@ -27,9 +25,14 @@ table_layout_context::pre_layout_result table_layout_context::layout_masters(
 
 	const auto [extent_major, extent_minor] = get_extent_ptr(policy_);
 
-	//Initializing table heads to known maximum size
-	for (auto&& [idx_minor, line] : line_view){
-		for (auto && [idx_major, elem] : line | std::views::enumerate){
+	// 初始化网格大小以收集主从约束
+	std::uint32_t cell_idx = 0;
+	for (std::uint32_t idx_minor = 0; idx_minor < row_counts_.size(); ++idx_minor){
+		std::uint32_t row_len = row_counts_[idx_minor];
+		auto line = cells.subspan(cell_idx, row_len);
+
+		for (std::uint32_t idx_major = 0; idx_major < row_len; ++idx_major){
+			const auto& elem = line[idx_major];
 			auto [head_major, head_minor] = (*this)[idx_major, idx_minor];
 
 			head_major.max_pad_src = math::max(head_major.max_pad_src, elem.cell.pad.*pad_major_src);
@@ -38,16 +41,15 @@ table_layout_context::pre_layout_result table_layout_context::layout_masters(
 			head_minor.max_pad_src = math::max(head_minor.max_pad_src, elem.cell.pad.*pad_minor_src);
 			head_minor.max_pad_dst = math::max(head_minor.max_pad_dst, elem.cell.pad.*pad_minor_dst);
 
-			//Apply scaling of masterings
 			auto promoted = elem.cell.stated_extent.promote();
 			promoted.try_scl(scaling);
 
 			head_major.max_size.try_promote_by((promoted.*extent_major).decay());
 			if((promoted.*extent_minor).mastering()){
-				//maximizing the minor size if mastering
 				head_minor.max_size.try_promote_by(promoted.*extent_minor);
 			}
 		}
+		cell_idx += row_len;
 	}
 
 	math::vec2 masterings_captured{};
@@ -55,14 +57,12 @@ table_layout_context::pre_layout_result table_layout_context::layout_masters(
 
 	{
 		const auto [major_target, minor_target] = get_vec_ptr<>(policy_);
-
 		masterings_captured.*major_target = std::ranges::fold_left(get_majors() | std::views::transform(&table_head::get_captured_size), 0.f, std::plus{});
 		masterings_captured.*minor_target = std::ranges::fold_left(get_minors() | std::views::transform(&table_head::get_captured_size), 0.f, std::plus{});
 	}
 
 	{
 		const auto [major_target, minor_target] = get_vec_ptr<table_size_t>(policy_);
-
 		known_masterings.*major_target = std::ranges::count_if(get_majors(), &table_head::mastering);
 		known_masterings.*minor_target = std::ranges::count_if(get_minors(), &table_head::mastering);
 	}
@@ -74,99 +74,107 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
                                                               math::vec2 valid_extent, pre_layout_result pre_result){
 	math::vec2 passive_usable_extent = valid_extent - pre_result.captured_extent;
 
-	auto line_view = cells | table_chunk_by | std::views::enumerate;
-
 	const auto [extent_major, extent_minor] = get_extent_ptr(policy_);
 	const auto [major_target, minor_target] = get_vec_ptr<>(policy_);
 
-	//TODO when size in major is inf, pre acquire its size and try promote it to master,
-	// if failed to get a pre_acquire size to promote the table head, discard it
+	// ---------------- 局部缓存机制 ----------------
+	struct extent_cache {
+		layout::stated_extent request;
+		math::vec2 response;
+	};
+	std::vector<gch::small_vector<extent_cache, 2>> size_cache(cells.size());
+
+	auto get_cached_pre_acquire = [&](std::uint32_t flat_idx, const cell_adaptor_type& elem, const layout::stated_extent& ext) -> std::optional<math::vec2> {
+		auto& caches = size_cache[flat_idx];
+		for (const auto& c : caches) {
+			if (c.request.width == ext.width && c.request.height == ext.height) {
+				return c.response;
+			}
+		}
+		if (auto res = elem.element->pre_acquire_size(ext)) {
+			caches.push_back({ext, *res});
+			return res;
+		}
+		return std::nullopt;
+	};
+	// ---------------------------------------------
 
 	{
-		//TODO policy to allocate minor size
 		bool single_line = max_minor_size() == 1 && std::isfinite(valid_extent.*minor_target);
 
-		gch::small_vector<float, 8> remain_major_pending_sizes;
+		constexpr float layout_epsilon = .01f;
 
-		if(passive_usable_extent.*major_target < 8 /*lesser should be meaningless ??*/){
+		if(passive_usable_extent.*major_target <= layout_epsilon){
 			passive_usable_extent.*major_target = 0;
-			goto SKIP_REMAIN_MAJOR_CAL;
-		}
-
-		if(!layout::is_size_pending(passive_usable_extent.*major_target)){
-			//the major dim of extent is limited
-			remain_major_pending_sizes.resize(max_major_size());
-		}
-
-		for(auto&& [idx_minor, line] : line_view){
-			auto& head_minor = at_minor(idx_minor);
-
-			layout::stated_extent line_pending_extent;
-			line_pending_extent.*extent_major = {layout::size_category::pending};
-
-			if(head_minor.max_size.mastering()){
-				line_pending_extent.*extent_minor = head_minor.max_size;
-			} else{
-				if(single_line){
-					line_pending_extent.*extent_minor = layout::stated_size{
-							layout::size_category::mastering, valid_extent.*minor_target
-						};
-				} else{
-					line_pending_extent.*extent_minor = layout::stated_size{layout::size_category::pending};
-				}
+		} else {
+			gch::small_vector<float, 8> remain_major_pending_sizes;
+			if(!layout::is_size_pending(passive_usable_extent.*major_target)){
+				remain_major_pending_sizes.resize(max_major_size());
 			}
 
-			for(auto&& [idx_major, elem] : line | std::views::enumerate){
-				auto& head_major = at_major(idx_major);
+			std::uint32_t cell_idx = 0;
+			for(std::uint32_t idx_minor = 0; idx_minor < row_counts_.size(); ++idx_minor){
+				std::uint32_t row_len = row_counts_[idx_minor];
+				auto line = cells.subspan(cell_idx, row_len);
+				auto& head_minor = at_minor(idx_minor);
 
-				if((elem.cell.stated_extent.*extent_major).pending()){
-					//deduce major size from minor size (or from nothing if minor is pending)
-					if(auto size = elem.element->pre_acquire_size(line_pending_extent)){
-						if(layout::is_size_pending(passive_usable_extent.*major_target)){
-							//major is expandable, directly promote as masterings
-							head_major.max_size.try_promote_by(size.value().*major_target);
-						} else{
-							//major is limited, record to cache and pending
-							remain_major_pending_sizes[idx_major] = std::max(
-								size.value().*major_target, remain_major_pending_sizes[idx_major]);
+				layout::stated_extent line_pending_extent;
+				line_pending_extent.*extent_major = {layout::size_category::pending};
+
+				if(head_minor.max_size.mastering()){
+					line_pending_extent.*extent_minor = head_minor.max_size;
+				} else{
+					if(single_line){
+						line_pending_extent.*extent_minor = layout::stated_size{
+								layout::size_category::mastering, valid_extent.*minor_target
+							};
+					} else{
+						line_pending_extent.*extent_minor = layout::stated_size{layout::size_category::pending};
+					}
+				}
+
+				for(std::uint32_t idx_major = 0; idx_major < row_len; ++idx_major){
+					const auto& elem = line[idx_major];
+					auto& head_major = at_major(idx_major);
+
+					if((elem.cell.stated_extent.*extent_major).pending()){
+						if(auto size = get_cached_pre_acquire(cell_idx + idx_major, elem, line_pending_extent)){
+							if(layout::is_size_pending(passive_usable_extent.*major_target)){
+								head_major.max_size.try_promote_by(size.value().*major_target);
+							} else{
+								remain_major_pending_sizes[idx_major] = std::max(
+									size.value().*major_target, remain_major_pending_sizes[idx_major]);
+							}
+
+							head_minor.max_size.try_promote_by(
+								single_line
+									? passive_usable_extent.*minor_target
+									: math::min(size.value().*minor_target, passive_usable_extent.*minor_target)
+							);
 						}
+					}
+				}
+				cell_idx += row_len;
+			}
 
-						//uses the minimal size to fit minor size, or exhaust all passive usables
-						head_minor.max_size.try_promote_by(
-							single_line
-								? passive_usable_extent.*minor_target
-								: math::min(size.value().*minor_target, passive_usable_extent.*minor_target)
-						);
+			if(layout::is_size_pending(passive_usable_extent.*major_target)){
+				passive_usable_extent.*major_target = 0;
+			} else {
+				if(float major_sum{std::ranges::fold_left(remain_major_pending_sizes, 0.f, std::plus{})}; major_sum > 0){
+					if(const auto ratio = passive_usable_extent.*major_target / major_sum; ratio < 1){
+						for(auto [midx, new_] : remain_major_pending_sizes | std::views::enumerate){
+							if(new_ > 0) at_major(midx).max_size = {layout::size_category::mastering, new_ * ratio};
+						}
+						passive_usable_extent.*major_target = 0;
+					} else{
+						for(auto [midx, new_] : remain_major_pending_sizes | std::views::enumerate){
+							if(new_ > 0) at_major(midx).max_size = {layout::size_category::mastering, new_};
+						}
+						passive_usable_extent.*major_target -= major_sum;
 					}
 				}
 			}
 		}
-
-
-		//calculate remain major extent
-		if(layout::is_size_pending(passive_usable_extent.*major_target)){
-			//skip: all major uses the maximum, no passives remain
-			passive_usable_extent.*major_target = 0;
-		} else{
-			if(float major_sum{std::ranges::fold_left(remain_major_pending_sizes, 0.f, std::plus{})}; major_sum > 0){
-				if(const auto ratio = passive_usable_extent.*major_target / major_sum; ratio < 1){
-					//requires down scale to fit
-					for(auto [midx, new_] : remain_major_pending_sizes | std::views::enumerate){
-						if(new_ > 0) at_major(midx).max_size = {layout::size_category::mastering, new_ * ratio};
-					}
-					passive_usable_extent.*major_target = 0;
-				} else{
-					//size is sufficient, maintain the major extent
-					for(auto [midx, new_] : remain_major_pending_sizes | std::views::enumerate){
-						if(new_ > 0) at_major(midx).max_size = {layout::size_category::mastering, new_};
-					}
-					passive_usable_extent.*major_target -= major_sum;
-				}
-			}
-		}
-
-	SKIP_REMAIN_MAJOR_CAL:
-		(void)0;
 	}
 
 	float total_passives_weight{};
@@ -180,11 +188,16 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 
 
 	float total_minor_weight{};
-	for(auto&& [idx_minor, line] : line_view){
+	std::uint32_t cell_idx = 0;
+
+	for(std::uint32_t idx_minor = 0; idx_minor < row_counts_.size(); ++idx_minor){
+		std::uint32_t row_len = row_counts_[idx_minor];
+		auto line = cells.subspan(cell_idx, row_len);
 		auto& head_minor = at_minor(idx_minor);
 
 		float line_minor_size{};
-		for(auto&& [idx_major, elem] : line | std::views::enumerate){
+		for(std::uint32_t idx_major = 0; idx_major < row_len; ++idx_major){
+			const auto& elem = line[idx_major];
 			auto& head_major = at_major(idx_major);
 
 			if(!head_major.mastering()){
@@ -205,9 +218,8 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 					ext.*extent_major = head_major.max_size;
 					ext.*extent_minor = {layout::size_category::pending};
 
-					if(auto size = elem.element->pre_acquire_size(ext)){
+					if(auto size = get_cached_pre_acquire(cell_idx + idx_major, elem, ext)){
 						float valid = math::min(size.value().*minor_target, passive_usable_extent.*minor_target);
-
 						head_minor.max_size.try_promote_by(valid);
 						line_minor_size = math::max(line_minor_size, valid);
 					}
@@ -224,6 +236,7 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 		if(!head_minor.mastering()){
 			total_minor_weight += head_minor.max_size.value;
 		}
+		cell_idx += row_len;
 	}
 
 	math::vec2 extent{};
@@ -251,17 +264,20 @@ math::vec2 table_layout_context::allocate_cells(
 }
 
 void table_layout_context::place_cells(const std::span<cell_adaptor_type> cells, table& parent, math::frect region){
-	auto view = cells | table_chunk_by | std::views::enumerate;
-
 	const auto [extent_major, extent_minor] = get_extent_ptr(policy_);
 	const auto [major_target, minor_target] = get_vec_ptr<>(policy_);
 
 	auto scaling = parent.get_scaling();
 	math::vec2 current_position{};
-	for(auto&& [idx_minor, line] : view){
+
+	std::uint32_t cell_idx = 0;
+	for (std::uint32_t idx_minor = 0; idx_minor < row_counts_.size(); ++idx_minor){
+		std::uint32_t row_len = row_counts_[idx_minor];
+		auto line = cells.subspan(cell_idx, row_len);
 		float line_stride{};
 
-		for(auto&& [idx_major, elem] : line | std::views::enumerate){
+		for (std::uint32_t idx_major = 0; idx_major < row_len; ++idx_major){
+			auto& elem = line[idx_major];
 			auto [head_major, head_minor] = (*this)[idx_major, idx_minor];
 			math::vec2 src_off;
 			src_off.*major_target = head_major.max_pad_src;
@@ -275,7 +291,7 @@ void table_layout_context::place_cells(const std::span<cell_adaptor_type> cells,
 			dst_off.*major_target = head_major.max_pad_dst;
 			dst_off.*minor_target = head_minor.max_pad_dst;
 
-			if(elem.cell.saturate && std::ranges::size(line) == 1){
+			if(elem.cell.saturate && row_len == 1){
 				cell_maximum_size.*major_target = region.extent().*major_target - (src_off.*major_target + dst_off.*major_target);
 			}
 
@@ -294,7 +310,7 @@ void table_layout_context::place_cells(const std::span<cell_adaptor_type> cells,
 			{
 				auto cell_actuall_size = cell_maximum_size;
 
-				if(elem.cell.saturate && std::ranges::size(line) == 1 && !(elem.cell.stated_extent.*extent_major).mastering()){
+				if(elem.cell.saturate && row_len == 1 && !(elem.cell.stated_extent.*extent_major).mastering()){
 					cell_actuall_size.*major_target *= scaling.*major_target * std::clamp((elem.cell.stated_extent.*extent_major).value, 0.f, 1.f);
 				}else if((elem.cell.stated_extent.*extent_major).mastering() && elem.cell.align != align::pos::none){
 					cell_actuall_size.*major_target = scaling.*major_target * (elem.cell.stated_extent.*extent_major).value;
@@ -312,8 +328,6 @@ void table_layout_context::place_cells(const std::span<cell_adaptor_type> cells,
 				if(!parent.is_pos_smooth())elem.cell.update_relative_src(*elem.element, parent.content_src_pos_abs());
 			}
 
-
-
 			const auto total_off = src_off + dst_off + cell_maximum_size;
 
 			line_stride = math::max(line_stride, total_off.*minor_target);
@@ -323,6 +337,7 @@ void table_layout_context::place_cells(const std::span<cell_adaptor_type> cells,
 		current_position.*major_target = 0;
 		current_position.*minor_target += line_stride;
 		line_stride = 0;
+		cell_idx += row_len;
 	}
 }
 }

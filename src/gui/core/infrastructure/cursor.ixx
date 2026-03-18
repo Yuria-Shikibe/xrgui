@@ -113,10 +113,11 @@ struct cursor{
 
 export
 enum struct cursor_type : std::uint8_t{
+	none,
 	regular,
 	drag,
 	clickable,
-	text_editable,
+	textarea,
 	scroll_hori,
 	scroll_vert,
 	scroll,
@@ -226,6 +227,7 @@ public:
 	}
 
 	template <std::derived_from<style::cursor> T, typename... Args>
+		requires (std::constructible_from<T, Args&&...>)
 	void add_cursor(const style::cursor_type type, Args&&... args){
 		const std::size_t sz = std::to_underlying(type);
 		this->add(&cursor_collection::cursors_, sz,
@@ -234,6 +236,7 @@ public:
 	}
 
 	template <std::derived_from<style::cursor> T, typename... Args>
+		requires (std::constructible_from<T, Args&&...>)
 	void add_cursor(const style::cursor_decoration_type type, Args&&... args){
 		const std::size_t sz = std::to_underlying(type);
 		this->add(&cursor_collection::decorations_, sz,
@@ -246,7 +249,11 @@ public:
 		auto sz = style_pair.get_dcor_size();
 
 		cursor_drawer rst{
-				sz_main < cursors_.size() ? cursors_[sz_main].get() : nullptr,
+				sz_main == 0
+					? nullptr
+					: sz_main < cursors_.size()
+					? cursors_[sz_main].get()
+					: cursors_[std::to_underlying(style::cursor_type::regular)].get(),
 			};
 
 		for(unsigned i = 0; i < sz; ++i){
