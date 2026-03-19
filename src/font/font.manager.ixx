@@ -27,7 +27,7 @@ export
 using glyph_texture_region = graphic::combined_image_region<graphic::uniformed_rect_uv>;
 export
 using glyph_borrow = graphic::universal_borrowed_image_region<glyph_texture_region,
-	referenced_object_atomic_nonpropagation>;
+	referenced_object_atomic>;
 
 export
 struct glyph : glyph_borrow{

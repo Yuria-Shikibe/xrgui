@@ -63,8 +63,8 @@ namespace concepts {
     template <typename T>
     concept ClusterPolicy = requires(const T policy, layout_block<true>& block, const logical_cluster& cluster, std::size_t size) {
         { T::enabled } -> std::convertible_to<bool>;
-        policy.push(block, cluster);
-        policy.reserve(block, size);
+        // policy.push(block, cluster);
+        // policy.reserve(block, size);
     };
 
     template <typename T, typename StateType>
@@ -90,24 +90,26 @@ namespace concepts {
 // ==========================================
 namespace policies {
     // --- Cluster 策略 ---
-    struct ignore_clusters {
-        static constexpr bool enabled = false;
+struct ignore_clusters {
+	static constexpr bool enabled = false;
 
-        static constexpr void push(auto& block, const logical_cluster& cluster) noexcept {}
-        static constexpr void reserve(auto& block, std::size_t size) noexcept {}
-    };
+	// 签名同步修改，但不做任何操作
+	static constexpr void push(glyph_layout& results, const logical_cluster& cluster) noexcept {}
+	static constexpr void reserve(glyph_layout& results, std::size_t size) noexcept {}
+};
 
-    struct store_clusters {
-        static constexpr bool enabled = true;
+struct store_clusters {
+	static constexpr bool enabled = true;
 
-        static constexpr void push(layout_block<true>& block, const logical_cluster& cluster) {
-            block.clusters.push_back(cluster);
-        }
+	// 直接操作 results 中的 clusters 数组
+	static constexpr void push(glyph_layout& results, const logical_cluster& cluster) {
+		results.clusters.push_back(cluster);
+	}
 
-        static constexpr void reserve(layout_block<true>& block, std::size_t size) {
-            block.clusters.reserve(block.clusters.size() + size);
-        }
-    };
+	static constexpr void reserve(glyph_layout& results, std::size_t size) {
+		results.clusters.reserve(results.clusters.size() + size);
+	}
+};
 
     // --- 富文本策略 ---
     struct plain_text_only {
@@ -315,14 +317,15 @@ private:
 	layout_block<enable_cluster_record> current_block_{};
 
 #pragma region Cluster
-	FORCE_INLINE inline void cluster_reserve_(std::size_t sz){
-		cluster_policy_.reserve(current_block_, sz);
+	// 现在需要传入 results 引用
+	FORCE_INLINE inline void cluster_reserve_(glyph_layout& results, std::size_t sz){
+		cluster_policy_.reserve(results, sz);
 	}
-	
-	FORCE_INLINE inline void cluster_push_(const logical_cluster& cluster){
-		cluster_policy_.push(current_block_, cluster);
+
+	FORCE_INLINE inline void cluster_push_(glyph_layout& results, const logical_cluster& cluster){
+		cluster_policy_.push(results, cluster);
 	}
-#pragma endregion 
+#pragma endregion
 	
 #pragma region RichTextStateGetter
 	FORCE_INLINE inline constexpr math::vec2 get_font_size_() const noexcept{
@@ -359,7 +362,7 @@ private:
 
 #pragma endregion
 
-	void submit_underline(const ul_start_info& start_info, graphic::color ctx_color, const run_metrics& metrics, bool is_delimiter) {
+	void submit_underline(glyph_layout& results, const ul_start_info& start_info, graphic::color ctx_color, const run_metrics& metrics, bool is_delimiter) {
 		math::vec2 offset_vec{};
 		offset_vec.*state_.minor_p = -metrics.ul_position;
 		underline ul;
@@ -368,13 +371,28 @@ private:
 		ul.thickness = metrics.ul_thickness;
 		ul.color = ctx_color;
 		ul.start_gap_count = start_info.gap_count;
-		ul.end_gap_count = std::max(ul.start_gap_count, this->get_current_gap_index(is_delimiter));
-		current_block_.push_back_underline(ul);
+		ul.end_gap_count = std::max(ul.start_gap_count, this->get_current_gap_index(results, is_delimiter));
+
+		results.underlines.push_back(ul);
+
+		// 由于移除了 push_back_underline，这里手动更新当前 block 的包围盒
+		math::vec2 ul_min = math::min(ul.start, ul.end);
+		math::vec2 ul_max = math::max(ul.start, ul.end);
+		const math::vec2 diff = ul.end - ul.start;
+		if(std::abs(diff.x) > std::abs(diff.y)) {
+			ul_min.y -= ul.thickness / 2.f;
+			ul_max.y += ul.thickness / 2.f;
+		} else {
+			ul_min.x -= ul.thickness / 2.f;
+			ul_max.x += ul.thickness / 2.f;
+		}
+		current_block_.pos_min.min(ul_min);
+		current_block_.pos_max.max(ul_max);
 	}
 
 	// --- 内部辅助方法 ---
-	typst_szt get_current_gap_index(bool is_delimiter) const noexcept {
-		const auto size = line_buffer_.elems.size() + current_block_.glyphs.size();
+	typst_szt get_current_gap_index(const glyph_layout& results, bool is_delimiter) const noexcept {
+		const auto size = results.elems.size() - line_buffer_.span.elem_start;
 		return (is_delimiter && size > 0) ? size - 1 : size;
 	}
 
@@ -550,12 +568,12 @@ private:
         	rtstate.next_apply_pos = start;
         }
 
-        std::optional<ul_start_info> active_ul_start;
-        std::optional<logical_cluster> current_logic_cluster;
-        graphic::color prev_color = graphic::colors::white;
+		std::optional<ul_start_info> active_ul_start;
+		std::optional<logical_cluster> current_logic_cluster;
+		graphic::color prev_color = graphic::colors::white;
 
-        current_block_.glyphs.reserve(current_block_.glyphs.size() + len);
-		cluster_reserve_(len);
+		results.elems.reserve(results.elems.size() + len);
+		cluster_reserve_(results, len);
 
         for(std::uint32_t i = 0; i < len; ++i) {
             const font::glyph_index_t gid = infos[i].codepoint;
@@ -579,33 +597,33 @@ private:
         	prev_color = get_font_color_();
         	rich_offset = get_font_offset_();
 
-            if(was_ul && !is_ul && active_ul_start) {
-                this->submit_underline(*active_ul_start, prev_color, metrics, is_delimiter);
-                active_ul_start.reset();
-            }
+        	if(was_ul && !is_ul && active_ul_start) {
+        		this->submit_underline(results, *active_ul_start, prev_color, metrics, is_delimiter);
+        		active_ul_start.reset();
+        	}
 
-            if(is_ul && !active_ul_start) {
-                active_ul_start = ul_start_info{current_block_.cursor, this->get_current_gap_index(is_delimiter)};
-            }
+        	if(is_ul && !active_ul_start) {
+        		active_ul_start = ul_start_info{current_block_.cursor, this->get_current_gap_index(results, is_delimiter)};
+        	}
 
-            if(is_delimiter) {
-                if(active_ul_start) {
-                    this->submit_underline(*active_ul_start, prev_color, metrics, true);
-                    active_ul_start.reset();
-                }
-                if (current_logic_cluster) {
-                    cluster_push_(*current_logic_cluster);
-                    current_logic_cluster.reset();
-                }
+        	if(is_delimiter) {
+        		if(active_ul_start) {
+        			this->submit_underline(results, *active_ul_start, prev_color, metrics, true);
+        			active_ul_start.reset();
+        		}
+        		if (current_logic_cluster) {
+        			cluster_push_(results, *current_logic_cluster);
+        			current_logic_cluster.reset();
+        		}
 
-                if(!this->flush_block_impl<IsInf>(results)) return false;
+        		if(!this->flush_block_impl<IsInf>(results)) return false;
 
-                if constexpr (enable_dynamic_rich_text_state) {
-                    if(ch != U'\n' && ch != U'\r' && is_underline_enabled_()) {
-                        active_ul_start = ul_start_info{current_block_.cursor, this->get_current_gap_index(true)};
-                    }
-                }
-            }
+        		if constexpr (enable_dynamic_rich_text_state) {
+        			if(ch != U'\n' && ch != U'\r' && is_underline_enabled_()) {
+        				active_ul_start = ul_start_info{current_block_.cursor, this->get_current_gap_index(results, true)};
+        			}
+        		}
+        	}
 
             const font::glyph loaded_glyph = manager_->get_glyph_exact(face, {gid, metrics.snapped_size});
             const float asc = this->is_vertical() ? (loaded_glyph.metrics().advance.x * metrics.run_scale_factor.x / 2.f) : (loaded_glyph.metrics().ascender() * metrics.run_scale_factor.y);
@@ -618,7 +636,7 @@ private:
             // 控制字符逻辑
             if(ch == U'\r') {
                 if(current_logic_cluster){
-	                cluster_push_(*current_logic_cluster);
+	                cluster_push_(results, *current_logic_cluster);
                 	current_logic_cluster.reset();
                 }
 
@@ -629,7 +647,7 @@ private:
                     ? math::frect{ tags::from_extent, {logical_base.x - metrics.run_font_asc, logical_base.y}, {metrics.run_font_asc + metrics.run_font_desc, -1.f} }
                     : math::frect{ tags::from_extent, {logical_base.x, logical_base.y - metrics.run_font_asc}, {1.f, metrics.run_font_asc + metrics.run_font_desc} };
 
-                cluster_push_(logical_cluster{current_cluster, 1, r_rect});
+                cluster_push_(results,logical_cluster{current_cluster, 1, r_rect});
 
                 if(config_.line_feed_type == linefeed_type::crlf) {
                     line_buffer_.line_bound.width = {};
@@ -638,7 +656,7 @@ private:
                 continue;
             } else if(ch == U'\n') {
                 if(current_logic_cluster){
-	                cluster_push_(*current_logic_cluster);
+	                cluster_push_(results,*current_logic_cluster);
                 	current_logic_cluster.reset();
                 }
 
@@ -649,7 +667,7 @@ private:
                     ? math::frect{ tags::from_extent, {logical_base.x - metrics.run_font_asc, logical_base.y}, {metrics.run_font_asc + metrics.run_font_desc, -1.f} }
                     : math::frect{ tags::from_extent, {logical_base.x, logical_base.y - metrics.run_font_asc}, {1.f, metrics.run_font_asc + metrics.run_font_desc} };
 
-                cluster_push_(logical_cluster{current_cluster, 1, n_rect});
+                cluster_push_(results,logical_cluster{current_cluster, 1, n_rect});
 
                 if(!this->flush_block_impl<IsInf>(results) || !this->advance_line_impl<IsInf>(results)) return false;
 
@@ -659,7 +677,7 @@ private:
                 continue;
             } else if(ch == U'\t') {
                 if(current_logic_cluster){
-	                cluster_push_(*current_logic_cluster);
+	                cluster_push_(results,*current_logic_cluster);
                 	current_logic_cluster.reset();
                 }
 
@@ -680,11 +698,11 @@ private:
                     ? math::frect{ tags::from_extent, {logical_base.x - metrics.run_font_asc, logical_base.y}, {metrics.run_font_asc + metrics.run_font_desc, -step_advance.y} }
                     : math::frect{ tags::from_extent, {logical_base.x, logical_base.y - metrics.run_font_asc}, {step_advance.x, metrics.run_font_asc + metrics.run_font_desc} };
 
-                cluster_push_(logical_cluster{current_cluster, 1, tab_rect});
+                cluster_push_(results,logical_cluster{current_cluster, 1, tab_rect});
                 continue;
             } else if(ch == U' ') {
                 if(current_logic_cluster){
-	                cluster_push_(*current_logic_cluster);
+	                cluster_push_(results,*current_logic_cluster);
                 	current_logic_cluster.reset();
                 }
 
@@ -696,7 +714,7 @@ private:
                     ? math::frect{ tags::from_extent, {logical_base.x - metrics.run_font_asc, logical_base.y}, {metrics.run_font_asc + metrics.run_font_desc, -run_advance.y} }
                     : math::frect{ tags::from_extent, {logical_base.x, logical_base.y - metrics.run_font_asc}, {run_advance.x, metrics.run_font_asc + metrics.run_font_desc} };
 
-                cluster_push_(logical_cluster{current_cluster, 1, space_rect});
+                cluster_push_(results,logical_cluster{current_cluster, 1, space_rect});
                 current_block_.cursor = this->move_pen(current_block_.cursor, run_advance);
                 continue;
             }
@@ -709,7 +727,10 @@ private:
                 const float indicator_w = config_.has_wrap_indicator() ? std::abs(cached_indicator_.advance.*state_.major_p * this->get_current_relative_scale()) : 0.f;
 
                 if (line_w + current_word_w + next_w > max_w + 0.001f) {
-                    if (!line_buffer_.elems.empty() && (current_word_w + next_w + indicator_w <= max_w + 0.001f)) {
+                    bool block_has_elems = (results.elems.size() > current_block_.span.elem_start) ||
+                                           (results.underlines.size() > current_block_.span.ul_start);
+
+                    if ((results.elems.size() > line_buffer_.span.elem_start) && (current_word_w + next_w + indicator_w <= max_w + 0.001f)) {
                         if (!this->advance_line_impl<IsInf>(results)) return false;
                         if (config_.has_wrap_indicator()) {
                             const float scale = this->get_current_relative_scale();
@@ -717,6 +738,7 @@ private:
                             scaled_aabb = { tags::unchecked, tags::from_vertex, scaled_aabb.vert_00() * scale, scaled_aabb.vert_11() * scale };
                             const math::vec2 shift_adv = cached_indicator_.advance * scale;
                             current_block_.push_front(
+                                results,
                                 scaled_aabb,
                                 { scaled_aabb.copy().expand(font::font_draw_expand), graphic::colors::white * .68f, cached_indicator_.texture },
                                 shift_adv
@@ -725,18 +747,19 @@ private:
                             if (active_ul_start) active_ul_start->pos += shift_adv;
                         }
                     } else {
-                        if (!current_block_.glyphs.empty()) {
+                        if (block_has_elems) {
                             if (active_ul_start) {
-                                this->submit_underline(*active_ul_start, prev_color, metrics, false);
+                                this->submit_underline(results, *active_ul_start, prev_color, metrics, false);
                                 active_ul_start.reset();
                             }
                             if (current_logic_cluster) {
-                                cluster_push_(*current_logic_cluster);
+                                cluster_push_(results, *current_logic_cluster);
                                 current_logic_cluster.reset();
                             }
 
-                            line_buffer_.append(current_block_, state_.major_p);
-                            current_block_.clear();
+                            line_buffer_.append(results, current_block_, state_.major_p);
+                        	current_block_.clear();
+                        	current_block_.sync_start(results);
                             if (!this->advance_line_impl<IsInf>(results)) return false;
 
                             if (config_.has_wrap_indicator()) {
@@ -744,6 +767,7 @@ private:
                                 auto scaled_aabb = cached_indicator_.glyph_aabb.copy();
                                 scaled_aabb = { tags::unchecked, tags::from_vertex, scaled_aabb.vert_00() * scale, scaled_aabb.vert_11() * scale };
                                 current_block_.push_front(
+                                    results,
                                     scaled_aabb,
                                     { scaled_aabb.copy().expand(font::font_draw_expand), graphic::colors::white * .68f, cached_indicator_.texture },
                                     cached_indicator_.advance * scale
@@ -751,8 +775,8 @@ private:
                             }
 
                         	if (is_underline_enabled_()) {
-                        		active_ul_start = ul_start_info{current_block_.cursor, this->get_current_gap_index(false)};
-                        	}
+                        		active_ul_start = ul_start_info{current_block_.cursor, this->get_current_gap_index(results, false)};
+                            }
                         }
                     }
                 }
@@ -777,7 +801,7 @@ private:
                 current_logic_cluster->logical_rect.expand_by(advance_rect);
                 current_logic_cluster->cluster_span = std::max(current_logic_cluster->cluster_span, span);
             } else {
-                if(current_logic_cluster) cluster_push_(*current_logic_cluster);
+                if(current_logic_cluster) cluster_push_(results,*current_logic_cluster);
                 current_logic_cluster = logical_cluster{current_cluster, span, advance_rect};
             }
 
@@ -790,13 +814,13 @@ private:
             const math::frect actual_aabb = loaded_glyph.metrics().place_to(visual_base_pos, metrics.run_scale_factor);
             const math::frect draw_aabb = actual_aabb.copy().expand(font::font_draw_expand * metrics.run_scale_factor);
 
-            current_block_.push_back(actual_aabb, { draw_aabb, prev_color, std::move(loaded_glyph) });
+        	current_block_.push_back(results, actual_aabb, { draw_aabb, prev_color, std::move(loaded_glyph) });
 
             if(!this->is_reversed()) current_block_.cursor = this->move_pen(current_block_.cursor, run_advance);
         }
 
-        if(current_logic_cluster) cluster_push_(*current_logic_cluster);
-        if(active_ul_start) this->submit_underline(*active_ul_start, prev_color, metrics, true);
+        if(current_logic_cluster) cluster_push_(results,*current_logic_cluster);
+        if(active_ul_start) this->submit_underline(results, *active_ul_start, prev_color, metrics, true);
 
         if constexpr (enable_dynamic_rich_text_state) {
         	rich_text_state& rtstate = rich_text_state_;
@@ -843,7 +867,15 @@ private:
         offset_vec.*state_.major_p = {};
         offset_vec.*state_.minor_p = next_baseline;
 
-        if(!line_buffer_.elems.empty()) {
+        // 【关键修复 1】明确当前行的数据终点，使用 current_block_.span 作为隔离墙，避免将尚未换行的字符卷入。
+        const std::size_t line_elem_end = current_block_.span.elem_start;
+        const std::size_t line_ul_end = current_block_.span.ul_start;
+        const std::size_t line_cluster_end = enable_cluster_record ? current_block_.span.cluster_start : 0;
+
+        bool has_elems = (line_elem_end > line_buffer_.span.elem_start) ||
+                         (line_ul_end > line_buffer_.span.ul_start);
+
+        if(has_elems) {
             const float visual_min_y = line_buffer_.pos_min.*state_.minor_p + offset_vec.*state_.minor_p;
             const float visual_max_y = line_buffer_.pos_max.*state_.minor_p + offset_vec.*state_.minor_p;
             const float logical_min_y = offset_vec.*state_.minor_p - current_asc;
@@ -856,6 +888,10 @@ private:
 
             if constexpr (!IsInf.y) {
                 if((global_max_y - global_min_y) > config_.max_extent.*state_.minor_p + 0.001f) {
+                    // 越界：利用 resize 零开销裁切掉本行及之后产生的所有废弃数据
+                    results.elems.resize(line_buffer_.span.elem_start);
+                    results.underlines.resize(line_buffer_.span.ul_start);
+                    if constexpr (enable_cluster_record) results.clusters.resize(line_buffer_.span.cluster_start);
                     return false;
                 }
             }
@@ -871,20 +907,23 @@ private:
         line new_line;
         new_line.start_pos = offset_vec;
         new_line.rect = line_buffer_.line_bound;
-        new_line.glyph_range = subrange(results.elems.size(), line_buffer_.elems.size());
-        new_line.underline_range = subrange(results.underlines.size(), line_buffer_.underlines.size());
-		if constexpr (enable_cluster_record){
-			new_line.cluster_range = subrange(results.clusters.size(), line_buffer_.clusters->size());
-		}
-        
 
-        for(auto& elem : line_buffer_.elems) {
+        // 【关键修复 2】使用推断出来的确切范围
+        new_line.glyph_range = subrange(line_buffer_.span.elem_start, line_elem_end - line_buffer_.span.elem_start);
+        new_line.underline_range = subrange(line_buffer_.span.ul_start, line_ul_end - line_buffer_.span.ul_start);
+        if constexpr (enable_cluster_record){
+            new_line.cluster_range = subrange(line_buffer_.span.cluster_start, line_cluster_end - line_buffer_.span.cluster_start);
+        }
+
+        // 【关键修复 3】移除所有的原地平移（如 elem.aabb.move），恢复渲染架构所需的局部坐标。
+        for(std::size_t i = line_buffer_.span.elem_start; i < line_elem_end; ++i) {
+            const auto& elem = results.elems[i];
             state_.min_bound.min(elem.aabb.vert_00() + offset_vec);
             state_.max_bound.max(elem.aabb.vert_11() + offset_vec);
         }
-		results.elems.append_range(line_buffer_.elems | std::views::as_rvalue);
 
-        for(auto& ul : line_buffer_.underlines) {
+        for(std::size_t i = line_buffer_.span.ul_start; i < line_ul_end; ++i) {
+            const auto& ul = results.underlines[i];
             math::vec2 ul_min = math::min(ul.start, ul.end) + offset_vec;
             math::vec2 ul_max = math::max(ul.start, ul.end) + offset_vec;
             ul_min.y -= ul.thickness / 2.f;
@@ -893,7 +932,8 @@ private:
             state_.min_bound.min(ul_min);
             state_.max_bound.max(ul_max);
         }
-		results.underlines.append_range(line_buffer_.underlines | std::views::as_rvalue);
+
+        // 注意：原版中对于 clusters 的 `.move()` 操作也需一并剔除，因为 hit_test 中本质上处理的也是相对偏移。
 
         math::vec2 line_logical_min = offset_vec;
         line_logical_min.*state_.minor_p = offset_vec.*state_.minor_p - current_asc;
@@ -906,20 +946,25 @@ private:
         state_.min_bound.min(line_logical_min);
         state_.max_bound.max(line_logical_max);
 
-        if constexpr (enable_cluster_record) {
-        	results.clusters.append_range(*line_buffer_.clusters);
-        }
-
         results.lines.push_back(std::move(new_line));
         state_.prev_line_descender = current_desc;
+
+        // 【关键修复 4】行底指针应当无缝对接当前 block 的起点，而不是 results 末尾
         line_buffer_.clear();
+        line_buffer_.span = current_block_.span;
 
         return true;
     }
 
     template<math::bool2 IsInf>
     bool flush_block_impl(glyph_layout& results) {
-        if(current_block_.glyphs.empty() && current_block_.underlines.empty() && current_block_.clusters.empty()) return true;
+        bool is_empty = (current_block_.span.elem_start == results.elems.size() &&
+                         current_block_.span.ul_start == results.underlines.size());
+        if constexpr (enable_cluster_record) {
+            is_empty = is_empty && (current_block_.span.cluster_start == results.clusters.size());
+        }
+
+        if(is_empty) return true;
 
         auto check_block_fit = [&](const line_buffer_base& buffer, const layout_block_base& blk) -> bool {
             const float predicted_width = buffer.line_bound.width + blk.cursor.*state_.major_p;
@@ -936,8 +981,7 @@ private:
             float asc = std::max({buffer.line_bound.ascender, blk.block_ascender, min_asc});
             float desc = std::max({buffer.line_bound.descender, blk.block_descender, min_desc});
             float estimated_baseline = state_.current_baseline_pos;
-
-            if(!state_.is_first_line && buffer.elems.empty()) {
+            if(!state_.is_first_line && (buffer.span.elem_start == results.elems.size())) {
                 estimated_baseline += (state_.prev_line_descender + asc) * config_.line_spacing_scale + config_.line_spacing_fixed_distance;
             }
 
@@ -953,8 +997,9 @@ private:
         };
 
         if(check_block_fit(line_buffer_, current_block_)) {
-            line_buffer_.append(current_block_, state_.major_p);
-            current_block_.clear();
+            line_buffer_.append(results, current_block_, state_.major_p);
+        	current_block_.clear();
+        	current_block_.sync_start(results);
             return true;
         }
 
@@ -965,6 +1010,7 @@ private:
             auto scaled_aabb = cached_indicator_.glyph_aabb.copy();
             scaled_aabb = { tags::unchecked, tags::from_vertex, scaled_aabb.vert_00() * scale, scaled_aabb.vert_11() * scale };
             current_block_.push_front(
+                results,
                 scaled_aabb,
                 { scaled_aabb.copy().expand(font::font_draw_expand), graphic::colors::white * .68f, cached_indicator_.texture },
                 cached_indicator_.advance * scale
@@ -972,12 +1018,13 @@ private:
         }
 
         if(check_block_fit(line_buffer_, current_block_)) {
-            line_buffer_.append(current_block_, state_.major_p);
+            line_buffer_.append(results, current_block_, state_.major_p);
         } else {
             return false;
         }
 
         current_block_.clear();
+		current_block_.sync_start(results);
         return true;
     }
 
@@ -1063,7 +1110,7 @@ public:
 
         const std::size_t raw_text_size = full_text.get_text().size();
         layout_ref.elems.reserve(raw_text_size);
-    	cluster_reserve_(raw_text_size);
+    	cluster_reserve_(layout_ref, raw_text_size);
         layout_ref.lines.reserve((raw_text_size / 20) + 1);
 
         // 运行时参数提取

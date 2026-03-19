@@ -39,22 +39,25 @@ struct borrowed_image_region;
 export
 struct cached_image_region;
 
-struct non_propagate_atomic_bool{
+struct dumb_propagate_atomic_bool{
+
 	std::atomic_bool tag;
 
-	[[nodiscard]] non_propagate_atomic_bool() = default;
+	[[nodiscard]] dumb_propagate_atomic_bool() = default;
 
-	non_propagate_atomic_bool(const non_propagate_atomic_bool& other){
+	dumb_propagate_atomic_bool(const dumb_propagate_atomic_bool& other) noexcept : tag(other.tag.load(std::memory_order::relaxed)) {
 	}
 
-	non_propagate_atomic_bool(non_propagate_atomic_bool&& other) noexcept{
+	dumb_propagate_atomic_bool(dumb_propagate_atomic_bool&& other) noexcept : tag(other.tag.exchange(false, std::memory_order::relaxed)){
 	}
 
-	non_propagate_atomic_bool& operator=(const non_propagate_atomic_bool& other){
+	dumb_propagate_atomic_bool& operator=(const dumb_propagate_atomic_bool& other) noexcept{
+		tag.store(other.tag.load(std::memory_order::relaxed), std::memory_order::relaxed);
 		return *this;
 	}
 
-	non_propagate_atomic_bool& operator=(non_propagate_atomic_bool&& other) noexcept{
+	dumb_propagate_atomic_bool& operator=(dumb_propagate_atomic_bool&& other) noexcept{
+		tag.store(other.tag.exchange(false, std::memory_order::relaxed), std::memory_order::relaxed);
 		return *this;
 	}
 };
@@ -62,13 +65,13 @@ struct non_propagate_atomic_bool{
 export
 struct allocated_image_region :
 	region_type,
-	referenced_object_atomic_nonpropagation{
+	referenced_object_atomic{
 protected:
 	math::urect region{};
 	exclusive_handle_member<sub_page*> page{};
 
 private:
-	non_propagate_atomic_bool tag;
+	dumb_propagate_atomic_bool tag;
 
 public:
 	[[nodiscard]] constexpr allocated_image_region() = default;
@@ -122,10 +125,10 @@ public:
 		return false;
 	}
 
-	using referenced_object_atomic_nonpropagation::droppable;
-	using referenced_object_atomic_nonpropagation::check_droppable_and_retire;
-	using referenced_object_atomic_nonpropagation::ref_decr;
-	using referenced_object_atomic_nonpropagation::ref_incr;
+	using referenced_object_atomic::droppable;
+	using referenced_object_atomic::check_droppable_and_retire;
+	using referenced_object_atomic::ref_decr;
+	using referenced_object_atomic::ref_incr;
 
 
 	/**
@@ -137,14 +140,14 @@ public:
 	 */
 	template <typename T>
 		requires (std::convertible_to<region_type, T>)
-	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic_nonpropagation>() noexcept{
+	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic>() noexcept{
 		return {*this, static_cast<T>(static_cast<const region_type&>(*this))};
 	}
 
 	template <typename T>
 		requires (std::convertible_to<region_type, T>)
-	std::optional<universal_borrowed_image_region<T, referenced_object_atomic_nonpropagation>> make_universal_borrow() noexcept{
-		universal_borrowed_image_region<T, referenced_object_atomic_nonpropagation> rst{*this, static_cast<T>(static_cast<const region_type&>(*this))};
+	std::optional<universal_borrowed_image_region<T, referenced_object_atomic>> make_universal_borrow() noexcept{
+		universal_borrowed_image_region<T, referenced_object_atomic> rst{*this, static_cast<T>(static_cast<const region_type&>(*this))};
 		if(rst.get()){
 			return rst;
 		}
@@ -183,7 +186,7 @@ public:
 
 	template <typename T>
 		requires std::convertible_to<region_type, T>
-	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic_nonpropagation>() noexcept{
+	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic>() noexcept{
 		return {**this, static_cast<T>(static_cast<const region_type&>(**this))};
 	}
 };
@@ -235,7 +238,7 @@ public:
 
 	template <typename T>
 		requires std::convertible_to<region_type, T>
-	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic_nonpropagation>() noexcept{
+	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic>() noexcept{
 		return {**this, static_cast<T>(static_cast<const region_type&>(**this))};
 	}
 };

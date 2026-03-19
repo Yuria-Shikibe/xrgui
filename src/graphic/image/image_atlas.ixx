@@ -6,6 +6,7 @@ module;
 
 #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include "plf_hive.h"
+#include <gtl/phmap.hpp>
 #endif
 
 
@@ -41,10 +42,31 @@ import std;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 import <plf_hive.h>;
+import <gtl/phmap.hpp>;
 #endif
 
 
 namespace mo_yanxi::graphic{
+#pragma region PRL_HashMap
+
+struct StringHashEq {
+	using is_transparent = void;
+	static std::size_t operator()(std::string_view sv) noexcept {
+		return gtl::HashState().combine(0, sv);
+	}
+
+	static bool operator()(std::string_view l, std::string_view r) noexcept {
+		return l == r;
+	}
+};
+
+template <typename V>
+using concurrent_node_string_map = gtl::parallel_node_hash_map<
+	std::string, V,
+	StringHashEq, StringHashEq
+>;
+
+#pragma endregion
 constexpr math::usize2 DefaultTexturePageSize = math::vectors::constant2<std::uint32_t>::base_vec2 * (4096);
 
 using region_type = combined_image_region<size_awared_uv<uniformed_rect_uv>>;
@@ -326,6 +348,11 @@ struct image_register_result{
 		region.ref_incr();
 	}
 
+	image_register_result(allocated_image_region& region, bool inserted, std::adopt_lock_t)
+		: region(region),
+		inserted(inserted){
+	}
+
 	~image_register_result(){
 		region.ref_decr();
 	}
@@ -352,9 +379,7 @@ private:
 	VkClearColorValue clear_color_{};
 	std::uint32_t margin{};
 
-	//TODO using shared mutex instead?
-	std::mutex named_image_regions_mtx_{};
-	string_hash_map<allocated_image_region> named_image_regions{};
+	concurrent_node_string_map<allocated_image_region> named_image_regions{};
 
 public:
 	[[nodiscard]] image_page() = default;
@@ -492,59 +517,92 @@ public:
 		}
 	}
 
-	template <typename Str, typename T>
-		requires (std::constructible_from<image_load_description, T> && std::constructible_from<std::string_view, const Str&>)
+	template <typename T>
+		requires (std::constructible_from<image_load_description, T>)
 	image_register_result register_named_region(
-		Str&& name,
+		std::string_view name,
 		T&& desc,
-		const bool mark_as_protected = false){
-		std::string_view sv{std::as_const(name)};
+		const bool mark_as_protected = false) {
 
-		allocated_image_region* rst;
+		allocated_image_region* rst = nullptr;
 
-		{
-			{
-				std::lock_guard lg{named_image_regions_mtx_};
-				if(const auto itr = named_image_regions.find(sv); itr != named_image_regions.end()){
-					return {itr->second, false};
-				}
+		// 1. 无锁/分段锁乐观读取：查找极其快速
+		named_image_regions.if_contains(name, [&](decltype(named_image_regions)::value_type& pair) {
+			rst = &pair.second;
+		});
+
+		if (rst != nullptr) {
+			if (mark_as_protected) rst->set_protected(true);
+			return {*rst, false};
+		}
+
+		auto val = this->async_allocate(image_load_description{std::forward<T>(desc)});
+
+
+		val.ref_incr();
+		if (mark_as_protected) {
+			val.set_protected(true);
+		}
+
+		bool inserted = named_image_regions.try_emplace_l(
+			name,
+			[&](decltype(named_image_regions)::value_type& pair) {
+				rst = &pair.second;
+			},
+			std::move(val)
+		);
+
+		if (inserted) {
+			named_image_regions.if_contains(name, [&](decltype(named_image_regions)::value_type& pair) {
+				rst = &pair.second;
+			});
+			assert(rst != nullptr);
+			return image_register_result{*rst, true, std::adopt_lock};
+		} else {
+			if (mark_as_protected) rst->set_protected(true);
+			assert(rst != nullptr);
+			return {*rst, false};
+		}
+	}
+
+	void clear_unused() noexcept {
+		std::vector<std::string> keys_to_remove;
+
+		named_image_regions.for_each([&](const decltype(named_image_regions)::value_type& pair) {
+			if (pair.second.droppable()) {
+				keys_to_remove.push_back(pair.first);
 			}
+		});
 
-			auto val = this->async_allocate(image_load_description{std::forward<T>(desc)});
-
-			std::lock_guard lg{named_image_regions_mtx_};
-			rst = &named_image_regions.try_emplace(std::forward<Str>(name), std::move(val)).first->second;
+		for (const auto& key : keys_to_remove) {
+			named_image_regions.erase_if(key, [](decltype(named_image_regions)::value_type& pair) {
+				return pair.second.check_droppable_and_retire();
+			});
 		}
-
-		if(mark_as_protected){
-			rst->set_protected(true);
-		}
-
-		return {*rst, true};
-	}
-
-	void clear_unused() noexcept{
-		std::lock_guard lg{named_image_regions_mtx_};
-
-		unlocked_clean_unused_();
 	}
 
 	template <typename T>
-	[[nodiscard]] auto* find(this T& self, const std::string_view localName) noexcept{
-		std::lock_guard lg{self.named_image_regions_mtx_};
-		return self.named_image_regions.try_find(localName);
+	[[nodiscard]] auto* find(this T& self, const std::string_view localName) noexcept {
+		allocated_image_region* rst = nullptr;
+		self.named_image_regions.if_contains(localName, [&](auto& pair) {
+			rst = &pair.second;
+		});
+		return rst;
 	}
 
 	template <typename T>
-	[[nodiscard]] auto& at(this T& self, const std::string_view localName){
-		std::lock_guard lg{self.named_image_regions_mtx_};
-		return self.named_image_regions.at(localName);
+	[[nodiscard]] auto& at(this T& self, const std::string_view localName) {
+		allocated_image_region* rst = nullptr;
+		self.named_image_regions.if_contains(localName, [&](auto& pair) {
+			rst = &pair.second;
+		});
+		if (!rst) throw std::out_of_range("Key not found");
+		return *rst;
 	}
 
 	template <typename T>
 	[[nodiscard]] auto& operator[](this T& self, const std::string_view localName){
-		std::lock_guard lg{self.named_image_regions_mtx_};
-		return self.named_image_regions.at(localName);
+		return self.at(localName);
 	}
 
 	~image_page(){
@@ -565,7 +623,6 @@ protected:
 	}
 
 	void drop(){
-		std::lock_guard lg{named_image_regions_mtx_};
 		for (auto& region : named_image_regions | std::views::values){
 			region.set_protected(false);
 		}

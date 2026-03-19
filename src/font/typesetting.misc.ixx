@@ -235,7 +235,7 @@ export struct glyph_layout{
 };
 
 
-constexpr bool is_separator(char32_t c) noexcept {
+FORCE_INLINE CONST_FN constexpr bool is_separator(char32_t c) noexcept {
 	if (c < 0x80) {
 		return c == U',' || c == U'.' || c == U';' || c == U':' || c == U'!' || c == U'?';
 	}
@@ -276,9 +276,14 @@ struct rich_text_state{
 	}
 };
 
+export struct layout_span {
+	std::size_t elem_start = 0;
+	std::size_t ul_start = 0;
+	std::size_t cluster_start = 0;
+};
+
 struct layout_block_base{
-	std::vector<glyph_elem> glyphs;
-	std::vector<underline> underlines;
+	layout_span span{};
 	math::vec2 cursor{};
 	math::vec2 pos_min{math::vectors::constant2<float>::inf_positive_vec2};
 	math::vec2 pos_max{-math::vectors::constant2<float>::inf_positive_vec2};
@@ -288,117 +293,95 @@ struct layout_block_base{
 
 template <bool HasClusters>
 struct layout_block : layout_block_base {
-    std::vector<logical_cluster> clusters;
 
     FORCE_INLINE inline void clear() {
-        glyphs.clear();
-        underlines.clear();
-        clusters.clear();
-        cursor = {};
-        pos_min = math::vectors::constant2<float>::inf_positive_vec2;
-        pos_max = -math::vectors::constant2<float>::inf_positive_vec2;
-        block_ascender = 0.f;
-        block_descender = 0.f;
+        *this = layout_block{};
+    }
+	FORCE_INLINE inline void sync_start(const glyph_layout& results) {
+    	span.elem_start = results.elems.size();
+    	span.ul_start = results.underlines.size();
+    	if constexpr (HasClusters) span.cluster_start = results.clusters.size();
     }
 
-    FORCE_INLINE inline void push_back(math::frect glyph_region, const glyph_elem& glyph) {
-        glyphs.push_back(glyph);
-        pos_min.min(glyph_region.vert_00());
-        pos_max.max(glyph_region.vert_11());
-    }
-
-    FORCE_INLINE inline void push_back_underline(const underline& ul) {
-        underlines.push_back(ul);
-        math::vec2 ul_min = math::min(ul.start, ul.end);
-        math::vec2 ul_max = math::max(ul.start, ul.end);
-        const math::vec2 diff = ul.end - ul.start;
-        if(std::abs(diff.x) > std::abs(diff.y)) {
-            ul_min.y -= ul.thickness / 2.f; ul_max.y += ul.thickness / 2.f;
-        } else {
-            ul_min.x -= ul.thickness / 2.f; ul_max.x += ul.thickness / 2.f;
-        }
-        pos_min.min(ul_min);
-        pos_max.max(ul_max);
-    }
-
-    FORCE_INLINE inline void push_front(math::frect glyph_region, const glyph_elem& glyph, math::vec2 glyph_advance) {
-        for(auto& layout_result : glyphs){
-	        layout_result.aabb.move(glyph_advance);
-        }
-        for(auto& ul : underlines){
-	        ul.start += glyph_advance;
-        	ul.end += glyph_advance;
-        }
-        for(auto& c : clusters){
-	        c.logical_rect.move(glyph_advance);
-        }
-        glyphs.insert(glyphs.begin(), glyph);
-        pos_min += glyph_advance;
-    	pos_max += glyph_advance;
-        pos_min.min(glyph_region.vert_00());
+	FORCE_INLINE inline void push_back(glyph_layout& results, math::frect glyph_region, const glyph_elem& glyph) {
+    	results.elems.push_back(glyph);
+    	pos_min.min(glyph_region.vert_00());
     	pos_max.max(glyph_region.vert_11());
-        cursor += glyph_advance;
+    }
+
+	FORCE_INLINE inline void push_front(glyph_layout& results, math::frect glyph_region, const glyph_elem& glyph, math::vec2 glyph_advance) {
+    	// 原位移动当前 block 已经写入的元素
+    	for(std::size_t i = span.elem_start; i < results.elems.size(); ++i) {
+    		results.elems[i].aabb.move(glyph_advance);
+    	}
+    	for(std::size_t i = span.ul_start; i < results.underlines.size(); ++i) {
+    		results.underlines[i].start += glyph_advance;
+    		results.underlines[i].end += glyph_advance;
+    	}
+    	if constexpr (HasClusters) {
+    		for(std::size_t i = span.cluster_start; i < results.clusters.size(); ++i) {
+    			results.clusters[i].logical_rect.move(glyph_advance);
+    		}
+    	}
+
+    	// 由于 span.elem_start 必定对应当前 block 的起点（且排版总是追加），
+    	// 这里的 insert 只会发生微量的元素平移（通常只有几个字符的开销）
+    	results.elems.insert(results.elems.begin() + span.elem_start, glyph);
+    	pos_min += glyph_advance;
+    	pos_max += glyph_advance;
+    	pos_min.min(glyph_region.vert_00());
+    	pos_max.max(glyph_region.vert_11());
+    	cursor += glyph_advance;
     }
 };
 
 
 struct line_buffer_base {
-	std::vector<glyph_elem> elems{};
-	std::vector<underline> underlines{};
+	layout_span span{};
 	layout_rect line_bound{};
 	math::vec2 pos_min{math::vectors::constant2<float>::inf_positive_vec2};
 	math::vec2 pos_max{-math::vectors::constant2<float>::inf_positive_vec2};
 
 	FORCE_INLINE inline void clear() {
-		elems.clear();
-		underlines.clear();
-		line_bound = {};
-		pos_min = math::vectors::constant2<float>::inf_positive_vec2;
-		pos_max = -math::vectors::constant2<float>::inf_positive_vec2;
+		*this = {};
 	}
-
 };
 
 template <bool HasClusters>
 struct line_buffer_t : line_buffer_base {
-	cond_exist<std::vector<logical_cluster>, HasClusters> clusters{};
-
-	FORCE_INLINE inline void clear() {
-		line_buffer_base::clear();
-		clusters.invoke(&std::vector<logical_cluster>::clear);
+	FORCE_INLINE inline void sync_start(const glyph_layout& results) {
+		span.elem_start = results.elems.size();
+		span.ul_start = results.underlines.size();
+		if constexpr (HasClusters) span.cluster_start = results.clusters.size();
 	}
 
-	FORCE_INLINE inline void append(layout_block<HasClusters>& block, float math::vec2::* major_axis) {
+	FORCE_INLINE inline void append(glyph_layout& results, layout_block<HasClusters>& block, float math::vec2::* major_axis) {
 		math::vec2 move_vec{};
 		move_vec.*major_axis = line_bound.width;
 
-		layout_block_base& base = block;
-		if (!base.glyphs.empty() || !base.underlines.empty()) {
-			pos_min.min(base.pos_min + move_vec);
-			pos_max.max(base.pos_max + move_vec);
+		bool has_elems = (results.elems.size() > block.span.elem_start) || (results.underlines.size() > block.span.ul_start);
+		if (has_elems) {
+			pos_min.min(block.pos_min + move_vec);
+			pos_max.max(block.pos_max + move_vec);
 		}
 
-		for (auto& g : base.glyphs){
-			g.aabb.move(move_vec);
+		// 修改已经存在于 results 中，但属于此 block 的数据的相对偏移
+		for(std::size_t i = block.span.elem_start; i < results.elems.size(); ++i) {
+			results.elems[i].aabb.move(move_vec);
 		}
-		for (auto& ul : base.underlines){
-			ul.start += move_vec;
-			ul.end += move_vec;
+		for(std::size_t i = block.span.ul_start; i < results.underlines.size(); ++i) {
+			results.underlines[i].start += move_vec;
+			results.underlines[i].end += move_vec;
 		}
-
-		if constexpr (HasClusters){
-			for (auto& c : block.clusters){
-				c.logical_rect.move(move_vec);
+		if constexpr (HasClusters) {
+			for(std::size_t i = block.span.cluster_start; i < results.clusters.size(); ++i) {
+				results.clusters[i].logical_rect.move(move_vec);
 			}
-			std::vector<logical_cluster>& rng = clusters;
-			rng.append_range(block.clusters | std::views::as_rvalue);
 		}
-		underlines.append_range(base.underlines | std::views::as_rvalue);
-		elems.append_range(base.glyphs | std::views::as_rvalue);
 
-		line_bound.width += base.cursor.*major_axis;
-		line_bound.ascender = std::max(line_bound.ascender, base.block_ascender);
-		line_bound.descender = std::max(line_bound.descender, base.block_descender);
+		line_bound.width += block.cursor.*major_axis;
+		line_bound.ascender = std::max(line_bound.ascender, block.block_ascender);
+		line_bound.descender = std::max(line_bound.descender, block.block_descender);
 	}
 };
 

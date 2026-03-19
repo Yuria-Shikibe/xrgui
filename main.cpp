@@ -895,13 +895,13 @@ Edge Cases:
 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
 )";
 
-	// typesetting::tokenized_text text = {test_text};
-	// typesetting::layout_context layout_ctx{std::in_place};
-	// for(int i = 0; i < 10000; ++i){
-	// 	auto rst = layout_ctx.layout(text);
-	// 	DoNotOptimize(rst);
-	// }
-	app_run(ctx, renderer, manager, post_process_cmd);
+	typesetting::tokenized_text text = {test_text};
+	typesetting::layout_context layout_ctx{std::in_place};
+	for(int i = 0; i < 20000; ++i){
+		auto rst = layout_ctx.layout(text);
+		DoNotOptimize(rst);
+	}
+	// app_run(ctx, renderer, manager, post_process_cmd);
 
 	gui::assets::dispose_generated_shapes();
 	gui::global::terminate_assets_manager();

@@ -357,6 +357,7 @@ public:
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		if (!event.key.on_release()) {
 			set_focus(true); // 保证获取焦点，并处理了 Idle 的清理工作
+			set_focused_key(true);
 
 			math::vec2 localpos = event.pos - get_glyph_src_local();
 			core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), localpos, render_cache_.get_line_align(), false);
@@ -380,6 +381,9 @@ public:
         // }
     }
 
+	void on_focus_key_changed(bool isFocused) override{
+	    set_focus(isFocused);
+    }
 private:
     void set_focus(bool keyFocused);
     void set_text_internal(std::u32string_view str);

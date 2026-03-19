@@ -401,7 +401,6 @@ math::frect text_edit_v2::get_caret_local_aabb() const {
 }
 
 events::op_afterwards text_edit_v2::on_drag(const events::drag event) {
-    set_focus(true); // 保证拖拽期间焦点处于激活状态
     math::vec2 localpos = event.dst - get_glyph_src_local();
     core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), localpos, render_cache_.get_line_align(), true);
     reset_blink();
@@ -433,10 +432,13 @@ events::op_afterwards text_edit_v2::on_key_input(const input_handle::key_set key
 }
 
 events::op_afterwards text_edit_v2::on_esc() {
-    if (elem::on_esc() == events::op_afterwards::fall_through) {
-        set_focus(false);
-    }
-    return events::op_afterwards::intercepted;
+	if (elem::on_esc() == events::op_afterwards::fall_through && is_focused_key()) {
+		set_focus(false);
+		set_focused_key(false);
+		return events::op_afterwards::intercepted;
+	}
+
+    return events::op_afterwards::fall_through;
 }
 
 graphic::color text_edit_v2::get_text_draw_color() const noexcept {
@@ -453,47 +455,48 @@ void text_edit_v2::set_text_internal(std::u32string_view str) {
 }
 
 void text_edit_v2::set_focus(bool keyFocused) {
-    set_focused_key(keyFocused);
 
-    if (keyFocused) {
-        if (is_idle_) {
-            is_idle_ = false;
-            core_.reset_state();
-            set_text_internal(U"");
-        }
 
-        if (auto map = get_scene().find_input(text_edit_key_binding_name)) {
-            auto& kmap = dynamic_cast<text_edit_key_binding&>(*map);
-            kmap.set_context(std::ref(*this));
-            kmap.set_activated(true);
-        } else {
-            auto& kmap = get_scene().get_inputs().register_sub_input<text_edit_key_binding>(text_edit_key_binding_name);
-        	kmap.use_default_setting();
-            kmap.set_context(std::ref(*this));
-            kmap.set_activated(true);
-        }
-    } else {
-        if (tokenized_text_.empty()) {
-            is_idle_ = true;
-            set_text_internal(hint_text_when_idle_);
-        }
+	if (keyFocused) {
+		if (is_idle_) {
+			is_idle_ = false;
+			core_.reset_state();
+			set_text_internal(U"");
+		}
 
-        if (auto map = get_scene().find_input(text_edit_key_binding_name)) {
-            auto& kmap = dynamic_cast<text_edit_key_binding&>(*map);
-            auto [host] = kmap.get_context();
-            if (host && &host.get() == this) {
-                kmap.set_context(text_edit_key_binding::context_tuple_t{});
-                kmap.set_activated(false);
-            }
-        }
-    }
+		if (auto map = get_scene().find_input(text_edit_key_binding_name)) {
+			auto& kmap = dynamic_cast<text_edit_key_binding&>(*map);
+			kmap.set_context(std::ref(*this));
+			kmap.set_activated(true);
+		} else {
+			auto& kmap = get_scene().get_inputs().register_sub_input<text_edit_key_binding>(text_edit_key_binding_name);
+			kmap.use_default_setting();
+			kmap.set_context(std::ref(*this));
+			kmap.set_activated(true);
+		}
+	} else {
+		// 【修复点】：检查实际文本内容是否为空，而不是依赖 tokenized 对象的 empty()
+		if (tokenized_text_.get_text().empty()) {
+			is_idle_ = true;
+			set_text_internal(hint_text_when_idle_);
+		}
 
-    if (const auto cmt = get_scene().get_communicator()) {
-        cmt->set_ime_enabled(keyFocused);
-        if (keyFocused) {
-            update_ime_position();
-        }
-    }
+		if (auto map = get_scene().find_input(text_edit_key_binding_name)) {
+			auto& kmap = dynamic_cast<text_edit_key_binding&>(*map);
+			auto [host] = kmap.get_context();
+			if (host && &host.get() == this) {
+				kmap.set_context(text_edit_key_binding::context_tuple_t{});
+				kmap.set_activated(false);
+			}
+		}
+	}
+
+	if (const auto cmt = get_scene().get_communicator()) {
+		cmt->set_ime_enabled(keyFocused);
+		if (keyFocused) {
+			update_ime_position();
+		}
+	}
 }
 
 // --- 剪贴板支持 ---

@@ -33,9 +33,10 @@ add_requires("msdfgen", {
 })
 
 add_requires("freetype")
-add_requires("harfbuzz")
+add_requires("harfbuzz", {configs = {cxflags = "-DHB_NO_MT"}})
 add_requires("nanosvg")
 add_requires("spirv-reflect")
+add_requires("gtl")
 -- add_requires("clipper2")
 add_requires("mimalloc v2.2.4")
 
@@ -57,6 +58,7 @@ function set_xrgui_deps()
     add_packages("harfbuzz", {public = true})
     add_packages("mimalloc", {public = true})
     add_packages("nanosvg", {public = true})
+    add_packages("gtl", {public = true})
 --     add_packages("clipper2", {public = true})
     add_packages("spirv-reflect", {public = true})
 
@@ -116,6 +118,9 @@ target("xrgui.example")
     add_files("src.examples/**.ixx", {public = true})
     add_files("src.examples/**.cpp")
 
+    if is_mode("release") then
+        set_policy("build.optimization.lto", true)
+    end
 
     if is_plat("windows") then
         add_syslinks("imm32")

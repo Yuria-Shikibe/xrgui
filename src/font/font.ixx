@@ -7,6 +7,7 @@ module;
 #include <cassert>
 #include <ft2build.h>
 #include <freetype/freetype.h>
+#include <mo_yanxi/adapted_attributes.hpp>
 
 #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <msdfgen/msdfgen-ext.h>
@@ -106,43 +107,9 @@ export using glyph_index_t = std::uint32_t;
 export using glyph_size_type = math::vector2<std::uint16_t>;
 export using glyph_raw_metrics = FT_Glyph_Metrics;
 
-export inline bool is_space(char_code code) noexcept{
-	return code == U'\0' || code <= std::numeric_limits<signed char>::max() && std::isspace(code);
-}
-
-export inline bool is_unicode_separator(char_code c) noexcept{
-	// ASCII控制字符（换行/回车/制表符等）
-	if(c < 0x80 && std::iscntrl(static_cast<unsigned char>(c))){
-		return true;
-	}
-
-	// 常见ASCII分隔符
-	if(c < 0x80 && (std::ispunct(static_cast<unsigned char>(c)) || c == ' ')){
-		return true;
-	}
-
-	// 全角标点（FF00-FFEF区块）
-	if((c >= 0xFF01 && c <= 0xFF0F) || // ！＂＃＄％＆＇（）＊＋，－．／
-		(c >= 0xFF1A && c <= 0xFF20) || //：；＜＝＞？＠
-		(c >= 0xFF3B && c <= 0xFF40) || //；＜＝＞？＠［＼］＾＿
-		(c >= 0xFF5B && c <= 0xFF65)){
-		//｛｜｝～｟...等
-		return true;
-	}
-
-	// 中文标点（3000-303F区块）
-	if((c >= 0x3000 && c <= 0x303F)){
-		// 包含　、。〃〄等
-		return true;
-	}
-
-	return false;
-}
-
-
 export
 template <typename T>
-constexpr T get_snapped_size(const T len) noexcept{
+FORCE_INLINE CONST_FN constexpr T get_snapped_size(const T len) noexcept{
 	if(len == 0) return 0;
 	if(len <= static_cast<T>(256)) return 64;
 	return 128;
@@ -157,19 +124,14 @@ export struct glyph_identity{
 
 export
 template <std::floating_point T = float>
-constexpr T normalize_len(const FT_Pos pos) noexcept{
-	if consteval{
-		return static_cast<T>(pos) / 64.f;
-	} else{
-		return std::ldexp(static_cast<T>(pos), -6);
-		// NOLINT(*-narrowing-conversions)
-	}
+FORCE_INLINE CONST_FN constexpr T normalize_len(const FT_Pos pos) noexcept{
+	return static_cast<T>(pos) / 64.f;
 }
 
 export
 template <std::floating_point T = float>
-constexpr T normalize_len_1616(const FT_Pos pos) noexcept{
-	return std::ldexp(static_cast<T>(pos), -16); // NOLINT(*-narrowing-conversions)
+FORCE_INLINE CONST_FN constexpr T normalize_len_1616(const FT_Pos pos) noexcept{
+	return static_cast<T>(pos) / T(1 << 16);
 }
 
 export
@@ -195,11 +157,11 @@ struct glyph_metrics{
 		}
 	}
 
-	[[nodiscard]] constexpr float ascender() const noexcept{
+	[[nodiscard]] FORCE_INLINE constexpr float ascender() const noexcept{
 		return horiBearing.y;
 	}
 
-	[[nodiscard]] constexpr float descender() const noexcept{
+	[[nodiscard]] FORCE_INLINE constexpr float descender() const noexcept{
 		return size.y - horiBearing.y;
 	}
 
@@ -208,7 +170,7 @@ struct glyph_metrics{
 	 * @param scale
 	 * @return [v00, v11]
 	 */
-	[[nodiscard]] math::frect place_to(const math::vec2 pos, const math::vec2 scale) const{
+	[[nodiscard]] FORCE_INLINE constexpr math::frect place_to(const math::vec2 pos, const math::vec2 scale) const{
 		math::vec2 src = pos;
 		math::vec2 end = pos;
 		src.add(horiBearing.x * scale.x, -horiBearing.y * scale.y);
@@ -216,16 +178,8 @@ struct glyph_metrics{
 		return {tags::unchecked, tags::from_vertex, src, end};
 	}
 
-	bool operator==(const glyph_metrics&) const noexcept = default;
+	FORCE_INLINE constexpr bool operator==(const glyph_metrics&) const noexcept = default;
 };
-
-export constexpr inline auto ascii_chars = []() constexpr{
-	constexpr std::size_t Size = '~' - ' ' + 1;
-	std::array<char_code, Size> charCodes{};
-	std::ranges::copy(std::ranges::views::iota(' ', '~' + 1), charCodes.begin());
-
-	return charCodes;
-}();
 
 export struct font_face_handle;
 
@@ -536,8 +490,16 @@ struct font_family{
 
 template <>
 struct std::hash<mo_yanxi::font::glyph_identity>{ // NOLINT(*-dcl58-cpp)
-	std::size_t operator()(const mo_yanxi::font::glyph_identity& key) const noexcept{
-		return std::hash<std::uint64_t>{}(std::bit_cast<std::uint64_t>(key));
+	static constexpr std::size_t operator()(const mo_yanxi::font::glyph_identity& key) noexcept{
+		auto packed = std::bit_cast<std::uint64_t>(key);
+
+		packed ^= packed >> 30;
+		packed *= 0xbf58476d1ce4e5b9ULL;
+		packed ^= packed >> 27;
+		packed *= 0x94d049bb133111ebULL;
+		packed ^= packed >> 31;
+
+		return static_cast<std::size_t>(packed);
 	}
 };
 

@@ -27,7 +27,7 @@ namespace mo_yanxi::gui{
 export using image_native_handle = VkImageView;
 export using image_region_type = graphic::combined_image_region<graphic::size_awared_uv<graphic::uniformed_rect_uv>>;
 export using image_region_borrow = graphic::universal_borrowed_image_region<image_region_type,
-	referenced_object_atomic_nonpropagation>;
+	referenced_object_atomic>;
 
 
 export
