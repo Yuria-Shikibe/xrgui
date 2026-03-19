@@ -60,6 +60,7 @@ struct update_param{
 };
 
 
+
 export
 struct rich_text_fallback_style {
 	math::vec2 offset{};
@@ -67,6 +68,17 @@ struct rich_text_fallback_style {
 	const font::font_family* family{nullptr}; // 若为空，稍后使用 manager 的 default
 	gch::small_vector<hb_feature_t> features{}; // 初始全局 OpenType 特性
 	bool enables_underline{false};
+
+	constexpr friend bool operator==(const rich_text_fallback_style& lhs, const rich_text_fallback_style& rhs) noexcept {
+		return lhs.offset == rhs.offset
+			&& lhs.color == rhs.color
+			&& lhs.family == rhs.family
+			&& lhs.features == rhs.features
+			&& lhs.enables_underline == rhs.enables_underline;
+	}
+
+
+	// constexpr bool operator==(const rich_text_fallback_style&) const noexcept = default;
 };
 
 export
@@ -160,6 +172,19 @@ public:
 							break;
 						case setter_type::relative_mul : history_color_.push(
 								history_color_.top(fallback.color) * t.color);
+							break;
+						default : std::unreachable();
+						}
+					},
+					[&](const set_size& t){
+						switch(t.type){
+						case setter_type::absolute : history_size_.push(t.size);
+							break;
+						case setter_type::relative_add : history_size_.push(
+								history_size_.top(param.default_font_size) + t.size);
+							break;
+						case setter_type::relative_mul : history_size_.push(
+								history_size_.top(param.default_font_size) * t.size);
 							break;
 						default : std::unreachable();
 						}

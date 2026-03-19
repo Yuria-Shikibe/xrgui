@@ -56,7 +56,7 @@ public:
         const std::uint32_t global_pos = static_cast<std::uint32_t>(local_pos + base_pos_);
     	//Work around, remove to address when msvcstl is fixed
         auto range = std::ranges::equal_range(std::to_address(last), std::to_address(tokens_.end()), global_pos, {}, &tokenized_text::posed_token_argument::pos);
-        return token_span{range.begin(), range.end()};
+        return range;
     }
 };
 

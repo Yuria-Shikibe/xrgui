@@ -1,8 +1,10 @@
 module;
 
+#include <hb.h>
+#include <hb-ft.h>
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.typesetting:result;
+export module mo_yanxi.typesetting:misc;
 
 import std;
 import mo_yanxi.typesetting.util;
@@ -13,15 +15,19 @@ import mo_yanxi.math.rect_ortho;
 import mo_yanxi.graphic.color;
 import mo_yanxi.font;
 import mo_yanxi.font.manager;
+import mo_yanxi.hb.wrap;
+import mo_yanxi.cond_exist;
+
+import mo_yanxi.typesetting.rich_text;
 
 namespace mo_yanxi::typesetting{
 using typst_szt = unsigned;
 
-export enum struct layout_direction{ ltr, rtl, ttb, btt, deduced };
+export enum struct layout_direction : std::uint8_t { ltr, rtl, ttb, btt, deduced };
 
-export enum struct linefeed_type{ lf, crlf };
+export enum struct linefeed_type : std::uint8_t { lf, crlf };
 
-export enum struct line_alignment{ start, center, end, justify };
+export enum struct line_alignment : std::uint8_t { start, center, end, justify };
 
 
 export struct glyph_elem{
@@ -121,6 +127,7 @@ export struct glyph_layout{
 
 	math::vec2 extent;
 	layout_direction direction;
+	bool is_exhausted;
 
 	struct hit_result{
 		const line* source_line;
@@ -223,7 +230,205 @@ export struct glyph_layout{
 		lines.clear();
 		extent = {};
 		direction = {};
+		is_exhausted = {};
 	}
 };
+
+
+constexpr bool is_separator(char32_t c) noexcept {
+	if (c < 0x80) {
+		return c == U',' || c == U'.' || c == U';' || c == U':' || c == U'!' || c == U'?';
+	}
+	constexpr char32_t starts[16] = {
+		0x0000, 0x1100, 0x2026, 0x2E80, 0x3001, 0x3040, 0x3100, 0x31F0, 0x3400,
+		0x4E00, 0xAC00, 0xFF01, 0xFF0C, 0xFF1A, 0xFF1F, 0xFFFFFFFF
+	};
+	constexpr char32_t ends[16] = {
+		0x0000, 0x11FF, 0x2026, 0x2FDF, 0x3002, 0x30FF, 0x31BF, 0x31FF, 0x4DBF,
+		0x9FFF, 0xD7AF, 0xFF01, 0xFF0C, 0xFF1B, 0xFF1F, 0xFFFFFFFF
+	};
+	std::uint32_t idx = 0;
+	idx |= (static_cast<std::uint32_t>(c >= starts[idx | 8]) << 3);
+	idx |= (static_cast<std::uint32_t>(c >= starts[idx | 4]) << 2);
+	idx |= (static_cast<std::uint32_t>(c >= starts[idx | 2]) << 1);
+	idx |=  static_cast<std::uint32_t>(c >= starts[idx | 1]);
+	return c <= ends[idx];
+}
+
+font::hb::font_ptr create_harfbuzz_font(const font::font_face_handle& face) {
+	hb_font_t* font = hb_ft_font_create_referenced(face);
+	return font::hb::font_ptr{font};
+}
+
+struct rich_text_state{
+
+	rich_text_context rich_context{};
+	// --- 富文本/状态跟踪器 ---
+	tokenized_text_view::token_iterator token_hard_last{};
+	tokenized_text_view::token_iterator token_soft_last{};
+	typst_szt next_apply_pos = 0;
+
+	void reset(const tokenized_text_view& t) noexcept{
+		rich_context.clear();
+		token_hard_last = t.get_init_token();
+		token_soft_last = t.get_init_token();
+		next_apply_pos = 0;
+	}
+};
+
+struct layout_block_base{
+	std::vector<glyph_elem> glyphs;
+	std::vector<underline> underlines;
+	math::vec2 cursor{};
+	math::vec2 pos_min{math::vectors::constant2<float>::inf_positive_vec2};
+	math::vec2 pos_max{-math::vectors::constant2<float>::inf_positive_vec2};
+	float block_ascender = 0.f;
+	float block_descender = 0.f;
+};
+
+template <bool HasClusters>
+struct layout_block : layout_block_base {
+    std::vector<logical_cluster> clusters;
+
+    FORCE_INLINE inline void clear() {
+        glyphs.clear();
+        underlines.clear();
+        clusters.clear();
+        cursor = {};
+        pos_min = math::vectors::constant2<float>::inf_positive_vec2;
+        pos_max = -math::vectors::constant2<float>::inf_positive_vec2;
+        block_ascender = 0.f;
+        block_descender = 0.f;
+    }
+
+    FORCE_INLINE inline void push_back(math::frect glyph_region, const glyph_elem& glyph) {
+        glyphs.push_back(glyph);
+        pos_min.min(glyph_region.vert_00());
+        pos_max.max(glyph_region.vert_11());
+    }
+
+    FORCE_INLINE inline void push_back_underline(const underline& ul) {
+        underlines.push_back(ul);
+        math::vec2 ul_min = math::min(ul.start, ul.end);
+        math::vec2 ul_max = math::max(ul.start, ul.end);
+        const math::vec2 diff = ul.end - ul.start;
+        if(std::abs(diff.x) > std::abs(diff.y)) {
+            ul_min.y -= ul.thickness / 2.f; ul_max.y += ul.thickness / 2.f;
+        } else {
+            ul_min.x -= ul.thickness / 2.f; ul_max.x += ul.thickness / 2.f;
+        }
+        pos_min.min(ul_min);
+        pos_max.max(ul_max);
+    }
+
+    FORCE_INLINE inline void push_front(math::frect glyph_region, const glyph_elem& glyph, math::vec2 glyph_advance) {
+        for(auto& layout_result : glyphs){
+	        layout_result.aabb.move(glyph_advance);
+        }
+        for(auto& ul : underlines){
+	        ul.start += glyph_advance;
+        	ul.end += glyph_advance;
+        }
+        for(auto& c : clusters){
+	        c.logical_rect.move(glyph_advance);
+        }
+        glyphs.insert(glyphs.begin(), glyph);
+        pos_min += glyph_advance;
+    	pos_max += glyph_advance;
+        pos_min.min(glyph_region.vert_00());
+    	pos_max.max(glyph_region.vert_11());
+        cursor += glyph_advance;
+    }
+};
+
+
+struct line_buffer_base {
+	std::vector<glyph_elem> elems{};
+	std::vector<underline> underlines{};
+	layout_rect line_bound{};
+	math::vec2 pos_min{math::vectors::constant2<float>::inf_positive_vec2};
+	math::vec2 pos_max{-math::vectors::constant2<float>::inf_positive_vec2};
+
+	FORCE_INLINE inline void clear() {
+		elems.clear();
+		underlines.clear();
+		line_bound = {};
+		pos_min = math::vectors::constant2<float>::inf_positive_vec2;
+		pos_max = -math::vectors::constant2<float>::inf_positive_vec2;
+	}
+
+};
+
+template <bool HasClusters>
+struct line_buffer_t : line_buffer_base {
+	cond_exist<std::vector<logical_cluster>, HasClusters> clusters{};
+
+	FORCE_INLINE inline void clear() {
+		line_buffer_base::clear();
+		clusters.invoke(&std::vector<logical_cluster>::clear);
+	}
+
+	FORCE_INLINE inline void append(layout_block<HasClusters>& block, float math::vec2::* major_axis) {
+		math::vec2 move_vec{};
+		move_vec.*major_axis = line_bound.width;
+
+		layout_block_base& base = block;
+		if (!base.glyphs.empty() || !base.underlines.empty()) {
+			pos_min.min(base.pos_min + move_vec);
+			pos_max.max(base.pos_max + move_vec);
+		}
+
+		for (auto& g : base.glyphs){
+			g.aabb.move(move_vec);
+		}
+		for (auto& ul : base.underlines){
+			ul.start += move_vec;
+			ul.end += move_vec;
+		}
+
+		if constexpr (HasClusters){
+			for (auto& c : block.clusters){
+				c.logical_rect.move(move_vec);
+			}
+			std::vector<logical_cluster>& rng = clusters;
+			rng.append_range(block.clusters | std::views::as_rvalue);
+		}
+		underlines.append_range(base.underlines | std::views::as_rvalue);
+		elems.append_range(base.glyphs | std::views::as_rvalue);
+
+		line_bound.width += base.cursor.*major_axis;
+		line_bound.ascender = std::max(line_bound.ascender, base.block_ascender);
+		line_bound.descender = std::max(line_bound.descender, base.block_descender);
+	}
+};
+
+struct layout_state_t {
+	math::vec2 min_bound{math::vectors::constant2<float>::inf_positive_vec2};
+	math::vec2 max_bound{-math::vectors::constant2<float>::inf_positive_vec2};
+	math::vec2 default_font_size{};
+	float default_line_thickness{};
+	float default_ascender{};
+	float default_descender{};
+	float default_space_width{};
+	float prev_line_descender{};
+	float current_baseline_pos{};
+	bool is_first_line = true;
+	bool is_vertical_mode = false;
+	hb_direction_t target_hb_dir = HB_DIRECTION_INVALID;
+	float math::vec2::* major_p = &math::vec2::x;
+	float math::vec2::* minor_p = &math::vec2::y;
+
+	void reset() {
+		min_bound = math::vectors::constant2<float>::inf_positive_vec2;
+		max_bound = -math::vectors::constant2<float>::inf_positive_vec2;
+		default_font_size = {};
+		prev_line_descender = {};
+		current_baseline_pos = {};
+		is_first_line = true;
+		// current_block.clear();
+
+	}
+};
+
 
 }

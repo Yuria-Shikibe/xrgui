@@ -13,6 +13,11 @@ import mo_yanxi.typesetting.util;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.graphic.color;
 
+export
+constexpr bool operator==(const hb_feature_t& lhs, const hb_feature_t& rhs) noexcept{
+	return lhs.start == rhs.start && lhs.end == rhs.end && lhs.tag == rhs.tag && lhs.value == rhs.value;
+}
+
 namespace mo_yanxi::typesetting{
 export
 struct rich_text_look_up_table{
@@ -75,9 +80,6 @@ public:
 	constexpr bool operator==(const set_size&) const noexcept = default;
 };
 
-constexpr bool operator==(const hb_feature_t& lhs, const hb_feature_t& rhs) noexcept{
-	return lhs.start == rhs.start && lhs.end == rhs.end && lhs.tag == rhs.tag && lhs.value == rhs.value;
-}
 
 
 struct set_feature{

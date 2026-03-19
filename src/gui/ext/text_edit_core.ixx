@@ -7,6 +7,7 @@ export module mo_yanxi.gui.text_edit_core;
 import std;
 import mo_yanxi.typesetting;
 import mo_yanxi.history_stack;
+import mo_yanxi.math.vector2;
 
 namespace mo_yanxi::gui{
 
