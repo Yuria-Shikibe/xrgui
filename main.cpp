@@ -278,12 +278,12 @@ void app_run(
 			const auto Y_count = math::ceil<int>(ctx.get_extent().height / size);
 			math::rand rand{54767963};
 			for(int x = 0; x < X_count; ++x){ for(int y = 0; y < Y_count; ++y){
-				// r.push(rect_aabb{
-				// 	.generic = {.mode = std::to_underlying(((x + y) % 3 == 0) ? gui::fx::primitive_draw_mode::draw_slide_line : gui::fx::primitive_draw_mode::none)},
-				// 	.v00 = {x * size, y * size},
-				// 	.v11 = {x * size + size, y * size + size},
-				// 	.vert_color = {graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}}
-				// });
+				r.push(rect_aabb{
+					.generic = {.mode = std::to_underlying(((x + y) % 3 == 0) ? gui::fx::primitive_draw_mode::draw_slide_line : gui::fx::primitive_draw_mode::none)},
+					.v00 = {x * size, y * size},
+					.v11 = {x * size + size, y * size + size},
+					.vert_color = {graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}}
+				});
 			}}
 
 			if(false){
@@ -895,13 +895,13 @@ Edge Cases:
 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
 )";
 
-	typesetting::tokenized_text text = {test_text};
-	typesetting::layout_context layout_ctx{std::in_place};
-	for(int i = 0; i < 20000; ++i){
-		auto rst = layout_ctx.layout(text);
-		DoNotOptimize(rst);
-	}
-	// app_run(ctx, renderer, manager, post_process_cmd);
+	// typesetting::tokenized_text text = {test_text};
+	// typesetting::layout_context layout_ctx{std::in_place};
+	// for(int i = 0; i < 20000; ++i){
+	// 	auto rst = layout_ctx.layout(text);
+	// 	DoNotOptimize(rst);
+	// }
+	app_run(ctx, renderer, manager, post_process_cmd);
 
 	gui::assets::dispose_generated_shapes();
 	gui::global::terminate_assets_manager();
@@ -917,38 +917,6 @@ int main(){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
-	constexpr static auto test_text =
-	R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
-{u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâã ä åx̂̃ñ
-{color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
-
-Escapes Test:
-1. Backslash: \\ {_}(Should see single backslash){/}
-2. Braces {size:128}with{/} slash: \{ and \} (Should see literal { and })
-3. Braces with double: {{ and }} (Should see literal { and })
-
-Line Continuation Test:
-This is a very long line that \
-{font:gui}should be joined together{/} \
-without newlines.
-
-{feature:liga}0 ff {feature:-liga}1 ff {feature:liga} 2 ff{feature} 3 ff{feature} 4 ff
-
-O{ftr:liga}off file flaff{/} ff
-
-Edge Cases:
-1. Token without arg: {bold}Bold Text{/bold}
-2. {u}Unclosed brace{/}: { This is just text because no closing bracket
-3. Unknown escape: \z (Should show 'z')
-4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
-)";
-
-	//typesetting::tokenized_text text;
-	//for(int i = 0; i < 1000000; ++i){
-	//	text.reset(test_text);
-	//	DoNotOptimize(text);
-	//}
-//
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
 		vk::enable_validation_layers = false;

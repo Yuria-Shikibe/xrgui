@@ -15,12 +15,12 @@ constexpr inline unsigned dynamic_extent = std::dynamic_extent;
 
 export
 template <std::derived_from<elem> T = elem, unsigned MaxSize = 0 /*0 to specify dynamic*/>
-struct value_selector : public T{
+struct dispersed_value_selector : public T{
 	using base_type = T;
 
 	template <typename ...Args>
 		requires std::constructible_from<base_type, scene&, elem*, Args&&...>
-	[[nodiscard]] value_selector(scene& scene, elem* parent, Args&& ...args)
+	[[nodiscard]] dispersed_value_selector(scene& scene, elem* parent, Args&& ...args)
 		: base_type(scene, parent, std::forward<Args>(args)...){
 		this->interactivity = interactivity_flag::enabled;
 	}
@@ -105,6 +105,6 @@ public:
 
 export
 template <typename T>
-using binary_value_selector = value_selector<T, 2>;
+using binary_value_selector = dispersed_value_selector<T, 2>;
 
 }

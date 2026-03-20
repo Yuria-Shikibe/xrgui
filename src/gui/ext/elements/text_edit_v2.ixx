@@ -45,6 +45,7 @@ protected:
 
 	text_editor_core core_{};
 	typesetting::tokenized_text tokenized_text_{};
+	typesetting::layout_config layout_config_{};
 	typesetting::glyph_layout glyph_layout_{};
 	typesetting::layout_context context_{std::in_place};
 	text_render_cache render_cache_{};
@@ -124,8 +125,7 @@ public:
     }
 
     void set_typesetting_config(const typesetting::layout_config& config) {
-        if (context_.get_config() != config) {
-            context_.set_config(config);
+        if (util::try_modify(layout_config_, config)) {
             change_mark_ |= text_edit_change_type::config;
             notify_isolated_layout_changed();
         }

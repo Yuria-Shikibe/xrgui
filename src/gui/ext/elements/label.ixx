@@ -82,6 +82,7 @@ protected:
 	typesetting::tokenized_text tokenized_text_{};
 private:
 	typesetting::glyph_layout glyph_layout_{};
+	typesetting::layout_config layout_config_{};
 	typesetting::layout_context context_{std::in_place};
 
 	text_render_cache render_cache_{};
@@ -165,8 +166,7 @@ public:
 	}
 
 	void set_typesetting_config(const typesetting::layout_config& config){
-		if(context_.get_config() != config){
-			context_.set_config(config);
+		if(util::try_modify(layout_config_, config)){
 			change_mark_ |= change_type::config;
 			notify_isolated_layout_changed();
 		}
@@ -272,17 +272,17 @@ protected:
 
 		if(fit_){
 			if((change_mark_ & change_type::max_extent) != change_type{}){
-				if(context_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
+				if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
 				} else{
 					change_mark_ &= ~change_type::max_extent;
 				}
 			}
 
 			if(is_layout_expired_()){
-				if(context_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
+				if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
 					((change_mark_ & change_type::config) != change_type{}) || ((change_mark_ & change_type::text) !=
 						change_type{})){
-					context_.layout(glyph_layout_, tokenized_text_);
+					context_.layout(tokenized_text_, layout_config_, glyph_layout_);
 					render_cache_.update_buffer(glyph_layout_,
 						render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
 					change_mark_ = change_type::none;
@@ -294,8 +294,8 @@ protected:
 				change_mark_ = change_type::none;
 
 			}
-		} else if(context_.set_max_extent(local_bound) || is_layout_expired_()){
-			context_.layout(glyph_layout_, tokenized_text_);
+		} else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
+			context_.layout(tokenized_text_, layout_config_, glyph_layout_);
 			render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
 			change_mark_ = change_type::none;
 

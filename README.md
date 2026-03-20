@@ -46,3 +46,127 @@ XRGUI(mo_yanXi's Retaine mode GUI)是一个**每帧重绘和更新**的带有**�
 #### Vulkan
 * [ ] 对默认渲染器的完好封装
 
+D:.
+├───compound
+│   │   color_picker.ixx
+│   │   
+│   └───ext
+│           named_slider.ixx
+│           
+├───core
+│   │   clamped_size.ixx
+│   │   flags.ixx
+│   │   gui.alloc.ixx
+│   │   gui.global.ixx
+│   │   obervable_value.ixx
+│   │   readme.md
+│   │   ui.util.ixx
+│   │   
+│   ├───action
+│   │       gui.action.elem.ixx
+│   │       gui.action.ixx
+│   │       gui.action.queue.ixx
+│   │       
+│   ├───draw
+│   │       compound.ixx
+│   │       fringe.ixx
+│   │       gui.draw_config.ixx
+│   │       gui.fx.ixx
+│   │       gui.renderer.frontend.ixx
+│   │       style_manager.ixx
+│   │       trail.ixx
+│   │       
+│   ├───elements
+│   │       group.ixx
+│   │       gui.collapser.ixx
+│   │       gui.dispersed_value_selector.ixx
+│   │       gui.grid.ixx
+│   │       gui.menu.ixx
+│   │       gui.progress_bar.ixx
+│   │       gui.scaling_stack.ixx
+│   │       gui.scroll_pane.ixx
+│   │       gui.sequence.ixx
+│   │       gui.slider.ixx
+│   │       gui.split_pane.ixx
+│   │       gui.table.ixx
+│   │       gui.universal_group.ixx
+│   │       gui.viewport.ixx
+│   │       head_body_elem.ixx
+│   │       
+│   ├───impl
+│   │       collapser.cpp
+│   │       cursor.cpp
+│   │       element.cpp
+│   │       gui.sequence.cpp
+│   │       overlay_manager.cpp
+│   │       progress_bar.cpp
+│   │       scene.cpp
+│   │       scroll_pane.cpp
+│   │       slider.cpp
+│   │       table.cpp
+│   │       tooltip_manager.cpp
+│   │       
+│   ├───infrastructure
+│   │       cursor.ixx
+│   │       element.ixx
+│   │       elem_ptr.ixx
+│   │       events.ixx
+│   │       flags.ixx
+│   │       infrastructure.ixx
+│   │       overlay_manager.ixx
+│   │       scene.ixx
+│   │       tooltip_interface.ixx
+│   │       tooltip_manager.ixx
+│   │       type_def.ixx
+│   │       ui_manager.ixx
+│   │       
+│   ├───input
+│   │       input_handle.ixx
+│   │       key_binding.ixx
+│   │       key_constants.ixx
+│   │       key_mapping_manager.ixx
+│   │       
+│   ├───layout
+│   │       cell.ixx
+│   │       policy.ixx
+│   │       
+│   ├───misc
+│   │       gui.slider_logic.ixx
+│   │       
+│   └───style
+│           style.config.ixx
+│           style.interface.ixx
+│           style.palette.ixx
+│           
+└───ext
+│   instruction.extension.ixx
+│   text_edit_core.ixx
+│   text_render_cache.cpp
+│   text_render_cache.ixx
+│   
+├───elements
+│       async_label.ixx
+│       check_box.ixx
+│       image_frame.ixx
+│       label.ixx
+│       text_edit_v2.ixx
+│       text_holder.ixx
+│       
+├───impl
+│       check_box.cpp
+│       gui.assets.cpp
+│       gui.resource.manager.cpp
+│       image_regions.cpp
+│       label.cpp
+│       text_edit_v2.cpp
+│       text_holder.cpp
+│       
+├───resource_manage
+│       gui.assets.ixx
+│       gui.drawable.derives.ixx
+│       gui.drawable.ixx
+│       gui.resource.manager.ixx
+│       image_regions.ixx
+│       
+└───style
+round_square.ixx

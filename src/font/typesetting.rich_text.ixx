@@ -41,7 +41,7 @@ constexpr bool check_token_group_need_another_run(const tokenized_text_view::tok
 
 
 template <typename T>
-using stack_of = optional_stack<gch::small_vector<T, 2>>;
+using stack_of = optional_stack<gch::small_vector<T>>;
 
 export
 enum struct context_update_mode{

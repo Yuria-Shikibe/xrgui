@@ -30,7 +30,6 @@ import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.drag_split;
 import mo_yanxi.gui.elem.label;
-import mo_yanxi.gui.elem.label_v2;
 import mo_yanxi.gui.elem.text_edit_v2;
 import mo_yanxi.gui.elem.viewport;
 import mo_yanxi.gui.elem.check_box;
@@ -658,11 +657,11 @@ Edge Cases:
 										l.set_text(test_text);
 									});
 								});
-								inner.create_body([](scroll_pane& label){
-									label.set_overlay_bar(true);
-									label.set_layout_policy(layout::layout_policy::vert_major);
+								inner.create_body([](scroll_pane& p){
+									p.set_overlay_bar(true);
+									p.set_layout_policy(layout::layout_policy::vert_major);
 									// label.set_style();
-									label.create([&](label_v2& l){
+									p.create([&](gui::label& l){
 										l.set_expand_policy(layout::expand_policy::prefer);
 										l.set_fit(false);
 										l.set_typesetting_config(typesetting::layout_config{
@@ -679,7 +678,7 @@ Edge Cases:
 								inner.set_layout_policy(layout::layout_policy::hori_major);
 								inner.create_head([](scroll_pane& label){
 									label.set_style();
-									label.create([](label_v2& l){
+									label.create([](gui::label& l){
 										l.set_expand_policy(layout::expand_policy::prefer);
 										l.set_fit(false);
 										l.set_typesetting_config(typesetting::layout_config{
@@ -693,7 +692,7 @@ Edge Cases:
 									label.set_layout_policy(layout::layout_policy::vert_major);
 									label.set_overlay_bar(true);
 									label.set_style();
-									label.create([&](label_v2& l){
+									label.create([&](gui::label& l){
 										l.set_expand_policy(layout::expand_policy::prefer);
 										l.set_fit(false);
 										l.set_typesetting_config(typesetting::layout_config{

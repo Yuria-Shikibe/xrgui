@@ -37,7 +37,7 @@ struct collapser_settings{
 };
 
 export
-struct collapser : head_body_elem{
+struct collapser : head_body_base{
 private:
 	float expand_reload_{};
 
@@ -52,7 +52,7 @@ public:
 	collapser_settings settings{};
 
 	[[nodiscard]] collapser(scene& scene, elem* parent, layout::layout_policy layout_policy)
-	: head_body_elem(scene, parent, layout_policy){
+	: head_body_base(scene, parent, layout_policy){
 		interactivity = gui::interactivity_flag::children_only;
 		layout_state.intercept_lower_to_isolated = true;
 		item_size[0] = {layout::size_category::pending, 1};
@@ -65,12 +65,12 @@ public:
 		: collapser(scene, parent, elem::search_layout_policy(parent, false).value_or(layout::layout_policy::hori_major)){
 	}
 
-	using head_body_elem::create;
-	using head_body_elem::emplace;
-	using head_body_elem::emplace_head;
-	using head_body_elem::emplace_body;
-	using head_body_elem::create_head;
-	using head_body_elem::create_body;
+	using head_body_base::create;
+	using head_body_base::emplace;
+	using head_body_base::emplace_head;
+	using head_body_base::emplace_body;
+	using head_body_base::create_head;
+	using head_body_base::create_body;
 
 	[[nodiscard]] collapser_expand_cond get_expand_cond() const noexcept{
 		return expand_cond_;
@@ -142,18 +142,18 @@ public:
 	}
 
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
-		head_body_elem::on_inbound_changed(is_inbounded, changed);
+		head_body_base::on_inbound_changed(is_inbounded, changed);
 		if(expand_cond_ == collapser_expand_cond::inbound)set_update_required(update_channel::layout);
 	}
 
 	void on_focus_changed(bool is_focused) override{
-		head_body_elem::on_focus_changed(is_focused);
+		head_body_base::on_focus_changed(is_focused);
 		if(expand_cond_ == collapser_expand_cond::focus)set_update_required(update_channel::layout);
 	}
 
 
 	bool update(float delta_in_ticks) override{
-		if(!head_body_elem::update(delta_in_ticks))return false;
+		if(!head_body_base::update(delta_in_ticks))return false;
 
 		update_collapse(delta_in_ticks);
 		body().invisible = state_ == collapser_state::un_expand;
@@ -166,7 +166,7 @@ protected:
 			throw layout::illegal_layout{"Passive is not allowd here"};
 		}
 
-		head_body_elem::set_item_size(isContent, size);
+		head_body_base::set_item_size(isContent, size);
 	}
 
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override;

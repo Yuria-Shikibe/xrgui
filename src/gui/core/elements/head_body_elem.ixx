@@ -10,7 +10,7 @@ import std;
 namespace mo_yanxi::gui{
 
 export
-struct head_body_elem : elem{
+struct head_body_base : elem{
 protected:
 	std::array<elem_ptr, 2> items{};
 	std::array<layout::stated_size, 2> item_size{};
@@ -26,12 +26,12 @@ protected:
 	}
 
 public:
-	[[nodiscard]] head_body_elem(scene& scene, elem* parent)
+	[[nodiscard]] head_body_base(scene& scene, elem* parent)
 	: elem(scene, parent){
 		interactivity = interactivity_flag::children_only;
 	}
 
-	[[nodiscard]] head_body_elem(scene& scene, elem* parent, layout::layout_policy layout_policy)
+	[[nodiscard]] head_body_base(scene& scene, elem* parent, layout::layout_policy layout_policy)
 	: elem(scene, parent),
 	layout_policy_(layout_policy){
 		interactivity = interactivity_flag::children_only;
@@ -341,8 +341,8 @@ protected:
 	}
 };
 
-export struct head_body : head_body_elem{
-	using head_body_elem::head_body_elem;
+export struct head_body : head_body_base{
+	using head_body_base::head_body_base;
 
 private:
 	layout::expand_policy expand_policy_{};

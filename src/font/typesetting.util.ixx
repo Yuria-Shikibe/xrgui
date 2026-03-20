@@ -196,6 +196,11 @@ export struct layout_rect{
 		descender = math::max(descender, region.descender);
 	}
 
+	constexpr void max_height(float ascender_, float descender_) noexcept{
+		ascender = math::max(ascender, ascender_);
+		descender = math::max(descender, descender_);
+	}
+
 	constexpr void scale(float scale) noexcept{
 		ascender *= scale;
 		descender *= scale;

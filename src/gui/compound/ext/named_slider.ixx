@@ -11,7 +11,7 @@ import std;
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.gui.elem.head_body_elem;
 export import mo_yanxi.gui.elem.slider;
-export import mo_yanxi.gui.elem.label_v2;
+export import mo_yanxi.gui.elem.label;
 export import mo_yanxi.gui.elem.scaling_stack;
 export import mo_yanxi.graphic.color;
 
@@ -25,14 +25,14 @@ export
 struct named_slider : head_body{
 private:
 	react_flow::node_pointer progress_transformer_{};
-	react_flow::node_holder<label_v2_text_prov> display_text_recv_{};
+	react_flow::node_holder<label_text_prov> display_text_recv_{};
 
 public:
 
 	named_slider(scene& scene, elem* parent, layout::layout_policy layout_policy, std::string_view text, const float bar_size)
 		: head_body(scene, parent, layout_policy){
 
-		create_head([&](label_v2& l){
+		create_head([&](label& l){
 			l.set_style();
 			l.set_text(text);
 		});
@@ -47,7 +47,7 @@ public:
 				slider.set_vertical(layout_policy);
 			});
 
-			s.create_back([&](label_v2& value){
+			s.create_back([&](label& value){
 				value.set_style();
 				value.set_fit();
 				value._debug_identity = 1;
@@ -73,8 +73,8 @@ public:
 	}
 
 
-	[[nodiscard]] label_v2& head() const noexcept{
-		return elem_cast<label_v2>(head_body::head());
+	[[nodiscard]] label& head() const noexcept{
+		return elem_cast<label>(head_body::head());
 	}
 
 	[[nodiscard]] scaling_stack& body() const noexcept{
@@ -85,8 +85,8 @@ public:
 		return elem_cast<slider1d_with_output>(*body().children()[0]);
 	}
 
-	[[nodiscard]] label_v2& get_slider_display_label() const noexcept{
-		return elem_cast<label_v2>(*body().children()[1]);
+	[[nodiscard]] label& get_slider_display_label() const noexcept{
+		return elem_cast<label>(*body().children()[1]);
 	}
 
 	auto& get_slider_provider() const noexcept{

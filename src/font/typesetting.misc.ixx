@@ -23,11 +23,11 @@ import mo_yanxi.typesetting.rich_text;
 namespace mo_yanxi::typesetting{
 using typst_szt = unsigned;
 
-export enum struct layout_direction : std::uint8_t { ltr, rtl, ttb, btt, deduced };
+export enum struct layout_direction : std::uint8_t{ ltr, rtl, ttb, btt, deduced };
 
-export enum struct linefeed_type : std::uint8_t { lf, crlf };
+export enum struct linefeed_type : std::uint8_t{ lf, crlf };
 
-export enum struct line_alignment : std::uint8_t { start, center, end, justify };
+export enum struct line_alignment : std::uint8_t{ start, center, end, justify };
 
 
 export struct glyph_elem{
@@ -70,10 +70,9 @@ export struct line{
 	math::vec2 start_pos;
 
 	[[nodiscard]] constexpr line_align_result calculate_alignment(
-	math::vec2 extent,
-	line_alignment align,
-	layout_direction dir) const noexcept {
-
+		math::vec2 extent,
+		line_alignment align,
+		layout_direction dir) const noexcept{
 		line_align_result result{start_pos, math::vec2{}};
 		const bool is_vertical = (dir == layout_direction::ttb || dir == layout_direction::btt);
 		const bool is_reversed = (dir == layout_direction::rtl || dir == layout_direction::btt);
@@ -85,16 +84,18 @@ export struct line{
 		float align_offset = 0.f;
 		float spacing = 0.f;
 
-		if (!math::isinf(container_width) && remaining > 0.001f) {
+		if(!math::isinf(container_width) && remaining > 0.001f){
 			float factor = 0.f; // 0.f 代表起点，0.5f 代表居中，1.0f 代表终点
 
-			switch (align) {
-			case line_alignment::start:   factor = is_reversed ? 1.f : 0.f; break;
-			case line_alignment::center:  factor = 0.5f; break;
-			case line_alignment::end:     factor = is_reversed ? 0.f : 1.f; break;
-			case line_alignment::justify:
-				factor = is_reversed ? 1.f : 0.f;
-				if (glyph_range.size > 1) {
+			switch(align){
+			case line_alignment::start : factor = is_reversed ? 1.f : 0.f;
+				break;
+			case line_alignment::center : factor = 0.5f;
+				break;
+			case line_alignment::end : factor = is_reversed ? 0.f : 1.f;
+				break;
+			case line_alignment::justify : factor = is_reversed ? 1.f : 0.f;
+				if(glyph_range.size > 1){
 					spacing = remaining / static_cast<float>(glyph_range.size - 1);
 				}
 				break;
@@ -102,14 +103,14 @@ export struct line{
 
 			// 统一计算位移
 			align_offset = is_reversed ? (container_width - remaining * (1.f - factor)) : (remaining * factor);
-		} else if (is_reversed) {
+		} else if(is_reversed){
 			align_offset = math::isinf(container_width) ? abs_content : container_width;
 		}
 
-		if (is_vertical) {
+		if(is_vertical){
 			result.start_pos.y += align_offset;
 			result.letter_spacing.y = (dir == layout_direction::ttb) ? -spacing : spacing;
-		} else {
+		} else{
 			result.start_pos.x += align_offset;
 			result.letter_spacing.x = (dir == layout_direction::ltr) ? spacing : -spacing;
 		}
@@ -128,6 +129,16 @@ export struct glyph_layout{
 	math::vec2 extent;
 	layout_direction direction;
 	bool is_exhausted;
+
+	void clear() noexcept{
+		elems.clear();
+		underlines.clear();
+		clusters.clear();
+		lines.clear();
+		extent = {};
+		direction = {};
+		is_exhausted = {};
+	}
 
 	struct hit_result{
 		const line* source_line;
@@ -222,46 +233,35 @@ export struct glyph_layout{
 
 		return {&best_line, std::to_address(best_cluster_it), span_offset, is_hit};
 	}
-
-	void clear() noexcept{
-		elems.clear();
-		underlines.clear();
-		clusters.clear();
-		lines.clear();
-		extent = {};
-		direction = {};
-		is_exhausted = {};
-	}
 };
 
 
-FORCE_INLINE CONST_FN constexpr bool is_separator(char32_t c) noexcept {
-	if (c < 0x80) {
+FORCE_INLINE CONST_FN constexpr bool is_separator(char32_t c) noexcept{
+	if(c < 0x80){
 		return c == U',' || c == U'.' || c == U';' || c == U':' || c == U'!' || c == U'?';
 	}
 	constexpr char32_t starts[16] = {
-		0x0000, 0x1100, 0x2026, 0x2E80, 0x3001, 0x3040, 0x3100, 0x31F0, 0x3400,
-		0x4E00, 0xAC00, 0xFF01, 0xFF0C, 0xFF1A, 0xFF1F, 0xFFFFFFFF
-	};
+			0x0000, 0x1100, 0x2026, 0x2E80, 0x3001, 0x3040, 0x3100, 0x31F0, 0x3400,
+			0x4E00, 0xAC00, 0xFF01, 0xFF0C, 0xFF1A, 0xFF1F, 0xFFFFFFFF
+		};
 	constexpr char32_t ends[16] = {
-		0x0000, 0x11FF, 0x2026, 0x2FDF, 0x3002, 0x30FF, 0x31BF, 0x31FF, 0x4DBF,
-		0x9FFF, 0xD7AF, 0xFF01, 0xFF0C, 0xFF1B, 0xFF1F, 0xFFFFFFFF
-	};
+			0x0000, 0x11FF, 0x2026, 0x2FDF, 0x3002, 0x30FF, 0x31BF, 0x31FF, 0x4DBF,
+			0x9FFF, 0xD7AF, 0xFF01, 0xFF0C, 0xFF1B, 0xFF1F, 0xFFFFFFFF
+		};
 	std::uint32_t idx = 0;
 	idx |= (static_cast<std::uint32_t>(c >= starts[idx | 8]) << 3);
 	idx |= (static_cast<std::uint32_t>(c >= starts[idx | 4]) << 2);
 	idx |= (static_cast<std::uint32_t>(c >= starts[idx | 2]) << 1);
-	idx |=  static_cast<std::uint32_t>(c >= starts[idx | 1]);
+	idx |= static_cast<std::uint32_t>(c >= starts[idx | 1]);
 	return c <= ends[idx];
 }
 
-font::hb::font_ptr create_harfbuzz_font(const font::font_face_handle& face) {
+font::hb::font_ptr create_harfbuzz_font(const font::font_face_handle& face){
 	hb_font_t* font = hb_ft_font_create_referenced(face);
 	return font::hb::font_ptr{font};
 }
 
 struct rich_text_state{
-
 	rich_text_context rich_context{};
 	// --- 富文本/状态跟踪器 ---
 	tokenized_text_view::token_iterator token_hard_last{};
@@ -276,116 +276,43 @@ struct rich_text_state{
 	}
 };
 
-export struct layout_span {
-	std::size_t elem_start = 0;
-	std::size_t ul_start = 0;
-	std::size_t cluster_start = 0;
+export struct layout_span{
+	typst_szt elem_start{};
+	typst_szt ul_start{};
+	typst_szt cluster_start{};
 };
 
-struct layout_block_base{
-	layout_span span{};
+struct block_data{
+	layout_span block_span{};
 	math::vec2 cursor{};
-	math::vec2 pos_min{math::vectors::constant2<float>::inf_positive_vec2};
-	math::vec2 pos_max{-math::vectors::constant2<float>::inf_positive_vec2};
-	float block_ascender = 0.f;
-	float block_descender = 0.f;
-};
+	math::vec2 block_pos_min{math::vectors::constant2<float>::inf_positive_vec2};
+	math::vec2 block_pos_max{-math::vectors::constant2<float>::inf_positive_vec2};
+	float block_ascender{};
+	float block_descender{};
 
-template <bool HasClusters>
-struct layout_block : layout_block_base {
+	FORCE_INLINE void max_bound_height(float ascender_, float descender_) noexcept{
+		block_ascender = std::max(block_ascender, ascender_);
+		block_descender = std::max(block_descender, descender_);
+	}
 
-    FORCE_INLINE inline void clear() {
-        *this = layout_block{};
-    }
-	FORCE_INLINE inline void sync_start(const glyph_layout& results) {
-    	span.elem_start = results.elems.size();
-    	span.ul_start = results.underlines.size();
-    	if constexpr (HasClusters) span.cluster_start = results.clusters.size();
-    }
-
-	FORCE_INLINE inline void push_back(glyph_layout& results, math::frect glyph_region, const glyph_elem& glyph) {
-    	results.elems.push_back(glyph);
-    	pos_min.min(glyph_region.vert_00());
-    	pos_max.max(glyph_region.vert_11());
-    }
-
-	FORCE_INLINE inline void push_front(glyph_layout& results, math::frect glyph_region, const glyph_elem& glyph, math::vec2 glyph_advance) {
-    	// 原位移动当前 block 已经写入的元素
-    	for(std::size_t i = span.elem_start; i < results.elems.size(); ++i) {
-    		results.elems[i].aabb.move(glyph_advance);
-    	}
-    	for(std::size_t i = span.ul_start; i < results.underlines.size(); ++i) {
-    		results.underlines[i].start += glyph_advance;
-    		results.underlines[i].end += glyph_advance;
-    	}
-    	if constexpr (HasClusters) {
-    		for(std::size_t i = span.cluster_start; i < results.clusters.size(); ++i) {
-    			results.clusters[i].logical_rect.move(glyph_advance);
-    		}
-    	}
-
-    	// 由于 span.elem_start 必定对应当前 block 的起点（且排版总是追加），
-    	// 这里的 insert 只会发生微量的元素平移（通常只有几个字符的开销）
-    	results.elems.insert(results.elems.begin() + span.elem_start, glyph);
-    	pos_min += glyph_advance;
-    	pos_max += glyph_advance;
-    	pos_min.min(glyph_region.vert_00());
-    	pos_max.max(glyph_region.vert_11());
-    	cursor += glyph_advance;
-    }
-};
-
-
-struct line_buffer_base {
-	layout_span span{};
-	layout_rect line_bound{};
-	math::vec2 pos_min{math::vectors::constant2<float>::inf_positive_vec2};
-	math::vec2 pos_max{-math::vectors::constant2<float>::inf_positive_vec2};
-
-	FORCE_INLINE inline void clear() {
+	FORCE_INLINE inline void clear() & noexcept{
 		*this = {};
 	}
 };
 
-template <bool HasClusters>
-struct line_buffer_t : line_buffer_base {
-	FORCE_INLINE inline void sync_start(const glyph_layout& results) {
-		span.elem_start = results.elems.size();
-		span.ul_start = results.underlines.size();
-		if constexpr (HasClusters) span.cluster_start = results.clusters.size();
-	}
+struct line_data{
+	layout_span line_span{};
+	layout_rect line_bound{};
+	math::vec2 line_pos_min{math::vectors::constant2<float>::inf_positive_vec2};
+	math::vec2 line_pos_max{-math::vectors::constant2<float>::inf_positive_vec2};
 
-	FORCE_INLINE inline void append(glyph_layout& results, layout_block<HasClusters>& block, float math::vec2::* major_axis) {
-		math::vec2 move_vec{};
-		move_vec.*major_axis = line_bound.width;
-
-		bool has_elems = (results.elems.size() > block.span.elem_start) || (results.underlines.size() > block.span.ul_start);
-		if (has_elems) {
-			pos_min.min(block.pos_min + move_vec);
-			pos_max.max(block.pos_max + move_vec);
-		}
-
-		// 修改已经存在于 results 中，但属于此 block 的数据的相对偏移
-		for(std::size_t i = block.span.elem_start; i < results.elems.size(); ++i) {
-			results.elems[i].aabb.move(move_vec);
-		}
-		for(std::size_t i = block.span.ul_start; i < results.underlines.size(); ++i) {
-			results.underlines[i].start += move_vec;
-			results.underlines[i].end += move_vec;
-		}
-		if constexpr (HasClusters) {
-			for(std::size_t i = block.span.cluster_start; i < results.clusters.size(); ++i) {
-				results.clusters[i].logical_rect.move(move_vec);
-			}
-		}
-
-		line_bound.width += block.cursor.*major_axis;
-		line_bound.ascender = std::max(line_bound.ascender, block.block_ascender);
-		line_bound.descender = std::max(line_bound.descender, block.block_descender);
+	FORCE_INLINE inline void clear() & noexcept{
+		*this = {};
 	}
 };
 
-struct layout_state_t {
+
+struct layout_state_t{
 	math::vec2 min_bound{math::vectors::constant2<float>::inf_positive_vec2};
 	math::vec2 max_bound{-math::vectors::constant2<float>::inf_positive_vec2};
 	math::vec2 default_font_size{};
@@ -393,25 +320,322 @@ struct layout_state_t {
 	float default_ascender{};
 	float default_descender{};
 	float default_space_width{};
-	float prev_line_descender{};
+
+	//TODO using static dispatch?
+	float math::vec2::* major_p = &math::vec2::x;
 	float current_baseline_pos{};
+
+	float math::vec2::* minor_p = &math::vec2::y;
+	float prev_line_descender{};
+
+	hb_direction_t target_hb_dir = HB_DIRECTION_INVALID;
+
 	bool is_first_line = true;
 	bool is_vertical_mode = false;
-	hb_direction_t target_hb_dir = HB_DIRECTION_INVALID;
-	float math::vec2::* major_p = &math::vec2::x;
-	float math::vec2::* minor_p = &math::vec2::y;
 
-	void reset() {
+	void reset(){
 		min_bound = math::vectors::constant2<float>::inf_positive_vec2;
 		max_bound = -math::vectors::constant2<float>::inf_positive_vec2;
 		default_font_size = {};
 		prev_line_descender = {};
 		current_baseline_pos = {};
 		is_first_line = true;
-		// current_block.clear();
+	}
+};
 
+export struct layout_config{
+	layout_direction direction;
+	math::vec2 max_extent = math::vectors::constant2<float>::inf_positive_vec2;
+	math::optional_vec2<float> default_font_size{math::nullopt_vec2<float>};
+	linefeed_type line_feed_type;
+	float throughout_scale = 1.f;
+	float tab_scale = 4.f;
+	float line_spacing_scale = 1.5f;
+	float line_spacing_fixed_distance = 0.f;
+	char32_t wrap_indicator_char = U'\u2925';
+	math::optional_vec2<float> screen_ppi{math::nullopt_vec2<float>};
+	rich_text_fallback_style rich_text_fallback_style;
+
+	[[nodiscard]] math::vec2 get_default_font_size() const noexcept{
+		return default_font_size.value_or(
+			glyph_size::get_glyph_std_size_at(glyph_size::standard_size, get_screen_ppi()));
+	}
+
+	[[nodiscard]] math::vec2 get_screen_ppi() const noexcept{
+		return screen_ppi.value_or(glyph_size::screen_ppi);
+	}
+
+	[[nodiscard]] constexpr bool has_wrap_indicator() const noexcept{ return wrap_indicator_char != 0; }
+	constexpr bool operator==(const layout_config&) const noexcept = default;
+
+
+	bool set_max_extent(math::vec2 ext){
+		if(max_extent == ext) return false;
+		max_extent = ext;
+		return true;
 	}
 };
 
 
+struct layout_buffer : block_data, line_data{
+	template <bool HasClusters>
+	constexpr bool empty(const glyph_layout& results) const noexcept{
+		bool is_empty = block_span.elem_start == results.elems.size() && block_span.ul_start == results.underlines.
+			size();
+		if constexpr(HasClusters){
+			is_empty = is_empty && (block_span.cluster_start == results.clusters.size());
+		}
+		return is_empty;
+	}
+
+	FORCE_INLINE inline void clear() & noexcept{
+		block_data::clear();
+		line_data::clear();
+	}
+
+	template <bool HasClusters>
+	FORCE_INLINE inline void block_sync_start(const glyph_layout& results){
+		block_span.elem_start = results.elems.size();
+		block_span.ul_start = results.underlines.size();
+		if constexpr(HasClusters) block_span.cluster_start = results.clusters.size();
+	}
+
+	FORCE_INLINE inline void push_back(glyph_layout& results, math::frect glyph_region, const glyph_elem& glyph){
+		results.elems.push_back(glyph);
+		block_pos_min.min(glyph_region.vert_00());
+		block_pos_max.max(glyph_region.vert_11());
+	}
+
+	template <bool HasClusters>
+	FORCE_INLINE inline void push_front(glyph_layout& results, math::frect glyph_region, const glyph_elem& glyph,
+		math::vec2 glyph_advance){
+		// 原位移动当前 block 已经写入的元素
+		for(std::size_t i = block_span.elem_start; i < results.elems.size(); ++i){
+			results.elems[i].aabb.move(glyph_advance);
+		}
+		for(std::size_t i = block_span.ul_start; i < results.underlines.size(); ++i){
+			results.underlines[i].start += glyph_advance;
+			results.underlines[i].end += glyph_advance;
+		}
+		if constexpr(HasClusters){
+			for(std::size_t i = block_span.cluster_start; i < results.clusters.size(); ++i){
+				results.clusters[i].logical_rect.move(glyph_advance);
+			}
+		}
+
+		// 由于 span.elem_start 必定对应当前 block 的起点（且排版总是追加），
+		// 这里的 insert 只会发生微量的元素平移（通常只有几个字符的开销）
+		results.elems.insert(results.elems.begin() + block_span.elem_start, glyph);
+		block_pos_min += glyph_advance;
+		block_pos_max += glyph_advance;
+		block_pos_min.min(glyph_region.vert_00());
+		block_pos_max.max(glyph_region.vert_11());
+		cursor += glyph_advance;
+	}
+
+	template <bool HasClusters>
+	FORCE_INLINE inline void push_front_visual(glyph_layout& results, math::frect glyph_region, glyph_elem&& glyph,
+		math::vec2 glyph_advance){
+		// 原位移动当前 block 已经写入的元素
+		for(std::size_t i = block_span.elem_start; i < results.elems.size(); ++i){
+			results.elems[i].aabb.move(glyph_advance);
+		}
+		for(std::size_t i = block_span.ul_start; i < results.underlines.size(); ++i){
+			results.underlines[i].start += glyph_advance;
+			results.underlines[i].end += glyph_advance;
+		}
+		if constexpr(HasClusters){
+			for(std::size_t i = block_span.cluster_start; i < results.clusters.size(); ++i){
+				results.clusters[i].logical_rect.move(glyph_advance);
+			}
+		}
+
+		results.elems.push_back(std::move(glyph));
+		block_pos_min += glyph_advance;
+		block_pos_max += glyph_advance;
+		block_pos_min.min(glyph_region.vert_00());
+		block_pos_max.max(glyph_region.vert_11());
+		cursor += glyph_advance;
+	}
+
+	template <bool HasClusters>
+	FORCE_INLINE inline void append(glyph_layout& results, float math::vec2::* major_axis){
+		math::vec2 move_vec{};
+		move_vec.*major_axis = line_bound.width;
+
+		if(bool has_elems = (results.elems.size() > block_span.elem_start) || (results.underlines.size() > block_span.
+			ul_start)){
+			line_pos_min.min(block_pos_min + move_vec);
+			line_pos_max.max(block_pos_max + move_vec);
+		}
+
+		// 修改已经存在于 results 中，但属于此 block 的数据的相对偏移
+		for(std::size_t i = block_span.elem_start; i < results.elems.size(); ++i){
+			results.elems[i].aabb.move(move_vec);
+		}
+		for(std::size_t i = block_span.ul_start; i < results.underlines.size(); ++i){
+			results.underlines[i].start += move_vec;
+			results.underlines[i].end += move_vec;
+		}
+		if constexpr(HasClusters){
+			for(std::size_t i = block_span.cluster_start; i < results.clusters.size(); ++i){
+				results.clusters[i].logical_rect.move(move_vec);
+			}
+		}
+
+		line_bound.width += cursor.*major_axis;
+		line_bound.ascender = std::max(line_bound.ascender, block_ascender);
+		line_bound.descender = std::max(line_bound.descender, block_descender);
+	}
+
+	template <math::bool2 IsInf>
+	FORCE_INLINE bool check_block_fit(
+		const layout_state_t& state_,
+		const layout_config& config_,
+		const glyph_layout& results,
+		const float scale) const noexcept{
+		const float predicted_width = line_bound.width + cursor.*state_.major_p;
+		if constexpr(!IsInf.x){
+			if(predicted_width > config_.max_extent.*state_.major_p + 0.001f){
+				return false;
+			}
+		}
+
+		const float min_asc = state_.default_ascender * scale;
+		const float min_desc = state_.default_descender * scale;
+
+		const float asc = math::max(line_bound.ascender, block_ascender, min_asc);
+		const float desc = math::max(line_bound.descender, block_descender, min_desc);
+		float estimated_baseline = state_.current_baseline_pos;
+		if(!state_.is_first_line && (line_span.elem_start == results.elems.size())){
+			estimated_baseline += (state_.prev_line_descender + asc) * config_.line_spacing_scale + config_.
+				line_spacing_fixed_distance;
+		}
+
+		if constexpr(!IsInf.y){
+			const float predicted_bottom = estimated_baseline + desc;
+			const float predicted_top = estimated_baseline - asc;
+			if((math::max(state_.max_bound.*state_.minor_p, predicted_bottom) -
+					math::min(state_.min_bound.*state_.minor_p, predicted_top)) > config_.max_extent.*state_.minor_p +
+				0.001f){
+				return false;
+			}
+		}
+		return true;
+	}
+};
+
+
+namespace concepts{
+template <typename T>
+concept ClusterPolicy = requires(){
+	{ T::enabled } -> std::convertible_to<bool>;
+	// policy.push(block, cluster);
+	// policy.reserve(block, size);
+};
+
+template <typename T, typename StateType>
+concept RichTextPolicy = requires(){
+	{ T::enabled } -> std::convertible_to<bool>;
+	// policy.sync(state, config, manager, text, target);
+	// { policy.get_color(state, config) } -> std::convertible_to<graphic::color>;
+	// { policy.is_underline_enabled(state, config) } -> std::convertible_to<bool>;
+	// { policy.get_rich_offset(state, config) } -> std::convertible_to<math::vec2>;
+	// { policy.get_size(state, config) } -> std::convertible_to<math::vec2>;
+};
+}
+
+namespace policies{
+export struct ignore_clusters{
+	static constexpr bool enabled = false;
+
+	// 签名同步修改，但不做任何操作
+	static constexpr void push(glyph_layout& results, const logical_cluster& cluster) noexcept{
+	}
+
+	static constexpr void reserve(glyph_layout& results, std::size_t size) noexcept{
+	}
+};
+
+export
+struct store_clusters{
+	static constexpr bool enabled = true;
+
+	// 直接操作 results 中的 clusters 数组
+	static constexpr void push(glyph_layout& results, const logical_cluster& cluster){
+		results.clusters.push_back(cluster);
+	}
+
+	static constexpr void reserve(glyph_layout& results, std::size_t size){
+		results.clusters.reserve(results.clusters.size() + size);
+	}
+};
+
+export struct plain_text_only{
+	static constexpr bool enabled = false;
+
+	FORCE_INLINE static constexpr void sync(const auto&, const auto&, const layout_state_t& state,
+		const layout_config& config, font::font_manager& manager, const tokenized_text_view& full_text,
+		std::size_t target_cluster) noexcept{
+	}
+
+	FORCE_INLINE static graphic::color get_color(const auto&, const layout_config& config) noexcept{
+		return config.rich_text_fallback_style.color;
+	}
+
+	FORCE_INLINE static bool is_underline_enabled(const auto&, const layout_config& config) noexcept{
+		return config.rich_text_fallback_style.enables_underline;
+	}
+
+	FORCE_INLINE static math::vec2 get_rich_offset(const auto&, const layout_config& config) noexcept{
+		return config.rich_text_fallback_style.offset;
+	}
+
+	FORCE_INLINE static math::vec2 get_size(const auto&, const layout_state_t& state) noexcept{
+		return state.default_font_size;
+	}
+};
+
+export
+struct rich_text_enabled{
+	static constexpr bool enabled = true;
+
+	FORCE_INLINE static void sync(
+		rich_text_state& rich_context, const layout_buffer& buffer, layout_state_t& state, const layout_config& config,
+		font::font_manager& manager, const tokenized_text_view& full_text, std::size_t target_cluster){
+		for(typst_szt p = rich_context.next_apply_pos; p <= target_cluster; ++p){
+			auto tokens = full_text.get_token_group(p, rich_context.token_soft_last);
+			if(!tokens.empty()){
+				rich_context.rich_context.update(
+					manager,
+					{state.default_font_size, buffer.block_ascender, buffer.block_descender, state.is_vertical_mode},
+					config.rich_text_fallback_style,
+					tokens, context_update_mode::soft_only
+				);
+				rich_context.token_soft_last = tokens.end();
+			}
+		}
+		rich_context.next_apply_pos = target_cluster + 1;
+	}
+
+	FORCE_INLINE static graphic::color get_color(const rich_text_state& rich_context,
+		const layout_config& config) noexcept{
+		return rich_context.rich_context.get_color(config.rich_text_fallback_style);
+	}
+
+	FORCE_INLINE static bool is_underline_enabled(const rich_text_state& rich_context,
+		const layout_config& config) noexcept{
+		return rich_context.rich_context.is_underline_enabled(config.rich_text_fallback_style);
+	}
+
+	FORCE_INLINE static math::vec2 get_rich_offset(const rich_text_state& rich_context,
+		const layout_config& config) noexcept{
+		return rich_context.rich_context.get_offset(config.rich_text_fallback_style);
+	}
+
+	FORCE_INLINE static math::vec2 get_size(const rich_text_state& rich_context, const layout_state_t& state) noexcept{
+		return rich_context.rich_context.get_size(state.default_font_size);
+	}
+};
+}
 }

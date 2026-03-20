@@ -43,16 +43,16 @@ text_layout_result text_edit_v2::layout_text(math::vec2 bound) {
 
     if (fit_) {
         if ((change_mark_ & text_edit_change_type::max_extent) != text_edit_change_type::none) {
-            if (context_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)) {
+            if (layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)) {
             } else {
                 change_mark_ = change_mark_ & ~text_edit_change_type::max_extent;
             }
         }
 
         if (is_layout_expired_()) {
-            if (context_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
+            if (layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
                 ((change_mark_ & text_edit_change_type::config) != text_edit_change_type::none) || ((change_mark_ & text_edit_change_type::text) != text_edit_change_type::none)) {
-                context_.layout(glyph_layout_, tokenized_text_);
+                context_.layout(tokenized_text_, layout_config_, glyph_layout_);
                 render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
                 change_mark_ = text_edit_change_type::none;
                 update_caret_cache(); // 布局改变后，主动刷新坐标系
@@ -60,8 +60,8 @@ text_layout_result text_edit_v2::layout_text(math::vec2 bound) {
             }
             change_mark_ = text_edit_change_type::none;
         }
-    } else if (context_.set_max_extent(bound) || is_layout_expired_()) {
-        context_.layout(glyph_layout_, tokenized_text_);
+    } else if (layout_config_.set_max_extent(bound) || is_layout_expired_()) {
+        context_.layout(tokenized_text_, layout_config_, glyph_layout_);
         render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
         change_mark_ = text_edit_change_type::none;
         update_caret_cache(); // 布局改变后，主动刷新坐标系
@@ -138,7 +138,7 @@ void text_edit_v2::update_caret_cache() {
     caret_cache_.last_cached_caret_ = caret;
     caret_cache_.selection_rect_count_ = 0;
 
-    float fallback_height = context_.get_config().get_default_font_size().y;
+    float fallback_height = layout_config_.get_default_font_size().y;
     if (fallback_height < 1.0f) fallback_height = 16.0f;
 
     if (glyph_layout_.lines.empty()) {
