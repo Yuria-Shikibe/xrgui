@@ -43,7 +43,7 @@ public:
     /**
      * @brief 驱动队列更新
      */
-	void update_action(float delta_in_ticks, Target& target) {
+	bool update_action(float delta_in_ticks, Target& target) {
     	// 只要还有剩余的时间 delta，就继续处理动作
     	while (delta_in_ticks > 0) {
     		// 1. 如果当前没有正在执行的动作，尝试从队列中提取一个
@@ -52,7 +52,7 @@ public:
     				current_action_ = std::move(*opt);
     			} else {
     				// 队列为空，直接结束本次 Tick
-    				break;
+    				return true;
     			}
     		}
 
@@ -68,6 +68,7 @@ public:
     			break;
     		}
     	}
+		return false;
     }
 };
 

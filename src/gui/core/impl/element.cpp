@@ -144,6 +144,10 @@ style::elem_style_ptr elem::get_elem_default_style_() const{
 	return get_scene().style_manager.get_default<style::elem_style_drawer>();
 }
 
+void elem::push_to_action_queue(){
+	get_scene().async_push_elem_to_action_pending(this);
+}
+
 tooltip::align_config elem::tooltip_get_align_config() const{
 	tooltip::align_config cfg{
 			tooltip_create_config.layout_info.follow,
@@ -171,11 +175,7 @@ void elem::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
 }
 
 bool elem::update(float delta_in_ticks){
-
 	if(sleep)return false;
-
-	update_action(delta_in_ticks);
-
 	return true;
 }
 

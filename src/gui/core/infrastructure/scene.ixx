@@ -13,7 +13,7 @@ import std;
 import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.math.rect_ortho;
-import mo_yanxi.concurrent.atomic_double_buffer;
+import mo_yanxi.concurrent.mpsc_double_buffer;
 
 export import mo_yanxi.gui.util;
 export import mo_yanxi.gui.style.manager;
@@ -302,8 +302,8 @@ protected:
 
 	layer_altitude_record layer_altitude_record_{get_heap()};
 
-	
-
+	ccur::mpsc_double_buffer_no_propagate<elem*, std::vector<elem*, mr::heap_allocator<elem*>>> action_active_pending_elems_{std::vector<elem*, mr::heap_allocator<elem*>>{get_heap()}};
+	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> action_active_elems_{get_heap()};
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 
@@ -501,7 +501,9 @@ public:
 		return ptr;
 	}
 
-
+	void async_push_elem_to_action_pending(elem* e){
+		action_active_pending_elems_.push(e);
+	}
 
 private:
 	void update(double delta_in_tick);
@@ -560,6 +562,8 @@ private:
 	void drop_(const elem* target) noexcept;
 
 	void update_elem_cursor_state_(float delta_in_tick) noexcept;
+
+	void update_elem_action_(float delta_in_tick) noexcept;
 
 	void notify_isolated_layout_update(elem* element){
 		independent_layouts_.get_bak().insert(element);

@@ -265,12 +265,15 @@ public:
 	elem& operator=(elem&& other) noexcept = delete;
 
 #pragma region Action
-
+private:
+	void push_to_action_queue();
 public:
 	template <std::derived_from<action::action<elem>> ActionType, typename... Args>
 		requires (std::constructible_from<ActionType, mr::heap_allocator<>, Args&&...>)
 	ActionType& push_action(Args&&... args){
-		return actions.push_action<ActionType>(get_scene().get_heap_allocator(), std::forward<Args>(args)...);
+		auto& rst = actions.push_action<ActionType>(get_scene().get_heap_allocator(), std::forward<Args>(args)...);
+		push_to_action_queue();
+		return rst;
 	}
 
 
@@ -460,8 +463,8 @@ public:
 
 	virtual bool update(float delta_in_ticks);
 
-	void update_action(float delta_in_ticks){
-		actions.update_action(delta_in_ticks, *this);
+	bool update_action(float delta_in_ticks){
+		return actions.update_action(delta_in_ticks, *this);
 	}
 
 protected:

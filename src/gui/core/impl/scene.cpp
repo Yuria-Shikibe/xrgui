@@ -40,6 +40,7 @@ void scene::update(double delta_in_tick){
 	}
 
 	update_elem_cursor_state_(delta_in_tick);
+	update_elem_action_(delta_in_tick);
 
 	current_time_ += delta_in_tick;
 	current_frame_++;
@@ -403,6 +404,11 @@ void scene::drop_(const elem* target) noexcept{
 	// asyncTaskOwners.erase(const_cast<elem*>(target));
 	cursor_event_active_elems_.erase(const_cast<elem*>(target));
 	active_update_elems.erase(const_cast<elem*>(target));
+	action_active_pending_elems_.modify([&](decltype(action_active_pending_elems_)::container_type& cont){
+		using std::erase;
+		erase(cont, const_cast<elem*>(target));
+	});
+	action_active_elems_.erase(const_cast<elem*>(target));
 
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
 
@@ -425,4 +431,15 @@ void scene::update_elem_cursor_state_(float delta_in_tick) noexcept{
 	});
 }
 
+void scene::update_elem_action_(float delta_in_tick) noexcept{
+	if(auto cont = action_active_pending_elems_.fetch()){
+		for (auto value : *cont){
+			action_active_elems_.insert(value);
+		}
+	}
+
+	action_active_elems_.modify_and_erase([&](elem* p){
+		return p->update_action(delta_in_tick);
+	});
+}
 }
