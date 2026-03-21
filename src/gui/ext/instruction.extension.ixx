@@ -70,18 +70,25 @@ struct nine_patch_draw{
 	math::raw_frect region;
 	graphic::color color;
 
-	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const nine_patch_draw& instr) {
-		assert(instr.patch != nullptr);
-		auto uvs = instr.patch->get_row_uvs();
-		auto coords = std::invoke(getter, instr.patch, instr.region);
+	template <std::invocable<graphic::draw::instruction::row_patch&&> Fn>
+	FORCE_INLINE constexpr void for_each(Fn fn) const noexcept{
+		assert(patch != nullptr);
+		auto uvs = patch->get_row_uvs();
+		auto coords = std::invoke(getter, patch, region);
 		for(int i = 0; i < 3; ++i){
-			renderer.push(graphic::draw::instruction::row_patch{
-				.generic = {.image = instr.patch->image_view->view},
+			std::invoke(fn, graphic::draw::instruction::row_patch{
+				.generic = {.image = patch->image_view->view},
 				.coords = coords[i],
 				.uvs = uvs[i],
-				.vert_color = {instr.color}
+				.vert_color = {color}
 			});
 		}
+	}
+
+	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const nine_patch_draw& instr) {
+		instr.for_each([&] FORCE_INLINE (graphic::draw::instruction::row_patch&& patch){
+			renderer.push(patch);
+		});
 		return renderer;
 	}
 };

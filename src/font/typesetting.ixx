@@ -288,8 +288,8 @@ private:
 		max_pos.*state_.major_p += pad;
 
 		// 次轴扩充，利用 block 级别累计的 ascender/descender
-		min_pos.*state_.minor_p -= (layout_buffer_.block_ascender);
-		max_pos.*state_.minor_p += (layout_buffer_.block_descender);
+		min_pos.*state_.minor_p -= (layout_buffer_.block_ascender + pad);
+		max_pos.*state_.minor_p += (layout_buffer_.block_descender + pad);
 
 		wf.start = min_pos;
 		wf.end = max_pos;

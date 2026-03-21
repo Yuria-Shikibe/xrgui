@@ -471,6 +471,10 @@ struct image_nine_region : nine_patch_layout{
 		assert(padding.extent().within(image_region->uv.get_region().extent()));
 	}
 
+	explicit constexpr operator bool() const noexcept{
+		return image_view != nullptr;
+	}
+
 	[[nodiscard]] constexpr std::array<graphic::uniformed_rect_uv, 9> get_uvs() const noexcept{
 		const std::array<float, 4> xs = {outer_uv.v00().x, inner_uv.v00().x, inner_uv.v11().x, outer_uv.v11().x};
 		const std::array<float, 4> ys = {outer_uv.v00().y, inner_uv.v00().y, inner_uv.v11().y, outer_uv.v11().y};

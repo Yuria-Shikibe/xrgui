@@ -1,6 +1,8 @@
 module mo_yanxi.gui.text_render_cache;
 
+import mo_yanxi.gui.image_regions;
 import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.gui.fx.instruction_extension;
 
 
 namespace mo_yanxi::gui{
@@ -14,6 +16,40 @@ void record_glyph_draw_instructions(
 	buffer.clear();
 	buffer.reserve_heads(glyph_layout.elems.size() + glyph_layout.underlines.size());
 	buffer.reserve_bytes(glyph_layout.elems.size() * sizeof(rect_aabb) + glyph_layout.underlines.size() * sizeof(line));
+
+	const auto& roundRegion = gui::assets::builtin::default_round_square_base;
+	const bool hasRound = static_cast<bool>(roundRegion);
+	for (const auto & range : glyph_layout.wrap_frames | std::views::chunk_by(&typesetting::sub_line_decoration::chunk_by_line)){
+		auto [line_src, spacing] = glyph_layout.lines[range.front().line_index].calculate_alignment(glyph_layout.extent, line_align, glyph_layout.direction);
+
+		for (const auto & val : range){
+			const auto start = math::fma(spacing, static_cast<float>(val.start_gap_count), line_src + val.start);
+			const auto end = math::fma(spacing, static_cast<float>(val.end_gap_count), line_src + val.end);
+
+			switch(val.type){
+			case typesetting::rich_text_token::wrap_frame_type::rect : buffer.push(rect_aabb_outline{
+						.v00 = start,
+						.v11 = end,
+						.stroke = {2},
+						.vert_color = {val.color}
+					});
+				break;
+			case typesetting::rich_text_token::wrap_frame_type::round :
+				if(hasRound){
+					gui::fx::nine_patch_draw<>{
+						.patch = &roundRegion,
+						.region = {start, end - start},
+						.color = {val.color.copy_set_a(.6f).mul_rgb(.7f)}
+					}.for_each([&](auto&& instr){
+						buffer.push(instr);
+					});
+				}
+				break;
+			default : break;
+			}
+		}
+
+	}
 
 	for(const auto& current_line : glyph_layout.lines){
 		auto [line_src, spacing] = current_line.calculate_alignment(glyph_layout.extent, line_align,
@@ -36,20 +72,6 @@ void record_glyph_draw_instructions(
 					.sdf_expand = -val.weight_offset
 				});
 		}
-
-		// for(const auto& [idx, val] : std::span{
-		// 	    glyph_layout.clusters.begin() + current_line.cluster_range.pos, current_line.cluster_range.size
-		//     } | std::views::enumerate){
-		// 	auto start = line_src + val.logical_rect.src;
-		//
-		//
-		// 	buffer.push(rect_aabb_outline{
-		// 			.v00 = start,
-		// 			.v11 = start + val.logical_rect.extent(),
-		// 			.stroke = {1.25f},
-		// 			.vert_color = {graphic::colors::YELLOW.copy_set_a(.5f)}
-		// 		});
-		// }
 	}
 
 	for (const auto & underlines : glyph_layout.underlines | std::views::chunk_by(&typesetting::sub_line_decoration::chunk_by_line)){
@@ -68,21 +90,7 @@ void record_glyph_draw_instructions(
 		}
 	}
 
-	for (const auto & range : glyph_layout.wrap_frames | std::views::chunk_by(&typesetting::sub_line_decoration::chunk_by_line)){
-		auto [line_src, spacing] = glyph_layout.lines[range.front().line_index].calculate_alignment(glyph_layout.extent, line_align, glyph_layout.direction);
 
-		for (const auto & val : range){
-			const auto start = math::fma(spacing, static_cast<float>(val.start_gap_count), line_src + val.start);
-			const auto end = math::fma(spacing, static_cast<float>(val.end_gap_count), line_src + val.end);
-
-			buffer.push(rect_aabb_outline{
-					.v00 = start,
-					.v11 = end,
-					.stroke = {2},
-					.vert_color = {val.color}
-				});
-		}
-	}
 
 }
 }

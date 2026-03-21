@@ -115,7 +115,7 @@ enum struct wrap_frame_type : std::uint8_t{
 };
 
 struct set_wrap_frame {
-	static constexpr float wrap_frame_pad[] = {0, 4.f, 4.f, std::numeric_limits<float>::signaling_NaN()};
+	static constexpr float wrap_frame_pad[] = {0, 4.f, 8.f, std::numeric_limits<float>::signaling_NaN()};
 	wrap_frame_type type;
 
 	constexpr float get_pad_at_major() const noexcept{

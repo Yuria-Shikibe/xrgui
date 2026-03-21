@@ -694,6 +694,8 @@ void prepare(){
 
 	{
 		auto sys_font_path = font::get_system_fonts();
+		auto consolas_family = sys_font_path.equal_range("Consolas");
+		std::ranges::subrange rng{consolas_family.first, consolas_family.second};
 
 
 		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
