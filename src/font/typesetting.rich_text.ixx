@@ -70,6 +70,7 @@ struct rich_text_fallback_style {
 	bool enables_underline{false};
 	bool enables_italic{false};
 	bool enables_bold{false};
+	rich_text_token::wrap_frame_type wrap_frame_type;
 
 	constexpr friend bool operator==(const rich_text_fallback_style& lhs, const rich_text_fallback_style& rhs) noexcept {
 		return lhs.offset == rhs.offset
@@ -104,6 +105,7 @@ private:
 	enable_type enables_underline_{};
 	enable_type enables_bold_{};
 	enable_type enables_italic_{};
+	rich_text_token::set_wrap_frame wrap_frame_state_{rich_text_token::wrap_frame_type::invalid};
 
 
 public:
@@ -116,6 +118,11 @@ public:
 		enables_underline_ = {};
 		enables_bold_ = {};
 		enables_italic_ = {};
+		wrap_frame_state_ = {rich_text_token::wrap_frame_type::invalid};
+	}
+
+	rich_text_token::set_wrap_frame get_wrap_frame_state(const rich_text_fallback_style& fallback) const noexcept{
+		return wrap_frame_state_.type == rich_text_token::wrap_frame_type::invalid ? rich_text_token::set_wrap_frame{fallback.wrap_frame_type} : wrap_frame_state_;
 	}
 
 	[[nodiscard]] FORCE_INLINE inline bool is_underline_enabled(const rich_text_fallback_style& fallback) const noexcept{
@@ -180,6 +187,9 @@ public:
 					},
 					[&](const set_bold& t){
 						enables_bold_ = t.enabled ? enable_type::enabled : enable_type::disabled;
+					},
+					[&](const set_wrap_frame& t){
+						wrap_frame_state_ = t;
 					},
 					[&](const set_offset& t){
 						switch(t.type){

@@ -39,13 +39,29 @@ export struct glyph_elem{
 	float weight_offset;
 };
 
-export struct underline{
+export
+struct sub_line_decoration{
+	typst_szt line_index;
+	typst_szt start_gap_count;
+	typst_szt end_gap_count;
+
+	static bool chunk_by_line(const sub_line_decoration& lhs, const sub_line_decoration& rhs) noexcept{
+		return lhs.line_index != rhs.line_index;
+	}
+};
+
+export struct underline : sub_line_decoration{
 	math::vec2 start;
 	math::vec2 end;
 	float thickness;
-	typst_szt start_gap_count;
-	typst_szt end_gap_count;
 	graphic::color color;
+};
+
+export struct wrap_frame : sub_line_decoration{
+	math::vec2 start;
+	math::vec2 end;
+	graphic::color color;
+	rich_text_token::wrap_frame_type type;
 };
 
 export struct subrange{
@@ -66,7 +82,6 @@ export struct line_align_result{
 
 export struct line{
 	subrange glyph_range;
-	subrange underline_range;
 	subrange cluster_range;
 
 	layout_rect rect;
@@ -126,6 +141,7 @@ export struct glyph_layout{
 	std::vector<glyph_elem> elems;
 	std::vector<underline> underlines;
 	std::vector<logical_cluster> clusters;
+	std::vector<wrap_frame> wrap_frames;
 
 	std::vector<line> lines;
 
@@ -137,6 +153,7 @@ export struct glyph_layout{
 		elems.clear();
 		underlines.clear();
 		clusters.clear();
+		wrap_frames.clear();
 		lines.clear();
 		extent = {};
 		direction = {};
@@ -283,6 +300,7 @@ export struct layout_span{
 	typst_szt elem_start{};
 	typst_szt ul_start{};
 	typst_szt cluster_start{};
+	typst_szt wrap_start{};
 };
 
 struct block_data{
@@ -381,26 +399,31 @@ export struct layout_config{
 
 
 struct layout_buffer : block_data, line_data{
+	rich_text_token::wrap_frame_type active_wrap_type{rich_text_token::wrap_frame_type::none};
+
 	template <bool HasClusters>
 	constexpr bool empty(const glyph_layout& results) const noexcept{
-		bool is_empty = block_span.elem_start == results.elems.size() && block_span.ul_start == results.underlines.
-			size();
+		bool is_empty = block_span.elem_start == results.elems.size() &&
+						block_span.ul_start == results.underlines.size() &&
+						block_span.wrap_start == results.wrap_frames.size(); // 增加验证
 		if constexpr(HasClusters){
 			is_empty = is_empty && (block_span.cluster_start == results.clusters.size());
 		}
 		return is_empty;
 	}
 
-	FORCE_INLINE inline void clear() & noexcept{
-		block_data::clear();
-		line_data::clear();
-	}
-
 	template <bool HasClusters>
 	FORCE_INLINE inline void block_sync_start(const glyph_layout& results){
 		block_span.elem_start = results.elems.size();
 		block_span.ul_start = results.underlines.size();
+		block_span.wrap_start = results.wrap_frames.size(); // 同步点
 		if constexpr(HasClusters) block_span.cluster_start = results.clusters.size();
+	}
+
+	FORCE_INLINE inline void clear() & noexcept{
+		block_data::clear();
+		line_data::clear();
+		active_wrap_type = rich_text_token::wrap_frame_type::none;
 	}
 
 	FORCE_INLINE inline void push_back(glyph_layout& results, math::frect glyph_region, const glyph_elem& glyph){
@@ -413,19 +436,22 @@ struct layout_buffer : block_data, line_data{
 	FORCE_INLINE inline void push_front(glyph_layout& results, math::frect glyph_region, const glyph_elem& glyph,
 		math::vec2 glyph_advance){
 		// 原位移动当前 block 已经写入的元素
-		for(std::size_t i = block_span.elem_start; i < results.elems.size(); ++i){
+		for(typst_szt i = block_span.elem_start; i < results.elems.size(); ++i){
 			results.elems[i].aabb.move(glyph_advance);
 		}
-		for(std::size_t i = block_span.ul_start; i < results.underlines.size(); ++i){
+		for(typst_szt i = block_span.ul_start; i < results.underlines.size(); ++i){
 			results.underlines[i].start += glyph_advance;
 			results.underlines[i].end += glyph_advance;
 		}
 		if constexpr(HasClusters){
-			for(std::size_t i = block_span.cluster_start; i < results.clusters.size(); ++i){
+			for(typst_szt i = block_span.cluster_start; i < results.clusters.size(); ++i){
 				results.clusters[i].logical_rect.move(glyph_advance);
 			}
 		}
-
+		for(typst_szt i = block_span.wrap_start; i < results.wrap_frames.size(); ++i){
+			results.wrap_frames[i].start += glyph_advance;
+			results.wrap_frames[i].end += glyph_advance;
+		}
 		// 由于 span.elem_start 必定对应当前 block 的起点（且排版总是追加），
 		// 这里的 insert 只会发生微量的元素平移（通常只有几个字符的开销）
 		results.elems.insert(results.elems.begin() + block_span.elem_start, glyph);
@@ -440,18 +466,23 @@ struct layout_buffer : block_data, line_data{
 	FORCE_INLINE inline void push_front_visual(glyph_layout& results, math::frect glyph_region, glyph_elem&& glyph,
 		math::vec2 glyph_advance){
 		// 原位移动当前 block 已经写入的元素
-		for(std::size_t i = block_span.elem_start; i < results.elems.size(); ++i){
+		for(typst_szt i = block_span.elem_start; i < results.elems.size(); ++i){
 			results.elems[i].aabb.move(glyph_advance);
 		}
-		for(std::size_t i = block_span.ul_start; i < results.underlines.size(); ++i){
+		for(typst_szt i = block_span.ul_start; i < results.underlines.size(); ++i){
 			results.underlines[i].start += glyph_advance;
 			results.underlines[i].end += glyph_advance;
 		}
 		if constexpr(HasClusters){
-			for(std::size_t i = block_span.cluster_start; i < results.clusters.size(); ++i){
+			for(typst_szt i = block_span.cluster_start; i < results.clusters.size(); ++i){
 				results.clusters[i].logical_rect.move(glyph_advance);
 			}
 		}
+		for(typst_szt i = block_span.wrap_start; i < results.wrap_frames.size(); ++i){
+			results.wrap_frames[i].start += glyph_advance;
+			results.wrap_frames[i].end += glyph_advance;
+		}
+
 
 		results.elems.push_back(std::move(glyph));
 		block_pos_min += glyph_advance;
@@ -473,17 +504,21 @@ struct layout_buffer : block_data, line_data{
 		}
 
 		// 修改已经存在于 results 中，但属于此 block 的数据的相对偏移
-		for(std::size_t i = block_span.elem_start; i < results.elems.size(); ++i){
+		for(typst_szt i = block_span.elem_start; i < results.elems.size(); ++i){
 			results.elems[i].aabb.move(move_vec);
 		}
-		for(std::size_t i = block_span.ul_start; i < results.underlines.size(); ++i){
+		for(typst_szt i = block_span.ul_start; i < results.underlines.size(); ++i){
 			results.underlines[i].start += move_vec;
 			results.underlines[i].end += move_vec;
 		}
 		if constexpr(HasClusters){
-			for(std::size_t i = block_span.cluster_start; i < results.clusters.size(); ++i){
+			for(typst_szt i = block_span.cluster_start; i < results.clusters.size(); ++i){
 				results.clusters[i].logical_rect.move(move_vec);
 			}
+		}
+		for(typst_szt i = block_span.wrap_start; i < results.wrap_frames.size(); ++i){
+			results.wrap_frames[i].start += move_vec;
+			results.wrap_frames[i].end += move_vec;
 		}
 
 		line_bound.width += cursor.*major_axis;
@@ -597,6 +632,10 @@ export struct plain_text_only{
 	FORCE_INLINE static math::vec2 get_size(const auto&, const layout_state_t& state) noexcept{
 		return state.default_font_size;
 	}
+
+	FORCE_INLINE static rich_text_token::set_wrap_frame get_wrap_frame_state(const auto&, const layout_config& config) noexcept{
+		return {config.rich_text_fallback_style.wrap_frame_type};
+	}
 };
 
 export
@@ -638,6 +677,10 @@ struct rich_text_enabled{
 
 	FORCE_INLINE static math::vec2 get_size(const rich_text_state& rich_context, const layout_state_t& state) noexcept{
 		return rich_context.rich_context.get_size(state.default_font_size);
+	}
+
+	FORCE_INLINE static rich_text_token::set_wrap_frame get_wrap_frame_state(const rich_text_state& rich_context, const layout_config& config) noexcept{
+		return rich_context.rich_context.get_wrap_frame_state(config.rich_text_fallback_style);
 	}
 };
 }

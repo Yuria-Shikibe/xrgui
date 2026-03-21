@@ -2,6 +2,7 @@ module;
 
 #include <hb.h>
 #include <freetype/freetype.h>
+#include <cassert>
 
 export module mo_yanxi.typesetting.rich_text:argument;
 
@@ -104,6 +105,27 @@ struct set_bold {
 	constexpr bool operator==(const set_bold&) const noexcept = default;
 };
 
+enum struct wrap_frame_type : std::uint8_t{
+	none,
+	rect,
+	round,
+
+
+	invalid,
+};
+
+struct set_wrap_frame {
+	static constexpr float wrap_frame_pad[] = {0, 4.f, 4.f, std::numeric_limits<float>::signaling_NaN()};
+	wrap_frame_type type;
+
+	constexpr float get_pad_at_major() const noexcept{
+		assert(type != wrap_frame_type::invalid);
+		return wrap_frame_pad[std::to_underlying(type)];
+	}
+
+	constexpr bool operator==(const set_wrap_frame&) const noexcept = default;
+};
+
 
 enum struct script_type{
 	ends,
@@ -151,6 +173,8 @@ using tokens = std::variant<
 	set_italic,
 	set_bold,
 
+	set_wrap_frame,
+
 	set_offset,
 	set_color,
 	set_size,
@@ -177,6 +201,15 @@ constexpr inline std::size_t token_index_of = mo_yanxi::tuple_index_v<T, variant
 	case '+' : return {setter_type::relative_add, args.substr(1)};
 	case '=' : return {setter_type::absolute, args.substr(1)};
 	default : return {setter_type::absolute, args};
+	}
+}
+
+constexpr set_wrap_frame parse_wrap_frame(std::string_view args) noexcept{
+	if(args.empty())return set_wrap_frame{};
+	switch(args.front()){
+	case 'r': return set_wrap_frame{wrap_frame_type::rect};
+	case 's': return set_wrap_frame{wrap_frame_type::round};
+	default: return {};
 	}
 }
 
@@ -344,6 +377,9 @@ struct rich_text_token_argument{
 
 		case s2i("ftr") :[[fallthrough]];
 		case s2i("feature") : return args.empty() ? tokens{fallback_feature{}} : parse_set_feature(args);
+
+		case s2i("wrap") :[[fallthrough]];
+		case s2i("w") : return parse_wrap_frame(args);
 
 		case s2i("^") : return set_script{script_type::sups};
 		case s2i("_") : return set_script{script_type::subs};

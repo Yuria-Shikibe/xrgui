@@ -50,20 +50,39 @@ void record_glyph_draw_instructions(
 		// 			.vert_color = {graphic::colors::YELLOW.copy_set_a(.5f)}
 		// 		});
 		// }
+	}
 
-		for(const auto& ul : std::span{
-			    glyph_layout.underlines.begin() + current_line.underline_range.pos, current_line.underline_range.size
-		    }){
-			const auto start = math::fma(spacing, static_cast<float>(ul.start_gap_count), line_src + ul.start);
-			const auto end = math::fma(spacing, static_cast<float>(ul.end_gap_count), line_src + ul.end);
+	for (const auto & underlines : glyph_layout.underlines | std::views::chunk_by(&typesetting::sub_line_decoration::chunk_by_line)){
+		auto [line_src, spacing] = glyph_layout.lines[underlines.front().line_index].calculate_alignment(glyph_layout.extent, line_align, glyph_layout.direction);
+
+		for (const auto & val : underlines){
+			const auto start = math::fma(spacing, static_cast<float>(val.start_gap_count), line_src + val.start);
+			const auto end = math::fma(spacing, static_cast<float>(val.end_gap_count), line_src + val.end);
 
 			buffer.push(line{
 					.src = start,
 					.dst = end,
-					.color = {ul.color * color_scl, ul.color * color_scl},
-					.stroke = ul.thickness,
+					.color = {val.color * color_scl, val.color * color_scl},
+					.stroke = val.thickness,
 				});
 		}
 	}
+
+	for (const auto & range : glyph_layout.wrap_frames | std::views::chunk_by(&typesetting::sub_line_decoration::chunk_by_line)){
+		auto [line_src, spacing] = glyph_layout.lines[range.front().line_index].calculate_alignment(glyph_layout.extent, line_align, glyph_layout.direction);
+
+		for (const auto & val : range){
+			const auto start = math::fma(spacing, static_cast<float>(val.start_gap_count), line_src + val.start);
+			const auto end = math::fma(spacing, static_cast<float>(val.end_gap_count), line_src + val.end);
+
+			buffer.push(rect_aabb_outline{
+					.v00 = start,
+					.v11 = end,
+					.stroke = {2},
+					.vert_color = {val.color}
+				});
+		}
+	}
+
 }
 }

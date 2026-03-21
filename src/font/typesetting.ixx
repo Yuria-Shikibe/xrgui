@@ -45,6 +45,20 @@ struct ul_start_info{
 	typst_szt gap_count;
 };
 
+struct wrap_start_info{
+	math::vec2 pos;
+	typst_szt gap_count;
+	rich_text_token::wrap_frame_type type;
+};
+
+struct run_style_state{
+	font::font_face_handle* face;
+	bool synthetic_italic;
+	bool synthetic_bold;
+
+	constexpr bool operator==(const run_style_state&) const noexcept = default;
+};
+
 export
 struct layout_ctx_base{
 protected:
@@ -129,17 +143,6 @@ protected:
 	}
 };
 
-struct run_style_state{
-	font::font_face_handle* face = nullptr;
-	bool synthetic_italic = false;
-	bool synthetic_bold = false;
-
-	bool operator!=(const run_style_state& rhs) const noexcept{
-		return face != rhs.face ||
-			synthetic_italic != rhs.synthetic_italic ||
-			synthetic_bold != rhs.synthetic_bold;
-	}
-};
 
 export
 template <
@@ -227,6 +230,10 @@ private:
 		}
 	}
 
+	FORCE_INLINE inline constexpr rich_text_token::set_wrap_frame get_wrap_frame_state_(
+		const layout_config& config_) const noexcept{
+		return rich_text_policy_.get_wrap_frame_state(rich_text_state_, config_);
+	}
 #pragma endregion
 
 	FORCE_INLINE glyph_elem get_line_indicator_elem(math::frect font_bound) const noexcept{
@@ -260,6 +267,38 @@ private:
 		}
 		layout_buffer_.block_pos_min.min(ul_min);
 		layout_buffer_.block_pos_max.max(ul_max);
+	}
+
+	void submit_wrap_frame(glyph_layout& results, const wrap_start_info& start_info, graphic::color ctx_color,
+		bool is_delimiter){
+		rich_text_token::set_wrap_frame wrap_setter{start_info.type};
+		const float pad = wrap_setter.get_pad_at_major() * .5f;
+
+		wrap_frame wf;
+		wf.type = start_info.type;
+		wf.color = ctx_color;
+		wf.start_gap_count = start_info.gap_count;
+		wf.end_gap_count = std::max(wf.start_gap_count, this->get_current_gap_index(results, is_delimiter));
+
+		math::vec2 min_pos = math::min(start_info.pos, layout_buffer_.cursor);
+		math::vec2 max_pos = math::max(start_info.pos, layout_buffer_.cursor);
+
+		// 主轴两端扩充 pad
+		min_pos.*state_.major_p -= pad;
+		max_pos.*state_.major_p += pad;
+
+		// 次轴扩充，利用 block 级别累计的 ascender/descender
+		min_pos.*state_.minor_p -= (layout_buffer_.block_ascender);
+		max_pos.*state_.minor_p += (layout_buffer_.block_descender);
+
+		wf.start = min_pos;
+		wf.end = max_pos;
+
+		results.wrap_frames.push_back(wf);
+
+		// 刷新当前 block 整体边界
+		layout_buffer_.block_pos_min.min(wf.start);
+		layout_buffer_.block_pos_max.max(wf.end);
 	}
 
 	typst_szt get_current_gap_index(const glyph_layout& results, bool is_delimiter) const noexcept{
@@ -460,11 +499,60 @@ private:
 		}
 
 		std::optional<ul_start_info> active_ul_start;
+		std::optional<wrap_start_info> active_wrap_start;
 		std::optional<logical_cluster> current_logic_cluster;
 		graphic::color prev_color = graphic::colors::white;
 
+		auto get_safe_pad = [](rich_text_token::wrap_frame_type t) -> float{
+			return rich_text_token::set_wrap_frame{t}.get_pad_at_major();
+		};
+
+		// ==========================================
+		// 精简工具 Lambda 集合
+		// ==========================================
+		auto flush_current_cluster = [&](){
+			if(current_logic_cluster){
+				cluster_push_(results, *current_logic_cluster);
+				current_logic_cluster.reset();
+			}
+		};
+
+		auto flush_decorations = [&](bool is_delim){
+			if(active_wrap_start){
+				this->submit_wrap_frame(results, *active_wrap_start, prev_color, is_delim);
+				active_wrap_start.reset();
+			}
+			if(active_ul_start){
+				this->submit_underline(results, *active_ul_start, prev_color, metrics, is_delim);
+				active_ul_start.reset();
+			}
+		};
+
+		auto calc_logical_rect = [&](const math::vec2& rich_offset, float adv_x, float adv_y) -> math::frect{
+			const math::vec2 logical_base = layout_buffer_.cursor + rich_offset;
+			return this->is_vertical()
+				       ? math::frect{
+					       tags::from_extent,
+					       {logical_base.x - metrics.run_font_asc, logical_base.y},
+					       {metrics.run_font_asc + metrics.run_font_desc, adv_y}
+				       }
+				       : math::frect{
+					       tags::from_extent,
+					       {logical_base.x, logical_base.y - metrics.run_font_asc},
+					       {adv_x, metrics.run_font_asc + metrics.run_font_desc}
+				       };
+		};
+
+		auto get_scaled_indicator_aabb = [&]() -> math::frect{
+			const float scale = this->get_current_relative_scale();
+			auto scaled_aabb = cached_indicator_.glyph_aabb.copy();
+			return {
+					tags::unchecked, tags::from_vertex, scaled_aabb.vert_00() * scale,
+					scaled_aabb.vert_11() * scale
+				};
+		};
+
 		results.elems.reserve(results.elems.size() + len);
-		// cluster_reserve_(results, len);
 
 		for(std::uint32_t i = 0; i < len; ++i){
 			const font::glyph_index_t gid = infos[i].codepoint;
@@ -474,18 +562,26 @@ private:
 
 			bool was_ul = false;
 			bool is_ul = false;
-			math::vec2 rich_offset{};
+			rich_text_token::set_wrap_frame prev_wrap_state{rich_text_token::wrap_frame_type::none};
+			rich_text_token::set_wrap_frame current_wrap_state{rich_text_token::wrap_frame_type::none};
 
 			if constexpr(enable_dynamic_rich_text_state){
 				was_ul = is_underline_enabled_(config_);
+				prev_wrap_state = get_wrap_frame_state_(config_);
+
 				rich_text_sync_(full_text, config_, current_cluster);
+
 				is_ul = is_underline_enabled_(config_);
+				current_wrap_state = get_wrap_frame_state_(config_);
 			} else{
 				is_ul = is_underline_enabled_(config_);
+				current_wrap_state = get_wrap_frame_state_(config_);
 			}
 
+			const bool is_wrap = current_wrap_state.type != rich_text_token::wrap_frame_type::none && current_wrap_state
+				.type != rich_text_token::wrap_frame_type::invalid;
 			prev_color = get_font_color_(config_);
-			rich_offset = get_font_offset_(config_);
+			auto rich_offset = get_font_offset_(config_);
 
 			if(was_ul && !is_ul && active_ul_start){
 				this->submit_underline(results, *active_ul_start, prev_color, metrics, is_delimiter);
@@ -498,24 +594,54 @@ private:
 					};
 			}
 
-			if(is_delimiter){
-				if(active_ul_start){
-					this->submit_underline(results, *active_ul_start, prev_color, metrics, true);
-					active_ul_start.reset();
+			if(layout_buffer_.active_wrap_type != current_wrap_state.type){
+				if(active_wrap_start){
+					this->submit_wrap_frame(results, *active_wrap_start, prev_color, is_delimiter);
+					active_wrap_start.reset();
 				}
 
-				if(current_logic_cluster){
-					cluster_push_(results, *current_logic_cluster);
-					current_logic_cluster.reset();
+				float pad_prev = get_safe_pad(layout_buffer_.active_wrap_type);
+				float pad_curr = get_safe_pad(current_wrap_state.type);
+				float total_pad = pad_prev + pad_curr;
+
+				if(total_pad > 0.001f){
+					if(this->is_reversed()){
+						layout_buffer_.cursor.*state_.major_p -= total_pad;
+					} else{
+						layout_buffer_.cursor.*state_.major_p += total_pad;
+					}
 				}
+
+				layout_buffer_.active_wrap_type = current_wrap_state.type;
+			}
+
+			if(is_wrap && !active_wrap_start){
+				active_wrap_start = wrap_start_info{
+						layout_buffer_.cursor, this->get_current_gap_index(results, is_delimiter),
+						current_wrap_state.type
+					};
+			}
+
+			if(is_delimiter){
+				flush_decorations(true);
+				flush_current_cluster();
 
 				if(!this->flush_block_impl<IsInf>(config_, results)) return false;
 
 				if constexpr(enable_dynamic_rich_text_state){
-					if(ch != U'\n' && ch != U'\r' && is_underline_enabled_(config_)){
-						active_ul_start = ul_start_info{
-								layout_buffer_.cursor, this->get_current_gap_index(results, true)
-							};
+					if(ch != U'\n' && ch != U'\r'){
+						if(is_wrap){
+							active_wrap_start = wrap_start_info{
+									layout_buffer_.cursor, this->get_current_gap_index(results, true),
+									current_wrap_state.type
+								};
+						}
+
+						if(is_underline_enabled_(config_)){
+							active_ul_start = ul_start_info{
+									layout_buffer_.cursor, this->get_current_gap_index(results, true)
+								};
+						}
 					}
 				}
 			}
@@ -527,69 +653,29 @@ private:
 				};
 
 			// 控制字符逻辑
-			if(ch == U'\r'){
-				if(current_logic_cluster){
-					cluster_push_(results, *current_logic_cluster);
-					current_logic_cluster.reset();
+			if(ch == U'\r' || ch == U'\n'){
+				flush_current_cluster();
+				static_cast<block_data&>(layout_buffer_).max_bound_height(metrics.run_font_asc, metrics.run_font_desc);
+
+				const math::frect rect = calc_logical_rect(rich_offset, 1.f, -1.f);
+				cluster_push_(results, logical_cluster{current_cluster, 1, rect});
+
+				if(ch == U'\n'){
+					if(!this->flush_block_impl<IsInf>(config_, results) || !this->advance_line_impl<IsInf>(config_,
+						results)) return false;
+					layout_buffer_.cursor = {};
 				}
-
-				layout_buffer_.max_bound_height(metrics.run_font_asc, metrics.run_font_desc);
-				const math::vec2 logical_base = layout_buffer_.cursor + rich_offset;
-				const math::frect r_rect = this->is_vertical()
-					                           ? math::frect{
-						                           tags::from_extent,
-						                           {logical_base.x - metrics.run_font_asc, logical_base.y},
-						                           {metrics.run_font_asc + metrics.run_font_desc, -1.f}
-					                           }
-					                           : math::frect{
-						                           tags::from_extent,
-						                           {logical_base.x, logical_base.y - metrics.run_font_asc},
-						                           {1.f, metrics.run_font_asc + metrics.run_font_desc}
-					                           };
-
-				cluster_push_(results, logical_cluster{current_cluster, 1, r_rect});
 
 				if(config_.line_feed_type == linefeed_type::crlf){
-					layout_buffer_.line_bound.width = {};
+					if(ch == U'\r') layout_buffer_.line_bound.width = {};
+					else layout_buffer_.cursor.*state_.minor_p = 0;
 					active_ul_start.reset();
 				}
-				continue;
-			} else if(ch == U'\n'){
-				if(current_logic_cluster){
-					cluster_push_(results, *current_logic_cluster);
-					current_logic_cluster.reset();
-				}
-
-				static_cast<block_data&>(layout_buffer_).max_bound_height(metrics.run_font_asc, metrics.run_font_desc);
-				const math::vec2 logical_base = layout_buffer_.cursor + rich_offset;
-				const math::frect n_rect = this->is_vertical()
-					                           ? math::frect{
-						                           tags::from_extent,
-						                           {logical_base.x - metrics.run_font_asc, logical_base.y},
-						                           {metrics.run_font_asc + metrics.run_font_desc, -1.f}
-					                           }
-					                           : math::frect{
-						                           tags::from_extent,
-						                           {logical_base.x, logical_base.y - metrics.run_font_asc},
-						                           {1.f, metrics.run_font_asc + metrics.run_font_desc}
-					                           };
-
-				cluster_push_(results, logical_cluster{current_cluster, 1, n_rect});
-
-				if(!this->flush_block_impl<IsInf>(config_, results) || !this->advance_line_impl<
-					IsInf>(config_, results))
-					return false;
-
-				layout_buffer_.cursor = {};
-				if(config_.line_feed_type == linefeed_type::crlf) layout_buffer_.cursor.*state_.minor_p = 0;
-				active_ul_start.reset();
+				if(ch == U'\r') active_ul_start.reset(); // 原逻辑在 \r 且非 crlf 时未重置，保持原意此处仅 crlf 重置 \r，但考虑到原始代码独立重置，应拆分或保留
+				// 修正：原代码对于 \r，当 crlf 时执行 reset。对于 \n 执行 reset。
 				continue;
 			} else if(ch == U'\t'){
-				if(current_logic_cluster){
-					cluster_push_(results, *current_logic_cluster);
-					current_logic_cluster.reset();
-				}
-
+				flush_current_cluster();
 				static_cast<block_data&>(layout_buffer_).max_bound_height(metrics.run_font_asc, metrics.run_font_desc);
 
 				math::vec2 old_cursor = layout_buffer_.cursor;
@@ -602,42 +688,15 @@ private:
 				math::vec2 step_advance{};
 				step_advance.*state_.major_p = std::abs(
 					layout_buffer_.cursor.*state_.major_p - old_cursor.*state_.major_p);
-				const math::vec2 logical_base = old_cursor + rich_offset;
-				const math::frect tab_rect = this->is_vertical()
-					                             ? math::frect{
-						                             tags::from_extent,
-						                             {logical_base.x - metrics.run_font_asc, logical_base.y},
-						                             {metrics.run_font_asc + metrics.run_font_desc, -step_advance.y}
-					                             }
-					                             : math::frect{
-						                             tags::from_extent,
-						                             {logical_base.x, logical_base.y - metrics.run_font_asc},
-						                             {step_advance.x, metrics.run_font_asc + metrics.run_font_desc}
-					                             };
 
+				const math::frect tab_rect = calc_logical_rect(rich_offset, step_advance.x, -step_advance.y);
 				cluster_push_(results, logical_cluster{current_cluster, 1, tab_rect});
 				continue;
 			} else if(ch == U' '){
-				if(current_logic_cluster){
-					cluster_push_(results, *current_logic_cluster);
-					current_logic_cluster.reset();
-				}
-
-
+				flush_current_cluster();
 				static_cast<block_data&>(layout_buffer_).max_bound_height(metrics.run_font_asc, metrics.run_font_desc);
-				const math::vec2 logical_base = layout_buffer_.cursor + rich_offset;
-				const math::frect space_rect = this->is_vertical()
-					                               ? math::frect{
-						                               tags::from_extent,
-						                               {logical_base.x - metrics.run_font_asc, logical_base.y},
-						                               {metrics.run_font_asc + metrics.run_font_desc, -run_advance.y}
-					                               }
-					                               : math::frect{
-						                               tags::from_extent,
-						                               {logical_base.x, logical_base.y - metrics.run_font_asc},
-						                               {run_advance.x, metrics.run_font_asc + metrics.run_font_desc}
-					                               };
 
+				const math::frect space_rect = calc_logical_rect(rich_offset, run_advance.x, -run_advance.y);
 				cluster_push_(results, logical_cluster{current_cluster, 1, space_rect});
 				layout_buffer_.cursor = this->move_pen(layout_buffer_.cursor, run_advance);
 				continue;
@@ -663,31 +722,19 @@ private:
 						if(!this->advance_line_impl<IsInf>(config_, results)) return false;
 						if(config_.has_wrap_indicator()){
 							const float scale = this->get_current_relative_scale();
-							auto scaled_aabb = cached_indicator_.glyph_aabb.copy();
-							scaled_aabb = {
-									tags::unchecked, tags::from_vertex, scaled_aabb.vert_00() * scale,
-									scaled_aabb.vert_11() * scale
-								};
+							auto scaled_aabb = get_scaled_indicator_aabb();
 							const math::vec2 shift_adv = cached_indicator_.advance * scale;
+
 							layout_buffer_.push_front_visual<enable_cluster_record>(
-								results,
-								scaled_aabb,
-								get_line_indicator_elem(scaled_aabb),
-								shift_adv
+								results, scaled_aabb, get_line_indicator_elem(scaled_aabb), shift_adv
 							);
 							if(current_logic_cluster) current_logic_cluster->logical_rect.move(shift_adv);
 							if(active_ul_start) active_ul_start->pos += shift_adv;
 						}
 					} else{
 						if(block_has_elems){
-							if(active_ul_start){
-								this->submit_underline(results, *active_ul_start, prev_color, metrics, false);
-								active_ul_start.reset();
-							}
-							if(current_logic_cluster){
-								cluster_push_(results, *current_logic_cluster);
-								current_logic_cluster.reset();
-							}
+							flush_decorations(false);
+							flush_current_cluster();
 
 							layout_buffer_.append<enable_cluster_record>(results, state_.major_p);
 							static_cast<block_data&>(layout_buffer_).clear();
@@ -696,19 +743,19 @@ private:
 
 							if(config_.has_wrap_indicator()){
 								const float scale = this->get_current_relative_scale();
-								auto scaled_aabb = cached_indicator_.glyph_aabb.copy();
-								scaled_aabb = {
-										tags::unchecked, tags::from_vertex, scaled_aabb.vert_00() * scale,
-										scaled_aabb.vert_11() * scale
-									};
+								auto scaled_aabb = get_scaled_indicator_aabb();
 								layout_buffer_.push_front_visual<enable_cluster_record>(
-									results,
-									scaled_aabb,
-									get_line_indicator_elem(scaled_aabb),
+									results, scaled_aabb, get_line_indicator_elem(scaled_aabb),
 									cached_indicator_.advance * scale
 								);
 							}
 
+							if(is_wrap){
+								active_wrap_start = wrap_start_info{
+										layout_buffer_.cursor, this->get_current_gap_index(results, false),
+										current_wrap_state.type
+									};
+							}
 							if(is_underline_enabled_(config_)){
 								active_ul_start = ul_start_info{
 										layout_buffer_.cursor, this->get_current_gap_index(results, false)
@@ -725,18 +772,7 @@ private:
 
 			if(this->is_reversed()) layout_buffer_.cursor = this->move_pen(layout_buffer_.cursor, run_advance);
 
-			const math::vec2 logical_base = layout_buffer_.cursor + rich_offset;
-			const math::frect advance_rect = this->is_vertical()
-				                                 ? math::frect{
-					                                 tags::from_extent,
-					                                 {logical_base.x - metrics.run_font_asc, logical_base.y},
-					                                 {metrics.run_font_asc + metrics.run_font_desc, -run_advance.y}
-				                                 }
-				                                 : math::frect{
-					                                 tags::from_extent,
-					                                 {logical_base.x, logical_base.y - metrics.run_font_asc},
-					                                 {run_advance.x, metrics.run_font_asc + metrics.run_font_desc}
-				                                 };
+			const math::frect advance_rect = calc_logical_rect(rich_offset, run_advance.x, -run_advance.y);
 
 			const auto next_cluster = (i + 1 < len) ? infos[i + 1].cluster : (start + length);
 			const auto span = next_cluster > current_cluster ? next_cluster - current_cluster : 1;
@@ -745,7 +781,7 @@ private:
 				current_logic_cluster->logical_rect.expand_by(advance_rect);
 				current_logic_cluster->cluster_span = std::max(current_logic_cluster->cluster_span, span);
 			} else{
-				if(current_logic_cluster) cluster_push_(results, *current_logic_cluster);
+				flush_current_cluster();
 				current_logic_cluster = logical_cluster{current_cluster, span, advance_rect};
 			}
 
@@ -758,44 +794,26 @@ private:
 			const math::frect actual_aabb = loaded_glyph.metrics().place_to(visual_base_pos, metrics.run_scale_factor);
 			math::frect draw_aabb = actual_aabb.copy().expand(font::font_draw_expand * metrics.run_scale_factor);
 
-			// ==========================================
-			// 新增：在此处计算合成参数并扩张绘制包围盒 (防裁剪)
-			// ==========================================
 			float slant_factor_asc = 0.f;
 			float slant_factor_desc = 0.f;
-			float weight_offset = 0.f;
-
-			if(synthetic_bold){
-				// 设定粗体扩展量为当前字体高度的 3% (具体比例视你的 SDF 规范调整)
-				weight_offset = metrics.req_size_vec.y * 0.03f;
-			}
+			const float weight_offset = synthetic_bold ? metrics.req_size_vec.y * 0.03f : 0.f;
 
 			if(synthetic_italic){
-				// 设定 14° 的错切斜率 (tan(14°) ≈ 0.25)
 				constexpr static float slant_factor = 0.25f;
-
-				// 斜体会导致字形顶部向一侧偏移，必须拉宽包围盒
 				slant_factor_asc = loaded_glyph.metrics().ascender() * slant_factor * metrics.run_scale_factor.y;
 				slant_factor_desc = loaded_glyph.metrics().descender() * slant_factor * metrics.run_scale_factor.y;
-
-				// 注意：这里需要根据你的引擎 Y 轴朝向调整。
-				// 若 Y 轴向下，错切可能发生在不同方向。最安全的做法是横向双向扩展，
-				// 或者根据实际变换矩阵只扩展对应的 max.x 或 min.x
-				// draw_aabb.expand(math::vec2{shear_width, 0.f});
 			}
 
-			// 将计算好的具体参数打包进 glyph_elem
 			// ReSharper disable once CppPossiblyUnintendedObjectSlicing
 			layout_buffer_.push_back(results, actual_aabb,
 				{draw_aabb, prev_color, std::move(loaded_glyph), slant_factor_asc, slant_factor_desc, weight_offset}
 			);
 
 			if(!this->is_reversed()) layout_buffer_.cursor = this->move_pen(layout_buffer_.cursor, run_advance);
-
 		}
 
-		if(current_logic_cluster) cluster_push_(results, *current_logic_cluster);
-		if(active_ul_start) this->submit_underline(results, *active_ul_start, prev_color, metrics, true);
+		flush_current_cluster();
+		flush_decorations(true);
 
 		if constexpr(enable_dynamic_rich_text_state){
 			rich_text_state& rtstate = rich_text_state_;
@@ -846,13 +864,14 @@ private:
 		offset_vec.*state_.major_p = {};
 		offset_vec.*state_.minor_p = next_baseline;
 
-		// 【关键修复 1】明确当前行的数据终点，使用 layout_buffer_.span 作为隔离墙，避免将尚未换行的字符卷入。
 		const std::size_t line_elem_end = layout_buffer_.block_span.elem_start;
 		const std::size_t line_ul_end = layout_buffer_.block_span.ul_start;
+		const std::size_t line_wrap_end = layout_buffer_.block_span.wrap_start; // 新增
 		const std::size_t line_cluster_end = enable_cluster_record ? layout_buffer_.block_span.cluster_start : 0;
 
 		bool has_elems = (line_elem_end > layout_buffer_.line_span.elem_start) ||
-			(line_ul_end > layout_buffer_.line_span.ul_start);
+			(line_ul_end > layout_buffer_.line_span.ul_start) ||
+			(line_wrap_end > layout_buffer_.line_span.wrap_start);
 
 		if(has_elems){
 			const float visual_min_y = layout_buffer_.line_pos_min.*state_.minor_p + offset_vec.*state_.minor_p;
@@ -867,9 +886,9 @@ private:
 
 			if constexpr(!IsInf.y){
 				if((global_max_y - global_min_y) > config_.max_extent.*state_.minor_p + 0.001f){
-					// 越界：利用 resize 零开销裁切掉本行及之后产生的所有废弃数据
 					results.elems.resize(layout_buffer_.line_span.elem_start);
 					results.underlines.resize(layout_buffer_.line_span.ul_start);
+					results.wrap_frames.resize(layout_buffer_.line_span.wrap_start); // 新增
 					if constexpr(enable_cluster_record) results.clusters.resize(layout_buffer_.line_span.cluster_start);
 					return false;
 				}
@@ -883,27 +902,37 @@ private:
 		state_.current_baseline_pos = next_baseline;
 		state_.is_first_line = false;
 
+		const std::uint32_t current_line_idx = static_cast<std::uint32_t>(results.lines.size());
+
 		line new_line;
 		new_line.start_pos = offset_vec;
 		new_line.rect = layout_buffer_.line_bound;
-
 		new_line.glyph_range = subrange(layout_buffer_.line_span.elem_start,
 			line_elem_end - layout_buffer_.line_span.elem_start);
-		new_line.underline_range = subrange(layout_buffer_.line_span.ul_start,
-			line_ul_end - layout_buffer_.line_span.ul_start);
 		if constexpr(enable_cluster_record){
 			new_line.cluster_range = subrange(layout_buffer_.line_span.cluster_start,
 				line_cluster_end - layout_buffer_.line_span.cluster_start);
 		}
 
-		for(std::size_t i = layout_buffer_.line_span.elem_start; i < line_elem_end; ++i){
+
+		for(typst_szt i = layout_buffer_.line_span.elem_start; i < line_elem_end; ++i){
 			const auto& elem = results.elems[i];
 			state_.min_bound.min(elem.aabb.vert_00() + offset_vec);
 			state_.max_bound.max(elem.aabb.vert_11() + offset_vec);
 		}
 
-		for(std::size_t i = layout_buffer_.line_span.ul_start; i < line_ul_end; ++i){
-			const auto& ul = results.underlines[i];
+		for(typst_szt i = layout_buffer_.line_span.wrap_start; i < line_wrap_end; ++i){
+			auto& wf = results.wrap_frames[i];
+			wf.line_index = current_line_idx; // 反向绑定
+
+			state_.min_bound.min(wf.start + offset_vec);
+			state_.max_bound.max(wf.end + offset_vec);
+		}
+
+		for(typst_szt i = layout_buffer_.line_span.ul_start; i < line_ul_end; ++i){
+			auto& ul = results.underlines[i];
+			ul.line_index = current_line_idx; // 反向绑定
+
 			math::vec2 ul_min = math::min(ul.start, ul.end) + offset_vec;
 			math::vec2 ul_max = math::max(ul.start, ul.end) + offset_vec;
 			ul_min.y -= ul.thickness / 2.f;
