@@ -238,6 +238,67 @@ public:
 		return register_family(familyName, std::span{&ptr, 1}, style);
 	}
 
+	template <std::ranges::input_range PrimaryRange = std::initializer_list<const font_face_meta*>, std::ranges::input_range FallbackRange = std::initializer_list<const font_face_meta*>>
+		requires (std::convertible_to<std::ranges::range_reference_t<PrimaryRange>, const font_face_meta*> && std::convertible_to<std::ranges::range_reference_t<FallbackRange>, const font_face_meta*>)
+	font_family& register_family(
+		std::string_view familyName,
+		PrimaryRange&& primary_metas,
+		FallbackRange&& fallback_metas){
+		// 获取或创建 family
+		font_family* target = families.try_find(familyName);
+		if(!target){
+			target = &families.insert_or_assign(std::string(familyName), font_family{}).first->second;
+		}
+
+		// 为四个变种准备各自的收集容器
+		std::vector<const font_face_meta*> normal_chain;
+		std::vector<const font_face_meta*> bold_chain;
+		std::vector<const font_face_meta*> italic_chain;
+		std::vector<const font_face_meta*> bold_italic_chain;
+
+		// 1. 预先提取 Fallback 范围，转为 vector 方便稍后拼接
+		std::vector<const font_face_meta*> fallbacks;
+		for(const auto* f_meta : fallback_metas){
+			if(f_meta) fallbacks.push_back(f_meta);
+		}
+
+		// 2. 遍历 primary_metas 检查 style flags 并分类
+		for(const auto* p_meta : primary_metas){
+			if(!p_meta) continue;
+
+			const bool is_b = p_meta->is_bold();
+			const bool is_i = p_meta->is_italic();
+
+			if(is_b && is_i){
+				bold_italic_chain.push_back(p_meta);
+			} else if(is_b){
+				bold_chain.push_back(p_meta);
+			} else if(is_i){
+				italic_chain.push_back(p_meta);
+			} else{
+				normal_chain.push_back(p_meta);
+			}
+		}
+
+		// 3. 辅助 Lambda: 将 fallbacks 拼接到尾部并注册该样式
+		auto apply_chain = [&](font_style style, std::vector<const font_face_meta*>& chain){
+			// 如果该样式包含主要字体，或是 normal 样式(即使为空也需挂载 fallback 作为兜底)
+			if(!chain.empty() || style == font_style::normal){
+				chain.insert(chain.end(), fallbacks.begin(), fallbacks.end());
+				target->set_style(style, chain);
+			}
+		};
+
+		// 4. 分别应用到各个 style
+		apply_chain(font_style::normal, normal_chain);
+		apply_chain(font_style::bold, bold_chain);
+		apply_chain(font_style::italic, italic_chain);
+		apply_chain(font_style::bold_italic, bold_italic_chain);
+
+		return *target;
+	}
+
+
 	font_family* find_family(std::string_view familyName) noexcept{
 		return families.try_find(familyName);
 	}

@@ -46,7 +46,7 @@ struct sub_line_decoration{
 	typst_szt end_gap_count;
 
 	static bool chunk_by_line(const sub_line_decoration& lhs, const sub_line_decoration& rhs) noexcept{
-		return lhs.line_index != rhs.line_index;
+		return lhs.line_index == rhs.line_index;
 	}
 };
 
@@ -435,61 +435,31 @@ struct layout_buffer : block_data, line_data{
 	template <bool HasClusters>
 	FORCE_INLINE inline void push_front(glyph_layout& results, math::frect glyph_region, const glyph_elem& glyph,
 		math::vec2 glyph_advance){
-		// 原位移动当前 block 已经写入的元素
-		for(typst_szt i = block_span.elem_start; i < results.elems.size(); ++i){
-			results.elems[i].aabb.move(glyph_advance);
-		}
-		for(typst_szt i = block_span.ul_start; i < results.underlines.size(); ++i){
-			results.underlines[i].start += glyph_advance;
-			results.underlines[i].end += glyph_advance;
-		}
-		if constexpr(HasClusters){
-			for(typst_szt i = block_span.cluster_start; i < results.clusters.size(); ++i){
-				results.clusters[i].logical_rect.move(glyph_advance);
-			}
-		}
-		for(typst_szt i = block_span.wrap_start; i < results.wrap_frames.size(); ++i){
-			results.wrap_frames[i].start += glyph_advance;
-			results.wrap_frames[i].end += glyph_advance;
-		}
-		// 由于 span.elem_start 必定对应当前 block 的起点（且排版总是追加），
-		// 这里的 insert 只会发生微量的元素平移（通常只有几个字符的开销）
+
+		// 1. 调用统一的方法平移块内已有的元素和光标
+		shift_block<HasClusters>(results, glyph_advance);
+
+		// 2. 将新的元素插入到 block 的头部
 		results.elems.insert(results.elems.begin() + block_span.elem_start, glyph);
-		block_pos_min += glyph_advance;
-		block_pos_max += glyph_advance;
+
+		// 3. 将新插入元素的区域合并到当前 block 的 bound 中
 		block_pos_min.min(glyph_region.vert_00());
 		block_pos_max.max(glyph_region.vert_11());
-		cursor += glyph_advance;
 	}
 
 	template <bool HasClusters>
 	FORCE_INLINE inline void push_front_visual(glyph_layout& results, math::frect glyph_region, glyph_elem&& glyph,
 		math::vec2 glyph_advance){
-		// 原位移动当前 block 已经写入的元素
-		for(typst_szt i = block_span.elem_start; i < results.elems.size(); ++i){
-			results.elems[i].aabb.move(glyph_advance);
-		}
-		for(typst_szt i = block_span.ul_start; i < results.underlines.size(); ++i){
-			results.underlines[i].start += glyph_advance;
-			results.underlines[i].end += glyph_advance;
-		}
-		if constexpr(HasClusters){
-			for(typst_szt i = block_span.cluster_start; i < results.clusters.size(); ++i){
-				results.clusters[i].logical_rect.move(glyph_advance);
-			}
-		}
-		for(typst_szt i = block_span.wrap_start; i < results.wrap_frames.size(); ++i){
-			results.wrap_frames[i].start += glyph_advance;
-			results.wrap_frames[i].end += glyph_advance;
-		}
 
+		// 1. 调用统一的方法平移块内已有的元素和光标
+		shift_block<HasClusters>(results, glyph_advance);
 
+		// 2. 追加新的可视元素
 		results.elems.push_back(std::move(glyph));
-		block_pos_min += glyph_advance;
-		block_pos_max += glyph_advance;
+
+		// 3. 将新元素的区域合并到当前 block 的 bound 中
 		block_pos_min.min(glyph_region.vert_00());
 		block_pos_max.max(glyph_region.vert_11());
-		cursor += glyph_advance;
 	}
 
 	template <bool HasClusters>
@@ -560,6 +530,31 @@ struct layout_buffer : block_data, line_data{
 			}
 		}
 		return true;
+	}
+
+	template <bool HasClusters>
+	FORCE_INLINE constexpr void shift_block(glyph_layout& results, math::vec2 shift_vec) noexcept {
+		for(typst_szt i = block_span.elem_start; i < results.elems.size(); ++i){
+			results.elems[i].aabb.move(shift_vec);
+		}
+		for(typst_szt i = block_span.ul_start; i < results.underlines.size(); ++i){
+			results.underlines[i].start += shift_vec;
+			results.underlines[i].end += shift_vec;
+		}
+		if constexpr(HasClusters){
+			for(typst_szt i = block_span.cluster_start; i < results.clusters.size(); ++i){
+				results.clusters[i].logical_rect.move(shift_vec);
+			}
+		}
+		for(typst_szt i = block_span.wrap_start; i < results.wrap_frames.size(); ++i){
+			results.wrap_frames[i].start += shift_vec;
+			results.wrap_frames[i].end += shift_vec;
+		}
+		cursor += shift_vec;
+		if (results.elems.size() > block_span.elem_start || results.underlines.size() > block_span.ul_start || results.wrap_frames.size() > block_span.wrap_start) {
+			block_pos_min += shift_vec;
+			block_pos_max += shift_vec;
+		}
 	}
 };
 

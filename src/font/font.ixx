@@ -478,6 +478,14 @@ public:
 	explicit font_face_meta(const std::string_view path) : font_face_meta(read_file(path)) {}
 	explicit font_face_meta(const std::string& path) : font_face_meta(read_file(path)) {}
 
+	[[nodiscard]] bool is_bold() const noexcept {
+		return loader_handle_.is_bold();
+	}
+
+	[[nodiscard]] bool is_italic() const noexcept {
+		return loader_handle_.is_italic();
+	}
+
 	[[nodiscard]] std::span<const std::byte> data() const noexcept {
 		return font_data_;
 	}

@@ -141,24 +141,24 @@ struct set_script{
 /**
  * @brief using empty arguments to spec fallback
  */
-struct fallback_offset{
-	constexpr bool operator==(const fallback_offset&) const noexcept = default;
+struct revert_offset{
+	constexpr bool operator==(const revert_offset&) const noexcept = default;
 };
 
-struct fallback_color{
-	constexpr bool operator==(const fallback_color&) const noexcept = default;
+struct revert_color{
+	constexpr bool operator==(const revert_color&) const noexcept = default;
 };
 
-struct fallback_font{
-	constexpr bool operator==(const fallback_font&) const noexcept = default;
+struct revert_font{
+	constexpr bool operator==(const revert_font&) const noexcept = default;
 };
 
-struct fallback_size{
-	constexpr bool operator==(const fallback_size&) const noexcept = default;
+struct revert_size{
+	constexpr bool operator==(const revert_size&) const noexcept = default;
 };
 
-struct fallback_feature{
-	constexpr bool operator==(const fallback_feature&) const noexcept = default;
+struct revert_feature{
+	constexpr bool operator==(const revert_feature&) const noexcept = default;
 };
 
 struct setter_parse_result{
@@ -184,11 +184,11 @@ using tokens = std::variant<
 
 	set_script,
 
-	fallback_offset,
-	fallback_color,
-	fallback_size,
-	fallback_feature,
-	fallback_font
+	revert_offset,
+	revert_color,
+	revert_size,
+	revert_feature,
+	revert_font
 
 >;
 
@@ -207,8 +207,8 @@ constexpr inline std::size_t token_index_of = mo_yanxi::tuple_index_v<T, variant
 constexpr set_wrap_frame parse_wrap_frame(std::string_view args) noexcept{
 	if(args.empty())return set_wrap_frame{};
 	switch(args.front()){
-	case 'r': return set_wrap_frame{wrap_frame_type::rect};
-	case 's': return set_wrap_frame{wrap_frame_type::round};
+	case 'b': return set_wrap_frame{wrap_frame_type::rect};
+	case 'r': return set_wrap_frame{wrap_frame_type::round};
 	default: return {};
 	}
 }
@@ -249,7 +249,7 @@ constexpr set_wrap_frame parse_wrap_frame(std::string_view args) noexcept{
 [[nodiscard]] constexpr tokens parse_set_font(const rich_text_look_up_table* table, bool has_arg,
 	std::string_view args) noexcept{
 	if(!has_arg){
-		return fallback_font{};
+		return revert_font{};
 	}
 	if(args.empty()){
 		//set to fallback
@@ -362,24 +362,25 @@ struct rich_text_token_argument{
 
 
 		switch(s2i(name)){
-		case s2i("off") : return args.empty() ? tokens{fallback_offset{}} : parse_set_offset(args);
+		case s2i("off") : return args.empty() ? tokens{revert_offset{}} : parse_set_offset(args);
 
 		case s2i("s") :[[fallthrough]];
 		case s2i("sz") :[[fallthrough]];
-		case s2i("size") : return args.empty() ? tokens{fallback_size{}} : parse_set_size(args);
+		case s2i("size") : return args.empty() ? tokens{revert_size{}} : parse_set_size(args);
 
 		case s2i("f") :[[fallthrough]];
 		case s2i("font") : return parse_set_font(table, has_arg, args);
 
 		case s2i("c") :[[fallthrough]];
 		case s2i("#") :[[fallthrough]];
-		case s2i("color") : return args.empty() ? tokens{fallback_color{}} : parse_set_color(table, args);
+		case s2i("color") : return args.empty() ? tokens{revert_color{}} : parse_set_color(table, args);
 
 		case s2i("ftr") :[[fallthrough]];
-		case s2i("feature") : return args.empty() ? tokens{fallback_feature{}} : parse_set_feature(args);
+		case s2i("feature") : return args.empty() ? tokens{revert_feature{}} : parse_set_feature(args);
 
 		case s2i("wrap") :[[fallthrough]];
 		case s2i("w") : return parse_wrap_frame(args);
+		case s2i("/w") : return set_wrap_frame{};
 
 		case s2i("^") : return set_script{script_type::sups};
 		case s2i("_") : return set_script{script_type::subs};
@@ -399,18 +400,19 @@ struct rich_text_token_argument{
 	}()){
 	}
 
-	constexpr rich_text_token::tokens make_fallback() const noexcept{
+	constexpr rich_text_token::tokens make_revert() const noexcept{
 		using namespace rich_text_token;
 		switch(token.index()){
-		case token_index_of<set_feature> : return fallback_feature{};
+		case token_index_of<set_feature> : return revert_feature{};
 		case token_index_of<set_font_by_name> :[[fallthrough]];
-		case token_index_of<set_font_directly> : return fallback_font{};
-		case token_index_of<set_color> : return fallback_color{};
-		case token_index_of<set_offset> : return fallback_offset{};
-		case token_index_of<set_size> : return fallback_size{};
+		case token_index_of<set_font_directly> : return revert_font{};
+		case token_index_of<set_color> : return revert_color{};
+		case token_index_of<set_wrap_frame> : return set_wrap_frame{};
+		case token_index_of<set_offset> : return revert_offset{};
+		case token_index_of<set_size> : return revert_size{};
 		case token_index_of<set_underline> : return set_underline{!std::get<set_underline>(token).enabled};
-		case token_index_of<set_italic> : return set_underline{!std::get<set_italic>(token).enabled};
-		case token_index_of<set_bold> : return set_underline{!std::get<set_bold>(token).enabled};
+		case token_index_of<set_italic> : return set_italic{!std::get<set_italic>(token).enabled};
+		case token_index_of<set_bold> : return set_bold{!std::get<set_bold>(token).enabled};
 		case token_index_of<set_script> : return std::get<set_script>(token).type != script_type{}
 			                                         ? set_script{script_type::ends}
 			                                         : tokens{};
@@ -425,16 +427,16 @@ struct rich_text_token_argument{
 			std::array<bool, std::tuple_size_v<tpl>> arr{};
 			arr[tuple_index_v<set_font_directly, tpl>] = true;
 			arr[tuple_index_v<set_font_by_name, tpl>] = true;
-			arr[tuple_index_v<fallback_font, tpl>] = true;
+			arr[tuple_index_v<revert_font, tpl>] = true;
 
 			arr[tuple_index_v<set_size, tpl>] = true;
-			arr[tuple_index_v<fallback_size, tpl>] = true;
+			arr[tuple_index_v<revert_size, tpl>] = true;
 
 			arr[tuple_index_v<set_bold, tpl>] = true;
 			arr[tuple_index_v<set_italic, tpl>] = true;
 
 			arr[tuple_index_v<set_feature, tpl>] = true;
-			arr[tuple_index_v<fallback_feature, tpl>] = true;
+			arr[tuple_index_v<revert_feature, tpl>] = true;
 
 			arr[tuple_index_v<set_script, tpl>] = true;
 

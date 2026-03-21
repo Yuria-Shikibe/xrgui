@@ -694,14 +694,20 @@ void prepare(){
 
 	{
 		auto sys_font_path = font::get_system_fonts();
-		auto consolas_family = sys_font_path.equal_range("Consolas");
-		std::ranges::subrange rng{consolas_family.first, consolas_family.second};
-
+		auto consolas_family = font::find_family_of(sys_font_path, "Consolas");
 
 		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
 		auto& SourceHanSansCN_regular = font_manager.register_meta("srchs", font_path / "SourceHanSansCN-Regular.otf");
 		auto& telegrama = font_manager.register_meta("tele", font_path / "telegrama.otf");
 		auto& seguisym = font_manager.register_meta("segui", font_path / "seguisym.ttf");
+
+		std::vector<const font::font_face_meta*> code_faces_{};
+		for (const auto & [name, path] : consolas_family){
+			auto& meta = font_manager.register_meta(name, path);
+			code_faces_.push_back(&meta);
+		}
+
+		font_manager.register_family("code", code_faces_, {&SourceHanSansCN_regular, &seguisym});
 
 		auto& default_family = font_manager.register_family("def", {&telegrama, &SourceHanSansCN_regular, &seguisym});
 

@@ -288,19 +288,19 @@ public:
 						default : std::unreachable();
 						}
 					},
-					[&](const fallback_offset& t){
+					[&](const revert_offset& t){
 						history_offset_.pop();
 					},
-					[&](const fallback_color& t){
+					[&](const revert_color& t){
 						history_color_.pop();
 					},
-					[&](const fallback_size& t){
+					[&](const revert_size& t){
 						history_size_.pop();
 					},
-					[&](const fallback_feature& t){
+					[&](const revert_feature& t){
 						on_erase(history_feature_group_count_.pop_and_get().value_or(0));
 					},
-					[&](const fallback_font& t){
+					[&](const revert_font& t){
 						history_font_.pop();
 					},
 				}, token.token);

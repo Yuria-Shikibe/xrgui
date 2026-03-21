@@ -373,7 +373,7 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 			{}){
 			for(std::size_t i = 0; i < count; ++i){
 				const std::size_t src_index = original_size - 1 - i;
-				tokens_.emplace_back(tokens_[src_index].make_fallback(), pos);
+				tokens_.emplace_back(tokens_[src_index].make_revert(), pos);
 			}
 			break;
 		} else{
@@ -383,7 +383,7 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 				for(std::size_t i = 0; i < limit; ++i){
 					if(name[i] != '/') break;
 					const std::size_t src_index = original_size - 1 - i;
-					tokens_.emplace_back(tokens_[src_index].make_fallback(), pos);
+					tokens_.emplace_back(tokens_[src_index].make_revert(), pos);
 				}
 				break;
 			}

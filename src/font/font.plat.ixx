@@ -1,6 +1,7 @@
 module;
 
 #if defined(_WIN32)
+#define NOMINMAX
 #include <windows.h>
 #include <tchar.h>
 #include <shlobj.h>
@@ -15,6 +16,7 @@ module;
 export module mo_yanxi.font.plat;
 
 import std;
+import mo_yanxi.heterogeneous;
 
 // 辅助函数：Windows 宽字符串转 UTF-8 std::string
 #ifdef _WIN32
@@ -90,8 +92,8 @@ export
 
 // 核心函数：获取系统字体
 export
-[[nodiscard]] std::map<std::string, std::filesystem::path> get_system_fonts() {
-    std::map<std::string, std::filesystem::path> fonts;
+[[nodiscard]] std::map<std::string, std::filesystem::path, transparent::string_comparator_of<std::less>> get_system_fonts() {
+    std::map<std::string, std::filesystem::path, transparent::string_comparator_of<std::less>> fonts;
 
 #if defined(_WIN32)
     // --- Windows 实现 (基于注册表) ---
@@ -205,4 +207,30 @@ export
     return fonts;
 }
 
+export
+auto find_family_of(std::map<std::string, std::filesystem::path, transparent::string_comparator_of<std::less>>& m, const std::string_view prefix) {
+	// 1. 找到第一个大于或等于 prefix 的迭代器
+	auto start_it = m.lower_bound(prefix);
+
+	// 2. 计算字典序中恰好大于所有包含该前缀的字符串的上界
+	auto upper_prefix = std::string{prefix};
+
+	// 处理字符溢出的边界情况（例如前缀末尾是 \xFF）
+	while (!upper_prefix.empty() && upper_prefix.back() == std::numeric_limits<char>::max()) {
+		upper_prefix.pop_back();
+	}
+
+	// 如果前缀全部由最大字符组成，那么范围直接一直到 map 结尾
+	if (upper_prefix.empty()) {
+		return std::ranges::subrange(start_it, m.end());
+	}
+
+	// 将最后一个字符加 1，得到上界字符串
+	upper_prefix.back()++;
+
+	// 3. 找到第一个大于或等于 upper_prefix 的迭代器，作为结束范围
+	auto end_it = m.lower_bound(upper_prefix);
+
+	return std::ranges::subrange{start_it, end_it};
+}
 }
