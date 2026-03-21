@@ -41,13 +41,14 @@ struct caret_cache{
 };
 
 export struct text_edit_v2 : elem {
-protected:
+public:
+	inline static typesetting::layout_context layout_context{};
 
+protected:
 	text_editor_core core_{};
 	typesetting::tokenized_text tokenized_text_{};
 	typesetting::layout_config layout_config_{};
 	typesetting::glyph_layout glyph_layout_{};
-	typesetting::layout_context context_{std::in_place};
 	text_render_cache render_cache_{};
 
 	layout::expand_policy expand_policy_{};

@@ -34,10 +34,7 @@ import mo_yanxi.gui.elem.text_edit_v2;
 import mo_yanxi.gui.elem.viewport;
 import mo_yanxi.gui.elem.check_box;
 
-import mo_yanxi.gui.elem.text_holder;
-
 import mo_yanxi.gui.infrastructure;
-import mo_yanxi.gui.elem.text_holder;
 import mo_yanxi.font;
 
 import mo_yanxi.typesetting.util;

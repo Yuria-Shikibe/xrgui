@@ -151,7 +151,7 @@ pipeline_flags constant_flags;
 [shader("fragment")]
 FragOut main_frag(
     in Vertex vtx,
-    nointerpolation in Primitive primit
+    in Primitive primit
 ) {
 
     let no_tex = bool(primit.texture_index == ~0U);
@@ -163,8 +163,14 @@ FragOut main_frag(
         out_color_base = tex_color;
         break;
     case global_draw_mode_type::sdf:
-        var alpha = no_tex ? 1.f : sdf::msdf(textures[primit.texture_index], vtx.uv);
-        out_color_base = float4(1.f, 1.f, 1.f, smoothstep(-0.6f, 0.6f, alpha)) * vtx.color;
+        if (no_tex) {
+            out_color_base = float4(1.f) * vtx.color;
+        } else {
+            let rst = sdf::msdf(textures[primit.texture_index], vtx.uv);
+            let rng = rst.scale * primit.sdf_expand;
+            out_color_base = float4(1.f, 1.f, 1.f, smoothstep(-0.6f, 0.6f, rst.factor - rng)) * vtx.color;
+        }
+       
         break;
     default: out_color_base = vtx.color;
     }

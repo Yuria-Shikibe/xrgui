@@ -31,6 +31,8 @@ import mo_yanxi.gui.examples;
 import mo_yanxi.gui.fx.config;
 import mo_yanxi.gui.fx.fringe;
 import mo_yanxi.gui.fx.instruction_extension;
+import mo_yanxi.gui.elem.label;
+import mo_yanxi.gui.elem.text_edit_v2;
 
 import mo_yanxi.gui.assets;
 import mo_yanxi.gui.image_regions;
@@ -39,6 +41,7 @@ import mo_yanxi.font;
 import mo_yanxi.font.plat;
 import mo_yanxi.font.manager;
 import mo_yanxi.typesetting;
+import mo_yanxi.typesetting.segmented_layout;
 import mo_yanxi.typesetting.util;
 import mo_yanxi.typesetting.rich_text;
 
@@ -467,6 +470,56 @@ void app_run(
 	}
 }
 
+// 定义 Unicode 区块结构体
+struct UnicodeRange {
+	char32_t start;
+	char32_t end;
+	std::uint32_t weight; // 权重，通常等于该区块包含的字符数量
+};
+
+std::u32string generateRandomU32String(std::size_t length) {
+	// 预定义一些绝对可渲染的 Unicode 常见区块
+	// 你可以根据需求自由增删这些区块
+	std::vector<UnicodeRange> ranges = {
+		{0x0020, 0x007E, 0x007E - 0x0020 + 1},     // 基础拉丁字母 (可打印 ASCII)
+		{0x4E00, 0x9FFF, 0x9FFF - 0x4E00 + 1},     // CJK 统一表意文字 (常用汉字)
+		{0x3040, 0x309F, 0x309F - 0x3040 + 1},     // 日文平假名
+		{0x1F600, 0x1F64F, 0x1F64F - 0x1F600 + 1}  // 常见 Emoji 表情符号
+	};
+
+	std::random_device rd;
+	auto i = rd();
+
+	std::mt19937 gen(i);
+
+	// 提取权重，用于离散分布 (确保字符多的区块被选中的概率更大)
+	std::vector<std::uint32_t> weights;
+	for (const auto& r : ranges) {
+		weights.push_back(r.weight);
+	}
+	std::discrete_distribution<std::size_t> rangeDist(weights.begin(), weights.end());
+
+	std::u32string result;
+	result.reserve(length);
+
+	for (std::size_t i = 0; i < length; ++i) {
+		// 1. 根据权重随机选择一个字符区块
+		std::size_t rangeIndex = rangeDist(gen);
+		const auto& selectedRange = ranges[rangeIndex];
+
+		// 2. 在选定的区块内进行均匀随机分布
+		std::uniform_int_distribution<std::uint32_t> charDist(
+			static_cast<std::uint32_t>(selectedRange.start),
+			static_cast<std::uint32_t>(selectedRange.end)
+		);
+
+		// 3. 将生成的随机码位转换为 char32_t 并存入字符串
+		result.push_back(static_cast<char32_t>(charDist(gen)));
+	}
+
+	return result;
+}
+
 void prepare(){
 	const auto shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
 	constexpr VkApplicationInfo ApplicationInfo{
@@ -653,6 +706,8 @@ void prepare(){
 		font_manager.set_default_family(&default_family2);
 
 		font::default_font_manager = &font_manager;
+		gui::direct_label::layout_context = decltype(gui::direct_label::layout_context){font_manager};
+		gui::text_edit_v2::layout_context = decltype(gui::text_edit_v2::layout_context){font_manager};
 	}
 
 	{
@@ -895,11 +950,15 @@ Edge Cases:
 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
 )";
 
-	// typesetting::tokenized_text text = {test_text};
+	typesetting::tokenized_text text{test_text};
+	typesetting::segmented_layout_manager seg{text};
 	// typesetting::layout_context layout_ctx{std::in_place};
-	// for(int i = 0; i < 20000; ++i){
-	// 	auto rst = layout_ctx.layout(text);
-	// 	DoNotOptimize(rst);
+
+	// std::vector<typesetting::glyph_layout> glyph_layouts(400);
+	// for (auto & glyph_layout : glyph_layouts){
+	// 	typesetting::tokenized_text text{generateRandomU32String(256)};
+	// 	layout_ctx.layout(text, {}, glyph_layout);
+	// 	// DoNotOptimize(rst);
 	// }
 	app_run(ctx, renderer, manager, post_process_cmd);
 
@@ -907,8 +966,12 @@ Edge Cases:
 	gui::global::terminate_assets_manager();
 	gui::global::terminate();
 
+
+	gui::direct_label::layout_context = decltype(gui::direct_label::layout_context){};
+	gui::text_edit_v2::layout_context = decltype(gui::text_edit_v2::layout_context){};
+
 	ctx.window().poll_events();
-	image_atlas.wait_load();
+	image_atlas.request_stop();
 	ctx.wait_on_device();
 }
 

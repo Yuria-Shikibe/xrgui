@@ -375,16 +375,19 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 				const std::size_t src_index = original_size - 1 - i;
 				tokens_.emplace_back(tokens_[src_index].make_fallback(), pos);
 			}
+			break;
 		} else{
-			const auto limit = std::min(name.size(), original_size);
+			if(name.back() == '/'){
+				const auto limit = std::min(name.size(), original_size);
 
-			for(std::size_t i = 0; i < limit; ++i){
-				if(name[i] != '/') break;
-				const std::size_t src_index = original_size - 1 - i;
-				tokens_.emplace_back(tokens_[src_index].make_fallback(), pos);
+				for(std::size_t i = 0; i < limit; ++i){
+					if(name[i] != '/') break;
+					const std::size_t src_index = original_size - 1 - i;
+					tokens_.emplace_back(tokens_[src_index].make_fallback(), pos);
+				}
+				break;
 			}
 		}
-		break;
 	}
 
 	default : tokens_.emplace_back(rich_text_token_argument{table, name, has_arg, args}, pos);

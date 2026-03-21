@@ -38,7 +38,7 @@ add_requires("nanosvg")
 add_requires("spirv-reflect")
 add_requires("gtl")
 -- add_requires("clipper2")
-add_requires("mimalloc v2.2.4")
+add_requires("mimalloc v3.2.8")
 
 add_requires("glfw")
 

@@ -92,7 +92,16 @@ struct set_feature{
 struct set_underline{
 	bool enabled;
 	constexpr bool operator==(const set_underline&) const noexcept = default;
+};
 
+struct set_italic {
+	bool enabled;
+	constexpr bool operator==(const set_italic&) const noexcept = default;
+};
+
+struct set_bold {
+	bool enabled;
+	constexpr bool operator==(const set_bold&) const noexcept = default;
 };
 
 
@@ -139,6 +148,8 @@ using tokens = std::variant<
 	std::monostate, //used for invalid token
 
 	set_underline,
+	set_italic,
+	set_bold,
 
 	set_offset,
 	set_color,
@@ -338,11 +349,14 @@ struct rich_text_token_argument{
 		case s2i("_") : return set_script{script_type::subs};
 		case s2i("-") : return set_script{script_type::ends};
 
-		case s2i("u") :[[fallthrough]];
-		case s2i("ul") : return set_underline{true};
+		case s2i("u") : return set_underline{true};
+		case s2i("/u") :return set_underline{false};
 
-		case s2i("/u") :[[fallthrough]];
-		case s2i("/ul") : return set_underline{false};
+		case s2i("i") : return set_italic{true};
+		case s2i("/i") :return set_italic{false};
+
+		case s2i("b") : return set_bold{true};
+		case s2i("/b") :return set_bold{false};
 
 		default : return std::monostate{};
 		}
@@ -359,6 +373,8 @@ struct rich_text_token_argument{
 		case token_index_of<set_offset> : return fallback_offset{};
 		case token_index_of<set_size> : return fallback_size{};
 		case token_index_of<set_underline> : return set_underline{!std::get<set_underline>(token).enabled};
+		case token_index_of<set_italic> : return set_underline{!std::get<set_italic>(token).enabled};
+		case token_index_of<set_bold> : return set_underline{!std::get<set_bold>(token).enabled};
 		case token_index_of<set_script> : return std::get<set_script>(token).type != script_type{}
 			                                         ? set_script{script_type::ends}
 			                                         : tokens{};
@@ -377,6 +393,9 @@ struct rich_text_token_argument{
 
 			arr[tuple_index_v<set_size, tpl>] = true;
 			arr[tuple_index_v<fallback_size, tpl>] = true;
+
+			arr[tuple_index_v<set_bold, tpl>] = true;
+			arr[tuple_index_v<set_italic, tpl>] = true;
 
 			arr[tuple_index_v<set_feature, tpl>] = true;
 			arr[tuple_index_v<fallback_feature, tpl>] = true;

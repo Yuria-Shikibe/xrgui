@@ -81,7 +81,10 @@ export struct rect_aabb : quad_like{
 	float2 v00, v11;
 	float2 uv00, uv11;
 	quad_vert_color vert_color;
-
+	float slant_factor_asc;
+	float slant_factor_desc;
+	float sdf_expand;
+	std::uint32_t _cap;
 };
 
 

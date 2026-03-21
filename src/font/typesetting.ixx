@@ -64,9 +64,8 @@ public:
 		hb_buffer_ = font::hb::make_buffer();
 	}
 
-	explicit layout_ctx_base(const layout_config& c, font::font_manager* m = font::default_font_manager)
-		: manager_(m){
-		assert(manager_ != nullptr);
+	explicit layout_ctx_base(font::font_manager& m)
+		: manager_(&m){
 		hb_buffer_ = font::hb::make_buffer();
 	}
 
@@ -93,7 +92,7 @@ public:
 	[[nodiscard]] FORCE_INLINE inline hb_font_t* get_hb_font(font::font_face_handle* face) noexcept{
 		if(const auto ptr = hb_cache_.get(face)) return ptr->get();
 		auto new_hb_font = create_harfbuzz_font(*face);
-		hb_ft_font_set_load_flags(new_hb_font.get(), FT_LOAD_DEFAULT | FT_LOAD_NO_HINTING);
+		hb_ft_font_set_load_flags(new_hb_font.get(), FT_LOAD_NO_HINTING);
 		const auto rst = new_hb_font.get();
 		hb_cache_.put(face, std::move(new_hb_font));
 		return rst;
@@ -130,7 +129,19 @@ protected:
 	}
 };
 
+struct run_style_state{
+	font::font_face_handle* face = nullptr;
+	bool synthetic_italic = false;
+	bool synthetic_bold = false;
 
+	bool operator!=(const run_style_state& rhs) const noexcept{
+		return face != rhs.face ||
+			synthetic_italic != rhs.synthetic_italic ||
+			synthetic_bold != rhs.synthetic_bold;
+	}
+};
+
+export
 template <
 	concepts::ClusterPolicy ClusterPol = policies::store_clusters,
 	concepts::RichTextPolicy<layout_state_t> RichTextPol = policies::rich_text_enabled>
@@ -164,6 +175,22 @@ private:
 #pragma endregion
 
 #pragma region RichTextStateGetter
+	FORCE_INLINE inline constexpr bool is_italic_enabled_(const layout_config& config_) const noexcept{
+		if constexpr(enable_dynamic_rich_text_state){
+			return rich_text_state_->rich_context.is_italic_enabled(config_.rich_text_fallback_style);
+		} else{
+			return config_.rich_text_fallback_style.enables_italic;
+		}
+	}
+
+	FORCE_INLINE inline constexpr bool is_bold_enabled_(const layout_config& config_) const noexcept{
+		if constexpr(enable_dynamic_rich_text_state){
+			return rich_text_state_->rich_context.is_bold_enabled(config_.rich_text_fallback_style);
+		} else{
+			return config_.rich_text_fallback_style.enables_bold;
+		}
+	}
+
 	FORCE_INLINE inline constexpr math::vec2 get_font_size_() const noexcept{
 		return rich_text_policy_.get_size(rich_text_state_, state_);
 	}
@@ -284,10 +311,12 @@ private:
 	}
 
 	void initialize_state(const tokenized_text_view& full_text, const layout_config& config_){
-		font::font_face_view base_view = manager_->use_family(config_.rich_text_fallback_style.family
-			                                                      ? config_.rich_text_fallback_style.family
-			                                                      : manager_->get_default_family());
-		if(base_view.empty()){
+		assert(manager_ != nullptr);
+		assert(hb_buffer_ != nullptr);
+		auto base_view = manager_->use_family(config_.rich_text_fallback_style.family
+			                                      ? config_.rich_text_fallback_style.family
+			                                      : manager_->get_default_family());
+		if(base_view.view.empty()){
 			throw std::runtime_error{"failed to find a usable font family"};
 		}
 
@@ -338,7 +367,7 @@ private:
 
 		state_.default_font_size = config_.get_default_font_size();
 		const auto snapped_base_size = get_snapped_size_vec(state_.default_font_size);
-		auto& primary_face = base_view.face();
+		auto& primary_face = base_view.view.face();
 
 		(void)primary_face.set_size(snapped_base_size);
 		FT_Load_Char(primary_face, FT_ULong{' '}, FT_LOAD_NO_HINTING);
@@ -370,7 +399,7 @@ private:
 		}
 
 		if(config_.has_wrap_indicator()){
-			auto [face, index] = base_view.find_glyph_of(config_.wrap_indicator_char);
+			auto [face, index] = base_view.view.find_glyph_of(config_.wrap_indicator_char);
 			if(index){
 				font::glyph_identity id{index, snapped_base_size};
 				font::glyph g = manager_->get_glyph_exact(*face, id);
@@ -407,8 +436,11 @@ private:
 	// 编译期分支派发核心逻辑
 	// ==========================================
 	template <math::bool2 IsInf>
-	bool process_text_run_impl(const tokenized_text_view& full_text, const layout_config& config_,
-		glyph_layout& results, typst_szt start, typst_szt length, font::font_face_handle& face){
+	bool process_text_run_impl(
+		const tokenized_text_view& full_text, const layout_config& config_, glyph_layout& results,
+		typst_szt start, typst_szt length,
+		font::font_face_handle& face, bool synthetic_italic, bool synthetic_bold
+	){
 		hb_buffer_clear_contents(hb_buffer_.get());
 		hb_buffer_add_utf32(hb_buffer_.get(), reinterpret_cast<const std::uint32_t*>(full_text.get_text().data()),
 			static_cast<int>(full_text.get_text().size()), static_cast<unsigned int>(start), static_cast<int>(length));
@@ -444,7 +476,6 @@ private:
 			bool is_ul = false;
 			math::vec2 rich_offset{};
 
-			// 策略挂载点：富文本解析同步
 			if constexpr(enable_dynamic_rich_text_state){
 				was_ul = is_underline_enabled_(config_);
 				rich_text_sync_(full_text, config_, current_cluster);
@@ -472,6 +503,7 @@ private:
 					this->submit_underline(results, *active_ul_start, prev_color, metrics, true);
 					active_ul_start.reset();
 				}
+
 				if(current_logic_cluster){
 					cluster_push_(results, *current_logic_cluster);
 					current_logic_cluster.reset();
@@ -489,12 +521,6 @@ private:
 			}
 
 			const font::glyph loaded_glyph = manager_->get_glyph_exact(face, {gid, metrics.snapped_size});
-			const float asc = this->is_vertical()
-				                  ? (loaded_glyph.metrics().advance.x * metrics.run_scale_factor.x / 2.f)
-				                  : (loaded_glyph.metrics().ascender() * metrics.run_scale_factor.y);
-			const float desc = this->is_vertical()
-				                   ? asc
-				                   : (loaded_glyph.metrics().descender() * metrics.run_scale_factor.y);
 			const math::vec2 run_advance{
 					font::normalize_len(pos[i].x_advance) * metrics.run_scale_factor.x,
 					font::normalize_len(pos[i].y_advance) * metrics.run_scale_factor.y
@@ -507,7 +533,7 @@ private:
 					current_logic_cluster.reset();
 				}
 
-				static_cast<block_data&>(layout_buffer_).max_bound_height(metrics.run_font_asc, metrics.run_font_desc);
+				layout_buffer_.max_bound_height(metrics.run_font_asc, metrics.run_font_desc);
 				const math::vec2 logical_base = layout_buffer_.cursor + rich_offset;
 				const math::frect r_rect = this->is_vertical()
 					                           ? math::frect{
@@ -551,7 +577,8 @@ private:
 				cluster_push_(results, logical_cluster{current_cluster, 1, n_rect});
 
 				if(!this->flush_block_impl<IsInf>(config_, results) || !this->advance_line_impl<
-					IsInf>(config_, results)) return false;
+					IsInf>(config_, results))
+					return false;
 
 				layout_buffer_.cursor = {};
 				if(config_.line_feed_type == linefeed_type::crlf) layout_buffer_.cursor.*state_.minor_p = 0;
@@ -729,12 +756,42 @@ private:
 
 			const math::vec2 visual_base_pos = layout_buffer_.cursor + glyph_local_draw_pos;
 			const math::frect actual_aabb = loaded_glyph.metrics().place_to(visual_base_pos, metrics.run_scale_factor);
-			const math::frect draw_aabb = actual_aabb.copy().expand(font::font_draw_expand * metrics.run_scale_factor);
+			math::frect draw_aabb = actual_aabb.copy().expand(font::font_draw_expand * metrics.run_scale_factor);
 
+			// ==========================================
+			// 新增：在此处计算合成参数并扩张绘制包围盒 (防裁剪)
+			// ==========================================
+			float slant_factor_asc = 0.f;
+			float slant_factor_desc = 0.f;
+			float weight_offset = 0.f;
+
+			if(synthetic_bold){
+				// 设定粗体扩展量为当前字体高度的 3% (具体比例视你的 SDF 规范调整)
+				weight_offset = metrics.req_size_vec.y * 0.03f;
+			}
+
+			if(synthetic_italic){
+				// 设定 14° 的错切斜率 (tan(14°) ≈ 0.25)
+				constexpr static float slant_factor = 0.25f;
+
+				// 斜体会导致字形顶部向一侧偏移，必须拉宽包围盒
+				slant_factor_asc = loaded_glyph.metrics().ascender() * slant_factor * metrics.run_scale_factor.y;
+				slant_factor_desc = loaded_glyph.metrics().descender() * slant_factor * metrics.run_scale_factor.y;
+
+				// 注意：这里需要根据你的引擎 Y 轴朝向调整。
+				// 若 Y 轴向下，错切可能发生在不同方向。最安全的做法是横向双向扩展，
+				// 或者根据实际变换矩阵只扩展对应的 max.x 或 min.x
+				// draw_aabb.expand(math::vec2{shear_width, 0.f});
+			}
+
+			// 将计算好的具体参数打包进 glyph_elem
 			// ReSharper disable once CppPossiblyUnintendedObjectSlicing
-			layout_buffer_.push_back(results, actual_aabb, {draw_aabb, prev_color, std::move(loaded_glyph)});
+			layout_buffer_.push_back(results, actual_aabb,
+				{draw_aabb, prev_color, std::move(loaded_glyph), slant_factor_asc, slant_factor_desc, weight_offset}
+			);
 
 			if(!this->is_reversed()) layout_buffer_.cursor = this->move_pen(layout_buffer_.cursor, run_advance);
+
 		}
 
 		if(current_logic_cluster) cluster_push_(results, *current_logic_cluster);
@@ -761,6 +818,7 @@ private:
 
 		return true;
 	}
+
 
 	template <math::bool2 IsInf>
 	bool advance_line_impl(const layout_config& config_, glyph_layout& results) noexcept{
@@ -917,14 +975,22 @@ private:
 	bool process_layout_impl(const tokenized_text_view& full_text, const layout_config& config_, glyph_layout& results){
 		typst_szt current_idx = 0;
 		typst_szt run_start = 0;
-		font::font_face_handle* current_face = nullptr;
 
-		auto resolve_face = [&](font::font_face_handle* current, char32_t codepoint) -> font::font_face_handle*{
-			if(current && current->index_of(codepoint)) return current;
+		run_style_state current_style{};
+
+		auto resolve_style = [&](char32_t codepoint, bool req_italic, bool req_bold) -> run_style_state{
 			const auto* family = get_font_view_(config_);
-			auto face_view = manager_->use_family(family);
-			auto [best_face, _] = face_view.find_glyph_of(codepoint);
-			return best_face;
+			font::font_style target = font::make_font_style(req_italic, req_bold);
+
+			// 调用新的 API 获取 styled_font_face_view
+			auto styled_view = manager_->use_family(family, target);
+			auto [best_face, _] = styled_view.view.find_glyph_of(codepoint);
+
+			return run_style_state{
+					best_face,
+					req_italic && !styled_view.is_italic_satisfied,
+					req_bold && !styled_view.is_bold_satisfied
+				};
 		};
 
 		while(current_idx < full_text.get_text().size()){
@@ -934,9 +1000,12 @@ private:
 				rtstate.token_hard_last = tokens.end();
 
 				if(check_token_group_need_another_run(tokens)){
-					if(current_face && current_idx > run_start){
-						if(!this->process_text_run_impl<IsInf>(full_text, config_, results, run_start,
-							current_idx - run_start, *current_face)) return false;
+					if(current_style.face && current_idx > run_start){
+						// 注意：这里向下传递了合成参数
+						if(!process_text_run_impl<IsInf>(full_text, config_, results, run_start,
+							current_idx - run_start, *current_style.face,
+							current_style.synthetic_italic, current_style.synthetic_bold))
+							return false;
 					}
 
 					rtstate.rich_context.update(
@@ -961,27 +1030,34 @@ private:
 						}
 					);
 					run_start = current_idx;
-					current_face = nullptr;
+					current_style = {};
 					if(!this->flush_block_impl<IsInf>(config_, results)) return false;
 				}
 			}
 
+			bool req_italic = is_italic_enabled_(config_);
+			bool req_bold = is_bold_enabled_(config_);
+
 			const auto codepoint = full_text.get_text()[current_idx];
-			font::font_face_handle* best_face = resolve_face(current_face, codepoint);
-			if(!current_face){
-				current_face = best_face;
-			} else if(best_face != current_face){
-				if(!this->process_text_run_impl<IsInf>(full_text, config_, results, run_start, current_idx - run_start,
-					*current_face)) return false;
-				current_face = best_face;
+			run_style_state best_style = resolve_style(codepoint, req_italic, req_bold);
+
+			if(!current_style.face){
+				current_style = best_style;
+			} else if(best_style != current_style){
+				if(!process_text_run_impl<IsInf>(full_text, config_, results, run_start, current_idx - run_start,
+					*current_style.face, current_style.synthetic_italic, current_style.synthetic_bold))
+					return false;
+				current_style = best_style;
 				run_start = current_idx;
 			}
 			current_idx++;
 		}
 
-		if(current_face){
-			if(!this->process_text_run_impl<IsInf>(full_text, config_, results, run_start,
-				full_text.get_text().size() - run_start, *current_face)) return false;
+		if(current_style.face){
+			if(!process_text_run_impl<IsInf>(full_text, config_, results, run_start,
+				full_text.get_text().size() - run_start, *current_style.face,
+				current_style.synthetic_italic, current_style.synthetic_bold))
+				return false;
 		}
 
 		return this->flush_block_impl<IsInf>(config_, results) && this->advance_line_impl<IsInf>(config_, results);

@@ -129,16 +129,19 @@ public struct Vertex
 
 public struct Primitive
 {
-    [[vk::location(0)]]
+    //[[vk::location(0)]]
     nointerpolation public uint texture_index : PmtTexID;
 
-    [[vk::location(1)]]
+    //[[vk::location(1)]]
     nointerpolation public draw_mode mode : PmtMode;
+
+    nointerpolation public float sdf_expand : PmtParam;
 
     [ForceInline]
     __init(primitive_generic generic, resolve_param param) {
         this.texture_index = uint(generic.image.index);
         this.mode = generic.mode;
+        this.sdf_expand = 0.f;
     }
 };
 
@@ -305,6 +308,10 @@ struct rectangle_ortho : instr_resolver {
     float2 v00, v11;
     float2 uv00, uv11;
     quad_vert_color vert_color;
+    float slant_factor_asc;
+    float slant_factor_desc;
+
+    float sdf_expand;
 
     [ForceInline]
     Vertex push_vertex(
@@ -314,19 +321,21 @@ struct rectangle_ortho : instr_resolver {
     ) {
         if (param.vtx_skip > 1) {
             let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
+            var pmt = Primitive(generic, param);
+            pmt.sdf_expand = sdf_expand;
+            primits[idc_idx] = pmt;
             indices[idc_idx] = param.getTrivialIndicies();
         }
 
         switch (param.vtx_skip) {
         case 0:
-            return Vertex(float3(v00, generic.depth), vert_color.c00, uv00);
+            return Vertex(float3(v00 + float2(slant_factor_asc, 0), generic.depth), vert_color.c00, uv00);
         case 1:
-            return Vertex(float3(float2(v11.x, v00.y), generic.depth), vert_color.c10, float2(uv11.x, uv00.y));
+            return Vertex(float3(float2(v11.x + slant_factor_asc, v00.y), generic.depth), vert_color.c10, float2(uv11.x, uv00.y));
         case 2:
-            return Vertex(float3(float2(v00.x, v11.y), generic.depth), vert_color.c01, float2(uv00.x, uv11.y));
+            return Vertex(float3(float2(v00.x - slant_factor_desc, v11.y), generic.depth), vert_color.c01, float2(uv00.x, uv11.y));
         case 3:
-            return Vertex(float3(v11, generic.depth), vert_color.c11, uv11);
+            return Vertex(float3(v11 - slant_factor_desc, generic.depth), vert_color.c11, uv11);
         default: return Vertex();
         }
     }

@@ -8,6 +8,7 @@ module;
 #include <ft2build.h>
 #include <freetype/freetype.h>
 #include <mo_yanxi/adapted_attributes.hpp>
+#include <mo_yanxi/enum_operator_gen.hpp>
 
 #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <msdfgen/msdfgen-ext.h>
@@ -134,6 +135,21 @@ FORCE_INLINE CONST_FN constexpr T normalize_len_1616(const FT_Pos pos) noexcept{
 	return static_cast<T>(pos) / T(1 << 16);
 }
 
+export enum class font_style : std::uint32_t {
+	normal = 0,
+	bold = 1,
+	italic = 2,
+	bold_italic = 3
+};
+
+export 
+constexpr font_style make_font_style(bool italic, bool bold) noexcept {
+	if (italic && bold) return font_style::bold_italic;
+	if (italic) return font_style::italic;
+	if (bold) return font_style::bold;
+	return font_style::normal;
+}
+
 export
 struct glyph_metrics{
 	math::vec2 size{};
@@ -210,7 +226,13 @@ public:
 		if(handle) check(FT_Done_Face(handle));
 		if(msdfHdl) msdfgen::destroyFont(msdfHdl);
 	}
+	[[nodiscard]] bool is_bold() const noexcept {
+		return handle && (handle->style_flags & FT_STYLE_FLAG_BOLD) != 0;
+	}
 
+	[[nodiscard]] bool is_italic() const noexcept {
+		return handle && (handle->style_flags & FT_STYLE_FLAG_ITALIC) != 0;
+	}
 	// 从内存加载，注意 data 必须在 handle 生命周期内有效
 	explicit font_face_handle(std::span<const std::byte> data, const font_face_meta* meta, const FT_Long index = 0) : origin_meta(meta){
 		auto lib = get_ft_lib();
@@ -418,6 +440,16 @@ public:
 	}
 };
 
+export struct styled_font_face_view {
+	font_face_view view;
+	bool is_bold_satisfied{};
+	bool is_italic_satisfied{};
+
+	constexpr explicit operator bool() const noexcept {
+		return static_cast<bool>(view);
+	}
+};
+
 /**
  * @brief 字体元数据 (Read-Only)
  * 仅包含文件数据，多线程共享，不包含任何 Handle。
@@ -480,9 +512,52 @@ private:
 	}
 };
 
-export
-struct font_family{
-	std::vector<const font_face_meta*> metas;
+export struct font_family {
+private:
+	static constexpr std::size_t Total = std::to_underlying(font_style::bold_italic) + 1;
+	std::vector<const font_face_meta*> flat_metas_{};
+	// 记录各段起始点。对于索引 i，其数据范围为 [ offsets_[i], offsets_[i+1] )
+	// 对于 font_style::bold_italic (即 3)，结束点为 flat_metas_.size()
+	std::array<std::size_t, Total> offsets_{0, 0, 0, 0};
+
+public:
+	[[nodiscard]] font_family() = default;
+
+	// 设置特定样式的回退链，内部自动处理后续数据段的偏移
+	void set_style(font_style style, std::span<const font_face_meta* const> metas) {
+		const auto idx = static_cast<std::size_t>(style);
+		const auto start = offsets_[idx];
+		const auto end = (idx + 1 < Total) ? offsets_[idx + 1] : flat_metas_.size();
+
+		const auto old_count = end - start;
+		const auto new_count = metas.size();
+
+		// 抹去旧区间，插入新数据
+		flat_metas_.erase(flat_metas_.begin() + start, flat_metas_.begin() + end);
+		flat_metas_.insert(flat_metas_.begin() + start, metas.begin(), metas.end());
+
+		// 如果新旧数量不一致，更新后续样式的偏移点
+		if (new_count != old_count) {
+			const std::ptrdiff_t diff = static_cast<std::ptrdiff_t>(new_count) - static_cast<std::ptrdiff_t>(old_count);
+			for (std::size_t i = idx + 1; i < Total; ++i) {
+				offsets_[i] = static_cast<std::size_t>(static_cast<std::ptrdiff_t>(offsets_[i]) + diff);
+			}
+		}
+	}
+
+	// 获取特定样式的数据视图
+	[[nodiscard]] std::span<const font_face_meta* const> get_style(font_style style) const noexcept {
+		const auto idx = static_cast<std::size_t>(style);
+		const auto start = offsets_[idx];
+		const auto end = (idx < Total - 1) ? offsets_[idx + 1] : flat_metas_.size();
+
+		if (start == end) return {};
+		return {flat_metas_.data() + start, end - start};
+	}
+
+	[[nodiscard]] bool empty() const noexcept {
+		return flat_metas_.empty();
+	}
 };
 
 

@@ -106,7 +106,7 @@ private:
     #endif
     }
 
-    static void deallocate(void* ptr, size_t size) noexcept {
+    static void deallocate(void* ptr, std::size_t size) noexcept {
     #ifdef _WIN32
         VirtualFree(ptr, 0, MEM_RELEASE);
         (void)size; // 在 Windows 上 size 未被使用
@@ -128,7 +128,7 @@ public:
         : heap_(heap){
     }
 
-    [[nodiscard]] explicit heap(mi_arena_id_t arena_id, int tag = 0) : heap_(mi_heap_new_ex(tag, true, arena_id)){
+    [[nodiscard]] explicit heap(mi_arena_id_t arena_id, int /*tag*/ = 0) : heap_(mi_heap_new_in_arena(arena_id)){
         if(!heap_){
             throw std::bad_alloc();
         }
@@ -173,6 +173,7 @@ export
 template <typename T = std::byte>
 struct heap_allocator : mi_heap_stl_allocator<T>{
     using mi_heap_stl_allocator<T>::mi_heap_stl_allocator;
+
     template<class U> struct rebind { typedef heap_allocator<U> other; };
     auto select_on_container_copy_construction() const { return *this; }
 
@@ -187,7 +188,7 @@ struct heap_allocator : mi_heap_stl_allocator<T>{
 export
 template <typename T = std::byte>
 heap_allocator<T> get_default_heap_allocator(){
-    return heap_allocator<T>{mi_heap_get_default()};
+    return heap_allocator<T>{mi_heap_main()};
 }
 
 export
@@ -232,7 +233,6 @@ struct aligned_heap_allocator : heap_allocator<T>{
         ::mi_free_size_aligned(p, size * sizeof(T), align);
     }
 
-    // template<class U, std::size_t align_2> struct rebind { typedef aligned_heap_allocator<U, align_2> other; };
     template<class U> struct rebind{
         typedef aligned_heap_allocator<U, align> other;
     };
@@ -263,11 +263,9 @@ export
 template <typename T, class Hasher = std::hash<T>, class Keyeq = std::equal_to<T>>
 using heap_uset = std::unordered_set<T, Hasher, Keyeq, heap_allocator<T>>;
 
-
 export
 template <typename K, typename V, class Hasher = std::hash<K>, class Keyeq = std::equal_to<K>>
 using heap_umap = std::unordered_map<K, V, Hasher, Keyeq, heap_allocator<std::pair<const K, V>>>;
-
 
 export
 using heap_string = std::basic_string<char, std::char_traits<char>, heap_allocator<char>>;
@@ -277,8 +275,7 @@ template <typename T>
 using vector = std::vector<T, unvs_allocator<T>>;
 
 export using arena_id_t = mi_arena_id_t;
+
 export using heap_handle = mi_heap_t*;
-
-
 
 }

@@ -114,5 +114,6 @@ namespace mo_yanxi::graphic{
 		desc.done_ptr->store(std::addressof(texture), std::memory_order_release);
 		desc.done_ptr->notify_one();
 		desc.done_ptr->wait(std::addressof(texture), std::memory_order_relaxed);
+
 	}
 }

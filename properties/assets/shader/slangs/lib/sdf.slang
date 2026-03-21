@@ -23,8 +23,13 @@ float CalculateLOD(float2 fw, float2 textureSize) {
     return log2(maxDelta);
 }
 
+public struct sdf_result {
+    public float factor;
+    public float scale;
+}
+
 [[ForceInline]]
-public float msdf(Sampler2D samp, float2 uv, float pxRange = 4.f) {
+public sdf_result msdf(Sampler2D samp, float2 uv, float pxRange = 4.f) {
     let fw = fwidth(uv);
 
     float2 size;
@@ -32,12 +37,13 @@ public float msdf(Sampler2D samp, float2 uv, float pxRange = 4.f) {
     samp.GetDimensions(0, size.x, size.y, _);
 
     let col = samp.SampleLevel(uv, 0.0f).rgb;
-
     float sigDist = median(col) - 0.5f;
 
-    sigDist *= max(0.5f * dot(float2(pxRange) * rcp(size), rcp(fw)), 1.0f);
+    // 计算 SDF系数 到 屏幕像素 的缩放率 K
+    float sdfToPixelScale = max(0.5f * dot(float2(pxRange) * rcp(size), rcp(fw)), 1.0f);
 
-    return sigDist;
+    // 返回真实的屏幕像素距离
+    return { sigDist * sdfToPixelScale, rcp(sdfToPixelScale)};
 }
 
 [[ForceInline]]

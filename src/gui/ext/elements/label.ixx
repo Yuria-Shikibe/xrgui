@@ -78,12 +78,14 @@ protected:
 //TODO provide a convenient constructor
 
 export struct direct_label : elem{
+	inline static typesetting::layout_context_impl<typesetting::policies::ignore_clusters> layout_context{};
+
 protected:
 	typesetting::tokenized_text tokenized_text_{};
+
 private:
 	typesetting::glyph_layout glyph_layout_{};
 	typesetting::layout_config layout_config_{};
-	typesetting::layout_context context_{std::in_place};
 
 	text_render_cache render_cache_{};
 	text_transform_config transform_config_{};
@@ -282,7 +284,7 @@ protected:
 				if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
 					((change_mark_ & change_type::config) != change_type{}) || ((change_mark_ & change_type::text) !=
 						change_type{})){
-					context_.layout(tokenized_text_, layout_config_, glyph_layout_);
+					layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
 					render_cache_.update_buffer(glyph_layout_,
 						render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
 					change_mark_ = change_type::none;
@@ -295,7 +297,7 @@ protected:
 
 			}
 		} else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
-			context_.layout(tokenized_text_, layout_config_, glyph_layout_);
+			layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
 			render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
 			change_mark_ = change_type::none;
 

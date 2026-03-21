@@ -68,17 +68,27 @@ struct rich_text_fallback_style {
 	const font::font_family* family{nullptr}; // 若为空，稍后使用 manager 的 default
 	gch::small_vector<hb_feature_t> features{}; // 初始全局 OpenType 特性
 	bool enables_underline{false};
+	bool enables_italic{false};
+	bool enables_bold{false};
 
 	constexpr friend bool operator==(const rich_text_fallback_style& lhs, const rich_text_fallback_style& rhs) noexcept {
 		return lhs.offset == rhs.offset
 			&& lhs.color == rhs.color
 			&& lhs.family == rhs.family
 			&& lhs.features == rhs.features
-			&& lhs.enables_underline == rhs.enables_underline;
+			&& lhs.enables_underline == rhs.enables_underline
+			&& lhs.enables_italic == rhs.enables_italic
+			&& lhs.enables_bold == rhs.enables_bold;
 	}
 
 
 	// constexpr bool operator==(const rich_text_fallback_style&) const noexcept = default;
+};
+
+enum struct enable_type : std::uint8_t{
+	no_spec,
+	disabled,
+	enabled
 };
 
 export
@@ -91,7 +101,10 @@ private:
 	stack_of<unsigned> history_feature_group_count_;
 
 	// 使用 optional 记录下划线状态。只有 std::nullopt 时才采用 fallback
-	std::optional<bool> enables_underline_{std::nullopt};
+	enable_type enables_underline_{};
+	enable_type enables_bold_{};
+	enable_type enables_italic_{};
+
 
 public:
 	void clear() noexcept{
@@ -100,11 +113,21 @@ public:
 		history_color_.clear();
 		history_size_.clear();
 		history_feature_group_count_.clear();
-		enables_underline_.reset();
+		enables_underline_ = {};
+		enables_bold_ = {};
+		enables_italic_ = {};
 	}
 
 	[[nodiscard]] FORCE_INLINE inline bool is_underline_enabled(const rich_text_fallback_style& fallback) const noexcept{
-		return enables_underline_.value_or(fallback.enables_underline);
+		return enables_underline_ == enable_type::no_spec ? fallback.enables_underline : enables_underline_ == enable_type::enabled;
+	}
+
+	[[nodiscard]] FORCE_INLINE inline bool is_italic_enabled(const rich_text_fallback_style& fallback) const noexcept{
+		return enables_italic_ == enable_type::no_spec ? fallback.enables_italic : enables_italic_ == enable_type::enabled;
+	}
+
+	[[nodiscard]] FORCE_INLINE inline bool is_bold_enabled(const rich_text_fallback_style& fallback) const noexcept{
+		return enables_bold_ == enable_type::no_spec ? fallback.enables_bold : enables_bold_ == enable_type::enabled;
 	}
 
 	[[nodiscard]] FORCE_INLINE inline math::vec2 get_size(math::vec2 default_font_size) const noexcept{
@@ -150,7 +173,13 @@ public:
 					[&](const std::monostate t){
 					},
 					[&](const set_underline& t){
-						enables_underline_ = t.enabled;
+						enables_underline_ = t.enabled ? enable_type::enabled : enable_type::disabled;
+					},
+					[&](const set_italic& t){
+						enables_italic_ = t.enabled ? enable_type::enabled : enable_type::disabled;
+					},
+					[&](const set_bold& t){
+						enables_bold_ = t.enabled ? enable_type::enabled : enable_type::disabled;
 					},
 					[&](const set_offset& t){
 						switch(t.type){

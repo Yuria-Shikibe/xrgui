@@ -30,7 +30,10 @@ void record_glyph_draw_instructions(
 					.v11 = start + val.aabb.extent(),
 					.uv00 = val.texture->uv.v00(),
 					.uv11 = val.texture->uv.v11(),
-					.vert_color = {val.color * color_scl}
+					.vert_color = {val.color * color_scl},
+					.slant_factor_asc = val.slant_factor_asc,
+					.slant_factor_desc = val.slant_factor_desc,
+					.sdf_expand = -val.weight_offset
 				});
 		}
 

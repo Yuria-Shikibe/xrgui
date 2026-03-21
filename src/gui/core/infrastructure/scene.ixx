@@ -13,6 +13,7 @@ import std;
 import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.math.rect_ortho;
+import mo_yanxi.concurrent.atomic_double_buffer;
 
 export import mo_yanxi.gui.util;
 export import mo_yanxi.gui.style.manager;
@@ -300,6 +301,8 @@ protected:
 	elem_owned_nodes_{};
 
 	layer_altitude_record layer_altitude_record_{get_heap()};
+
+	
 
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};

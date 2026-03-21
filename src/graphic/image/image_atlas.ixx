@@ -21,6 +21,7 @@ import mo_yanxi.referenced_ptr;
 import mo_yanxi.meta_programming;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.allocator2d;
+import mo_yanxi.circular_queue;
 
 
 
@@ -213,7 +214,11 @@ struct async_loader_task{
 	variant_t task;
 };
 
+export struct image_atlas;
+
 struct async_image_loader{
+	friend struct image_atlas;
+
 private:
 	VkQueue working_queue_{};
 	vk::allocator async_allocator_{};
@@ -228,47 +233,79 @@ private:
 
 	std::mutex region_queue_mutex{};
 	ccur::condition_variable_single region_queue_cond{};
-	std::vector<async_loader_task> region_queue{};
 
-
-	std::atomic_flag loading{};
+	// 替换掉原有的 std::vector<async_loader_task> region_queue{};
+	circular_queue<texture_allocation_request> alloc_queue{};
+	circular_queue<allocated_image_load_description> load_queue{};
+	std::atomic_bool loading_flag_{};
 
 	vk::resource_descriptor_heap* target_descriptor_heap_{};
 	std::uint32_t target_descriptor_heap_section_{};
 
 	std::jthread working_thread{};
 
-	static void work_func(std::stop_token stop_token, async_image_loader& self){
-		std::vector<async_loader_task> dumped_queue{};
+	static void work_func(std::stop_token stop_token, async_image_loader& self) try {
+		circular_queue<texture_allocation_request> texture_alloc_queue{};
+		std::vector<allocated_image_load_description> image_load_queue{};
+		image_load_queue.reserve(16);
 
-		while(!stop_token.stop_requested()){
+		while (true) {
+			image_load_queue.clear();
+			texture_alloc_queue.clear();
+
 			{
 				std::unique_lock lock(self.region_queue_mutex);
 
 				self.region_queue_cond.wait(lock, [&]{
-					return !self.region_queue.empty() || stop_token.stop_requested();
+					return !self.alloc_queue.empty() || !self.load_queue.empty() || stop_token.stop_requested();
 				});
 
-				dumped_queue = std::exchange(self.region_queue, {});
+				// 如果收到停止信号且所有队列均已清空，则退出线程
+				if (stop_token.stop_requested() && self.alloc_queue.empty() && self.load_queue.empty()) {
+					break;
+				}
+
+				// 【核心逻辑】始终优先从 alloc_queue 获取任务
+				if (!self.alloc_queue.empty()) {
+					std::ranges::swap(texture_alloc_queue, self.alloc_queue);
+				}
+
+				if (!self.load_queue.empty()) {
+					auto count = std::min(self.load_queue.size(), image_load_queue.capacity());
+					for(unsigned i = 0; i < count; ++i){
+						image_load_queue.push_back(std::move(self.load_queue.front()));
+						self.load_queue.pop_front();
+					}
+				}
 			}
 
-			self.loading.test_and_set(std::memory_order::relaxed);
-			for(auto& desc : dumped_queue){
-				if(stop_token.stop_requested()) break;
-				std::visit(overload{
-					[&self](allocated_image_load_description& desc){
-						self.load(std::move(desc));
-					},
-					[&self](texture_allocation_request& desc){
-						self.load(desc);
-					},
-				}, desc.task);
+			if(!texture_alloc_queue.empty() && stop_token.stop_requested()){
+				break;
 			}
-			self.loading.clear(std::memory_order::release);
-			self.loading.notify_all();
+			self.loading_flag_.store(true, std::memory_order::release);
+
+			texture_alloc_queue.for_each([&](auto, texture_allocation_request& r){
+				self.load(r);
+			});
+
+			if(stop_token.stop_requested()){
+				self.loading_flag_.store(false, std::memory_order::release);
+				self.loading_flag_.notify_all();
+				break;
+			}
+
+			for (auto && alloc : image_load_queue){
+				self.load(std::move(alloc));
+			}
+
+			self.loading_flag_.store(false, std::memory_order::release);
+			self.loading_flag_.notify_all();
 		}
 
 		self.region_fence_.wait();
+	} catch(...){
+		std::println(std::cerr, "Loader Thread Exceptionally Exited");
+		throw;
 	}
 
 	void load(allocated_image_load_description&& desc);
@@ -306,7 +343,7 @@ public:
 	void push(allocated_image_load_description&& desc){
 		{
 			std::lock_guard lock(region_queue_mutex);
-			region_queue.emplace_back(std::move(desc));
+			load_queue.emplace_back(std::move(desc));
 		}
 		region_queue_cond.notify_one();
 	}
@@ -314,19 +351,20 @@ public:
 	void push(const texture_allocation_request& desc){
 		{
 			std::lock_guard lock(region_queue_mutex);
-			region_queue.emplace_back(desc);
+			alloc_queue.push_back(desc);
 		}
 		region_queue_cond.notify_one();
 	}
 
+public:
 	void wait() const noexcept{
 		if(working_thread.joinable()){
-			loading.wait(true, std::memory_order::acquire);
+			loading_flag_.wait(true, std::memory_order::acquire);
 		}
 	}
 
 	[[nodiscard]] bool is_loading() const noexcept{
-		return loading.test(std::memory_order::relaxed);
+		return loading_flag_.load(std::memory_order::relaxed);
 	}
 
 	~async_image_loader(){
@@ -405,6 +443,11 @@ public:
 		sub_page* sub_page = &*subpages_.emplace(page_size_);
 		ptr_to_texture_temp_.wait(nullptr, std::memory_order::relaxed);
 		sub_page->texture = std::move(*ptr_to_texture_temp_.load(std::memory_order::acquire));
+		ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
+		ptr_to_texture_temp_.notify_one();
+
+		task_post_lock_.store(sub_page, std::memory_order_release);
+
 		sub_page->heap_target_index = loader_->add_image_to_heap(VkImageViewCreateInfo{
 			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 			.image = sub_page->texture.get_image(),
@@ -420,8 +463,6 @@ public:
 			}
 		});
 
-		ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
-		ptr_to_texture_temp_.notify_one();
 	}
 
 private:
@@ -457,7 +498,6 @@ public:
 				}
 			}
 
-
 			clear_unused();
 
 			{
@@ -472,16 +512,27 @@ public:
 			sub_page* sub_page{};
 			if(task_post_lock_.exchange(nullptr, std::memory_order_relaxed)){
 				try{
-					loader_->push(texture_allocation_request{
-						.extent = {page_size_.x, page_size_.y},
-						.clear_color_value = clear_color_,
-						.done_ptr = &ptr_to_texture_temp_
-					});
-
+					// 1. 优先本地分配：如果这里抛出异常，后台线程完全不受影响
 					{
 						std::lock_guard _{subpage_mtx_};
 						sub_page = std::to_address(subpages_.emplace(page_size_));
-						sub_page->heap_target_index = loader_->add_image_to_heap(VkImageViewCreateInfo{
+					}
+
+					// 2. 本地准备就绪后，再发送任务给后台进行跨线程协作
+					loader_->push(texture_allocation_request{
+							.extent = {page_size_.x, page_size_.y},
+							.clear_color_value = clear_color_,
+							.done_ptr = &ptr_to_texture_temp_
+						});
+
+					// 3. 阻塞等待后台 Vulkan 纹理分配完毕
+					ptr_to_texture_temp_.wait(nullptr, std::memory_order::relaxed);
+					sub_page->texture = std::move(*ptr_to_texture_temp_.load(std::memory_order::acquire));
+					ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
+					ptr_to_texture_temp_.notify_one();
+
+					// 4. 注册描述符堆 (此处也有抛出异常的可能)
+					sub_page->heap_target_index = loader_->add_image_to_heap(VkImageViewCreateInfo{
 							.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 							.image = sub_page->texture.get_image(),
 							.viewType = VK_IMAGE_VIEW_TYPE_2D,
@@ -495,20 +546,24 @@ public:
 								.layerCount = sub_page->texture.get_layers()
 							}
 						});
-					}
-				}catch(...){
+
+					// 5. 成功完成所有步骤，归还领导者锁并唤醒跟随线程
 					task_post_lock_.store(&*subpages_.rbegin(), std::memory_order_release);
+					task_post_lock_.notify_all(); // 发送唤醒信号
+				} catch(...){
+					// 如果在跨线程期间任何一步出错，必须兜底解锁，防止后续业务永久瘫痪
+					task_post_lock_.store(&*subpages_.rbegin(), std::memory_order_release);
+					task_post_lock_.notify_all();
 					throw;
 				}
-
-				ptr_to_texture_temp_.wait(nullptr, std::memory_order::relaxed);
-				sub_page->texture = std::move(*ptr_to_texture_temp_.load(std::memory_order::acquire));
-				ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
-				ptr_to_texture_temp_.notify_one();
-
-				task_post_lock_.store(&*subpages_.rbegin(), std::memory_order_release);
-			}else{
-				while(task_post_lock_.compare_exchange_strong(sub_page, nullptr, std::memory_order_relaxed, std::memory_order_acquire)){}
+			} else{
+				// 优化：跟随者线程不要做 compare_exchange 的高频死循环
+				// 使用原子的 wait 陷入系统睡眠，等待领导者完成分配并 notify_all
+				sub_page = task_post_lock_.load(std::memory_order_acquire);
+				while(sub_page == nullptr){
+					task_post_lock_.wait(nullptr, std::memory_order_relaxed);
+					sub_page = task_post_lock_.load(std::memory_order_acquire);
+				}
 			}
 
 			if(auto rst = sub_page->acquire(extent, margin)){
@@ -604,11 +659,13 @@ public:
 	[[nodiscard]] auto& operator[](this T& self, const std::string_view localName){
 		return self.at(localName);
 	}
+	//
+	// ~image_page(){
+	// 	drop();
+	// }
 
-	~image_page(){
-		drop();
-	}
-
+	~image_page() = default;
+	
 protected:
 	void unlocked_clean_unused_(){
 		auto cur = named_image_regions.begin();
@@ -631,7 +688,7 @@ protected:
 	}
 };
 
-export
+
 struct image_atlas{
 private:
 	std::unique_ptr<async_image_loader> async_image_loader_{};
@@ -666,6 +723,11 @@ public:
 			return create_image_page(name);
 		}
 
+	}
+
+	void request_stop() noexcept{
+		async_image_loader_->working_thread.request_stop();
+		wait_load();
 	}
 
 	void wait_load() const noexcept{

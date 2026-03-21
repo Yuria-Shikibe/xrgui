@@ -34,6 +34,9 @@ export struct glyph_elem{
 	math::frect aabb;
 	graphic::color color;
 	font::glyph_borrow texture;
+	float slant_factor_asc;
+	float slant_factor_desc;
+	float weight_offset;
 };
 
 export struct underline{

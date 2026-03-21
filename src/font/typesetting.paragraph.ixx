@@ -1,16 +1,38 @@
-export module mo_yanxi.typesetting:segmented_layout;
+export module mo_yanxi.typesetting.segmented_layout;
 
 import std;
 import mo_yanxi.typesetting;
 import mo_yanxi.typesetting.rich_text;
 import mo_yanxi.math.vector2;
 
-// namespace mo_yanxi::typesetting {
+namespace mo_yanxi::typesetting {
+template<typename T, std::ranges::forward_range Rng>
+void replace_range(std::vector<T>& vec,
+				   typename std::vector<T>::iterator first,
+				   typename std::vector<T>::iterator last,
+				   Rng&& rng){
+	auto it_old = first;
+	auto it_new = std::ranges::begin(rng);
+	auto end_new = std::ranges::end(rng);
 
-/*
+	// 同步遍历：将新元素覆盖到旧空间，直到其中一方耗尽
+	while (it_old != last && it_new != end_new) {
+		*it_old = *it_new; // 如果新旧元素类型支持转移，这里也可以写 std::move(*it_new)
+		++it_old;
+		++it_new;
+	}
+
+	if (it_new == end_new) {
+		// 情况 1: 新区间较短或长度恰好相等，删除旧区间多余的部分
+		vec.erase(it_old, last);
+	} else {
+		vec.insert_range(last, std::ranges::subrange{it_new, end_new});
+	}
+}
+
 export struct text_segment {
-    std::uint32_t start_pos{0};
-    std::uint32_t end_pos{0};
+    std::uint32_t start_pos{};
+    std::uint32_t end_pos{};
     bool is_dirty{true};
 
     // 局部的排版结果（内部坐标从 0,0 起算）
@@ -22,6 +44,13 @@ export struct text_segment {
     [[nodiscard]] constexpr std::uint32_t length() const noexcept {
         return end_pos - start_pos;
     }
+
+    [[nodiscard]] text_segment() noexcept = default;
+
+    [[nodiscard]] text_segment(std::uint32_t start_pos, std::uint32_t end_pos) noexcept
+	    : start_pos(start_pos),
+	    end_pos(end_pos){
+    }
 };
 
 export class segmented_layout_manager {
@@ -31,9 +60,28 @@ private:
     math::vec2 total_extent_{};
 
 public:
-    void bind_text(const tokenized_text* text) {
-        source_text_ = text;
+    [[nodiscard]] segmented_layout_manager() = default;
+    [[nodiscard]] explicit(false) segmented_layout_manager(const tokenized_text& text){
+	    bind_text(text);
+    }
+
+    void bind_text(const tokenized_text& text) {
+    	if(source_text_ == &text)return;
+        source_text_ = &text;
         invalidate_all();
+    }
+
+	template <typename Pat>
+	void split(Pat&& pat){
+    	auto text = source_text_->get_text();
+    	auto src = text.data();
+    	segments_.clear();
+    	for(auto subrange : text | std::views::split(std::forward<Pat>(pat))){
+    		std::u32string_view substr{subrange};
+    		auto beg = substr.data() - src;
+    		auto end = beg + substr.size();
+    		segments_.emplace_back(beg, end);
+    	}
     }
 
     // 1. 增量更新段落：精准剔除受影响的段落并重新划分，保留安全段落的缓存
@@ -94,41 +142,27 @@ public:
         std::uint32_t current_start = affected_old_start;
         for (std::uint32_t i = affected_old_start; i < affected_new_end && i < chars.size(); ++i) {
             if (chars[i] == U'\n') {
-                new_sub_segments.push_back(text_segment{current_start, i + 1, true});
+                new_sub_segments.push_back(text_segment{current_start, i + 1});
                 current_start = i + 1;
             }
         }
         if (current_start < affected_new_end) {
-            new_sub_segments.push_back(text_segment{current_start, affected_new_end, true});
+            new_sub_segments.push_back(text_segment{current_start, affected_new_end});
         }
 
-        // 替换失效段落
-        start_it = segments_.erase(start_it, end_it);
-        segments_.insert(start_it, new_sub_segments.begin(), new_sub_segments.end());
+    	replace_range(segments_, start_it, end_it, new_sub_segments | std::views::as_rvalue);
     }
 
     // 全量重建所有段落
-    void invalidate_all() {
-        segments_.clear();
-        total_extent_ = {};
-        if (!source_text_ || source_text_->empty()) return;
-
-        const auto chars = source_text_->get_text();
-        std::uint32_t current_start = 0;
-
-        for (std::uint32_t i = 0; i < chars.size(); ++i) {
-            if (chars[i] == U'\n') {
-                segments_.push_back(text_segment{current_start, i + 1, true});
-                current_start = i + 1;
-            }
-        }
-        if (current_start < chars.size()) {
-            segments_.push_back(text_segment{current_start, static_cast<std::uint32_t>(chars.size()), true});
-        }
+    void invalidate_all(){
+	    segments_.clear();
+	    total_extent_ = {};
+	    if(!source_text_ || source_text_->empty()) return;
+	    split(std::u32string_view{U"\n\n"});
     }
 
     // 2. 核心更新逻辑：只排版脏段落
-    void update_layouts(layout_context& ctx, font::font_face_view default_font_face = {}) {
+    void update_layouts(layout_context& ctx, const layout_config& config = {}) {
         if (!source_text_) return;
 
         bool layout_changed = false;
@@ -137,7 +171,7 @@ public:
             if (!seg.is_dirty) continue;
 
             tokenized_text_view view{*source_text_, seg.start_pos, seg.length()};
-            ctx.layout(seg.local_layout, view, default_font_face);
+            ctx.layout(view, config, seg.local_layout);
 
             // 重要：HarfBuzz 产生的 cluster_index 是基于局部视图的 (从 0 开始)，
             // 我们必须将其补偿回全局坐标，以确保外层命中测试和游标逻辑的正确性。
@@ -160,6 +194,16 @@ public:
 
     [[nodiscard]] math::vec2 get_extent() const noexcept {
         return total_extent_;
+    }
+
+	template <typename S>
+	auto begin(this S&& self) noexcept{
+	    return std::forward_like<S>(self.segments_).begin();
+    }
+
+	template <typename S>
+	auto end(this S&& self) noexcept{
+	    return std::forward_like<S>(self.segments_).begin();
     }
 
     // 4. 全局命中测试代理
@@ -230,4 +274,4 @@ private:
     }
 };
 
-}*/
+}

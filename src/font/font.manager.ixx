@@ -64,6 +64,13 @@ struct glyph_size_identity{
 	}
 };
 
+export struct family_style_key {
+	const font_family* family;
+	font_style style;
+
+	constexpr bool operator==(const family_style_key&) const noexcept = default;
+};
+
 struct font_metrics{
 	struct key{
 		const font_face_handle* source;
@@ -87,14 +94,20 @@ struct font_metrics{
 template<>
 struct std::hash<mo_yanxi::font::font_metrics::key>{
 	std::size_t operator()(const mo_yanxi::font::font_metrics::key& key) const noexcept{
-		return (std::hash<const void*>{}(key.source) << 31) ^ std::hash<mo_yanxi::font::glyph_identity>{}(key.desc);
+		return (std::hash<const void*>{}(key.source) << 1) ^ std::hash<mo_yanxi::font::glyph_identity>{}(key.desc);
+	}
+};
+template<>
+struct std::hash<mo_yanxi::font::family_style_key>{
+	std::size_t operator()(const mo_yanxi::font::family_style_key& key) const noexcept{
+		return (std::hash<const void*>{}(key.family)) ^ (std::hash<mo_yanxi::font::font_style>{}(key.style) << 1);
 	}
 };
 
 namespace mo_yanxi::font{
 
 struct font_global_cache{
-	using tls_lru_cache_t = lru_cache<const font_family*, std::span<font_face_handle>, 8>;
+	using tls_lru_cache_t = lru_cache<family_style_key, std::span<font_face_handle>, 8>;
 	tls_lru_cache_t family;
 	mapped_lru_cache<font_metrics::key, font_metrics::val> metrics;
 
@@ -124,13 +137,13 @@ private:
 	font_family* default_family{};
 
     using handle_vector_t = std::vector<font_face_handle>;
-    using recipe_map_t = std::unordered_map<const font_family*, handle_vector_t>;
+    using recipe_map_t = std::unordered_map<family_style_key, handle_vector_t>;
     using global_storage_t = std::unordered_map<std::thread::id, recipe_map_t>;
 
     mutable std::mutex storage_mtx_;
     global_storage_t handle_storage_;
 
-    using tls_lru_cache_t = lru_cache<const font_family*, std::span<font_face_handle>, 8>;
+    using tls_lru_cache_t = lru_cache<family_style_key, std::span<font_face_handle>, 8>;
 
 	static tls_lru_cache_t& get_thread_local_lru(){
 		return cache.family;
@@ -207,17 +220,22 @@ public:
 	}
 
 
-	font_family& register_family(std::string_view familyName, std::vector<const font_face_meta*> metas){
-		return families.insert_or_assign(std::string(familyName), font_family{std::move(metas)}).first->second;
+	font_family& register_family(std::string_view familyName, std::span<const font_face_meta* const> metas, font_style style = font_style::normal) {
+		font_family* target = families.try_find(familyName);
+		if (!target) {
+			target = &families.insert_or_assign(std::string(familyName), font_family{}).first->second;
+		}
+		target->set_style(style, metas);
+		return *target;
 	}
 
-	font_family& register_family(std::string_view familyName, std::span<const font_face_meta*> metas){
-		return families.insert_or_assign(std::string(familyName), font_family{std::vector{std::from_range, metas}}).first->second;
+	font_family& register_family(std::string_view familyName, std::initializer_list<const font_face_meta*> metas, font_style style = font_style::normal) {
+		return register_family(familyName, std::span{metas}, style);
 	}
 
-	font_family& register_family(std::string_view familyName, const font_face_meta& meta){
-		std::vector<std::shared_ptr<font_face_meta>> vec;
-		return register_family(familyName, {&meta});
+	font_family& register_family(std::string_view familyName, const font_face_meta& meta, font_style style = font_style::normal) {
+		const font_face_meta* ptr = &meta;
+		return register_family(familyName, std::span{&ptr, 1}, style);
 	}
 
 	font_family* find_family(std::string_view familyName) noexcept{
@@ -246,49 +264,86 @@ public:
 		return metas.insert_or_assign(familyName, std::move(meta)).first->second;
 	}
 
-	[[nodiscard]] font_face_view use_family(const font_family* identity){
-		if(!identity){
+	[[nodiscard]] styled_font_face_view use_family(const font_family* identity, font_style style = font_style::normal){
+		if(!identity || identity->empty()){
 			return {};
 		}
 
-        // 1. 尝试在线程局部 LRU 缓存中查找 (Fast Path)
-		auto& tls_lru = get_thread_local_lru();
-		if(auto* span_ptr = tls_lru.get(identity)) {
-			return font_face_view{*span_ptr};
+		// 确定实际要使用的 metas。如果请求的 style 没有配置，强制回退到 normal
+		font_style actual_style = style;
+		auto target_metas = identity->get_style(actual_style);
+
+		if (target_metas.empty()) {
+			actual_style = font_style::normal;
+			target_metas = identity->get_style(actual_style);
 		}
 
-        // 2. 缓存未命中，访问全局存储 (Slow Path)
-        std::span<font_face_handle> result_span;
-        {
-            const auto current_tid = std::this_thread::get_id();
+		if (target_metas.empty()) {
+			return {}; // 连 normal 都没有配置，直接返回空
+		}
 
+		family_style_key cache_key{identity, actual_style};
+
+		// 1. Thread Local Cache (Fast Path)
+		auto& tls_lru = get_thread_local_lru();
+		std::span<font_face_handle> result_span;
+
+		if(auto* span_ptr = tls_lru.get(cache_key)) {
+			result_span = *span_ptr;
+		} else {
+			// 2. 访问全局存储 (Slow Path)
+			const auto current_tid = std::this_thread::get_id();
 			auto& thread_recipe_map = [&] -> auto& {
 				std::lock_guard lock(storage_mtx_);
 				return handle_storage_[current_tid];
 			}();
 
-            auto it = thread_recipe_map.find(identity);
-            if(it != thread_recipe_map.end()) {
-                // 已经存在于存储中，直接构造 Span
-                result_span = std::span{it->second};
-            } else {
-                // 3. 首次使用该配方，实例化 Handles
-                std::vector<font_face_handle> new_handles;
-                new_handles.reserve(identity->metas.size());
-                for(const auto& meta_ptr : identity->metas){
-                    if(meta_ptr){
-                        new_handles.emplace_back(meta_ptr->data(), meta_ptr);
-                    }
-                }
+			auto it = thread_recipe_map.find(cache_key);
+			if(it != thread_recipe_map.end()) {
+				result_span = std::span{it->second};
+			} else {
+				// 3. 首次使用该配方的该样式，实例化 Handles
+				std::vector<font_face_handle> new_handles;
+				new_handles.reserve(target_metas.size());
+				for(const auto& meta_ptr : target_metas){
+					if(meta_ptr){
+						new_handles.emplace_back(meta_ptr->data(), meta_ptr);
+					}
+				}
 
-                // 存入全局 Map
-                auto& inserted_vec = thread_recipe_map.emplace(identity, std::move(new_handles)).first->second;
-                result_span = std::span{inserted_vec};
-            }
-        }
+				auto& inserted_vec = thread_recipe_map.emplace(cache_key, std::move(new_handles)).first->second;
+				result_span = std::span{inserted_vec};
+			}
+			tls_lru.put(cache_key, result_span);
+		}
 
-		tls_lru.put(identity, result_span);
-		return font_face_view{result_span};
+		font_face_view final_view{result_span};
+
+		bool request_bold = (static_cast<std::uint32_t>(style) & static_cast<std::uint32_t>(font_style::bold)) != 0;
+		bool request_italic = (static_cast<std::uint32_t>(style) & static_cast<std::uint32_t>(font_style::italic)) != 0;
+
+		bool satisfy_bold = true;
+		bool satisfy_italic = true;
+
+		if (!final_view.empty()) {
+			const auto& primary_face = final_view.face();
+
+			// 如果实际使用的是专门注册的粗体/斜体文件，则认为它满足了对应需求
+			bool used_specific_bold = (static_cast<std::uint32_t>(actual_style) & static_cast<std::uint32_t>(font_style::bold)) != 0;
+			bool used_specific_italic = (static_cast<std::uint32_t>(actual_style) & static_cast<std::uint32_t>(font_style::italic)) != 0;
+
+			if (request_bold && !used_specific_bold && !primary_face.is_bold()) {
+				satisfy_bold = false;
+			}
+			if (request_italic && !used_specific_italic && !primary_face.is_italic()) {
+				satisfy_italic = false;
+			}
+		} else {
+			satisfy_bold = false;
+			satisfy_italic = false;
+		}
+
+		return {final_view, satisfy_bold, satisfy_italic};
 	}
 
 	void UNCHECKED_clear_this_thread_font_face_cache() noexcept {
