@@ -122,6 +122,7 @@ private:
     mi_heap_t* heap_;
 
 public:
+
     [[nodiscard]] heap() = default;
 
     [[nodiscard]] explicit(false) heap(mi_heap_t* heap)

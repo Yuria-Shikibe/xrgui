@@ -67,6 +67,7 @@ private:
 public:
 	double range = sdf_image_range;
 	int boarder = sdf_image_boarder;
+	bool orient_contours = false;
 
 	[[nodiscard]] const svg_info& get_shape() const;
 
@@ -74,9 +75,9 @@ public:
 
 	[[nodiscard]] msdf_generator() = default;
 
-	[[nodiscard]] msdf_generator(svg_info&& shape, double range = sdf_image_range, int boarder = sdf_image_boarder);
+	[[nodiscard]] msdf_generator(svg_info&& shape, bool orient_contours = false, double range = sdf_image_range, int boarder = sdf_image_boarder);
 
-	[[nodiscard]] msdf_generator(std::string str, bool is_memory_data = false, double range = sdf_image_range, int boarder = sdf_image_boarder);
+	[[nodiscard]] msdf_generator(std::string str, bool is_memory_data = false, bool orient_contours = false, double range = sdf_image_range, int boarder = sdf_image_boarder);
 
 	bitmap operator ()(const unsigned w, const unsigned h, const unsigned mip_lv) const{
 		auto scl = 1u << mip_lv;

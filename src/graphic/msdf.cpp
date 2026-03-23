@@ -537,7 +537,7 @@ bitmap msdf::load_glyph(
 	return {target_w + boarder * 2, target_h + boarder * 2};
 }
 
-svg_info handle_nanosvg(NSVGimage* svg_image){
+svg_info handle_nanosvg(NSVGimage* svg_image, bool orientContours){
 	if(!svg_image) return {};
 
 	msdfgen::Shape shape;
@@ -558,22 +558,22 @@ svg_info handle_nanosvg(NSVGimage* svg_image){
 	// if(!shape.validate()) return {};
 
 	shape.inverseYAxis = true;
-	shape.orientContours();
+	if(orientContours)shape.orientContours();
 	msdfgen::edgeColoringByDistance(shape, 3);
 	shape.normalize();
 
 	return {shape, sz};
 }
 
-svg_info svg_to_shape(const char* path){
+svg_info svg_to_shape(const char* path, bool orientContours){
 	NSVGimage* svg_image = nsvgParseFromFile(path, "px", 96.0f);
-	return handle_nanosvg(svg_image);
+	return handle_nanosvg(svg_image, orientContours);
 }
 
-svg_info svg_to_shape(const char* data, std::size_t size){
+svg_info svg_to_shape(const char* data, std::size_t size, bool orientContours){
 	auto cpy_data = std::string(data, size);
 	NSVGimage* svg_image = nsvgParse(cpy_data.data(), "px", 96.0f);
-	return handle_nanosvg(svg_image);
+	return handle_nanosvg(svg_image, orientContours);
 }
 
 math::vec2 get_svg_extent(const char* path){
@@ -593,8 +593,8 @@ math::vec2 get_svg_extent(const char* data, std::size_t size){
 const svg_info& msdf_generator::get_shape() const{
 	switch(state_){
 	case msdf_generator_state::done: break;
-	case msdf_generator_state::path: shape = svg_to_shape(path.c_str()); state_ = msdf_generator_state::done; break;
-	case msdf_generator_state::memory: shape = svg_to_shape(path.data(), path.size()); state_ = msdf_generator_state::done; break;
+	case msdf_generator_state::path: shape = svg_to_shape(path.c_str(), orient_contours); state_ = msdf_generator_state::done; break;
+	case msdf_generator_state::memory: shape = svg_to_shape(path.data(), path.size(), orient_contours); state_ = msdf_generator_state::done; break;
 	default: std::unreachable();
 	}
 	return shape;
@@ -609,13 +609,13 @@ math::vec2 msdf_generator::get_extent() const noexcept{
 	}
 }
 
-msdf_generator::msdf_generator(svg_info&& shape, double range, int boarder)
-: shape(std::move(shape)), range(range), boarder(boarder){
+
+msdf_generator::msdf_generator(svg_info&& shape, bool orient_contours, double range, int boarder)
+: shape(std::move(shape)), range(range), boarder(boarder), orient_contours(orient_contours){
 }
 
-msdf_generator::msdf_generator(std::string str, bool is_memory_data, double range, int boarder)
-: path(std::move(str)), state_(is_memory_data ? msdf_generator_state::memory : msdf_generator_state::path), range(range), boarder(boarder){
-
+msdf_generator::msdf_generator(std::string str, bool is_memory_data, bool orient_contours, double range, int boarder)
+: path(std::move(str)), state_(is_memory_data ? msdf_generator_state::memory : msdf_generator_state::path), range(range), boarder(boarder), orient_contours(orient_contours){
 }
 
 

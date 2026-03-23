@@ -45,10 +45,11 @@ import mo_yanxi.typesetting.segmented_layout;
 import mo_yanxi.typesetting.util;
 import mo_yanxi.typesetting.rich_text;
 
-import mo_yanxi.react_flow;
 import mo_yanxi.react_flow.common;
+import mo_yanxi.react_flow;
 
 import mo_yanxi.gui.markdown;
+import mo_yanxi.core.platform;
 
 // template <typename FWIT, typename ...Args>
 // auto copy_classify(FWIT begin, FWIT end, Args&& ...args){
@@ -546,7 +547,10 @@ void prepare(){
 
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 	auto renderer = [&]() -> backend::vulkan::renderer{
-		vk::shader_module shader_draw{ctx.get_device(), shader_spv_path / "ui.draw_v2.spv"};
+		vk::shader_module shader_draw_vert{ctx.get_device(), shader_spv_path / "ui.vert.spv"};
+		vk::shader_module shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.frag_basic.spv"};
+		vk::shader_module shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.frag_outlined.spv"};
+
 		vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
 		vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
 		vk::shader_module shader_inverse{ctx.get_device(), shader_spv_path / "ui.inverse.spv"};
@@ -580,8 +584,8 @@ void prepare(){
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
-									shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									shader_draw_vert.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
+									shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, {0b1},
@@ -592,13 +596,14 @@ void prepare(){
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									shader_draw.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
-									shader_draw.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									shader_draw_vert.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
+									shader_draw_frag_outlined.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
-									true, {0b1}, {
-											{vk::blending::scaled_alpha_blend}
-										}}
+									false, {0b1},
+									{
+										{vk::blending::scaled_alpha_blend}
+									}}
 							},
 						},
 						{}
@@ -729,7 +734,8 @@ void prepare(){
 #pragma region InitUI
 
 	auto& ui_root = gui::global::manager;
-	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", true, renderer.create_frontend());
+	auto& res = ui_root.add_scene_resources("main");
+	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", res, true, renderer.create_frontend());
 	scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
 	auto ui_providers = gui::example::build_main_ui(ctx, scene_add_rst.scene, scene_add_rst.root_group);
 
@@ -998,16 +1004,18 @@ int main(){
 	}
 #endif
 
+	platform::initialize();
 	font::initialize();
 	backend::glfw::initialize();
+
+
 	typesetting::rich_text_look_up_table table;
 	typesetting::look_up_table = &table;
-
 	prepare();
 
 	backend::glfw::terminate();
 	font::terminate();
-
+	platform::terminate();
 
 // 	constexpr auto sv = UR"(
 // # 核心功能测试集

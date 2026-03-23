@@ -126,6 +126,43 @@ target("xrgui.example")
         add_syslinks("imm32")
     end
 
+
+    on_load(function (target)
+        import("core.project.config")
+        local my_res_inc = path.join(config.builddir(), ".assets", "includes")
+        target:add("includedirs", my_res_inc)
+    end)
+
+    before_build(function (target)
+        import("core.project.config")
+        import("utils.binary.bin2c") -- 优化：将 import 移出循环，避免每次迭代重复加载模块
+
+        local my_res_inc = path.join(config.builddir(), ".assets", "includes")
+
+        -- 定义需要保留层级结构的基准源文件夹
+        local src_basedir = "./properties/assets/images"
+
+        for _, file in ipairs(os.files(path.join(src_basedir, "**.svg"))) do
+            -- 1. 获取文件相对于 src_basedir 的相对路径 (例如: "sub/icon.svg")
+            local rel_path = path.relative(file, src_basedir)
+
+            -- 2. 拼接目标头文件路径 (例如: ".../icons/sub/icon.svg.h")
+            local headerfile = path.join(my_res_inc, rel_path .. ".h")
+
+            -- 3. 确保目标文件所在的子目录存在 (os.mkdir 在 xmake 中会自动递归创建)
+            os.mkdir(path.directory(headerfile))
+
+            -- 增量编译判断
+            if not os.isfile(headerfile) or os.mtime(headerfile) < os.mtime(file) then
+                print("generating.bin2c " .. headerfile)
+                bin2c(file, headerfile)
+            end
+        end
+    end)
+
+--     add_rules("utils.bin2c", {extensions = ".svg"})
+--     add_files("properties/assets/images/**.svg", {rootdir = "properties"})
+
     after_build(function (target)
         import("core.base.option")
 

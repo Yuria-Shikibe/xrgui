@@ -213,6 +213,7 @@ export
 struct sized_image{
 	math::usize2 size;
 	image_descriptor_index index;
+	std::uint32_t preferred_sampler_index;
 	VkImageView view;
 };
 

@@ -3,14 +3,15 @@ module mo_yanxi.gui.infrastructure;
 import std;
 
 namespace mo_yanxi::gui{
-style::style_manager scene_base::init_style_manager_(){
-	style::style_manager manager{};
+
+style::style_manager scene_resources::init_style_manager_() const{
+	style::style_manager manager{mr::heap_allocator<>{heap.get()}};
 	manager.reserve(64);
 	manager.register_style<style::elem_style_drawer>(referenced_ptr<style::debug_elem_drawer>{std::in_place, style_config{}});
 	return manager;
 }
 
-scene::scene(scene&& other) noexcept: scene_base{std::move(other)}{
+scene::scene(scene&& other) noexcept: scene_base{std::move(other)}, root_(std::move(other.root_)){
 	root().relocate_scene_(this);
 	inputs_.main_binds.set_context(std::ref(*this));
 }
@@ -18,6 +19,7 @@ scene::scene(scene&& other) noexcept: scene_base{std::move(other)}{
 scene& scene::operator=(scene&& other) noexcept{
 	if(this == &other) return *this;
 	scene_base::operator =(std::move(other));
+	root_ = std::move(other.root_);
 	root().relocate_scene_(this);
 	inputs_.main_binds.set_context(std::ref(*this));
 	return *this;
@@ -50,8 +52,10 @@ void scene::draw_at(const elem& elem){
 	auto c = get_region().intersection_with(elem.bound_abs());
 	const auto bound = c.round<int>();
 
-	for(unsigned i = 0; i < pass_config_.size(); ++i){
-		renderer().update_state(pass_config_[i].begin_config);
+	auto& cfg = resources_->pass_config;
+
+	for(unsigned i = 0; i < cfg.size(); ++i){
+		renderer().update_state(cfg[i].begin_config);
 
 		renderer().update_state({},
 			fx::batch_draw_mode::def, graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
@@ -60,14 +64,14 @@ void scene::draw_at(const elem& elem){
 
 		elem.draw_layer(c, {i});
 
-		if(pass_config_[i].end_config)renderer().update_state(fx::blit_config{
+		if(cfg[i].end_config)renderer().update_state(fx::blit_config{
 				.blit_region = {bound.src, bound.extent()},
-				.pipe_info = pass_config_[i].end_config.value()
+				.pipe_info = cfg[i].end_config.value()
 			});
 	}
 
 
-	if(auto tail = pass_config_.get_tail_blit())renderer().update_state(fx::blit_config{
+	if(auto tail = cfg.get_tail_blit())renderer().update_state(fx::blit_config{
 			.blit_region = {bound.src, bound.extent()},
 			.pipe_info = tail.value()
 		});
@@ -103,26 +107,10 @@ void scene::draw(rect clip){
 			}
 		}
 	}
-	// renderer().update_state(pass_config_[i].begin_config);
 
 	if(inputs_.is_cursor_inbound()){
-		renderer().update_state(fx::pipeline_config{
-				.draw_targets = {0b1},
-				.pipeline_index = 0
-			});
-
-		renderer().update_state(
-			{}, fx::batch_draw_mode::def,
-			graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
-		);
-
-		cursor_collection_manager.draw(*this);
-
+		current_cursor_drawers_.draw(*this, resources_->cursor_collection_manager.get_cursor_size());
 	}
-
-
-	//renderer().consume();
-
 }
 
 void scene::input_key(const input_handle::key_set key){
@@ -229,7 +217,7 @@ void scene::update_cursor(){
 	const auto cursor_transformed = get_cursor_pos() + cursor_transform_delta;
 
 	auto cursor_type = focus_cursor_->get_cursor_type(cursor_transformed);
-	cursor_collection_manager.set_drawers(cursor_type);
+	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(cursor_type);
 
 	for(const auto& [i, state] : mouse_states_ | std::views::enumerate){
 		if(!state.pressed) continue;
@@ -412,7 +400,7 @@ void scene::drop_(const elem* target) noexcept{
 
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
 
-	layer_altitude_record_.erase(target->get_altitude());
+	// layer_altitude_record_.erase(target->get_altitude());
 	// erase_independent_draw(target);
 	// erase_direct_access({}, target);
 	// tooltipManager.requestDrop(*target);

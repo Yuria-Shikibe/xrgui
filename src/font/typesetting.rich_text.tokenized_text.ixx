@@ -90,6 +90,23 @@ public:
 		parse_from_(string, table, tag);
 	}
 
+	[[nodiscard]] constexpr explicit(false) tokenized_text(std::u32string&& string, tokenize_tag tag,
+		const rich_text_look_up_table* table) : chars_(std::move(string)){
+		switch(tag){
+		case tokenize_tag::kep :{
+			this->parse_state_machine_<true>(table);
+			return;
+		}
+		case tokenize_tag::raw :{
+			return;
+		}
+		case tokenize_tag::def :{
+			this->parse_state_machine_<false>(table);
+			return;
+		}
+		}
+	}
+
 	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string, tokenize_tag tag,
 		const rich_text_look_up_table* table){
 		parse_from_(string, table, tag);
@@ -97,6 +114,10 @@ public:
 
 	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::u32string_view string,
 		tokenize_tag tag = tokenize_tag::def) : tokenized_text(string, tag, nullptr){
+	}
+
+	[[nodiscard]] constexpr explicit(false) tokenized_text(std::u32string&& string,
+		tokenize_tag tag = tokenize_tag::def) : tokenized_text(std::move(string), tag, nullptr){
 	}
 
 	[[nodiscard]] constexpr explicit(false) tokenized_text(const std::string_view string,

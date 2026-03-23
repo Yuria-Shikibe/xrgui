@@ -29,12 +29,12 @@ public struct sdf_result {
 }
 
 [[ForceInline]]
-public sdf_result msdf(Sampler2D samp, float2 uv, float pxRange = 4.f) {
+public sdf_result msdf(Sampler2D samp, float2 uv, float2 size, float pxRange = 4.f) {
     let fw = fwidth(uv);
 
-    float2 size;
-    float _;
-    samp.GetDimensions(0, size.x, size.y, _);
+    // float2 size;
+    // float _;
+    // samp.GetDimensions(0, size.x, size.y, _);
 
     let col = samp.SampleLevel(uv, 0.0f).rgb;
     float sigDist = median(col) - 0.5f;
@@ -47,12 +47,12 @@ public sdf_result msdf(Sampler2D samp, float2 uv, float pxRange = 4.f) {
 }
 
 [[ForceInline]]
-public float msdf_with_lod(Sampler2D samp, float2 uv, float pxRange = 4.f) {
+public float msdf_with_lod(Sampler2D samp, float2 uv, float2 size, float pxRange = 4.f) {
     let fw = fwidth(uv);
 
-    float2 size;
-    float _;
-    samp.GetDimensions(0, size.x, size.y, _);
+    // float2 size;
+    // float _;
+    // samp.GetDimensions(0, size.x, size.y, _);
 
     float2 texelsPerPixel = fw * size;
     float lod = max(0.0, log2(max(texelsPerPixel.x, texelsPerPixel.y)));

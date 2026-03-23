@@ -15,7 +15,7 @@ public static const uint GROUP_COUNT = 32;
 public static const uint VERTEX_PER_MESH = 64;
 public static const uint PRIMITIVES_PER_MESH = 126;
 
-public enum instruction_type : uint32_t
+ enum instruction_type : uint32_t
 {
     noop,
     uniform_update,
@@ -42,7 +42,6 @@ public enum instruction_type : uint32_t
 
 public struct draw_mode
 {
-   
     public uint32_t value;
 };
 
@@ -66,16 +65,16 @@ struct quad_vert_color{
     }
 };
 
-public struct resolve_param
+struct resolve_param
 {
-    public uint vtx_idx;
-    public uint vtx_skip;
-    public uint vtx_patch_idx; // should only be 1, 2, or 0 as no patch
+    uint vtx_idx;
+    uint vtx_skip;
+    uint vtx_patch_idx; // should only be 1, 2, or 0 as no patch
 
-    public int prm_skip;
+    int prm_skip;
 
     [ForceInline]
-    public uint get_primitive_index() {
+    uint get_primitive_index() {
         return prm_skip + vtx_skip - 2;
     }
 
@@ -90,18 +89,18 @@ public struct resolve_param
     }
 }
 
-public struct image_index
+struct image_index
 {
     
-    public uint32_t index : TextureIndex;
-    public uint32_t _cap;
+    uint32_t index : TextureIndex;
+    uint32_t _cap;
 };
 
-public struct primitive_generic
+struct primitive_generic
 {
-    public image_index image;
-    public draw_mode mode;
-    public float depth;
+    image_index image;
+    draw_mode mode;
+    float depth;
 };
 
 public struct Vertex
@@ -156,25 +155,17 @@ interface instr_resolver
 
 public struct instruction_head
 {
-    public instruction_type type;
-    public uint32_t size;
-    public uint32_t vertex_count; //Or timeline index
-    public uint32_t primit_count;
+    instruction_type type;
+    uint32_t size;
+    uint32_t vertex_count; //Or timeline index
+    uint32_t primit_count;
 };
 
-public struct mesh_dispatch_info
-{
-    public uint instruction_offset; // offset in 8 Byte
-    public uint vertex_offset;
-    public uint primit_offset;
-    public uint primitives;
-};
-
-public struct section<T>
+struct section<T>
     where T : IArithmetic
 {
-    public T from;
-    public T to;
+    T from;
+    T to;
 
     __subscript(uint index) ->T {
         get { return bool(index & 1U) ? to : from; }
@@ -189,7 +180,7 @@ public struct section<T>
 };
 
 
-public typealias range = section<float>;
+typealias range = section<float>;
 
 
 struct triangle_draw : instr_resolver
@@ -803,7 +794,7 @@ struct row_patch : instr_resolver {
 static const uint instruction_align = 16;
 
 [ForceInline]
-public Vertex push_vertex(
+Vertex push_vertex(
     instruction_head head,
     const in ByteAddressBuffer instruction,
     uint location,
@@ -853,7 +844,7 @@ public Vertex push_vertex(
     }
 }
 
-public interface vertex_transformer_2<T> {
+public interface vertex_transformer_2<T, uint N> {
     [ForceInline]
     T operator()(Vertex v);
 
@@ -861,6 +852,7 @@ public interface vertex_transformer_2<T> {
     [[mutating]]
     void operator()(uint march_index);
 
+    [[mutating]] void set_timeline(uint32_t[N] value);
 }
 
 public struct mesh_dispatch_info_v2<uint n>
@@ -874,14 +866,15 @@ public struct mesh_dispatch_info_v2<uint n>
     public uint[n] timeline;
 }
 
+
 [ForceInline]
-public uint resolve_instruction_v2<T, uint n, L:IBufferDataLayout>(
+public uint resolve_instruction_v2<T, uint n, L : IBufferDataLayout>(
     const uint threadId,
     const in mesh_dispatch_info_v2<n> mesh_subrange,
 
     const in StructuredBuffer<instruction_head, L> instruction_heads,
     const in ByteAddressBuffer instruction,
-    in vertex_transformer_2<T> transformer,
+    in vertex_transformer_2<T, n> transformer,
 
     OutputVertices<T, VERTEX_PER_MESH> verts: __ref,
     OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> prims: __ref,
@@ -894,6 +887,7 @@ public uint resolve_instruction_v2<T, uint n, L:IBufferDataLayout>(
     var ptr_to_payload = mesh_subrange.instruction_offset;
     var idx_to_head = mesh_subrange.instruction_head_index;
 
+    transformer.set_timeline(mesh_subrange.timeline);
 
     [ForceUnroll]
     outer: for (int i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {

@@ -94,10 +94,13 @@ protected:
 
 			using namespace graphic::draw;
 
+			constexpr auto color_base = graphic::colors::light_gray.create_lerp(graphic::colors::gray, .75f);
+			constexpr auto color_front = graphic::colors::gray.create_lerp(graphic::colors::dark_gray, .75f);
+
 			element.renderer().push(instruction::rect_aabb{
 				.v00 = region.vert_00(),
 				.v11 = region.vert_11(),
-				.vert_color = {graphic::colors::light_gray}
+				.vert_color = {color_base}
 			});
 
 			element.renderer().push(fx::slide_line_config{
@@ -114,8 +117,8 @@ protected:
 						.v00 = region.vert_00(),
 						.v11 = region.vert_11(),
 						.vert_color = {
-							graphic::colors::gray.make_transparent(), graphic::colors::gray.make_transparent(),
-							graphic::colors::gray, graphic::colors::gray,
+							color_front.make_transparent(), color_front.make_transparent(),
+							color_front, color_front,
 						}
 					});
 
@@ -123,8 +126,8 @@ protected:
 						.v00 = region.vert_00(),
 						.v11 = region.vert_11(),
 						.vert_color = {
-							graphic::colors::light_gray, graphic::colors::light_gray,
-							graphic::colors::light_gray.make_transparent(), graphic::colors::light_gray.make_transparent()
+							color_base, color_base,
+							color_base.make_transparent(), color_base.make_transparent()
 						}
 					});
 
@@ -212,10 +215,9 @@ private:
 				auto v00_full = contentext.vert_00() + get_bar_handle_extent(content_extent()) / 2;
 				auto v11_full = contentext.vert_11() - get_bar_handle_extent(content_extent()) / 2;
 
-				renderer().push(graphic::draw::instruction::rect_aabb_outline{
-				   .v00 = v00_full,
-				   .v11 = v11_full,
-				   .stroke = {8},
+				renderer().push(graphic::draw::instruction::rect_aabb{
+				   .v00 = contentext.vert_00(),
+				   .v11 = contentext.vert_11(),
 				   .vert_color = {graphic::colors::dark_gray}
 				});
 

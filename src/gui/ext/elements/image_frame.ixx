@@ -202,6 +202,8 @@ protected:
 	T drawable_{};
 
 public:
+	graphic::color scale_color{graphic::colors::white};
+
 	[[nodiscard]] image_frame_single(scene& scene, elem* group,
 		drawable_type drawable = {},
 		const image_display_style& style = {})
@@ -219,20 +221,25 @@ public:
 			auto off = align::get_offset_of(style.align, sz, content_bound_abs());
 
 			//TODO support stylized color
-			graphic::color scl{graphic::colors::white};
-			scl.mul_a(get_draw_opacity());
-			drawable_.draw(get_scene().renderer(), math::raw_frect{off, sz}, scl);
+			auto col = auto{scale_color}.mul_a(get_draw_opacity());
+			drawable_.draw(get_scene().renderer(), math::raw_frect{off, sz}, col);
 		}
 	}
 protected:
 };
 
 export
-struct icon_frame : image_frame_single<drawable_image<>>{
-	[[nodiscard]] icon_frame(scene& scene, elem* group, const image_region_borrow& icon = {},
-		const image_display_style& style = {})
-	: image_frame_single<drawable_image<>>(scene, group, drawable_image<>{icon}, style){
+struct icon_frame : image_frame_single<icon<>>{
+	[[nodiscard]] icon_frame(scene& scene, elem* group, const image_region_borrow& icon_image = {}, const image_display_style& style = {})
+	: image_frame_single(scene, group, icon<>{icon_image}, style){
 	}
+
+
+	[[nodiscard]] icon_frame(scene& scene, elem* group, std::size_t iconID, const image_display_style& style = {});
+
+	template <typename T>
+		requires (std::is_enum_v<T>)
+	[[nodiscard]] icon_frame(scene& scene, elem* group, T iconID, const image_display_style& style = {}) : icon_frame(scene, group, std::to_underlying(iconID), style){};
 };
 
 

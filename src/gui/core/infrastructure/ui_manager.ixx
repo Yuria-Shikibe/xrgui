@@ -39,10 +39,14 @@ struct ui_manager{
 
 private:
 	mr::raw_memory_pool pool_{};
+	string_hash_map<scene_resources> resources{};
 	string_hash_map<scene> scenes{};
 	scene* focus{};
 
 public:
+	scene_resources& add_scene_resources(std::string_view name){
+		return resources.try_emplace(name, get_arena_id()).first->second;
+	}
 
 	scene* switch_scene_to(std::string_view name) noexcept{
 		if(auto scene = scenes.try_find(name)){
@@ -74,13 +78,14 @@ public:
 		requires (std::constructible_from<T, scene&, elem*, Args&&...>)
 	scene_add_result<T> add_scene(
 		std::string_view name,
+		scene_resources& resources,
 		bool focus_it,
 		renderer_frontend&& renderer_ui,
 		Args&&... args){
 		auto& scene_ = this->add_scene(
 			name,
 			scene{
-				this->pool_.get_arena_id(),
+				resources,
 				std::move(renderer_ui), std::in_place_type<T>,
 				std::forward<Args>(args)...
 			}, focus_it);

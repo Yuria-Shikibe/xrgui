@@ -15,6 +15,7 @@ export import mo_yanxi.gui.elem.scroll_pane;
 export import mo_yanxi.gui.elem.slider;
 
 export import mo_yanxi.gui.image_regions;
+export import mo_yanxi.graphic.draw.instruction;
 export import mo_yanxi.gui.fx.instruction_extension;
 export import mo_yanxi.gui.fx.fringe;
 
@@ -226,67 +227,13 @@ protected:
     }
 };
 
-export
-struct round_style : elem_style_drawer{
+struct basic_elem_style_drawer : elem_style_drawer{
 	align::spacing boarder{default_boarder};
-	palette_with<image_nine_region> base{};
-	palette_with<image_nine_region> edge{};
-	palette_with<image_nine_region> back{};
 	float disabled_opacity{.5f};
 
-	explicit round_style(const tags::persistent_tag_t& persistent_tag)
-		: elem_style_drawer(persistent_tag, {{0b11}}){
-	}
+	using elem_style_drawer::elem_style_drawer;
 
-	round_style() : elem_style_drawer({{0b11}}){
-
-	}
-
-protected:
-	void draw_layer_impl(const elem& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override{
-		if(layer_param == 0){
-			bool any = base.image_view || edge.image_view;
-
-			if(any){
-				state_guard _{element.renderer(), fx::batch_draw_mode::msdf};
-
-				if(base.image_view){
-					auto color_base = base.pal.on_instance(element).mul_a(opacityScl);
-					element.renderer() << fx::nine_patch_draw<>{
-						.patch = &base,
-						.region = region,
-						.color = color_base,
-					};
-				}
-
-				if(edge.image_view){
-					auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
-					element.renderer() << fx::nine_patch_draw<>{
-						.patch = &edge,
-						.region = region,
-						.color = color_edge,
-					};
-				}
-			}
-
-
-
-		}else if(layer_param == 1){
-			if(back.image_view){
-				state_guard _{element.renderer(), fx::batch_draw_mode::msdf};
-
-				auto color = back.pal.on_instance(element).mul_a(opacityScl);
-				element.renderer() << fx::nine_patch_draw<>{
-					.patch = &back,
-					.region = region,
-					.color = color,
-				};
-			}
-		}
-	}
-
-public:
-	[[nodiscard]] gui::boarder get_boarder() const noexcept override{
+[[nodiscard]] gui::boarder get_boarder() const noexcept override{
 		return boarder;
 	}
 
@@ -295,6 +242,206 @@ public:
 			return disabled_opacity;
 		} else{
 			return style_drawer::content_opacity(element);
+		}
+	}
+
+};
+
+export
+struct round_style_no_edge : basic_elem_style_drawer{
+	palette_with<image_nine_region> base{};
+	palette_with<image_nine_region> back{};
+
+
+	explicit round_style_no_edge(const tags::persistent_tag_t& persistent_tag)
+			: basic_elem_style_drawer(persistent_tag, {{0b11}}){
+	}
+
+	round_style_no_edge() : basic_elem_style_drawer({{0b11}}){
+
+	}
+
+protected:
+	void draw_base(const elem& element, math::frect region, float opacityScl) const{
+		auto color_base = base.pal.on_instance(element).mul_a(opacityScl);
+		element.renderer() << fx::nine_patch_draw<>{
+			.patch = &base,
+			.region = region,
+			.color = color_base,
+		};
+	}
+
+	void draw_back(const elem& element, math::frect region, float opacityScl) const{
+		auto color = back.pal.on_instance(element).mul_a(opacityScl);
+		element.renderer() << fx::nine_patch_draw<>{
+			.patch = &back,
+			.region = region,
+			.color = color,
+		};
+	}
+
+	void draw_layer_impl(const elem& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override{
+		if(layer_param == 0){
+			if(base.image_view){
+				element.renderer().update_state(fx::batch_draw_mode::msdf);
+				draw_base(element, region, opacityScl);
+			}
+		}else if(layer_param == 1){
+			if(back.image_view){
+				element.renderer().update_state(fx::batch_draw_mode::msdf);
+				draw_back(element, region, opacityScl);
+			}
+		}
+	}
+
+};
+
+export
+struct round_style : round_style_no_edge{
+	palette_with<image_nine_region> edge{};
+
+	using round_style_no_edge::round_style_no_edge;
+
+protected:
+	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
+		fx::layer_param layer_param) const override{
+		if(layer_param == 0){
+			if(base.image_view || edge.image_view){
+				element.renderer().update_state(fx::batch_draw_mode::msdf);
+
+				if(base.image_view){
+					draw_base(element, region, opacityScl);
+				}
+
+				if(edge.image_view){
+					auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
+					element.renderer() << fx::nine_patch_draw<>{
+							.patch = &edge,
+							.region = region,
+							.color = color_edge,
+						};
+				}
+			}
+		} else if(layer_param == 1){
+			if(back.image_view){
+				element.renderer().update_state(fx::batch_draw_mode::msdf);
+				draw_back(element, region, opacityScl);
+			}
+		}
+	}
+};
+
+export
+struct round_style_edge_only : basic_elem_style_drawer{
+	palette_with<image_nine_region> edge{};
+
+	explicit round_style_edge_only(const tags::persistent_tag_t& persistent_tag)
+			: basic_elem_style_drawer(persistent_tag, {{0b1}}){
+	}
+
+	round_style_edge_only() : basic_elem_style_drawer({{0b1}}){
+
+	}
+
+protected:
+	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
+		fx::layer_param layer_param) const override{
+		if(layer_param.is_top()){
+			element.renderer().update_state(fx::batch_draw_mode::msdf);
+
+			auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
+			element.renderer() << fx::nine_patch_draw<>{
+				.patch = &edge,
+				.region = region,
+				.color = color_edge,
+			};
+		}
+	}
+};
+
+export
+enum struct side_bar_pos{
+	left, right, top, bottom
+};
+
+export
+struct side_bar_style : round_style_no_edge{
+	palette_with<image_row_patch> bar{};
+	side_bar_pos pos{};
+	graphic::draw::instruction::row_patch_flags flags{};
+
+
+	using round_style_no_edge::round_style_no_edge;
+
+	constexpr float get_bar_stroke() const noexcept{
+		switch(pos){
+		case side_bar_pos::left : return boarder.left * .8f;
+		case side_bar_pos::right : return boarder.right * .8f;
+		case side_bar_pos::top : return boarder.top * .8f;
+		case side_bar_pos::bottom : return boarder.bottom * .8f;
+		}
+		std::unreachable();
+	}
+
+	constexpr graphic::draw::instruction::row_patch_flags get_actual_flag() const noexcept{
+		//TODO provide uv flip
+		switch(pos){
+		case side_bar_pos::left : return flags | graphic::draw::instruction::row_patch_flags::transposed;
+		case side_bar_pos::right : return flags | graphic::draw::instruction::row_patch_flags::transposed;
+		case side_bar_pos::top : return flags & ~graphic::draw::instruction::row_patch_flags::transposed;
+		case side_bar_pos::bottom : return flags & ~graphic::draw::instruction::row_patch_flags::transposed;
+		}
+		std::unreachable();
+	}
+protected:
+	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
+		fx::layer_param layer_param) const override{
+		if(layer_param == 0){
+			if(base.image_view || bar.get_image_view()){
+				element.renderer().update_state(fx::batch_draw_mode::msdf);
+
+				if(base.image_view){
+					draw_base(element, region, opacityScl);
+				}
+
+				if(bar.get_image_view()){
+					math::vec2 src;
+					math::vec2 ext;
+
+					switch(pos){
+					case side_bar_pos::left :
+						src = region.src;
+						ext = {get_bar_stroke(), region.extent().y};
+						break;
+					case side_bar_pos::right :
+						src = region.vert_01();
+						ext = {-get_bar_stroke(), region.extent().y};
+						break;
+					case side_bar_pos::top :
+						src = region.src;
+						ext = {region.extent().x, get_bar_stroke()};
+						break;
+					case side_bar_pos::bottom :
+						src = region.vert_10();
+						ext = {region.extent().x, -get_bar_stroke()};
+						break;
+					default:
+						std::unreachable();
+					}
+
+					element.renderer() << fx::row_patch_draw{
+						.patch = &bar,
+						.region = {src, ext},
+						.color = bar.pal.on_instance(element).mul_a(opacityScl),
+						.flags = get_actual_flag()
+					};
+				}
+			}
+		} else if(layer_param == 1){
+			if(back.image_view){
+				element.renderer().update_state(fx::batch_draw_mode::msdf);
+				draw_back(element, region, opacityScl);
+			}
 		}
 	}
 

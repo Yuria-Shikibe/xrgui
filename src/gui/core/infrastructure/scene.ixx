@@ -242,23 +242,44 @@ export struct elem;
 
 export
 struct scene;
+struct scene_base;
+
+struct scene_resources{
+	friend scene_base;
+	friend scene;
+private:
+	mr::heap heap{};
+	style::style_manager init_style_manager_() const;
+
+public:
+	style::style_manager style_manager{};
+	cursor_collection cursor_collection_manager{};
+	fx::scene_render_pass_config pass_config{};
+
+	[[nodiscard]] scene_resources() = default;
+
+	[[nodiscard]] explicit scene_resources(mr::heap&& heap)
+		: heap(std::move(heap)), style_manager(init_style_manager_()){
+	}
+	[[nodiscard]] explicit scene_resources(mr::arena_id_t arena_id)
+		: heap(arena_id), style_manager(init_style_manager_()){
+	}
+};
 
 struct scene_base{
 	friend elem;
 	friend ui_manager;
 
+protected:
+	scene_resources* resources_;
+
 private:
-	mr::heap resource_{};
 	renderer_frontend renderer_{};
 
 	[[nodiscard]] mr::heap_handle get_heap() const noexcept{
-		return resource_.get();
+		return resources_->heap.get();
 	}
 
-	style::style_manager init_style_manager_();
-public:
-	style::style_manager style_manager{init_style_manager_()};
-	cursor_collection cursor_collection_manager{};
 
 protected:
 	rect region_{};
@@ -278,8 +299,6 @@ protected:
 	bool request_cursor_update_{};
 
 	double_buffer<mr::heap_vector<elem*>> inbounds_{mr::heap_allocator<elem*>{get_heap()}};
-	//TODO double swap buffer?
-	// mr::heap_vector<elem*> last_inbounds_{mr::heap_allocator<elem*>{get_heap()}};
 	double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap()}};
 
 
@@ -300,45 +319,32 @@ protected:
 		mr::heap_allocator<std::pair<const elem* const, react_flow::node*>>>
 	elem_owned_nodes_{};
 
-	layer_altitude_record layer_altitude_record_{get_heap()};
+	// layer_altitude_record layer_altitude_record_{get_heap()};
 
 	ccur::mpsc_double_buffer_no_propagate<elem*, std::vector<elem*, mr::heap_allocator<elem*>>> action_active_pending_elems_{std::vector<elem*, mr::heap_allocator<elem*>>{get_heap()}};
 	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> action_active_elems_{get_heap()};
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 
-	//must be the first to destruct
-	elem_ptr root_{};
-	tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
-	overlay_manager overlay_manager_{get_heap_allocator()};
-
-
 	//Frame things
 	unsigned long long current_frame_{};
 	double current_time_{};
 
+	tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
+	overlay_manager overlay_manager_{get_heap_allocator()};
+
+
+
 	[[nodiscard]] scene_base() = default;
 
-	template <std::derived_from<elem> T, typename ...Args>
-	[[nodiscard]] explicit(false) scene_base(
-		mr::arena_id_t arena_id,
-		renderer_frontend&& renderer,
-		std::in_place_type_t<T>,
-		Args&& ...args
-		);
-
-	fx::scene_render_pass_config pass_config_{};
+	explicit(false) scene_base(
+		scene_resources& resources,
+		renderer_frontend&& renderer) :
+		resources_(&resources),
+		renderer_(std::move(renderer)){
+	}
 
 public:
-
-	void set_pass_config(const fx::scene_render_pass_config& cfg){
-		pass_config_ = cfg;
-	}
-
-	const fx::scene_render_pass_config& get_pass_config() const noexcept{
-		return pass_config_;
-	}
-
 	template <std::derived_from<native_communicator> Ty, typename ...Args>
 	void set_native_communicator(Args&& ...args){
 		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
@@ -374,6 +380,11 @@ public:
 		return renderer_;
 	}
 
+	[[nodiscard]] scene_resources& resources() const noexcept{
+		assert(resources_ != nullptr);
+		return *resources_;
+	}
+
 	template <typename T = std::byte>
 	[[nodiscard]] mr::heap_allocator<T> get_heap_allocator() const noexcept {
 		return mr::heap_allocator<T>{get_heap()};
@@ -383,14 +394,6 @@ public:
 		return get_heap();
 	}
 
-	template <std::derived_from<elem> T = elem, bool unchecked = false>
-	T& root(){
-		assert(root_ != nullptr);
-		if constexpr (std::same_as<T, elem> || unchecked){
-			return *static_cast<T*>(root_.get());
-		}
-		return dynamic_cast<T&>(*root_);
-	}
 
 
 	[[nodiscard]] rect get_region() const noexcept{
@@ -442,7 +445,20 @@ struct scene : scene_base{
 	friend elem;
 	friend ui_manager;
 
-	using scene_base::scene_base;
+private:
+	elem_ptr root_{};
+	cursor_drawer current_cursor_drawers_{};
+
+public:
+	template <std::derived_from<elem> T, typename ...Args>
+	[[nodiscard]] explicit(false) scene(
+		scene_resources& resources,
+		renderer_frontend&& renderer,
+		std::in_place_type_t<T>,
+		Args&& ...args
+		) : scene_base(resources, std::move(renderer)), root_(static_cast<scene&>(*this), nullptr, std::in_place_type<T>, std::forward<Args>(args)...){
+		inputs_.main_binds.set_context(std::ref(*this));
+	}
 
 	scene(const scene& other) = delete;
 	scene(scene&& other) noexcept;
@@ -455,6 +471,14 @@ public:
 		return elem_ptr{*this, nullptr, std::in_place_type<T>, std::forward<Args>(args)...};
 	}
 
+	template <std::derived_from<elem> T = elem, bool unchecked = false>
+	T& root(){
+		assert(root_ != nullptr);
+		if constexpr (std::same_as<T, elem> || unchecked){
+			return *static_cast<T*>(root_.get());
+		}
+		return dynamic_cast<T&>(*root_);
+	}
 
 	void resize(const math::frect region);
 
@@ -571,13 +595,4 @@ private:
 
 };
 
-template <std::derived_from<elem> T, typename ... Args>
-scene_base::scene_base(
-	mr::arena_id_t arena_id,
-	renderer_frontend&& renderer, std::in_place_type_t<T>, Args&&... args):
-	resource_(arena_id),
-	renderer_(std::move(renderer)),
-	root_(static_cast<scene&>(*this), nullptr, std::in_place_type<T>, std::forward<Args>(args)...){
-	inputs_.main_binds.set_context(std::ref(static_cast<scene&>(*this)));
-}
 }

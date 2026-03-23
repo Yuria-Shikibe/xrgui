@@ -6,7 +6,7 @@
   ],
 
   "common_options": [
-    "-O2",
+    "-O3",
     "-g",
     "-fvk-use-gl-layout",
     "-fvk-use-entrypoint-name",
@@ -45,14 +45,14 @@
     },
     
     {
-      "file": "ui/draw_v2.slang"
+      "file": "ui/vert.slang"
     },
-
     {
-      "file": "ui/draw_bindless.slang",
-      "options": ["-target", "glsl", "-entry", "main_mesh"]
+      "file": "ui/frag_basic.slang"
     },
-    
+    {
+      "file": "ui/frag_outlined.slang"
+    },
     
 
     {

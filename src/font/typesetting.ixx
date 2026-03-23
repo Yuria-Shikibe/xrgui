@@ -45,14 +45,15 @@ struct ul_start_info{
 	typst_szt gap_count;
 	float ul_position;
 	float ul_thickness;
-	bool is_line_space = false; // [新增] 标记当前 pos 是否处于行坐标系
+	bool is_line_space = false; 
 };
 
 struct wrap_start_info{
 	math::vec2 pos;
 	typst_szt gap_count;
 	rich_text_token::wrap_frame_type type;
-	bool is_line_space = false; // [新增]
+	std::uint32_t start_cluster = 0;
+	bool is_line_space = false;
 };
 
 struct run_style_state{
@@ -154,10 +155,10 @@ protected:
 	}
 
 	protected:
-	// 将跨越 Block 的活跃修饰物升格到 Line Space
+	
 	void promote_decorations_to_line_space(persistent_run_state& rs) {
 		math::vec2 move_vec{};
-		// 计算本次 append 产生的偏移量
+		
 		move_vec.*state_.major_p = layout_buffer_.line_bound.width - layout_buffer_.cursor.*state_.major_p;
 
 		if (rs.active_wrap_start && !rs.active_wrap_start->is_line_space) {
@@ -170,12 +171,12 @@ protected:
 		}
 	}
 
-	// 换行时，严谨地结算所有 Line Space 的修饰物
+	
 	void seal_line_decorations(glyph_layout& results, persistent_run_state& rs) {
 		math::vec2 line_end_pos{};
 		line_end_pos.*state_.major_p = layout_buffer_.line_bound.width;
 
-		// 仅结算那些已经升格到行级（即属于当前行之前Block）的修饰物
+		
 		if (rs.active_wrap_start && rs.active_wrap_start->is_line_space) {
 			auto& info = *rs.active_wrap_start;
 			rich_text_token::set_wrap_frame wrap_setter{info.type};
@@ -185,25 +186,25 @@ protected:
 			wf.type = info.type;
 			wf.color = rs.prev_color;
 			wf.start_gap_count = info.gap_count;
-			wf.end_gap_count = layout_buffer_.block_span.elem_start; // 当前行的末尾 gap 就是下个 block 的起点
+			wf.end_gap_count = layout_buffer_.block_span.elem_start; 
 
 			math::vec2 min_pos = info.pos;
 			math::vec2 max_pos = line_end_pos;
 
 			min_pos.*state_.major_p -= pad;
 			max_pos.*state_.major_p += pad;
-			// 完美：直接使用 line_bound 的行高，无视当前 block
+			
 			min_pos.*state_.minor_p -= (layout_buffer_.line_bound.ascender + pad);
 			max_pos.*state_.minor_p += (layout_buffer_.line_bound.descender + pad);
 
 			wf.start = min_pos;
 			wf.end = max_pos;
 
-			// 插入到当前 Block 之前（使其归属于当前行被 advance_line 结算）
+			
 			results.wrap_frames.insert(results.wrap_frames.begin() + layout_buffer_.block_span.wrap_start, wf);
 			layout_buffer_.block_span.wrap_start++;
 
-			// 为新的一行重置状态：新起点就是行坐标系的 (0, 0)
+			
 			float full_pad = wrap_setter.get_pad_at_major();
 			math::vec2 shift_vec{};
 			shift_vec.*state_.major_p = this->is_reversed() ? -full_pad : full_pad;
@@ -261,13 +262,13 @@ private:
 	static constexpr bool enable_cluster_record = ClusterPol::enabled;
 	static constexpr bool enable_dynamic_rich_text_state = RichTextPol::enabled;
 
-	// --- 零开销挂载点 ---
+	
 	ADAPTED_NO_UNIQUE_ADDRESS ClusterPol cluster_policy_;
 	ADAPTED_NO_UNIQUE_ADDRESS RichTextPol rich_text_policy_;
 	ADAPTED_NO_UNIQUE_ADDRESS cond_exist<rich_text_state, enable_dynamic_rich_text_state> rich_text_state_;
 
 #pragma region Cluster
-	// 现在需要传入 results 引用
+	
 	FORCE_INLINE inline void cluster_reserve_(glyph_layout& results, std::size_t sz){
 		cluster_policy_.reserve(results, sz);
 	}
@@ -351,7 +352,7 @@ private:
 		offset_vec.*state_.minor_p = -start_info.ul_position;
 
 		if (start_info.is_line_space) {
-			// 在 Line Space 中提交，必须将 end (cursor) 也转换到 Line Space
+			
 			math::vec2 move_vec{}; move_vec.*state_.major_p = layout_buffer_.line_bound.width;
 			math::vec2 end_pos = layout_buffer_.cursor + move_vec;
 
@@ -367,7 +368,7 @@ private:
 			layout_buffer_.line_pos_min.min(ul_min);
 			layout_buffer_.line_pos_max.max(ul_max);
 		} else {
-			// 原有的 Block Space 逻辑
+			
 			ul.start = start_info.pos + offset_vec;
 			ul.end = layout_buffer_.cursor + offset_vec;
 
@@ -386,6 +387,8 @@ private:
 		const float pad = wrap_setter.get_pad_at_major() * .5f;
 
 		wrap_frame wf;
+		wf.color = ctx_color;
+
 		wf.type = start_info.type;
 		wf.color = ctx_color;
 		wf.start_gap_count = start_info.gap_count;
@@ -419,16 +422,15 @@ private:
 
 			min_pos.*state_.major_p -= pad;
 			max_pos.*state_.major_p += pad;
-			min_pos.*state_.minor_p -= (layout_buffer_.block_ascender + pad);
-			max_pos.*state_.minor_p += (layout_buffer_.block_descender + pad);
+			min_pos.*state_.minor_p -= (layout_buffer_.block_ascender + pad * .65f);
+			max_pos.*state_.minor_p += (layout_buffer_.block_descender + pad * .35f);
 
 			wf.start = min_pos;
 			wf.end = max_pos;
-
-			results.wrap_frames.push_back(wf);
-
 			layout_buffer_.block_pos_min.min(wf.start);
 			layout_buffer_.block_pos_max.max(wf.end);
+
+			results.wrap_frames.push_back(wf);
 		}
 	}
 
@@ -445,10 +447,10 @@ private:
 			shift_vec.*state_.major_p = this->is_reversed() ? -pad : pad;
 
 			if (!layout_buffer_.empty<enable_cluster_record>(results)) {
-				// 如果当前块中已有元素（例如自动换行时推入下行的未完成词），对整个块进行偏移
+				
 				layout_buffer_.shift_block<enable_cluster_record>(results, shift_vec);
 			} else {
-				// 如果是空块，直接推进 Cursor
+				
 				layout_buffer_.cursor = shift_vec;
 			}
 
@@ -459,7 +461,7 @@ private:
 
 	run_metrics calculate_metrics(const layout_config& config_, const font::font_face_handle& face) const noexcept{
 		run_metrics m{};
-		m.req_size_vec = (get_font_size_() * config_.throughout_scale).max({1, 1});
+		m.req_size_vec = (get_font_size_()).max({1, 1});
 		m.snapped_size = get_snapped_size_vec(m.req_size_vec);
 		m.run_scale_factor = m.req_size_vec / m.snapped_size.as<float>();
 
@@ -616,7 +618,7 @@ private:
 					local_aabb.move({cx, cy});
 				}
 
-				// ReSharper disable once CppPossiblyUnintendedObjectSlicing
+				
 				cached_indicator_ = indicator_cache{std::move(g), local_aabb, adv};
 			}
 		}
@@ -658,15 +660,21 @@ private:
 			}
 		};
 
-		auto flush_decorations = [&](bool is_delim){
+		auto flush_decorations = [&](bool is_delim, char32_t trigger_ch = U'\0', std::uint32_t current_cluster = 0){
 			if(rs.active_wrap_start){
-				this->submit_wrap_frame(results, *rs.active_wrap_start, rs.prev_color, is_delim);
+				// 确定性检查：如果包裹框起始的字符就是当前触发结束的字符，
+				// 且该字符为换行符，说明这仅是一个因换行产生的逻辑空框。
+				bool is_empty_wrap = (rs.active_wrap_start->start_cluster == current_cluster);
+				bool skip_submit = is_empty_wrap && (trigger_ch == U'\n' || trigger_ch == U'\r');
+
+				if (!skip_submit) {
+					this->submit_wrap_frame(results, *rs.active_wrap_start, rs.prev_color, is_delim);
+				}
+
 				rs.active_wrap_start.reset();
-				// [新增] 强制断开后，必须重置缓冲区的活跃类型，让下一行重新触发 Padding！
 				layout_buffer_.active_wrap_type = rich_text_token::wrap_frame_type::none;
 			}
 			if(rs.active_ul_start){
-				// 注意：这里去掉了 metrics 参数
 				this->submit_underline(results, *rs.active_ul_start, rs.prev_color, is_delim);
 				rs.active_ul_start.reset();
 			}
@@ -757,24 +765,18 @@ private:
 			if(is_wrap && !rs.active_wrap_start){
 				rs.active_wrap_start = wrap_start_info{
 						layout_buffer_.cursor, this->get_current_gap_index(results, is_delimiter),
-						current_wrap_state.type
+						current_wrap_state.type, current_cluster
 					};
 			}
 
 			if(is_delimiter){
 				flush_current_cluster();
 
-				// 修复：仅在显式换行时强制断开当前装饰（Underline, Wrap Frame）
-				// 普通分隔符（如空格、Tab）不应该打断它们，以便装饰能够跨越单词
 				if(ch == U'\r' || ch == U'\n'){
-					flush_decorations(true);
+					flush_decorations(true, ch, current_cluster);
 				}
 
 				if(!this->flush_block_impl<IsInf>(config_, results, rs)) return false;
-
-				// 注意：这里删除了原来 `if constexpr(enable_dynamic_rich_text_state)` 中
-				// 针对普通分隔符“断开后又重新开启”的冗余代码。
-				// 因为我们根本没有断开它们，所以不需要重新开启，它们会自动延续。
 			}
 
 			const font::glyph loaded_glyph = manager_->get_glyph_exact(face, {gid, metrics.snapped_size});
@@ -783,7 +785,7 @@ private:
 					font::normalize_len(pos[i].y_advance) * metrics.run_scale_factor.y
 				};
 
-			// 控制字符逻辑
+			
 			if(ch == U'\r' || ch == U'\n'){
 				flush_current_cluster();
 				static_cast<block_data&>(layout_buffer_).max_bound_height(metrics.run_font_asc, metrics.run_font_desc);
@@ -792,13 +794,13 @@ private:
 				cluster_push_(results, logical_cluster{current_cluster, 1, rect});
 
 				if(ch == U'\n'){
-					// [新增] 在主动推进新行前，先强制封闭上一行的修饰物
+					
 					this->seal_line_decorations(results, rs);
 					if(!this->flush_block_impl<IsInf>(config_, results, rs) || !this->advance_line_impl<IsInf>(config_,
 						results))return false;
 					this->apply_newline_wrap_indent(rs);
 					layout_buffer_.cursor = {};
-					// [新增] 继承并应用下一行的 wrap padding
+					
 					this->apply_newline_wrap_padding(results, rs);
 				}
 
@@ -808,8 +810,8 @@ private:
 					rs.active_ul_start.reset();
 				}
 				if(ch == U'\r') rs.active_ul_start.reset();
-				// 原逻辑在 \r 且非 crlf 时未重置，保持原意此处仅 crlf 重置 \r，但考虑到原始代码独立重置，应拆分或保留
-				// 修正：原代码对于 \r，当 crlf 时执行 reset。对于 \n 执行 reset。
+				
+				
 				continue;
 			} else if(ch == U'\t'){
 				flush_current_cluster();
@@ -876,7 +878,7 @@ private:
 						}
 					} else{
 						if(block_has_elems){
-							flush_decorations(false);
+							flush_decorations(false, ch);
 							flush_current_cluster();
 
 							layout_buffer_.append<enable_cluster_record>(results, state_.major_p);
@@ -895,7 +897,7 @@ private:
 							}
 
 							if(is_wrap){
-								// [新增] 为新的一行强制补偿首个 block 的偏移
+								
 								rich_text_token::set_wrap_frame wrap_setter{current_wrap_state.type};
 								float pad = wrap_setter.get_pad_at_major();
 								math::vec2 shift_vec{};
@@ -904,7 +906,7 @@ private:
 
 								rs.active_wrap_start = wrap_start_info{
 									layout_buffer_.cursor, this->get_current_gap_index(results, false),
-									current_wrap_state.type
+									current_wrap_state.type, current_cluster
 								};
 							}
 
@@ -957,7 +959,7 @@ private:
 				slant_factor_desc = loaded_glyph.metrics().descender() * slant_factor * metrics.run_scale_factor.y;
 			}
 
-			// ReSharper disable once CppPossiblyUnintendedObjectSlicing
+			
 			layout_buffer_.push_back(results, actual_aabb,
 				{draw_aabb, rs.prev_color, std::move(loaded_glyph), slant_factor_asc, slant_factor_desc, weight_offset}
 			);
@@ -1017,7 +1019,7 @@ private:
 
 		const std::size_t line_elem_end = layout_buffer_.block_span.elem_start;
 		const std::size_t line_ul_end = layout_buffer_.block_span.ul_start;
-		const std::size_t line_wrap_end = layout_buffer_.block_span.wrap_start; // 新增
+		const std::size_t line_wrap_end = layout_buffer_.block_span.wrap_start; 
 		const std::size_t line_cluster_end = enable_cluster_record ? layout_buffer_.block_span.cluster_start : 0;
 
 		bool has_elems = (line_elem_end > layout_buffer_.line_span.elem_start) ||
@@ -1039,7 +1041,7 @@ private:
 				if((global_max_y - global_min_y) > config_.max_extent.*state_.minor_p + 0.001f){
 					results.elems.resize(layout_buffer_.line_span.elem_start);
 					results.underlines.resize(layout_buffer_.line_span.ul_start);
-					results.wrap_frames.resize(layout_buffer_.line_span.wrap_start); // 新增
+					results.wrap_frames.resize(layout_buffer_.line_span.wrap_start); 
 					if constexpr(enable_cluster_record) results.clusters.resize(layout_buffer_.line_span.cluster_start);
 					return false;
 				}
@@ -1074,7 +1076,7 @@ private:
 
 		for(typst_szt i = layout_buffer_.line_span.wrap_start; i < line_wrap_end; ++i){
 			auto& wf = results.wrap_frames[i];
-			wf.line_index = current_line_idx; // 反向绑定
+			wf.line_index = current_line_idx; 
 
 			state_.min_bound.min(wf.start + offset_vec);
 			state_.max_bound.max(wf.end + offset_vec);
@@ -1082,7 +1084,7 @@ private:
 
 		for(typst_szt i = layout_buffer_.line_span.ul_start; i < line_ul_end; ++i){
 			auto& ul = results.underlines[i];
-			ul.line_index = current_line_idx; // 反向绑定
+			ul.line_index = current_line_idx; 
 
 			math::vec2 ul_min = math::min(ul.start, ul.end) + offset_vec;
 			math::vec2 ul_max = math::max(ul.start, ul.end) + offset_vec;
@@ -1119,14 +1121,14 @@ private:
 
 		if(layout_buffer_.check_block_fit<IsInf>(state_, config_, results, get_current_relative_scale())){
 			layout_buffer_.append<enable_cluster_record>(results, state_.major_p);
-			// 成功加入当前行：升格坐标系
+			
 			this->promote_decorations_to_line_space(rs);
 			static_cast<block_data&>(layout_buffer_).clear();
 			layout_buffer_.block_sync_start<enable_cluster_record>(results);
 			return true;
 		}
 
-		// 放不下，必须换行。直接调用行结算逻辑！
+		
 		this->seal_line_decorations(results, rs);
 
 		if(!this->advance_line_impl<IsInf>(config_, results)) return false;
@@ -1135,7 +1137,6 @@ private:
 		this->apply_newline_wrap_padding(results, rs);
 
 		if(config_.has_wrap_indicator()){
-			// ... 保持原有 indicator 代码 ...
 			const float scale = this->get_current_relative_scale();
 			auto scaled_aabb = cached_indicator_.glyph_aabb.copy();
 			scaled_aabb = {
@@ -1148,7 +1149,7 @@ private:
 
 		if(layout_buffer_.check_block_fit<IsInf>(state_, config_, results, get_current_relative_scale())){
 			layout_buffer_.append<enable_cluster_record>(results, state_.major_p);
-			// 新行的 Block 加入成功：升格坐标系
+			
 			this->promote_decorations_to_line_space(rs);
 		} else{
 			return false;
@@ -1165,12 +1166,12 @@ private:
 		typst_szt run_start = 0;
 
 		run_style_state current_style{};
-		persistent_run_state rs{}; // 实例化状态包
+		persistent_run_state rs{}; 
 
 		auto resolve_style = [&](char32_t codepoint, bool req_italic, bool req_bold) -> run_style_state{
 			const auto* family = get_font_view_(config_);
 			font::font_style target = font::make_font_style(req_italic, req_bold);
-			// 调用新的 API 获取 styled_font_face_view
+			
 			auto styled_view = manager_->use_family(family, target);
 			auto [best_face, _] = styled_view.view.find_glyph_of(codepoint);
 
@@ -1189,22 +1190,21 @@ private:
 
 				if(check_token_group_need_another_run(tokens)){
 					if(current_style.face && current_idx > run_start){
-						// 注意：这里向下传递了合成参数以及持久化状态包 rs
 						if(!process_text_run_impl<IsInf>(full_text, config_, results, run_start,
 							current_idx - run_start, *current_style.face,
 							current_style.synthetic_italic, current_style.synthetic_bold, rs))
 							return false;
 					}
 
-					// 富文本硬截断前，先结算当前跨 Run 积累的装饰物和 Cluster
+					
 					if(rs.current_logic_cluster){
 						cluster_push_(results, *rs.current_logic_cluster);
 						rs.current_logic_cluster.reset();
 					}
-					// if(rs.active_wrap_start){
-					// 	this->submit_wrap_frame(results, *rs.active_wrap_start, rs.prev_color, true);
-					// 	rs.active_wrap_start.reset();
-					// }
+					
+					
+					
+					
 					if(rs.active_ul_start){
 						this->submit_underline(results, *rs.active_ul_start, rs.prev_color, true);
 						rs.active_ul_start.reset();
@@ -1255,7 +1255,7 @@ private:
 			current_idx++;
 		}
 
-		// 处理最后一段 Run
+		
 		if(current_style.face){
 			if(!process_text_run_impl<IsInf>(full_text, config_, results, run_start,
 				full_text.get_text().size() - run_start, *current_style.face,
@@ -1263,7 +1263,7 @@ private:
 				return false;
 		}
 
-		// 文本全部解析完毕后的 Final Flush（结算最后残留的装饰物）
+		
 		if(rs.current_logic_cluster){
 			cluster_push_(results, *rs.current_logic_cluster);
 			rs.current_logic_cluster.reset();
@@ -1281,9 +1281,9 @@ private:
 	}
 
 public:
-	// ==========================================
-	// 6. 动态到编译期的桥接入口 (Dynamic Dispatcher)
-	// ==========================================
+	
+	
+	
 	void layout(const tokenized_text_view& full_text, const layout_config& config_, glyph_layout& layout_ref){
 		this->initialize_state(full_text, config_);
 
@@ -1353,6 +1353,4 @@ export using fast_plain_layout_context = layout_context_impl<
 	policies::ignore_clusters,
 	policies::plain_text_only
 >;
-
-constexpr std::size_t sz = sizeof(fast_plain_layout_context);
 }

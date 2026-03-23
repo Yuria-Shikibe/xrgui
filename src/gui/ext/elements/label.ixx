@@ -40,8 +40,7 @@ export enum struct text_rotation : std::uint8_t{
 
 export struct text_transform_config{
 	text_rotation rotation{text_rotation::deg_0};
-	bool flip_x{false};
-	bool flip_y{false};
+	math::vec2 scale{1.0f, 1.0f}; // 负值直接代表翻转
 
 	constexpr bool is_vertical() const noexcept{
 		return rotation == text_rotation::deg_90 || rotation == text_rotation::deg_270;
@@ -174,6 +173,22 @@ public:
 		}
 	}
 
+	template <typename T>
+	void set_typesetting_config(T typesetting::layout_config::* proj, const T& value){
+		if(util::try_modify(std::invoke(proj, layout_config_), value)){
+			change_mark_ |= change_type::config;
+			notify_isolated_layout_changed();
+		}
+	}
+
+	template <typename T>
+	void set_typesetting_config(T typesetting::layout_config::* proj, T&& value){
+		if(util::try_modify(std::invoke(proj, layout_config_), value)){
+			change_mark_ |= change_type::config;
+			notify_isolated_layout_changed();
+		}
+	}
+
 	void set_fit(bool fit = true){
 		if(util::try_modify(fit_, fit)){
 			change_mark_ |= change_type::max_extent | change_type::config;
@@ -240,6 +255,9 @@ protected:
 			base_ext.swap_xy();
 		}
 
+		// 新增：应用绝对缩放比例（取绝对值避免负数翻转缩小外包围盒尺寸）
+		base_ext *= {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
+
 		if(fit_){
 			return mo_yanxi::gui::align::embed_to(align::scale::fit_smaller, base_ext,
 				content_extent().min(max_fit_scale_bound));
@@ -267,10 +285,26 @@ protected:
 
 		math::vec2 local_bound = bound;
 
+		// 提取绝对缩放倍率
+		math::vec2 abs_scale = {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
+
+		// 提前将缩放影响逆向应用到传入引擎的排版空间（排除0避免除零异常）
+		if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
+			local_bound /= abs_scale;
+		}
+
 		const bool swap_axes = transform_config_.is_vertical();
 		if(swap_axes){
 			local_bound.swap_xy();
 		}
+
+		// 提取公共的输出尺寸处理函数，用于返回时将原始布局尺寸放大
+		auto process_result_ext = [&]() -> math::vec2 {
+			math::vec2 ext = glyph_layout_.extent;
+			if(swap_axes) ext.swap_xy();
+			ext *= abs_scale; // 应用缩放
+			return ext;
+		};
 
 		if(fit_){
 			if((change_mark_ & change_type::max_extent) != change_type{}){
@@ -289,27 +323,19 @@ protected:
 						render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
 					change_mark_ = change_type::none;
 
-					math::vec2 res_ext = glyph_layout_.extent;
-					if(swap_axes) res_ext = {res_ext.y, res_ext.x};
-					return {res_ext, true};
+					return {process_result_ext(), true};
 				}
 				change_mark_ = change_type::none;
-
 			}
 		} else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
 			layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
 			render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
 			change_mark_ = change_type::none;
 
-			math::vec2 res_ext = glyph_layout_.extent;
-
-			if(swap_axes) res_ext = {res_ext.y, res_ext.x};
-			return {res_ext, true};
+			return {process_result_ext(), true};
 		}
 
-		math::vec2 res_ext = glyph_layout_.extent;
-		if(swap_axes) res_ext = {res_ext.y, res_ext.x};
-		return {res_ext, false};
+		return {process_result_ext(), false};
 	}
 
 	void draw_text() const;

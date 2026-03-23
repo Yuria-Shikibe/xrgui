@@ -52,6 +52,15 @@ public:
 		: split_pane(scene, parent, layout::layout_policy::vert_major){
 	}
 
+	void set_split_pos(float p){
+		if(util::try_modify(seperator_position_.base, math::clamp(p, min_margin.from, 1.f - min_margin.to))){
+			seperator_position_.resume();
+			update_seperator();
+		}
+
+
+	}
+
 	[[nodiscard]] math::range get_min_margin() const{
 		return min_margin;
 	}

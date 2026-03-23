@@ -44,8 +44,8 @@ inline ArrowGeometry calculate_rect_arrow(
 	vec2 extent,
 	cursor_arrow_direction dir,
 	float arrow_size = 8.0f,
-	float margin = 8.0f,
-	float thickness = 2.0f) noexcept{
+	float margin = 10.0f,
+	float thickness = 1.5f) noexcept{
 	// 1. 获取方向向量
 	vec2 dir_v{0.0f, 0.0f};
 	switch(dir){
@@ -198,6 +198,8 @@ export
 struct cursor_drawer{
 	const style::cursor* main;
 	const style::cursor* dcor[style::dcor_max_count];
+
+	void draw(scene& scene, vec2 cursor_size_) const;
 };
 
 struct cursor_collection{
@@ -208,7 +210,6 @@ private:
 	container cursors_{std::to_underlying(style::cursor_type::RESERVED_COUNT)};
 	container decorations_{std::to_underlying(style::cursor_decoration_type::RESERVED_COUNT)};
 
-	cursor_drawer current_drawers_{};
 	math::vec2 cursor_size_{32, 32};
 
 	void add(container cursor_collection::* which, std::size_t where, ptr_type&& ptr){
@@ -263,11 +264,5 @@ public:
 
 		return rst;
 	}
-
-	void set_drawers(style::cursor_style style_pair) noexcept{
-		current_drawers_ = get_drawers(style_pair);
-	}
-
-	void draw(scene& scene) const;
 };
 }

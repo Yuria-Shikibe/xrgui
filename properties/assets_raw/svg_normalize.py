@@ -98,7 +98,11 @@ def main():
 
     for svg_file in svg_files:
         rel_path = svg_file.relative_to(input_dir)
-        out_file = output_dir / rel_path
+
+        # 将文件名中的空格和 "-" 替换为 "_"
+        new_filename = rel_path.name.replace(' ', '_').replace('-', '_')
+        # 重新组合输出路径，仅修改文件名部分，保持目录结构不变
+        out_file = output_dir / rel_path.with_name(new_filename)
 
         # 获取当前文件的最后修改时间戳
         current_mtime = svg_file.stat().st_mtime

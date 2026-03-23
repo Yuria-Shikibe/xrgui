@@ -365,7 +365,7 @@ export struct renderer{
 			case state_type::pipe :{
 				auto param = entry.as<pipeline_config>();
 
-				param.pipeline_index = draw_cfg.pipeline_index;
+				if(param.use_fallback_pipeline())param.pipeline_index = draw_cfg.pipeline_index;
 				draw_cfg = param;
 				context_trace.update_pipeline(draw_cfg.pipeline_index);
 				return false;
@@ -566,7 +566,7 @@ public:
 
 		for(unsigned i = 0; i < frames_in_flight; ++i){
 			sections[get_heap_dynamic_image_section() + 1 + i]= {
-				batch_device.get_required_buffer_descriptor_count_per_frame(batch_host),
+				graphic::draw::instruction::get_required_buffer_descriptor_count_per_frame(batch_host),
 						vk::heap_section_type::buffer
 			};
 		}

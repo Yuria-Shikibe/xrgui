@@ -141,7 +141,7 @@ void style::debug_elem_drawer::draw_background(const elem& element, math::frect 
 }
 
 style::elem_style_ptr elem::get_elem_default_style_() const{
-	return get_scene().style_manager.get_default<style::elem_style_drawer>();
+	return get_style_manager().get_default<style::elem_style_drawer>();
 }
 
 void elem::push_to_action_queue(){
@@ -262,19 +262,23 @@ void elem::set_focused_key(const bool focus) noexcept{
 	this->scene_->focus_key_ = focus ? this : nullptr;
 }
 
+style::style_manager& elem::get_style_manager() const noexcept{
+	return scene_->resources().style_manager;
+}
+
 void elem::update_altitude_(altitude_t height){
-	if(layer_altitude_ == height)return;
-	scene_->layer_altitude_record_.erase(layer_altitude_);
-	layer_altitude_ = height;
-	scene_->layer_altitude_record_.insert(layer_altitude_);
-	for (const auto & child : children()){
-		child->update_altitude_(height + 1);
-	}
+	// if(layer_altitude_ == height)return;
+	// scene_->layer_altitude_record_.erase(layer_altitude_);
+	// layer_altitude_ = height;
+	// scene_->layer_altitude_record_.insert(layer_altitude_);
+	// for (const auto & child : children()){
+	// 	child->update_altitude_(height + 1);
+	// }
 }
 
 void elem::init_altitude_(altitude_t height){
-	layer_altitude_ = height;
-	scene_->layer_altitude_record_.insert(layer_altitude_);
+	// layer_altitude_ = height;
+	// scene_->layer_altitude_record_.insert(layer_altitude_);
 }
 
 void elem::relocate_scene_(struct gui::scene* scene) noexcept{

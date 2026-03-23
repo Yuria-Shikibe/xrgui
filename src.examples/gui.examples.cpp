@@ -51,8 +51,10 @@ import mo_yanxi.graphic.draw.instruction.recorder;
 
 import mo_yanxi.gui.compound.color_picker;
 import mo_yanxi.gui.compound.named_slider;
+import mo_yanxi.gui.compound.file_selector;
 
 import mo_yanxi.gui.style.round_square;
+import mo_yanxi.gui.style.progress_bars;
 import mo_yanxi.gui.style.palette;
 
 import mo_yanxi.gui.assets.manager;
@@ -123,7 +125,7 @@ struct vp : gui::viewport{
 };
 
 void set_cursors(scene& scene){
-	auto& cm = scene.cursor_collection_manager;
+	auto& cm = scene.resources().cursor_collection_manager;
 
 	cm.add_cursor<assets::builtin::cursor::default_cursor_regular>(style::cursor_type::regular);
 	cm.add_cursor<assets::builtin::cursor::default_cursor_drag>(style::cursor_type::drag);
@@ -140,7 +142,7 @@ void set_cursors(scene& scene){
 }
 
 void make_styles(scene& scene){
-	auto& sm = scene.style_manager;
+	auto& sm = scene.resources().style_manager;
 
 	{
 		referenced_ptr<style::round_style> round_style{std::in_place};
@@ -150,7 +152,25 @@ void make_styles(scene& scene){
 		round_style->back = assets::builtin::default_round_square_base;
 
 		sm.register_style<style::elem_style_drawer>(round_style);
-		// sm.register_style<style::elem_style_drawer>(referenced_ptr<style::debug_elem_drawer>{std::in_place});
+	}
+
+
+	auto elem_slice = sm.get_slice<style::elem_style_drawer>().value();
+
+	{
+		referenced_ptr<style::round_style_no_edge> round_style{std::in_place};
+		round_style->back.pal = style::pal::dark;
+		round_style->back = assets::builtin::default_round_square_base;
+
+		elem_slice.insert_or_assign("round_base_only", round_style);
+	}
+
+	{
+		referenced_ptr<style::round_style_edge_only> round_style{std::in_place};
+		round_style->edge.pal = style::pal::white.border;
+		round_style->edge = assets::builtin::default_round_square_boarder_thin;
+
+		elem_slice.insert_or_assign("round_edge_only", round_style);
 	}
 
 	{
@@ -172,15 +192,55 @@ void make_styles(scene& scene){
 		sm.register_style<style::slider1d_drawer>(std::move(round_scroll_bar_style));
 	}
 
+	{
+		style::side_bar_style style{};
+		const auto region = assets::builtin::get_page()[assets::builtin::shape_id::side_bar].value_or({});
+		style.bar.pal = style::pal::white.border;
+		style.bar = image_row_patch{region, region->uv.get_region(), 18, 18, 4};
+		style.back.pal = style::pal::dark;
+		style.back = assets::builtin::default_round_square_base;
+
+
+		{
+			auto s = style;
+			s.boarder.left = 16;
+			s.pos = style::side_bar_pos::left;
+			elem_slice.insert_or_assign("side_bar_left", referenced_ptr<style::side_bar_style>{std::in_place, s});
+		}
+		{
+			auto s = style;
+			s.boarder.right = 16;
+			s.pos = style::side_bar_pos::right;
+			elem_slice.insert_or_assign("side_bar_right", referenced_ptr<style::side_bar_style>{std::in_place, s});
+		}
+		{
+			auto s = style;
+			s.boarder.top = 16;
+			s.pos = style::side_bar_pos::top;
+			elem_slice.insert_or_assign("side_bar_top", referenced_ptr<style::side_bar_style>{std::in_place, s});
+		}
+		{
+			auto s = style;
+			s.boarder.bottom = 16;
+			s.pos = style::side_bar_pos::bottom;
+			elem_slice.insert_or_assign("side_bar_bottom", referenced_ptr<style::side_bar_style>{std::in_place, s});
+		}
+	}
+
 	sm.register_style<style::slider2d_drawer>(referenced_ptr<style::default_slider2d_drawer>{std::in_place});
 
 }
+
+struct test_entry{
+	std::u32string name;
+	std::move_only_function<elem_ptr() const> prov;
+};
 
 ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
 	make_styles(scene);
 	set_cursors(scene);
 
-	scene.set_pass_config({
+	scene.resources().pass_config = {
 			{
 				fx::scene_render_pass_config::value_type{
 					.begin_config = {
@@ -196,7 +256,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 				}
 			},
 			fx::blit_pipeline_config{}
-		});
+		};
 
 	scene.set_native_communicator<backend::glfw::communicator>(ctx.window().get_handle());
 	scene.get_communicator()->set_native_cursor_visibility(false);
@@ -228,6 +288,9 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 
 	auto make_create_table = [&]{
 		using function_signature = void(scroll_pane&);
+		std::vector<test_entry> tests{
+
+		};
 		std::vector<std::function<function_signature>> creators{
 				[&](scroll_pane& pane){
 					pane.create([&](sequence& sequence){
@@ -408,12 +471,14 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						sequence.create_back([&](progress_bar& prog){
 							prog.progress.set_state(progress_state::approach_smooth);
 							prog.progress.set_speed(.0001f);
-							referenced_ptr<style::progress_drawer_arc> drawer{std::in_place};
+							referenced_ptr<style::ring_progress> drawer{std::in_place};
+							drawer->thickness = 32;
+							prog.draw_config.color = {graphic::colors::white, graphic::colors::white};
 
-							drawer->angle_range = {.1f, -.7f};
-							drawer->radius = {5, 2};
 
+							prog.set_self_boarder(gui::boarder{}.set(32));
 							prog.drawer = std::move(drawer);
+							prog.set_progress_state(progress_state::rough);
 							auto& t = prog.request_receiver();
 							react_flow::connect_chain(progNode, t);
 						}).cell().set_size(400);
@@ -508,6 +573,14 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							});
 						}
 					});
+				},
+				[&](scroll_pane& pane){
+					auto& s = pane.emplace<gui::cpd::file_selector>();
+					s.set_multiple_selection(true);
+					auto& n = s.request_embedded_react_node(react_flow::make_listener([](std::span<const std::filesystem::path> paths){
+						std::println(std::cerr, "{::?}", paths | std::views::transform([](const std::filesystem::path& p){return p.string();}));
+					}));
+					n.connect_predecessor(s.get_prov());
 				},
 				[](scroll_pane& pane){
 					pane.create([](menu& menu){
@@ -648,9 +721,6 @@ Edge Cases:
 										l.set_expand_policy(layout::expand_policy::prefer);
 										// l.text_line_align = typesetting::content_alignment::justify;
 										l.set_fit(false);
-										l.set_typesetting_config(typesetting::layout_config{
-												.throughout_scale = 1.75f
-											});
 										l.set_text(test_text);
 									});
 								});
@@ -680,7 +750,6 @@ Edge Cases:
 										l.set_fit(false);
 										l.set_typesetting_config(typesetting::layout_config{
 												.direction = typesetting::layout_direction::rtl,
-												.throughout_scale = 1.75f
 											});
 										l.set_text(test_text);
 									});

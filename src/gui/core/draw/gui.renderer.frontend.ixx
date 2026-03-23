@@ -356,6 +356,11 @@ public:
 		}, instr, gui::make_state_tag(fx::state_type_deduce<T>::type, minor_tag), offset);
 	}
 
+	void update_state(fx::batch_draw_mode mode){
+		this->update_state({}, mode, make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
+	}
+
+
 	bool push(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
 		auto cur = payload;
 		for(const auto& head : heads){

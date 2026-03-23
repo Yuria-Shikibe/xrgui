@@ -369,7 +369,6 @@ export struct layout_config{
 	math::vec2 max_extent = math::vectors::constant2<float>::inf_positive_vec2;
 	math::optional_vec2<float> default_font_size{math::nullopt_vec2<float>};
 	linefeed_type line_feed_type;
-	float throughout_scale = 1.f;
 	float tab_scale = 4.f;
 	float line_spacing_scale = 1.5f;
 	float line_spacing_fixed_distance = 0.f;

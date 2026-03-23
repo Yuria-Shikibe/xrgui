@@ -167,6 +167,10 @@ void sequence::layout_elem(){
 		if(cell.cell.stated_size.pending())cell_sz.*minorTarget = std::numeric_limits<float>::infinity();
 
 		cell.apply(*this, cell_sz);
+
+		auto pref = cell_sz;
+		pref.*minorTarget = 0;
+		cell.element->set_prefer_extent(pref);
 		if(!is_pos_smooth())cell.cell.update_relative_src(*cell.element, content_src_pos_abs());
 
 		currentOff.*minorTarget += cell.cell.pad.post + minor;

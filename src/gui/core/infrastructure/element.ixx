@@ -691,6 +691,8 @@ public:
 
 #pragma region Trivial_Getter_Setters
 public:
+	style::style_manager& get_style_manager() const noexcept;
+
 	[[nodiscard]] FORCE_INLINE inline const cursor_states& cursor_state() const noexcept{
 		return cursor_states_;
 	}
@@ -836,6 +838,12 @@ public:
 		return pos_rel() + content_src_offset();
 	}
 
+	void set_self_boarder(align::spacing boarder) {
+		if(util::try_modify(boarder_, boarder)){
+			notify_layout_changed(propagate_mask::lower);
+		}
+	}
+
 	FORCE_INLINE inline bool set_rel_pos(math::vec2 p) noexcept{
 		return util::try_modify(relative_pos_, p);
 	}
@@ -870,7 +878,7 @@ public:
 	[[nodiscard]] FORCE_INLINE inline bool is_interactable() const noexcept{
 		if(invisible) return false;
 		if(disabled) return false;
-		if(touch_blocked())return false;
+		if(interactivity == interactivity_flag::disabled)return false;
 		return true;
 	}
 

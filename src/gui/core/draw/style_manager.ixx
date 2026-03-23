@@ -11,14 +11,17 @@ import mo_yanxi.gui.style.interface;
 import mo_yanxi.gui.alloc;
 
 namespace mo_yanxi::gui::style {
-//TODO introduce allocator?
+
+using style_map_allocator = mr::heap_allocator<std::pair<const std::string, referenced_ptr<style_drawer_base>>>;
 
 struct style_collection {
-    string_hash_map<referenced_ptr<style_drawer_base>> map;
+    mr::heap_umap<std::string, referenced_ptr<style_drawer_base>, transparent::string_hasher, transparent::string_equal_to> map;
     referenced_ptr<style_drawer_base> default_style;
 
-    explicit style_collection(referenced_ptr<style_drawer_base> default_val)
-        : default_style(std::move(default_val)) {
+    explicit style_collection(
+        referenced_ptr<style_drawer_base> default_val,
+        const style_map_allocator& alloc = mr::get_default_heap_allocator<std::pair<const std::string, referenced_ptr<style_drawer_base>>>()
+    ) : map(alloc), default_style(std::move(default_val)) {
         if (!default_style) {
             throw std::invalid_argument{"default_style cannot be null"};
         }
@@ -73,10 +76,10 @@ public:
     }
 
 	template <typename Key>
-		[[nodiscard]] referenced_ptr<T> get_or_default(Key&& key) const noexcept {
+    [[nodiscard]] referenced_ptr<T> get_or_default(Key&& key) const noexcept {
     	if (const auto itr = collection->map.find(key); itr != collection->map.end()) {
     		return referenced_ptr<T>{static_cast<T*>(itr->second.get())};
-    	}
+        }
     	return default_style();
     }
 
@@ -123,17 +126,21 @@ public:
     }
 };
 
+using manager_map_allocator = mr::heap_allocator<std::pair<const type_identity_index, style_collection>>;
+
 export
 struct style_manager {
 private:
-    std::unordered_map<type_identity_index, style_collection> style_map;
+    mr::heap_umap<type_identity_index, style_collection> style_map;
 
 public:
-    [[nodiscard]] style_manager() = default;
+    [[nodiscard]] explicit style_manager(
+        const manager_map_allocator& alloc = mr::get_default_heap_allocator()
+    ) : style_map(alloc) {}
 
 	void reserve(std::size_t size){
 		style_map.reserve(size);
-	}
+    }
 
     // 2. 注册函数：要求传入非空默认值
     template <typename T_Explicit>
@@ -141,9 +148,13 @@ public:
         if (!default_style) {
             throw std::invalid_argument{"default style cannot be null"};
         }
+
+        // 传递当前 map 的 allocator 给子集合，保持内存分配区域的一致性
+        style_map_allocator coll_alloc{style_map.get_allocator()};
+
         return style_map.insert_or_assign(
             mo_yanxi::unstable_type_identity_of<T_Explicit>(),
-            style_collection{referenced_ptr<style_drawer_base>{std::move(default_style)}}
+            style_collection{referenced_ptr<style_drawer_base>{std::move(default_style)}, coll_alloc}
         );
     }
 

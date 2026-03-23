@@ -15,15 +15,26 @@ import <beman/inplace_vector.hpp>;
 #endif
 
 namespace mo_yanxi::gui{
+ constexpr inline float fringe_range = 2.f;
 
-void cursor_collection::draw(scene& scene) const{
+void cursor_drawer::draw(scene& scene, vec2 cursor_size_) const{
+	scene.renderer().update_state(fx::pipeline_config{
+			.draw_targets = {0b1},
+			.pipeline_index = 1
+		});
+
+	scene.renderer().update_state(
+		{}, 1.f,
+		graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
+	);
+
 	rect region{};
 
-	if(current_drawers_.main){
-		region = current_drawers_.main->draw(scene.renderer(), {scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
+	if(main){
+		region = main->draw(scene.renderer(), {scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
 	}
 
-	for (auto dcor : current_drawers_.dcor){
+	for (auto dcor : dcor){
 		if(!dcor)break;
 		auto reg = dcor->draw(scene.renderer(), {scene.get_cursor_pos(), cursor_size_}, scene.get_inbounds());
 		region.expand_by(reg);
@@ -34,7 +45,7 @@ void cursor_collection::draw(scene& scene) const{
 			.src = region.src.as<int>(),
 			.extent = region.extent().as<int>()
 		},
-		{.pipeline_index = 2}});
+		{.pipeline_index = 1}});
 }
 
 namespace assets::builtin::cursor{
@@ -59,12 +70,12 @@ constexpr drag_icon_layout calculate_drag_icon(const vec2& src, const vec2& exte
 	float min_dim = math::min(extent.x, extent.y);
 
 	// 3. 设定圆点的半径 (例如：取较短边的 8%)
-	float radius = min_dim * 0.09f;
+	float radius = min_dim * 0.072f;
 
 	// 4. 设定点阵在 X 和 Y 方向上的间距 (例如：取较短边的 35%)
 	// 这样能够保证点阵本身是个规整的网格，而不会因为外层矩形被拉伸而变形
-	float spacing_x = min_dim * 0.385f;
-	float spacing_y = min_dim * 0.385f;
+	float spacing_x = min_dim * 0.4f;
+	float spacing_y = min_dim * 0.4f;
 
 	// 5. 计算左右两列的 X 坐标
 	float left_x = center.x - spacing_x * 0.5f;
@@ -96,10 +107,10 @@ rect default_cursor_arrow::draw(gui::renderer_frontend& renderer, math::raw_frec
 	context.push(rst.p2, 3, graphic::colors::white);
 	context.push(rst.p3, 3, graphic::colors::white);
 	context.add_cap();
-	context.add_fringe_cap();
+	context.add_fringe_cap(fringe_range, fringe_range);
 	context.dump_mid(renderer, line_segments{});
-	context.dump_fringe_inner(renderer, line_segments{});
-	context.dump_fringe_outer(renderer, line_segments{});
+	context.dump_fringe_inner(renderer, line_segments{}, fringe_range);
+	context.dump_fringe_outer(renderer, line_segments{}, fringe_range);
 
 	return style::calculate_arrow_aabb(rst);
 }
@@ -107,15 +118,16 @@ rect default_cursor_arrow::draw(gui::renderer_frontend& renderer, math::raw_frec
 rect default_cursor_drag::draw(gui::renderer_frontend& renderer, math::raw_frect region,
 	std::span<const elem* const> inbound_stack) const{
 	region.src -= region.extent * .5f;
+	region.expand({4, 4});
 
 	auto [ps, radius] = calculate_drag_icon(region.src, region.extent);
 	fx::circle circle{
-		.radius = radius,
+		.radius = {0, radius},
 		.color = {graphic::colors::white, graphic::colors::white}
 	};
 	for (const auto & p : ps){
 		circle.pos = p;
-		fx::fringe::poly(renderer, circle);
+		fx::fringe::poly(renderer, circle, fringe_range);
 	}
 
 	return get_bound(region);
@@ -123,16 +135,19 @@ rect default_cursor_drag::draw(gui::renderer_frontend& renderer, math::raw_frect
 
 rect default_cursor_regular::draw(renderer_frontend& renderer, math::raw_frect region,
 	std::span<const elem* const> inbound_stack) const{
-	static constexpr float stroke = 1.35f;
+	static constexpr float stroke = fringe_range;
+	static constexpr float scl = .75f;
 
 
 	math::section<graphic::float4> color{graphic::colors::white.copy_set_a(0), graphic::colors::white};
 
+
+
 	const auto verts = std::to_array({
-		region.src + math::vec2{0, region.extent.y * .75f},
+		region.src + math::vec2{0, region.extent.y * .75f * scl },
 		region.src,
-		region.src + math::vec2{region.extent.x * .225f, region.extent.y * .5f},
-		region.src + region.extent * (1.18f / 2),
+		region.src + math::vec2{region.extent.x * .225f * scl, region.extent.y * .5f * scl},
+		region.src + region.extent * (1.18f / 2) * scl,
 	});
 
 	//Body

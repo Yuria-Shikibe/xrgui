@@ -43,6 +43,7 @@ public:
        return util::try_modify(this->target, target);
     }
 
+
     constexpr bool set_state(progress_state new_state) noexcept{
        auto rst = util::try_modify(state, new_state);
        if(new_state == progress_state::approach_smooth ||

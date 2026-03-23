@@ -161,38 +161,50 @@ struct data_layout_spec{
 };
 
 
+export
+std::uint32_t get_required_buffer_descriptor_count_per_frame(const draw_list_context& host_ctx) noexcept{
+	return 3 + host_ctx.get_data_group_vertex_info().size() + (1 + host_ctx.get_data_group_non_vertex_info().size());
+}
+
 struct frame_resource{
+	//TODO direct draw instead of indirect?
+
 	static constexpr unsigned image_index = 3;
 
 	vk::buffer_cpu_to_gpu buffer_dispatch_info{};
 	vk::buffer_cpu_to_gpu buffer_instruction_heads{};
 	vk::buffer_cpu_to_gpu buffer_instruction{};
 	vk::buffer_cpu_to_gpu buffer_indirect{};
-	vk::buffer_cpu_to_gpu buffer_sustained_info{};
-	vk::buffer_cpu_to_gpu buffer_state_data{};
+	vk::buffer_cpu_to_gpu buffer_volatile_data{};
+	vk::buffer_cpu_to_gpu buffer_per_draw_call_data{};
 
-	std::vector<vk::binding_spec> bindings{
-			{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
-			{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
-			{2, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
-			{image_index, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER}, // Dynamic count
-			{4, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Base for vertex UBOs
-			{5, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
-		};
+	std::vector<vk::binding_spec> bindings{};
 	vk::dynamic_descriptor_buffer descriptor_buffer{};
-	vk::descriptor_buffer volatile_descriptor_buffer{};
+	vk::descriptor_buffer descriptor_buffer_per_draw_call{};
 
 	std::vector<VkDeviceAddressRangeEXT> cache_buffer_ranges_{};
 	std::vector<std::uint32_t> dispatch_timeline_stamps_{};
 
 	frame_resource(const vk::allocator_usage& allocator,
 		const vk::descriptor_layout& layout,
-		const vk::descriptor_layout& volatile_layout, std::size_t required_buffer_upload_count)
+		const vk::descriptor_layout& volatile_layout, const draw_list_context& batch_frontend)
 		: buffer_indirect(allocator, sizeof(VkDrawMeshTasksIndirectCommandEXT) * 32,
 			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)
+		, bindings{[&]{
+			std::vector<vk::binding_spec> bindings{
+				{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+				{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+				{2, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+				{image_index, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER}};
+
+			for(unsigned i = 0; i < batch_frontend.get_data_group_vertex_info().size(); ++i){
+				bindings.push_back({4 + i, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
+			}
+			return bindings;
+		}()}
 		, descriptor_buffer(allocator, layout, layout.binding_count(), bindings)
-		, volatile_descriptor_buffer(allocator, volatile_layout, volatile_layout.binding_count()),
-		cache_buffer_ranges_(required_buffer_upload_count){
+		, descriptor_buffer_per_draw_call(allocator, volatile_layout, volatile_layout.binding_count()),
+		cache_buffer_ranges_(get_required_buffer_descriptor_count_per_frame(batch_frontend)){
 	}
 
 	void upload_indirect(
@@ -265,7 +277,7 @@ struct frame_resource{
 		data_layout_spec& state_data_layout_cache_,
 		std::vector<std::uint32_t>& cached_volatile_timelines){
 		// Sustained
-		load_data_group_to_buffer(host_ctx.get_data_group_vertex_info(), allocator, buffer_sustained_info,
+		load_data_group_to_buffer(host_ctx.get_data_group_vertex_info(), allocator, buffer_volatile_data,
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
 		// Volatile
@@ -293,16 +305,16 @@ struct frame_resource{
 		}
 
 		const auto payload = state_data_layout_cache_.get_payload();
-		if(buffer_state_data.get_size() < payload.size()){
-			buffer_state_data = vk::buffer_cpu_to_gpu{
+		if(buffer_per_draw_call_data.get_size() < payload.size()){
+			buffer_per_draw_call_data = vk::buffer_cpu_to_gpu{
 					allocator, payload.size(),
 					VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 				};
 		}
-		vk::buffer_mapper{buffer_state_data}.load_range(payload);
+		vk::buffer_mapper{buffer_per_draw_call_data}.load_range(payload);
 
-		if(volatile_descriptor_buffer.get_chunk_count() < submit_info.size() + 1){
-			volatile_descriptor_buffer.set_chunk_count(submit_info.size() + 1);
+		if(descriptor_buffer_per_draw_call.get_chunk_count() < submit_info.size() + 1){
+			descriptor_buffer_per_draw_call.set_chunk_count(submit_info.size() + 1);
 		}
 
 		auto breakpoints = host_ctx.get_state_transitions();
@@ -310,15 +322,15 @@ struct frame_resource{
 		auto dispatch_timeline_chunk_size = (cached_volatile_timelines.size() + 1);
 		dispatch_timeline_stamps_.resize(dispatch_timeline_chunk_size * (breakpoints.size() + 1));
 
-		vk::descriptor_mapper mapper{volatile_descriptor_buffer};
+		vk::descriptor_mapper mapper{descriptor_buffer_per_draw_call};
 
 		auto load_timelines = [&](std::size_t current_chunk){
 			mapper.set_uniform_buffer(0,
-				buffer_state_data.get_address() + state_data_layout_cache_.offset_at(0, current_chunk),
+				buffer_per_draw_call_data.get_address() + state_data_layout_cache_.offset_at(0, current_chunk),
 				sizeof(dispatch_config), current_chunk);
 			for(auto [idx, timeline] : cached_volatile_timelines | std::views::enumerate){
 				auto [off, sz] = state_data_layout_cache_[idx + 1, timeline];
-				mapper.set_uniform_buffer(idx + 1, buffer_state_data.get_address() + off, sz, current_chunk);
+				mapper.set_uniform_buffer(idx + 1, buffer_per_draw_call_data.get_address() + off, sz, current_chunk);
 			}
 		};
 
@@ -417,7 +429,7 @@ struct frame_resource{
 		VkDeviceSize cur_offset{};
 		for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
 			dbo_mapper.set_element_at(image_index + 1 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-				buffer_sustained_info.get_address() + cur_offset, entry.get_required_byte_size());
+				buffer_volatile_data.get_address() + cur_offset, entry.get_required_byte_size());
 			cur_offset += entry.get_required_byte_size();
 		}
 		return requires_command_record;
@@ -488,7 +500,7 @@ private:
 	/**
 	 * @brief Descriptor varies during each draw dispatch, used for uniform buffer update mainly.
 	 */
-	vk::descriptor_layout state_descriptor_layout_{};
+	vk::descriptor_layout per_draw_call_descriptor_layout_{};
 
 	VkDeviceSize offset_ceil(std::size_t size) const noexcept{
 		//TODO check device real limit
@@ -519,7 +531,7 @@ public:
 					builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 				}
 			})
-		, state_descriptor_layout_{
+		, per_draw_call_descriptor_layout_{
 			a.get_device(),
 			VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 			[&](vk::descriptor_layout_builder& builder){
@@ -531,7 +543,7 @@ public:
 		}{
 		frames_.reserve(frames_in_flight);
 		for(std::size_t i = 0; i < frames_in_flight; ++i){
-			frames_.emplace_back(allocator_, descriptor_layout_, state_descriptor_layout_, get_required_buffer_descriptor_count_per_frame(batch_host));
+			frames_.emplace_back(allocator_, descriptor_layout_, per_draw_call_descriptor_layout_, batch_host);
 		}
 	}
 
@@ -587,14 +599,14 @@ public:
 	}
 
 	std::array<VkDescriptorSetLayout, 2> get_descriptor_set_layout() const noexcept{
-		return {descriptor_layout_, state_descriptor_layout_};
+		return {descriptor_layout_, per_draw_call_descriptor_layout_};
 	}
 
 	template <typename T = std::allocator<descriptor_buffer_usage>>
 	void load_descriptors(record_context<T>& record_context, std::uint32_t frame_index){
 		auto& frame = frames_[frame_index];
 		record_context.push(0, frame.descriptor_buffer);
-		record_context.push(1, frame.volatile_descriptor_buffer, frame.volatile_descriptor_buffer.get_chunk_size());
+		record_context.push(1, frame.descriptor_buffer_per_draw_call, frame.descriptor_buffer_per_draw_call.get_chunk_size());
 	}
 
 	std::span<const std::uint32_t> get_state_buffer_indices(const draw_list_context& host_ctx, std::uint32_t frame_index, std::uint32_t drawlist_index) const noexcept{
@@ -612,8 +624,5 @@ public:
 			dispatch_group_index * sizeof(VkDrawMeshTasksIndirectCommandEXT), 1);
 	}
 
-	std::uint32_t get_required_buffer_descriptor_count_per_frame(const draw_list_context& host_ctx) const noexcept{
-		return 3 + host_ctx.get_data_group_vertex_info().size() + (1 + host_ctx.get_data_group_non_vertex_info().size());
-	}
 };
 }
