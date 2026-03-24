@@ -327,6 +327,8 @@ public:
 	}
 };
 
+
+
 export{
 	[[nodiscard]] constexpr std::array<float align::spacing::*, 4> get_pad_ptr(layout_policy policy) noexcept{
 		if(policy == layout_policy::vert_major){
@@ -397,4 +399,24 @@ export{
 			};
 	}
 }
+}
+
+namespace mo_yanxi::gui{
+
+export
+[[nodiscard]] layout::stated_extent clip_boarder_from(layout::stated_extent extent, const math::vec2 boarder_extent) noexcept{
+	if(extent.width.mastering()){extent.width.value = std::fdim(extent.width.value, boarder_extent.x);}
+	if(extent.height.mastering()){extent.height.value = std::fdim(extent.height.value, boarder_extent.y);}
+
+	return extent;
+}
+
+export
+[[nodiscard]] layout::optional_mastering_extent clip_boarder_from(layout::optional_mastering_extent extent, const math::vec2 boarder_extent) noexcept{
+	extent.set_width(std::fdim(extent.potential_width(), boarder_extent.x));
+	extent.set_height(std::fdim(extent.potential_height(), boarder_extent.y));
+
+	return extent;
+}
+
 }

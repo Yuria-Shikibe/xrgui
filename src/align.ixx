@@ -48,14 +48,10 @@ namespace mo_yanxi{
 		template <typename T>
 			requires (std::is_arithmetic_v<T>)
 		struct padding2d{
-			/**@brief Left Spacing*/
-			T left{};
-			/**@brief Right Spacing*/
-			T right{};
-			/**@brief Bottom Spacing*/
-			T bottom{};
-			/**@brief Top Spacing*/
-			T top{};
+			T left;
+			T right;
+			T bottom;
+			T top;
 
 			[[nodiscard]] constexpr math::vector2<T> bot_lft() const noexcept{
 				return {left, bottom};
@@ -161,6 +157,7 @@ namespace mo_yanxi{
 				return set(0);
 			}
 		};
+
 
 		template <typename T>
 		padding2d<T> pad_between(const math::rect_ortho<T>& internal, const math::rect_ortho<T>& external) noexcept {

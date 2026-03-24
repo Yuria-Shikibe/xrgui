@@ -10,6 +10,7 @@ export import mo_yanxi.math.rect_ortho;
 import mo_yanxi.gui.alloc;
 import mo_yanxi.func_initialzer;
 import mo_yanxi.concepts;
+import mo_yanxi.transparent_span;
 import std;
 
 namespace mo_yanxi::gui{
@@ -42,6 +43,7 @@ using elem_init_func_create_t = typename elem_init_func_trait<InitFunc>::elem_ty
 
 export
 struct elem_ptr{
+
 	[[nodiscard]] elem_ptr() = default;
 
 	[[nodiscard]] explicit elem_ptr(elem* element)
@@ -148,6 +150,9 @@ private:
 	static void set_deleter(elem* element, void(*p)(elem*) noexcept) noexcept;
 
 	static void delete_elem(elem* ptr) noexcept;
+
+public:
+	static constexpr auto cvt_mptr = transparent_convert<&elem_ptr::element>;
 };
 
 }

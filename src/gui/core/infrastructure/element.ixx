@@ -29,6 +29,7 @@ import :defines;
 import :flags;
 
 export import :elem_ptr;
+import mo_yanxi.transparent_span;
 
 
 namespace mo_yanxi::gui{
@@ -88,23 +89,6 @@ export inline referenced_ptr<const elem_style_drawer> get_default_style_drawer()
 	return global_default_style_drawer == nullptr ? referenced_ptr<const elem_style_drawer>{&debug_style} : global_default_style_drawer;
 }
 
-}
-
-export
-[[nodiscard]] layout::stated_extent clip_boarder_from(layout::stated_extent extent, const math::vec2 boarder_extent) noexcept{
-	if(extent.width.mastering()){extent.width.value = std::fdim(extent.width.value, boarder_extent.x);}
-	if(extent.height.mastering()){extent.height.value = std::fdim(extent.height.value, boarder_extent.y);}
-
-	return extent;
-}
-
-export
-[[nodiscard]] layout::optional_mastering_extent clip_boarder_from(layout::optional_mastering_extent extent, const math::vec2 boarder_extent) noexcept{
-	auto [dx, dy] = extent.get_mastering();
-	if(dx)extent.set_width(std::fdim(extent.potential_width(), boarder_extent.x));
-	if(dy)extent.set_height(std::fdim(extent.potential_height(), boarder_extent.y));
-
-	return extent;
 }
 
 export
@@ -180,6 +164,9 @@ struct cursor_states{
 		return this->*mptr / maximum_duration;
 	}
 };
+
+export
+using elem_span = transparent_span<elem* const>;
 
 export struct elem : tooltip::spawner_general<elem>{
 	friend elem_ptr;
@@ -612,7 +599,7 @@ public:
 #pragma region Group
 public:
 
-	[[nodiscard]] virtual std::span<const elem_ptr> children() const noexcept{
+	[[nodiscard]] virtual elem_span children() const noexcept{
 		return {};
 	}
 
@@ -672,6 +659,10 @@ public:
 	void set_focused_key(bool focus) noexcept;
 
 	virtual void on_focus_key_changed(bool isFocused){
+
+	}
+
+	virtual void on_last_clicked_changed(bool isFocused){
 
 	}
 
@@ -1000,7 +991,7 @@ private:
 namespace util{
 
 export
-math::vec2 select_prefer_extent(bool is_prefer, math::vec2 current, std::optional<math::vec2> preferred){
+[[nodiscard]] math::vec2 select_prefer_extent(bool is_prefer, math::vec2 current, std::optional<math::vec2> preferred){
 	if(is_prefer){
 		if(const auto pref = preferred)current.max(*pref);
 	}
@@ -1028,7 +1019,7 @@ void dfs_record_inbound_element(
 
 	for(const auto& child : current->children()/* | std::views::reverse*/){
 		if(!child->is_visible())continue;
-		util::dfs_record_inbound_element<Container>(transformed, selected, child.get());
+		util::dfs_record_inbound_element<Container>(transformed, selected, child);
 
 		//TODO better inbound shadow, maybe dialog system instead of add to root
 		if(child->interactivity == interactivity_flag::intercept && child->get_fill_parent().x && child->get_fill_parent().y){

@@ -216,8 +216,7 @@ void scene::update_cursor(){
 	const auto cursor_transform_delta = util::transform_scene2local(rng, {});
 	const auto cursor_transformed = get_cursor_pos() + cursor_transform_delta;
 
-	auto cursor_type = focus_cursor_->get_cursor_type(cursor_transformed);
-	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(cursor_type);
+	update_cursor_type(cursor_transformed);
 
 	for(const auto& [i, state] : mouse_states_ | std::views::enumerate){
 		if(!state.pressed) continue;
@@ -242,6 +241,18 @@ void scene::update_cursor(){
 
 	focus_cursor_->on_cursor_moved(
 		events::cursor_move{.src = inputs_.last_cursor_pos() + cursor_transform_delta, .dst = cursor_transformed});
+}
+
+void scene::update_cursor_type(math::vec2 cursor_local_pos){
+	auto cursor_type = focus_cursor_->get_cursor_type(cursor_local_pos);
+	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(cursor_type);
+}
+
+void scene::update_cursor_type(){
+	const auto cursor_transform_delta = util::transform_scene2local(get_inbounds(), {});
+	const auto cursor_transformed = get_cursor_pos() + cursor_transform_delta;
+
+	update_cursor_type(cursor_transformed);
 }
 
 events::op_afterwards scene::on_esc(){
@@ -309,17 +320,20 @@ void scene::update_inbounds(){
 	try_swap_focus(inbounds_.get_cur().empty() ? nullptr : inbounds_.get_cur().back());
 }
 
+void scene::switch_key_focus(elem* element){
+	if(focus_key_ == element)return;
+	if(focus_key_)focus_key_->on_focus_key_changed(false);
+	focus_key_ = element;
+	if(focus_key_)focus_key_->on_focus_key_changed(true);
+}
+
+
 void scene::update_mouse_state(const input_handle::key_set k){
 	using namespace input_handle;
 	auto [c, a, m] = k;
 
-	if(a == act::press && focus_key_ && !focus_key_->contains(get_cursor_pos())){
-		focus_key_->on_focus_key_changed(false);
-		focus_key_ = nullptr;
-	}
-
 	if(focus_cursor_){
-		const auto rng = get_inbounds();
+		const std::span rng = inbounds_.get_cur();
 		const auto pos = util::transform_scene2local(rng, get_cursor_pos());
 		events::click e{pos, k};
 
@@ -330,9 +344,24 @@ void scene::update_mouse_state(const input_handle::key_set k){
 				e.pos = util::transform_current2parent(**cur, e.pos);
 				++cur;
 			}else{
-				break;
+				if(a == act::press){
+					if(last_inbound_click_)last_inbound_click_->on_last_clicked_changed(false);
+					last_inbound_click_ = *cur;
+					last_inbound_click_->on_last_clicked_changed(true);
+				}
+
+				goto END;
 			}
 		}
+
+		if(a == act::press){
+			if(last_inbound_click_)last_inbound_click_->on_last_clicked_changed(false);
+			last_inbound_click_ = nullptr;
+		}
+
+
+		END:
+		(void)0;
 	}
 
 	if(a == act::press){
@@ -347,6 +376,7 @@ void scene::update_mouse_state(const input_handle::key_set k){
 		}
 	}
 
+	update_cursor_type();
 }
 
 

@@ -313,11 +313,6 @@ protected:
 		basic_group::on_element_add(*adaptor.element);
 	}
 
-private:
-	void on_element_add(elem& adaptor) const final{
-	}
-
-protected:
 	bool update_children_src(float delta){
 		auto speed = .5f * delta;
 

@@ -93,8 +93,8 @@ public:
 		}
 	}
 
-	[[nodiscard]] std::span<const elem_ptr> children() const noexcept final{
-		return items;
+	[[nodiscard]] elem_span children() const noexcept final{
+		return {items, elem_ptr::cvt_mptr};
 	}
 
 protected:

@@ -142,8 +142,8 @@ public:
 
 #pragma region Override
 public:
-	[[nodiscard]] std::span<const elem_ptr> children() const noexcept final{
-		return children_;
+	[[nodiscard]] elem_span children() const noexcept override{
+		return {children_, elem_ptr::cvt_mptr};
 	}
 
 	bool update_abs_src(math::vec2 parent_content_src) noexcept override{
@@ -218,7 +218,7 @@ public:
 #pragma endregion
 
 protected:
-	virtual void on_element_add(elem& elem) const{
+	void on_element_add(elem& elem) const{
 		util::set_fill_parent(elem, content_extent());
 		elem.update_abs_src(content_src_pos_abs());
 	}

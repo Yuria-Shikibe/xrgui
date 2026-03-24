@@ -121,6 +121,10 @@ public:
 		}
 		return false;
 	}
+
+	void clear_redo() noexcept {
+		history_.truncate();
+	}
 };
 
 export class text_editor_core{
@@ -273,6 +277,9 @@ public:
 		return history_.redo(text_buffer_, caret_);
 	}
 
+	void clear_redo() noexcept {
+		history_.clear_redo();
+	}
 	// --- 水平及跳跃移动 ---
 
 	void action_move_left(const std::u32string_view text_buffer_, bool select){
@@ -397,6 +404,11 @@ public:
 		auto hit = layout.hit_test(pos, align);
 		if(hit){
 			unsigned new_index = hit.source->cluster_index + hit.span_offset;
+
+			unsigned line_idx = static_cast<unsigned>(hit.source_line - layout.lines.data());
+			auto bounds = get_line_bounds(layout, text_buffer_, line_idx);
+			new_index = std::clamp(new_index, bounds.start_idx, bounds.visual_end);
+
 			merge_caret(new_index, select, text_buffer_.size());
 		}
 		return bool(hit);

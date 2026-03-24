@@ -104,8 +104,8 @@ public:
 		}
 	}
 
-	[[nodiscard]] std::span<const elem_ptr> children() const noexcept override{
-		return {&item_, 1};
+	[[nodiscard]] elem_span children() const noexcept override{
+		return {item_, elem_ptr::cvt_mptr};
 	}
 
 	[[nodiscard]] elem& get_item() const noexcept{

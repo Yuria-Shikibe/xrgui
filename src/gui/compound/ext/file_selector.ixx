@@ -277,6 +277,8 @@ namespace mo_yanxi::gui::cpd{
 			bool found = it != selected.paths.end();
 			std::size_t idx = found ? std::distance(selected.paths.begin(), it) : 0;
 
+			[&]{
+
 			// 单选模式
 			if (!multiple_selection) {
 				if (found && selected.size() == 1) {
@@ -306,7 +308,7 @@ namespace mo_yanxi::gui::cpd{
 
 				bool in_range = false;
 				for (auto& child : entries->children()) {
-					auto* cur = static_cast<file_entry*>(child.get());
+					auto* cur = static_cast<file_entry*>(child);
 
 					if (cur == shift_anchor || cur == entry) {
 						in_range = !in_range;
@@ -360,6 +362,9 @@ namespace mo_yanxi::gui::cpd{
 					shift_anchor = entry;
 				}
 			}
+			}();
+
+			set_botton_enable_(*button_done_, selected.size());
 		}
 
 		void toggle_file_selection(file_entry* entry) {
@@ -470,9 +475,9 @@ namespace mo_yanxi::gui::cpd{
 					{
 						auto b = s.emplace_back<button<icon_frame>>(assets::builtin::shape_id::check);
 						set_style_base_only(b.elem());
-
+						button_done_ = &b.elem();
 						b->set_button_callback([this]{
-							// prov_path_->pull_and_push(false);
+							prov_path_->pull_and_push(false);
 						});
 					}
 
@@ -497,6 +502,7 @@ namespace mo_yanxi::gui::cpd{
 					{
 						auto b = s.emplace_back<button<icon_frame>>(assets::builtin::shape_id::up);
 						set_style_base_only(b.elem());
+						button_to_parent_ = &b.elem();
 						b->set_button_callback([this]{
 							visit_parent_directory();
 						});
@@ -569,6 +575,7 @@ namespace mo_yanxi::gui::cpd{
 			set_pad(8);
 
 			visit_directory(std::filesystem::current_path());
+			set_botton_enable_(*button_done_, false);
 		}
 
 		void set_multiple_selection(bool allow){
@@ -650,6 +657,7 @@ namespace mo_yanxi::gui::cpd{
 		}
 
 		void visit_root_directory() noexcept{
+			set_botton_enable_(*button_to_parent_, false);
 			try_add_visit_history({});
 			goto_dir_unchecked({});
 		}
@@ -664,6 +672,7 @@ namespace mo_yanxi::gui::cpd{
 				return;
 			}
 
+			set_botton_enable_(*button_to_parent_, true);
 			set_current_path(std::move(path));
 		}
 
@@ -760,6 +769,7 @@ namespace mo_yanxi::gui::cpd{
 		icon_button_type* button_undo_{};
 		icon_button_type* button_redo_{};
 		icon_button_type* button_done_{};
+		icon_button_type* button_to_parent_{};
 
 
 		static void set_botton_enable_(icon_button_type& which, bool enabled){

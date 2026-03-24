@@ -33,6 +33,7 @@ import mo_yanxi.gui.elem.label;
 import mo_yanxi.gui.elem.text_edit_v2;
 import mo_yanxi.gui.elem.viewport;
 import mo_yanxi.gui.elem.check_box;
+import mo_yanxi.gui.elem.double_side;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.font;
@@ -67,6 +68,7 @@ namespace mo_yanxi::gui::example{
 
 
 struct image_cursor : style::cursor{
+
 	gui::image_region_borrow icon_region;
 
 	[[nodiscard]] explicit image_cursor(const gui::image_region_borrow& icon_region)
@@ -75,6 +77,8 @@ struct image_cursor : style::cursor{
 
 	rect draw(gui::renderer_frontend& renderer, math::raw_frect region,
 		std::span<const elem* const> inbound_stack) const override{
+		region.src -= region.extent * .5f;
+
 		region.expand({mo_yanxi::graphic::msdf::sdf_image_boarder + 4, mo_yanxi::graphic::msdf::sdf_image_boarder + 4});
 		state_guard g{renderer, gui::fx::batch_draw_mode::msdf};
 		renderer << graphic::draw::instruction::rect_aabb{
@@ -447,19 +451,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						slider.cell().set_size(60);
 
 						auto& progNode = slider->get_provider();
-						// node_format.connect_predecessor(progNode);
-
-						// sequence.create_back([&](async_label& label){
-						// 	label.set_as_config_prov();
-						// 	label.set_dependency(node_layout);
-						// 	label.set_text_color_scl(graphic::colors::ACID.to_light_by_luma(1.2));
-						// 	// label.set_expand_policy(gui::layout::expand_policy::prefer);
-						// }).cell().set_pending();
-
-						// sequence.create_back([&](label& label){
-						// 	auto& t = label.request_receiver();
-						// 	t.connect_predecessor(node_format);
-						// }).cell().set_pending();
 
 						sequence.create_back([&](progress_bar& prog){
 							prog.progress.set_state(progress_state::approach_smooth);
@@ -497,6 +488,65 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							   react_flow::connect_chain(area.get_provider(), trans, ln);
 						   }).cell().set_pending();
 						}
+
+						struct ds : double_side<2>{
+							[[nodiscard]] ds(gui::scene& scene, elem* parent)
+								: double_side<2>(scene, parent){
+								interactivity = interactivity_flag::intercept;
+								set_expand_policy(layout::expand_policy::passive);
+								set_style();
+
+								create(0, [](gui::label& edit){
+									edit.set_expand_policy(layout::expand_policy::passive);
+									edit.set_text("OnLabel");
+									edit.set_fit();
+								});
+
+								create(1, [](gui::text_edit& edit){
+									edit.set_expand_policy(layout::expand_policy::passive);
+									// edit.set_fit(true);
+									edit.set_view_type(text_edit_view_type::dyn);
+								});
+							}
+
+							void on_last_clicked_changed(bool isFocused) override{
+								if(isFocused){
+									switch_to(1);
+									at<text_edit>(1).on_last_clicked_changed(true);
+								}else{
+									at<text_edit>(1).on_last_clicked_changed(false);
+									switch_to(0);
+								}
+							}
+
+							events::op_afterwards on_click(events::click event, std::span<elem* const> aboves) override{
+								elem::on_click(event, aboves);
+								if(get_current_active_index() == 1){
+									auto& e = at<text_edit>(1);
+									auto pos = e.transform_to_content_space(event.pos);
+									event.pos = pos;
+									e.on_click(event, {});
+								}
+								return events::op_afterwards::intercepted;
+							}
+
+							events::op_afterwards on_drag(events::drag event) override{
+								auto& e = get_current_active();
+								event.src = e.transform_to_content_space(event.src);
+								event.dst = e.transform_to_content_space(event.dst);
+								return e.on_drag(event);
+							}
+
+							gui::style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
+								auto& e = get_current_active();
+								return e.get_cursor_type(e.transform_to_content_space(cursor_pos_at_content_local));
+							}
+						};
+
+						sequence.create_back([&](ds& area){
+
+
+						}).cell().set_size(160);
 					});
 				},
 				[&](scroll_pane& pane){

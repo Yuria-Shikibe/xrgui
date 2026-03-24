@@ -258,8 +258,12 @@ void elem::set_focused_scroll(const bool focus) noexcept{
 }
 
 void elem::set_focused_key(const bool focus) noexcept{
-	if(!focus && !is_focused_key()) return;
-	this->scene_->focus_key_ = focus ? this : nullptr;
+	if(focus){
+		get_scene().switch_key_focus(this);
+	}else if(is_focused_key()){
+		get_scene().switch_key_focus(nullptr);
+	}
+
 }
 
 style::style_manager& elem::get_style_manager() const noexcept{

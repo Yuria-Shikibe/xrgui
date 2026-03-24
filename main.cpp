@@ -722,7 +722,7 @@ void prepare(){
 
 		font::default_font_manager = &font_manager;
 		gui::direct_label::layout_context = decltype(gui::direct_label::layout_context){font_manager};
-		gui::text_edit_v2::layout_context = decltype(gui::text_edit_v2::layout_context){font_manager};
+		gui::text_edit::layout_context = decltype(gui::text_edit::layout_context){font_manager};
 	}
 
 	{
@@ -984,7 +984,7 @@ Edge Cases:
 
 
 	gui::direct_label::layout_context = decltype(gui::direct_label::layout_context){};
-	gui::text_edit_v2::layout_context = decltype(gui::text_edit_v2::layout_context){};
+	gui::text_edit::layout_context = decltype(gui::text_edit::layout_context){};
 
 	ctx.window().poll_events();
 	image_atlas.request_stop();

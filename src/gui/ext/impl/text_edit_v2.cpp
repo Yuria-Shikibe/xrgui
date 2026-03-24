@@ -8,6 +8,56 @@ namespace mo_yanxi::gui{
 bool text_edit::update(float delta_in_ticks){
 	if(!elem::update(delta_in_ticks)) return false;
 
+	// 动态滚动平滑插值处理
+	if(view_mode_ == text_edit_view_type::dyn) {
+		if(!scroll_offset_.equals(target_scroll_offset_)) {
+			// 使用简单的线性插值靠近目标
+			scroll_offset_ = scroll_offset_.copy().lerp_inplace(target_scroll_offset_, 1.1f - std::pow(0.01f, delta_in_ticks / 60.f));
+			if(scroll_offset_.within(target_scroll_offset_, 0.01f)) {
+				scroll_offset_ = target_scroll_offset_;
+			}
+			get_scene().update_cursor_type();
+
+		}
+
+		if(last_drag_dst_.has_value()){
+			math::vec2 vp = content_extent();
+			math::vec2 overscroll{0.f, 0.f};
+
+			// 检查 X 轴越界 (左侧或右侧)
+			if(last_drag_dst_.x < 0.f) overscroll.x = last_drag_dst_.x;
+			else if(last_drag_dst_.x > vp.x) overscroll.x = last_drag_dst_.x - vp.x;
+
+			// 检查 Y 轴越界 (上方或下方)
+			if(last_drag_dst_.y < 0.f) overscroll.y = last_drag_dst_.y;
+			else if(last_drag_dst_.y > vp.y) overscroll.y = last_drag_dst_.y - vp.y;
+
+			// 如果存在越界
+			if(std::abs(overscroll.x) > 0.1f || std::abs(overscroll.y) > 0.1f){
+				// 将越界距离转换为滚动增量。这里的 0.3f 是灵敏度系数，可根据手感微调
+				static constexpr float sensitivity = 1.1f;
+				math::vec2 scroll_step = overscroll * (sensitivity * delta_in_ticks);
+				target_scroll_offset_ += scroll_step;
+				clamp_scroll_offset();
+
+				// 为了让视觉上更跟手，如果在拖拽自动滚动中，可以让当前偏移直接靠拢目标偏移
+				// 避免插值导致选区扩大看起来有延迟感
+				scroll_offset_ = scroll_offset_.copy().lerp_inplace(target_scroll_offset_, 0.5f);
+
+				// 【重点魔法】视口滚动后，文本相对鼠标发生了位移。
+				// 必须使用全新的变换矩阵，把依然停在屏幕外的物理鼠标坐标，映射到全新的文本逻辑坐标上！
+				auto new_t_params = get_transform_params();
+				math::vec2 new_raw_hit_pos = new_t_params.inverse_local(last_drag_dst_);
+
+				// 重新触发一次 drag 选区扩展
+				core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), new_raw_hit_pos, render_cache_.get_line_align(), true);
+
+				// 更新光标缓存以便渲染
+				update_caret_cache();
+			}
+		}
+	}
+
 	if(on_changed_timer_ > 0.f){
 		on_changed_timer_ -= delta_in_ticks;
 		if(on_changed_timer_ <= 0.f){
@@ -31,78 +81,93 @@ bool text_edit::update(float delta_in_ticks){
 
 	if(caret_cache_.last_cached_caret_ != core_.get_caret()){
 		update_caret_cache();
+		// 光标发生变化时，尝试滚动视口
+		scroll_to_caret();
 	}
 
 	return true;
 }
 
 text_layout_result text_edit::layout_text(math::vec2 bound){
-	if(!fit_ && bound.area() < 32.0f) return {};
+    if(view_mode_ != text_edit_view_type::fit && bound.area() < 32.0f) return {};
 
-	math::vec2 local_bound = bound;
-	math::vec2 abs_scale = {std::abs(scale_.x), std::abs(scale_.y)};
+    math::vec2 local_bound = bound;
+    math::vec2 abs_scale = {std::abs(scale_.x), std::abs(scale_.y)};
 
-	// 逆向应用绝对缩放系数
-	if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
-		local_bound /= abs_scale;
-	}
+    if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
+        local_bound /= abs_scale;
+    }
 
-	auto process_result_ext = [&]() -> math::vec2{
-		return glyph_layout_.extent * abs_scale;
-	};
+    auto process_result_ext = [&]() -> math::vec2{
+        return glyph_layout_.extent * abs_scale;
+    };
 
-	if(fit_){
-		if((change_mark_ & text_edit_change_type::max_extent) != text_edit_change_type::none){
-			if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
-			} else{
-				change_mark_ = change_mark_ & ~text_edit_change_type::max_extent;
-			}
-		}
+    if(view_mode_ == text_edit_view_type::dyn) {
+        // dyn 模式下不受边界约束，XY无限排版（不自动换行）
+        if((change_mark_ & text_edit_change_type::max_extent) != text_edit_change_type::none){
+            if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
+            } else{
+                change_mark_ = change_mark_ & ~text_edit_change_type::max_extent;
+            }
+        }
 
-		if(is_layout_expired_()){
-			if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
-				((change_mark_ & text_edit_change_type::config) != text_edit_change_type::none) || ((change_mark_ &
-					text_edit_change_type::text) != text_edit_change_type::none)){
-				layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
-				render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
-				change_mark_ = text_edit_change_type::none;
-				update_caret_cache();
-				return {process_result_ext(), true};
-			}
-			change_mark_ = text_edit_change_type::none;
-		}
-	} else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
-		// 判断本次排版是否由文本改变引发。这很重要，可以防止用户单纯缩小输入框边界时误触发文本回滚
-		bool is_text_changed = (change_mark_ & text_edit_change_type::text) != text_edit_change_type::none;
+    	if(is_layout_expired_()){
+    		layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2);
+    		layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+    		render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
+    		change_mark_ = text_edit_change_type::none;
 
-		layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+    		update_caret_cache();
+    		scroll_to_caret(); // 修改这里：排版和光标几何信息更新后，立即跟随光标
 
-		if(!glyph_layout_.is_exhausted && is_text_changed){
-			tokenized_text_.modify(apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw,
-				[&](std::u32string& text) -> bool{
-					// 回滚文本到上一个状态。由于是整体撤销，caret也会随之恢复到输入前的位置（即不移动）
-					core_.undo(text);
-					// 截断当前的状态防止 redo 异常。
-					// 假设 text_editor_core 具有 clear_redo() 方法（如果没有，请替换为对应的清空历史/提交空历史接口）
-					core_.clear_redo();
-					return true;
-				});
+    		return {process_result_ext(), true};
+    	}
+    } else if(view_mode_ == text_edit_view_type::fit){
+        // 原有 fit_ 逻辑...
+        if((change_mark_ & text_edit_change_type::max_extent) != text_edit_change_type::none){
+            if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
+            } else{
+                change_mark_ = change_mark_ & ~text_edit_change_type::max_extent;
+            }
+        }
 
-			// 触发输入无效（内部包含了 reset_blink() 逻辑）
-			set_input_invalid();
+        if(is_layout_expired_()){
+            if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
+                ((change_mark_ & text_edit_change_type::config) != text_edit_change_type::none) || ((change_mark_ &
+                    text_edit_change_type::text) != text_edit_change_type::none)){
+            	layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+            	render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
+            	change_mark_ = text_edit_change_type::none;
 
-			// 文本回滚后，必须立刻重新进行一次排版以同步正确的数据
-			layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
-		}
-		// ==============================================================
+            	update_caret_cache();
+            	// scroll_to_caret();
 
-		render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
-		change_mark_ = text_edit_change_type::none;
-		update_caret_cache();
-		return {process_result_ext(), true};
-	}
+            	return {process_result_ext(), true};
+            }
+            change_mark_ = text_edit_change_type::none;
+        }
+    } else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
+        // 原有 fix 逻辑...
+        bool is_text_changed = (change_mark_ & text_edit_change_type::text) != text_edit_change_type::none;
+        layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+        if(!glyph_layout_.is_exhausted && is_text_changed){
+            tokenized_text_.modify(apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw,
+                [&](std::u32string& text) -> bool{
+                    core_.undo(text);
+                    core_.clear_redo();
+                    return true;
+                });
+            set_input_invalid();
+            layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+        }
+        render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
+        change_mark_ = text_edit_change_type::none;
+        update_caret_cache();
+    	// scroll_to_caret();
+        return {process_result_ext(), true};
+    }
 
-	return {process_result_ext(), false};
+    return {process_result_ext(), false};
 }
 
 void text_edit::layout_elem(){
@@ -129,7 +194,7 @@ std::optional<math::vec2> text_edit::pre_acquire_size_impl(layout::optional_mast
 		return std::nullopt;
 	}
 
-	if(!fit_){
+	if(view_mode_ != text_edit_view_type::fit){
 		const auto text_size = layout_text(extent.potential_extent());
 		extent.apply(text_size.required_extent);
 	}
@@ -143,13 +208,22 @@ void text_edit::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) c
 	draw_style(param);
 	if(param != 0) return;
 
+	if (view_mode_ == text_edit_view_type::dyn) {
+		renderer().push_scissor({ content_bound_abs() });
+		renderer().notify_viewport_changed();
+	}
+
 	draw_selection_and_caret();
 
-	if(!render_cache_.has_drawable_text()) return;
+	if(!render_cache_.has_drawable_text()) {
+		if (view_mode_ == text_edit_view_type::dyn) {
+			renderer().pop_scissor();
+			renderer().notify_viewport_changed();
+		}
+		return;
+	}
 
 	auto t_params = get_transform_params();
-
-	// 局部偏移 + 组件屏幕偏移 = 最终的绝对偏移
 	math::vec2 offset_abs = t_params.offset_local + content_src_pos_abs();
 
 	math::mat3 mat = math::mat3_idt;
@@ -158,13 +232,20 @@ void text_edit::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) c
 	mat.c3.x = offset_abs.x;
 	mat.c3.y = offset_abs.y;
 
-	state_guard guard{
+	{
+		state_guard guard{
 			renderer(),
 			fx::batch_draw_mode::msdf
 		};
-	transform_guard _t{renderer(), mat};
+		transform_guard _t{renderer(), mat};
 
-	render_cache_.push_to_renderer(renderer());
+		render_cache_.push_to_renderer(renderer());
+	}
+
+	if (view_mode_ == text_edit_view_type::dyn) {
+		renderer().pop_scissor();
+		renderer().notify_viewport_changed();
+	}
 }
 
 // --------------------------------------------------------
@@ -470,12 +551,74 @@ math::frect text_edit::get_caret_local_aabb() const{
 	return t_params.forward_local(logical_rect);
 }
 
+void text_edit::clamp_scroll_offset() {
+	if (view_mode_ != text_edit_view_type::dyn) return;
+	math::vec2 sz = get_glyph_draw_extent();
+	math::vec2 vp = content_extent();
+
+	// 最大滚动距离等于 内容尺寸 减去 视口尺寸，若内容小于视口则最大滚动为 0
+	math::vec2 max_scroll = { std::max(0.f, sz.x - vp.x), std::max(0.f, sz.y - vp.y) };
+	target_scroll_offset_.clamp_xy(math::vec2{0.f, 0.f}, max_scroll);
+
+	// 如果立刻钳制可能导致画面跳跃，可以在这里同步给 scroll_offset_，或者让 update 平滑处理
+}
+
+void text_edit::scroll_to_caret() {
+	if (view_mode_ != text_edit_view_type::dyn) return;
+
+	// 获取未经过视口滚动偏移的局部坐标
+	math::frect caret_rect = caret_cache_.caret_rect_;
+	caret_rect.vert_00() *= scale_;
+	caret_rect.vert_11() *= scale_;
+
+	// 应用基础文本偏移（例如居中带来的偏移）
+	math::vec2 base_offset = get_glyph_src_local();
+	caret_rect.vert_00() += base_offset;
+	caret_rect.vert_11() += base_offset;
+
+	math::vec2 vp = content_extent();
+	math::vec2 padding{ 16.0f, 16.0f }; // 让光标不要贴死在边缘
+
+	// 检查 X 轴
+	if (caret_rect.get_end_x() > target_scroll_offset_.x + vp.x - padding.x) {
+		target_scroll_offset_.x = caret_rect.get_end_x() - vp.x + padding.x;
+	} else if (caret_rect.vert_00().x < target_scroll_offset_.x + padding.x) {
+		target_scroll_offset_.x = caret_rect.vert_00().x - padding.x;
+	}
+
+	// 检查 Y 轴
+	if (caret_rect.get_end_y() > target_scroll_offset_.y + vp.y - padding.y) {
+		target_scroll_offset_.y = caret_rect.get_end_y() - vp.y + padding.y;
+	} else if (caret_rect.vert_00().y < target_scroll_offset_.y + padding.y) {
+		target_scroll_offset_.y = caret_rect.vert_00().y - padding.y;
+	}
+
+	clamp_scroll_offset();
+}
+
+events::op_afterwards text_edit::on_scroll(const events::scroll event, std::span<elem* const> aboves) {
+	if (view_mode_ == text_edit_view_type::dyn) {
+		// 根据业务需求调整滑动灵敏度。通常 delta y 代表垂直滚动。
+		float scroll_sensitivity = 40.0f;
+		target_scroll_offset_ -= event.delta * scroll_sensitivity;
+		clamp_scroll_offset();
+		return events::op_afterwards::intercepted;
+	}
+	return events::op_afterwards::fall_through;
+}
+
 events::op_afterwards text_edit::on_drag(const events::drag event){
+	last_drag_dst_ = event.dst;
+
 	auto t_params = get_transform_params();
 	math::vec2 raw_hit_pos = t_params.inverse_local(event.dst);
 
 	core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), raw_hit_pos, render_cache_.get_line_align(), true);
 	reset_blink();
+
+	// 拖拽时，光标可能被拖到屏幕外，触发自动滚动
+	scroll_to_caret();
+
 	return events::op_afterwards::intercepted;
 }
 
@@ -526,6 +669,8 @@ void text_edit::set_text_internal(std::u32string_view str){
 }
 
 void text_edit::set_focus(bool keyFocused){
+	failed_hint_timer_ = 0.f;
+
 	if(keyFocused){
 		get_scene().active_update_elems.insert(this);
 
@@ -546,6 +691,11 @@ void text_edit::set_focus(bool keyFocused){
 			kmap.set_activated(true);
 		}
 	} else{
+		if(on_changed_timer_ > 0.f){
+			on_changed_timer_ = 0.f;
+			on_changed();
+		}
+
 		get_scene().active_update_elems.erase(this);
 
 		if(tokenized_text_.get_text().empty()){

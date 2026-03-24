@@ -291,6 +291,7 @@ protected:
 	elem* focus_scroll_{nullptr};
 	elem* focus_cursor_{nullptr};
 	elem* focus_key_{nullptr};
+	elem* last_inbound_click_{nullptr};
 
 	/**
 	 * @brief Request to update cursor pos, even it never moves
@@ -424,6 +425,7 @@ public:
 		if(focus_scroll_ == target)focus_scroll_ = nullptr;
 		if(focus_cursor_ == target)focus_cursor_ = nullptr;
 		if(focus_key_ == target)focus_key_ = nullptr;
+		if(last_inbound_click_ == target)last_inbound_click_ = nullptr;
 	}
 
 	[[nodiscard]] react_flow::manager& get_react_flow() const noexcept{
@@ -566,6 +568,9 @@ private:
 public:
 	void update_cursor();
 
+	void update_cursor_type(math::vec2 cursor_local_pos);
+	void update_cursor_type();
+
 	events::op_afterwards on_esc();
 
 private:
@@ -578,6 +583,8 @@ private:
 	}
 
 	void update_inbounds();
+
+	void switch_key_focus(elem* element);
 
 	void try_swap_focus(elem* newFocus);
 
