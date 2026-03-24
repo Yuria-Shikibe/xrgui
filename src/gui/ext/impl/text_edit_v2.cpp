@@ -72,7 +72,30 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
 			change_mark_ = text_edit_change_type::none;
 		}
 	} else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
+		// 判断本次排版是否由文本改变引发。这很重要，可以防止用户单纯缩小输入框边界时误触发文本回滚
+		bool is_text_changed = (change_mark_ & text_edit_change_type::text) != text_edit_change_type::none;
+
 		layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+
+		if(!glyph_layout_.is_exhausted && is_text_changed){
+			tokenized_text_.modify(apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw,
+				[&](std::u32string& text) -> bool{
+					// 回滚文本到上一个状态。由于是整体撤销，caret也会随之恢复到输入前的位置（即不移动）
+					core_.undo(text);
+					// 截断当前的状态防止 redo 异常。
+					// 假设 text_editor_core 具有 clear_redo() 方法（如果没有，请替换为对应的清空历史/提交空历史接口）
+					core_.clear_redo();
+					return true;
+				});
+
+			// 触发输入无效（内部包含了 reset_blink() 逻辑）
+			set_input_invalid();
+
+			// 文本回滚后，必须立刻重新进行一次排版以同步正确的数据
+			layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+		}
+		// ==============================================================
+
 		render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
 		change_mark_ = text_edit_change_type::none;
 		update_caret_cache();
@@ -122,7 +145,7 @@ void text_edit::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) c
 
 	draw_selection_and_caret();
 
-	if (!render_cache_.has_drawable_text()) return;
+	if(!render_cache_.has_drawable_text()) return;
 
 	auto t_params = get_transform_params();
 
@@ -136,9 +159,9 @@ void text_edit::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) c
 	mat.c3.y = offset_abs.y;
 
 	state_guard guard{
-		renderer(),
-		fx::batch_draw_mode::msdf
-	};
+			renderer(),
+			fx::batch_draw_mode::msdf
+		};
 	transform_guard _t{renderer(), mat};
 
 	render_cache_.push_to_renderer(renderer());
@@ -363,37 +386,62 @@ void text_edit::update_caret_cache(){
 void text_edit::draw_selection_and_caret() const{
 	if(!is_focused_key()) return;
 
-	bool has_sel = caret_cache_.selection_rect_count_ > 0;
-	bool show_caret = caret_blink_timer_ < 30.f;
+	if(!glyph_layout_.is_exhausted){
+		constexpr static auto color = graphic::colors::red_dusted.copy_set_a(.6f);
 
-	if(!has_sel && !show_caret) return;
+		using namespace graphic::draw::instruction;
+		auto& r = renderer();
+		auto b = content_bound_abs();
 
-	using namespace graphic::draw::instruction;
-	auto& r = renderer();
+		r.push(fx::slide_line_config{
+				.angle = 45,
+				.spacing = 16,
+				.stroke = 16,
+			});
 
-	const graphic::color selection_color = (is_failed() ? graphic::colors::red_dusted : graphic::colors::gray.create_lerp(graphic::colors::ROYAL, .3f)).copy().mul_a(0.65f);
-	const graphic::color caret_color = (is_failed() ? graphic::colors::red_dusted : graphic::colors::white).copy().mul_a(get_draw_opacity());
+		r.push(rect_aabb{
+				.generic = {.mode = std::to_underlying(fx::primitive_draw_mode::draw_slide_line)},
+				.v00 = b.vert_00(),
+				.v11 = b.vert_11(),
+				.vert_color = {color},
+			});
+	} else{
+		bool has_sel = caret_cache_.selection_rect_count_ > 0;
+		bool show_caret = caret_blink_timer_ < 30.f;
 
-	auto t_params = get_transform_params();
-	math::vec2 base_abs = content_src_pos_abs();
+		if(!has_sel && !show_caret) return;
 
-	for (std::size_t i = 0; i < caret_cache_.selection_rect_count_; ++i) {
-		// 先映射到局部坐标
-		auto t_rect = t_params.forward_local(caret_cache_.selection_rects_[i]);
-		r.push(rect_aabb {
-			.v00 = t_rect.vert_00() + base_abs, // 再平移到绝对屏幕坐标
-			.v11 = t_rect.vert_11() + base_abs,
-			.vert_color = {selection_color}
-		});
-	}
+		using namespace graphic::draw::instruction;
+		auto& r = renderer();
 
-	if (show_caret) {
-		auto t_caret = t_params.forward_local(caret_cache_.caret_rect_);
-		r.push(rect_aabb {
-			.v00 = t_caret.vert_00() + base_abs,
-			.v11 = t_caret.vert_11() + base_abs,
-			.vert_color = {caret_color}
-		});
+		const graphic::color selection_color = (is_failed()
+			                                        ? graphic::colors::red_dusted
+			                                        : graphic::colors::gray.create_lerp(graphic::colors::ROYAL, .3f)).
+		                                       copy().mul_a(0.65f);
+		const graphic::color caret_color = (is_failed() ? graphic::colors::red_dusted : graphic::colors::white).copy().
+			mul_a(get_draw_opacity());
+
+		auto t_params = get_transform_params();
+		math::vec2 base_abs = content_src_pos_abs();
+
+		for(std::size_t i = 0; i < caret_cache_.selection_rect_count_; ++i){
+			// 先映射到局部坐标
+			auto t_rect = t_params.forward_local(caret_cache_.selection_rects_[i]);
+			r.push(rect_aabb{
+					.v00 = t_rect.vert_00() + base_abs, // 再平移到绝对屏幕坐标
+					.v11 = t_rect.vert_11() + base_abs,
+					.vert_color = {selection_color}
+				});
+		}
+
+		if(show_caret){
+			auto t_caret = t_params.forward_local(caret_cache_.caret_rect_);
+			r.push(rect_aabb{
+					.v00 = t_caret.vert_00() + base_abs,
+					.v11 = t_caret.vert_11() + base_abs,
+					.vert_color = {caret_color}
+				});
+		}
 	}
 }
 

@@ -387,7 +387,6 @@ protected:
 		return get_glyph_src_local() + content_src_pos_abs();
 	}
 
-
 public:
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 	void layout_elem() override;
@@ -401,7 +400,8 @@ public:
 			auto t_params = get_transform_params();
 			math::vec2 raw_hit_pos = t_params.inverse_local(event.pos);
 
-			if(core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), raw_hit_pos, render_cache_.get_line_align(), false)){
+			if(core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), raw_hit_pos,
+				render_cache_.get_line_align(), false)){
 				reset_blink();
 				return events::op_afterwards::intercepted;
 			}
