@@ -100,7 +100,7 @@ struct nine_patch_hollow_draw{
 	math::raw_frect region;
 	graphic::color color;
 
-	template <std::invocable<graphic::draw::instruction::row_patch&&> Fn>
+	template <typename Fn>
 	FORCE_INLINE constexpr void for_each(Fn fn) const noexcept{
 		assert(patch != nullptr);
 		auto uvs = patch->get_row_uvs();
@@ -113,17 +113,21 @@ struct nine_patch_hollow_draw{
 			.vert_color = {color}
 		});
 
-		std::invoke(fn, graphic::draw::instruction::row_patch{
+		std::invoke(fn, graphic::draw::instruction::rect_aabb{
 			.generic = {.image = patch->image_view->view},
-			.coords = {coords[1][0], coords[1][1], coords[1][1], coords[1][1], coords[1][4], coords[1][5]},
-			.uvs = uvs[1],
+			.v00 = {coords[1][0], coords[1][4]},
+			.v11 = {coords[1][1], coords[1][5]},
+			.uv00 = {uvs[1][2], uvs[1][0]},
+			.uv11 = {uvs[1][3], uvs[1][1]},
 			.vert_color = {color}
 		});
 
-		std::invoke(fn, graphic::draw::instruction::row_patch{
+		std::invoke(fn, graphic::draw::instruction::rect_aabb{
 			.generic = {.image = patch->image_view->view},
-			.coords = {coords[1][2], coords[1][2], coords[1][2], coords[1][3], coords[1][4], coords[1][5]},
-			.uvs = uvs[1],
+			.v00 = {coords[1][2], coords[1][4]},
+			.v11 = {coords[1][3], coords[1][5]},
+			.uv00 = {uvs[1][4], uvs[1][0]},
+			.uv11 = {uvs[1][5], uvs[1][1]},
 			.vert_color = {color}
 		});
 
@@ -136,8 +140,8 @@ struct nine_patch_hollow_draw{
 	}
 
 	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const nine_patch_hollow_draw& instr) {
-		instr.for_each([&] FORCE_INLINE (graphic::draw::instruction::row_patch&& patch){
-			renderer.push(patch);
+		instr.for_each([&] FORCE_INLINE (auto&& patch){
+			renderer.push(std::forward<decltype(patch)>(patch));
 		});
 		return renderer;
 	}
