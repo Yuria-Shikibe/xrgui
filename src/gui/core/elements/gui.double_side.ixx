@@ -117,6 +117,13 @@ protected:
 	}
 
 public:
+	void on_context_sync_bind() override{
+		elem::on_context_sync_bind();
+		for (const elem_ptr& child : candidates_){
+			if(child)child->on_context_sync_bind();
+		}
+	}
+
 	[[nodiscard]] std::size_t get_current_active_index() const noexcept {
 		return current_active_index_;
 	}

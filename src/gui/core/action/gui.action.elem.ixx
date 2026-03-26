@@ -1,9 +1,12 @@
 module;
 
 #include <mo_yanxi/enum_operator_gen.hpp>
+#include <mo_yanxi/adapted_attributes.hpp>
+
 
 export module mo_yanxi.gui.action.elem;
 
+import std;
 export import mo_yanxi.gui.action;
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.graphic.color;
@@ -17,43 +20,6 @@ enum struct elem_action_tag{
 	position = 1 << 2,
 };
 
-
-/*
- *export
-struct color_action final : action<elem>{
-private:
-	graphic::color initialColor{};
-
-public:
-	graphic::color dst_color{};
-
-	[[nodiscard]] color_action(
-		const mr::heap_allocator<>& allocator, float lifetime, interp_type<elem> interpFunc,
-		const graphic::color& dst_color)
-	: action<elem>(allocator, lifetime, interpFunc),
-	dst_color(dst_color){
-	}
-
-	[[nodiscard]] color_action(const mr::heap_allocator<>& allocator, float lifetime,
-		const graphic::color& dst_color)
-	: action<elem>(allocator, lifetime),
-	dst_color(dst_color){
-	}
-
-protected:
-	void apply(elem& elem, const float progress) override{
-		elem.prop().graphic_data.style_color_scl = initialColor.create_lerp(dst_color, progress);
-	}
-
-	void begin(elem& elem) override{
-		initialColor = elem.prop().graphic_data.style_color_scl;
-	}
-
-	void end(elem& elem) override{
-		elem.prop().graphic_data.style_color_scl = dst_color;
-	}
-};
-*/
 
 export
 struct alpha_action final : action<elem>{

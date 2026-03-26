@@ -736,6 +736,9 @@ void prepare(){
 	auto& ui_root = gui::global::manager;
 	auto& res = ui_root.add_scene_resources("main");
 	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", res, true, renderer.create_frontend());
+	scene_add_rst.scene.ui_main_thread_id = std::this_thread::get_id();
+	scene_add_rst.root_group.on_context_sync_bind();
+
 	scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
 	auto ui_providers = gui::example::build_main_ui(ctx, scene_add_rst.scene, scene_add_rst.root_group);
 

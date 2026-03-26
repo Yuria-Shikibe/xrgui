@@ -50,7 +50,6 @@ public:
 			s.create_back([&](label& value){
 				value.set_style();
 				value.set_fit();
-				value._debug_identity = 1;
 				value.text_entire_align = align::pos::center_left;
 				value.set_opacity(.5f);
 				value.set_text("Test");

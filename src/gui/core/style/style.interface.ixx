@@ -57,6 +57,8 @@ public:
 
 	[[nodiscard]] constexpr style_drawer() = default;
 
+	// [[nodiscard]] constexpr explicit(false) style_drawer(std::nullptr_t) noexcept {}
+
 	[[nodiscard]] constexpr explicit style_drawer(const tags::persistent_tag_t& persistent_tag)
 		: style_drawer_base(persistent_tag){
 	}

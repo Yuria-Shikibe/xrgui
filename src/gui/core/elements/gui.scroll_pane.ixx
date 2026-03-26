@@ -172,6 +172,10 @@ public:
 		return static_cast<E&>(*this->item_);
 	}
 
+	void on_context_sync_bind() override{
+		elem::on_context_sync_bind();
+		if(item_)item_->on_context_sync_bind();
+	}
 private:
 #pragma region Event
 	events::op_afterwards on_cursor_moved(const events::cursor_move event) override{

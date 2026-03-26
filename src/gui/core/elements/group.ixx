@@ -217,6 +217,12 @@ public:
 	}
 #pragma endregion
 
+	void on_context_sync_bind() override{
+		elem::on_context_sync_bind();
+		for (auto && child : children_){
+			child->on_context_sync_bind();
+		}
+	}
 protected:
 	void on_element_add(elem& elem) const{
 		util::set_fill_parent(elem, content_extent());
@@ -251,8 +257,8 @@ protected:
 		}
 
 		elem::layout_elem();
-
 	}
+
 };
 
 }

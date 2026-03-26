@@ -106,6 +106,12 @@ protected:
 		items[1]->try_draw_layer(space, param);
 	}
 public:
+	void on_context_sync_bind() override{
+		elem::on_context_sync_bind();
+		for (auto && child : items){
+			if(child)child->on_context_sync_bind();
+		}
+	}
 
 	bool update(float delta_in_ticks) override{
 		if(!elem::update(delta_in_ticks))return false;

@@ -130,6 +130,12 @@ private:
 
 		try{
 			std::construct_at(p, scene, parent, std::forward<Args>(args)...);
+			try{
+				elem_ptr::dynamic_init(*p);
+			}catch(...){
+				std::destroy_at(p);
+				throw;
+			}
 		}catch(...){
 			std::allocator_traits<Alloc>::deallocate(alloc, p, 1);
 			throw;
@@ -151,8 +157,10 @@ private:
 
 	static void delete_elem(elem* ptr) noexcept;
 
+	template <std::derived_from<elem> T = elem>
+	static void dynamic_init(T& ptr) noexcept;
+
 public:
 	static constexpr auto cvt_mptr = transparent_convert<&elem_ptr::element>;
 };
-
 }

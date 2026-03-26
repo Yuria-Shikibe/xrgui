@@ -2,10 +2,6 @@ module;
 
 #include <cassert>
 
-#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-#include <beman/inplace_vector.hpp>
-#endif
-
 export module mo_yanxi.gui.compound.color_picker;
 
 import std;
@@ -18,10 +14,6 @@ export import mo_yanxi.graphic.color;
 import mo_yanxi.gui.util.observable_value;
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.gui.fx.fringe;
-
-#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-import <beman/inplace_vector.hpp>;
-#endif
 
 namespace mo_yanxi::gui{
 export
@@ -51,7 +43,7 @@ struct hue_gradient_drawer final : gui::style::default_slider1d_drawer{
 		fx::layer_param layer_param) const override{
 		if(layer_param.is_top()){
 			static constexpr int segs_size = 128;
-			fx::fringe::line_context context{std::in_place_type<beman::inplace_vector::inplace_vector<graphic::draw::instruction::line_node, segs_size + 4>>};
+			fx::fringe::inplace_line_context<segs_size + 4> context{};
 
 			float math::vec2::* major;
 			float math::vec2::* minor;
@@ -348,6 +340,7 @@ public:
 					s.set_style();
 					s.set_vertical(layout_policy);
 					s.drawer_ = alpha_gradient_slider_drawer;
+					s._debug_identity = 1;
 					slider_alpha_ = &s;
 				}
 			}, layout_policy);

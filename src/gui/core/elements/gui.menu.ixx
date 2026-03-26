@@ -143,6 +143,12 @@ public:
 		current_showing_ = index;
 	}
 
+	void on_context_sync_bind() override{
+		head_body::on_context_sync_bind();
+		for (auto && entry : entries){
+			entry->on_context_sync_bind();
+		}
+	}
 protected:
 	void on_layout_policy_changed(const layout::layout_policy layout_policy) override{
 		head_body::on_layout_policy_changed(layout_policy);

@@ -313,6 +313,8 @@ public:
 	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> active_update_elems{};
 	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> active_update_to_be_removed_elems{};
 
+	std::thread::id ui_main_thread_id{};
+
 protected:
 
 	//TODO own node_pointer instead?
@@ -325,6 +327,7 @@ protected:
 	// layer_altitude_record layer_altitude_record_{get_heap()};
 
 	ccur::mpsc_double_buffer_no_propagate<elem*, std::vector<elem*, mr::heap_allocator<elem*>>> action_active_pending_elems_{std::vector<elem*, mr::heap_allocator<elem*>>{get_heap()}};
+	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> action_active_async_elems_{get_heap()};
 	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> action_active_elems_{get_heap()};
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
@@ -601,6 +604,8 @@ private:
 	void update_elem_cursor_state_(float delta_in_tick) noexcept;
 
 	void update_elem_action_(float delta_in_tick) noexcept;
+
+	void dump_async_pending_actions_();
 
 	void notify_isolated_layout_update(elem* element){
 		independent_layouts_.get_bak().insert(element);

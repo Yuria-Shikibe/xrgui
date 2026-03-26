@@ -2,19 +2,11 @@ module;
 
 #include <cassert>
 
-#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-#include <beman/inplace_vector.hpp>
-#endif
-
 module mo_yanxi.gui.infrastructure;
 
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.gui.fx.compound;
 import mo_yanxi.gui.fx.fringe;
-
-#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-import <beman/inplace_vector.hpp>;
-#endif
 
 namespace mo_yanxi::gui{
 void style::debug_elem_drawer::draw_layer_impl(const elem& element, math::frect region, float opacityScl,
@@ -90,7 +82,7 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 
 		auto seg = math::rect::get_closest_vertex_pair(region, hit_region);
 
-		fx::fringe::line_context ctx{std::in_place_type<beman::inplace_vector::inplace_vector<line_node, 12>>};
+		fx::fringe::inplace_line_context<12> ctx{};
 
 		fx::compound::dash_line(seg, {8.0, 6.0, 24.0, 6.0}, [&](math::section<math::vec2> s){
 			ctx.push(s.from, 1, colors::LIME.copy().set_a(.8f));
@@ -144,6 +136,15 @@ style::elem_style_ptr elem::get_elem_default_style_() const{
 	return get_style_manager().get_default<style::elem_style_drawer>();
 }
 
+elem::elem(scene& scene, elem* parent) noexcept:
+	scene_(std::addressof(scene)),
+	parent_(parent){
+	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
+	action::push_runnable_action(*this, [](elem& elem){
+		elem.set_style(elem.get_elem_default_style_());
+	});
+}
+
 void elem::push_to_action_queue(){
 	get_scene().async_push_elem_to_action_pending(this);
 }
@@ -176,6 +177,16 @@ bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
 
 void elem::drop_tooltip() const{
 	if(has_tooltip())get_scene().tooltip_manager_.request_drop(this);
+}
+
+void elem::set_style() noexcept{
+
+	action::push_runnable_action(*this, [](elem& elem){
+		elem.style = nullptr;
+		if(util::try_modify(elem.style_boarder_cache_, {})){
+			elem.notify_isolated_layout_changed();
+		}
+	});
 }
 
 void elem::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
@@ -277,6 +288,17 @@ void elem::set_focused_key(const bool focus) noexcept{
 style::style_manager& elem::get_style_manager() const noexcept{
 	return scene_->resources().style_manager;
 }
+
+void elem::try_sync_context(){
+	if(std::this_thread::get_id() == scene_->ui_main_thread_id){
+		on_context_sync_bind();
+	}
+}
+
+bool elem::is_on_ui_thread() const noexcept{
+	return std::this_thread::get_id() == scene_->ui_main_thread_id;
+}
+
 
 void elem::update_altitude_(altitude_t height){
 	// if(layer_altitude_ == height)return;

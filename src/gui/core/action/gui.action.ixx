@@ -58,6 +58,10 @@ public:
 
 		if(scale.time == 0.0f){
 			this->begin(elem);
+			if(scale.lifetime <= 0.f){
+				this->end(elem);
+				return delta;
+			}
 			scale.time = std::numeric_limits<float>::min();
 		}
 

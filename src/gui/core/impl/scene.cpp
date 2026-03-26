@@ -468,12 +468,26 @@ void scene::update_elem_cursor_state_(float delta_in_tick) noexcept{
 void scene::update_elem_action_(float delta_in_tick) noexcept{
 	if(auto cont = action_active_pending_elems_.fetch()){
 		for (auto value : *cont){
-			action_active_elems_.insert(value);
+			if(value->context_synchronized_.load(std::memory_order::acquire)){
+				action_active_elems_.insert(value);
+			}else{
+				action_active_async_elems_.insert(value);
+			}
 		}
 	}
 
 	action_active_elems_.modify_and_erase([&](elem* p){
 		return p->update_action(delta_in_tick);
+	});
+}
+
+void scene::dump_async_pending_actions_(){
+	action_active_async_elems_.modify_and_erase([&](elem* p){
+		if(p->context_synchronized_.load(std::memory_order::acquire)){
+			action_active_elems_.insert(p);
+			return true;
+		}
+		return false;
 	});
 }
 }

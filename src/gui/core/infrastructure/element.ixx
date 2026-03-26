@@ -33,7 +33,6 @@ import mo_yanxi.transparent_span;
 
 
 namespace mo_yanxi::gui{
-
 export constexpr inline boarder default_boarder{8, 8, 8, 8};
 
 namespace style{
@@ -183,8 +182,10 @@ private:
 	math::vec2 absolute_pos_{};
 	boarder boarder_{};
 
+	std::atomic_bool context_synchronized_{this->is_on_ui_thread()};
+
 public:
-	style::elem_style_ptr style{get_elem_default_style_()};
+	style::elem_style_ptr style{};
 
 private:
 	[[nodiscard]] style::elem_style_ptr get_elem_default_style_() const;
@@ -240,11 +241,7 @@ public:
 		clear_scene_references();
 	}
 
-	[[nodiscard]] elem(scene& scene, elem* parent) noexcept :
-		scene_(std::addressof(scene)),
-		parent_(parent){
-		init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
-	}
+	[[nodiscard]] elem(scene& scene, elem* parent) noexcept;
 
 	elem(const elem& other) = delete;
 	elem(elem&& other) noexcept = delete;
@@ -364,26 +361,26 @@ public:
 
 #pragma region Draw
 public:
-// 	void propagate_draw_requirement_since_self(bool required){
-// 		auto last = this;
-// 		auto cur = parent();
-// 		requirement_set_result cur_rst{true, required};
-// 		while(cur){
-// 			if((cur_rst = cur->draw_flag.set_children_draw_required(cur_rst.is_required()))){
-// 				last = cur;
-// 				cur = cur->parent();
-// 			}else{
-// 				break;
-// 			}
-// 		}
-// 	}
-//
-// public:
-// 	void set_draw_required(draw_flag::flag_type val, draw_flag::flag_type mask) noexcept{
-// 		if(const auto rst = draw_flag.set_self_draw_required(val, mask)){
-// 			propagate_draw_requirement_since_self(rst.is_required());
-// 		}
-// 	}
+	// 	void propagate_draw_requirement_since_self(bool required){
+	// 		auto last = this;
+	// 		auto cur = parent();
+	// 		requirement_set_result cur_rst{true, required};
+	// 		while(cur){
+	// 			if((cur_rst = cur->draw_flag.set_children_draw_required(cur_rst.is_required()))){
+	// 				last = cur;
+	// 				cur = cur->parent();
+	// 			}else{
+	// 				break;
+	// 			}
+	// 		}
+	// 	}
+	//
+	// public:
+	// 	void set_draw_required(draw_flag::flag_type val, draw_flag::flag_type mask) noexcept{
+	// 		if(const auto rst = draw_flag.set_self_draw_required(val, mask)){
+	// 			propagate_draw_requirement_since_self(rst.is_required());
+	// 		}
+	// 	}
 
 	// void try_draw(const rect clipSpace) const{
 	// 	if(invisible) return;
@@ -413,13 +410,12 @@ public:
 
 	void set_style(referenced_ptr<const style::elem_style_drawer> style) noexcept{
 		this->style = std::move(style);
-		style_boarder_cache_ = style->get_boarder();
+		if(util::try_modify(style_boarder_cache_, style->get_boarder())){
+			notify_isolated_layout_changed();
+		}
 	}
 
-	void set_style() noexcept{
-		this->style = nullptr;
-		style_boarder_cache_ = {};
-	}
+	void set_style() noexcept;
 
 	virtual void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const;
 
@@ -983,6 +979,21 @@ protected:
 		return scene_->get_memory_resource();
 	}
 
+public:
+	/**
+	 *
+	 * @brief This function should only be called on the main UI thread.
+	 */
+	virtual void on_context_sync_bind(){
+		context_synchronized_.store(true, std::memory_order::memory_order_release);
+	}
+
+	void try_sync_context();
+
+private:
+	bool is_on_ui_thread() const noexcept;
+
+protected:
 	template <typename S, typename T, typename ...Args>
 	T& request_and_cache_node(this S& self, T* S::* cache, Args&& ...args){
 		if(self.*cache){
@@ -1245,7 +1256,10 @@ const D& elem_cast(const B& b) noexcept(unchecked || std::same_as<D, elem>){
 		return dynamic_cast<const D&>(b);
 	}
 }
+}
 
+#pragma region IMPL
+namespace mo_yanxi::gui{
 mr::heap_allocator<elem> elem_ptr::alloc_of(const scene& s) noexcept{
 	return s.get_heap_allocator<elem>();
 }
@@ -1254,7 +1268,7 @@ mr::heap_allocator<elem> elem_ptr::alloc_of(const elem* ptr) noexcept{
 	return alloc_of(ptr->get_scene());
 }
 
-void elem_ptr::set_deleter(elem* element, void(* p)(elem*) noexcept) noexcept{
+void elem_ptr::set_deleter(elem* element, void (*p)(elem*) noexcept) noexcept{
 	element->deleter_ = p;
 }
 
@@ -1263,10 +1277,39 @@ void elem_ptr::delete_elem(elem* ptr) noexcept{
 }
 
 
+template <std::derived_from<elem> T>
+void elem_ptr::dynamic_init(T& ptr) noexcept{
 }
 
 
-namespace mo_yanxi::gui::events{
+
+namespace action{
+export
+template <std::derived_from<elem> T, std::invocable<T&> Fn>
+struct elem_runnable_action final : action<elem>{
+	ADAPTED_NO_UNIQUE_ADDRESS Fn fn;
+
+	template <typename F>
+	[[nodiscard]] explicit elem_runnable_action(const mr::heap_allocator<>& allocator, F&& fn, float delay = 0)
+		: action(allocator, delay), fn(std::forward<F>(fn)){
+	}
+
+protected:
+	void end(elem& elem) override{
+		std::invoke(fn, elem_cast<T, false>(elem));
+	}
+};
+
+export
+template <std::derived_from<elem> E, std::invocable<E&> Fn>
+void push_runnable_action(E& e, Fn&& fn, float delay = 0){
+	static_cast<elem&>(e).push_action<elem_runnable_action<E, std::decay_t<Fn>>>(std::forward<Fn>(fn), delay);
+}
+
+}
+
+
+namespace events{
 math::vec2 click::get_content_pos(const elem& elem) const noexcept{
 	return pos - elem.content_src_offset();
 }
@@ -1277,5 +1320,6 @@ bool click::within_elem(const elem& elem, float margin) const noexcept{
 	p.y += margin;
 	return p.axis_greater(0, 0) && p.axis_less(elem.extent().add(margin * 2));
 }
-
 }
+}
+#pragma endregion
