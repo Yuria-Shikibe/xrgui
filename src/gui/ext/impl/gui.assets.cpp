@@ -30,50 +30,7 @@ import align;
 namespace svgs{
 MY_PUSH_IGNORE_MODULE_INCLUDE_WARNING
 
-constexpr char check[]{
-#include <icons/basic/check.svg.h>
-};
-
-constexpr char textarea[]{
-#include <icons/basic/textarea.svg.h>
-};
-
-constexpr char file[]{
-#include <icons/basic/file.svg.h>
-};
-
-constexpr char folder[]{
-#include <icons/basic/folder.svg.h>
-};
-
-constexpr char plus[]{
-#include <icons/basic/plus.svg.h>
-};
-
-constexpr char data_server[]{
-#include <icons/basic/data_server.svg.h>
-};
-
-constexpr char up[]{
-#include <icons/basic/up.svg.h>
-};
-constexpr char left[]{
-#include <icons/basic/left.svg.h>
-};
-constexpr char right[]{
-#include <icons/basic/right.svg.h>
-};
-constexpr char down[]{
-#include <icons/basic/down.svg.h>
-};
-
-constexpr char more[]{
-#include <icons/basic/more.svg.h>
-};
-
-constexpr char side_bar[]{
-#include <icons/side_bar.svg.h>
-};
+#include <assets_summary.h>
 
 MY_POP_IGNORE_MODULE_INCLUDE_WARNING
 }
@@ -118,7 +75,7 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 	auto& side_bar = load(page,
 		"side_bar",
 		graphic::sdf_load{
-			graphic::msdf::msdf_generator{svgs::side_bar, true, true}, std::nullopt, 3
+			graphic::msdf::msdf_generator{svgs::icons::side_bar_svg, true, true}, std::nullopt, 3
 		});
 
 	using namespace builtin;
@@ -148,25 +105,35 @@ void load_default_icons(graphic::image_atlas& image_atlas){
 #define COMBINE(name) "i-"#name
 
 
-#define LOAD_ICON(name) \
+
+
+#define LOAD_ICON(name, orient_contours) \
 	{ \
 	auto& i = load(page, COMBINE(name), \
-	graphic::sdf_load{graphic::msdf::msdf_generator{std::string(svgs:: name), true}, math::usize2{64u, 64u}, 3}); \
+	graphic::sdf_load{graphic::msdf::msdf_generator{std::string(svgs::icons::basic:: name##_svg), true, orient_contours}, math::usize2{64u, 64u}, 3}); \
 	builtin_page.insert(shape_id:: name, i);	\
 	}
 
-	LOAD_ICON(check)
-	LOAD_ICON(textarea)
-	LOAD_ICON(file)
-	LOAD_ICON(folder)
-	LOAD_ICON(plus)
-	LOAD_ICON(data_server)
+	LOAD_ICON(arrow_down, false)
+	LOAD_ICON(arrow_up, false)
 
-	LOAD_ICON(right)
-	LOAD_ICON(left)
-	LOAD_ICON(up)
-	LOAD_ICON(down)
-	LOAD_ICON(more)
+	LOAD_ICON(check, false)
+	LOAD_ICON(textarea, false)
+	LOAD_ICON(file, false)
+	LOAD_ICON(folder, false)
+	LOAD_ICON(plus, false)
+	LOAD_ICON(data_server, false)
+	LOAD_ICON(time, false)
+	LOAD_ICON(alphabetical_sorting, false)
+	LOAD_ICON(row_height, false)
+
+	LOAD_ICON(right, false)
+	LOAD_ICON(left, false)
+	LOAD_ICON(up, false)
+	LOAD_ICON(down, false)
+	LOAD_ICON(more, false)
+	LOAD_ICON(search, false)
+	LOAD_ICON(sort_two, false)
 
 }
 

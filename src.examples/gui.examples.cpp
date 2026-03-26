@@ -19,6 +19,7 @@ import mo_yanxi.react_flow.common;
 
 import mo_yanxi.gui.elem.scaling_stack;
 import mo_yanxi.gui.elem.sequence;
+import mo_yanxi.gui.elem.overflow_sequence;
 import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.elem.collapser;
 import mo_yanxi.gui.elem.table;
@@ -148,6 +149,7 @@ void set_cursors(scene& scene){
 void make_styles(scene& scene){
 	auto& sm = scene.resources().style_manager;
 
+
 	{
 		referenced_ptr<style::round_style> round_style{std::in_place};
 		round_style->edge.pal = style::pal::white.border;
@@ -163,6 +165,7 @@ void make_styles(scene& scene){
 
 	{
 		referenced_ptr<style::round_style_no_edge> round_style{std::in_place};
+		round_style->boarder.set(4);
 		round_style->back.pal = style::pal::dark;
 		round_style->back = assets::builtin::default_round_square_base;
 
@@ -199,6 +202,7 @@ void make_styles(scene& scene){
 	{
 		style::side_bar_style style{};
 		const auto region = assets::builtin::get_page()[assets::builtin::shape_id::side_bar].value_or({});
+		style.boarder.set(2);
 		style.bar.pal = style::pal::white.border;
 		style.bar = image_row_patch{region, region->uv.get_region(), 18, 18, 4};
 		style.back.pal = style::pal::dark;
@@ -678,10 +682,34 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							receiver.cell().set_end_line();
 						}
 
-						auto sep = table.emplace_back<row_separator>();
-						sep.cell().set_height(20).set_width_passive(.85f).saturate = true;
-						sep.cell().margin.set_vert(4);
-						sep.cell().set_end_line();
+						{
+							auto sep = table.emplace_back<row_separator>();
+						   sep.cell().set_height(20).set_width_passive(.85f).saturate = true;
+						   sep.cell().margin.set_vert(4);
+						   sep.cell().set_end_line();
+						}
+
+						{
+							auto sep = table.create_back([](overflow_sequence& seq){
+								seq.set_layout_policy(layout::layout_policy::vert_major);
+								seq.template_cell.set_size(120).set_pad({2, 2});
+								auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
+									i.set_style();
+								}, gui::assets::builtin::shape_id::more);
+								cell.set_size({layout::size_category::scaling});
+
+								for(unsigned i = 0; i < 12; ++i){
+									seq.create_back([&](label& l){
+										l.set_text(std::format("{}", i));
+										l.set_fit();
+									});
+								}
+								seq.set_split_index(2);
+							});
+							sep.cell().set_height(80).saturate = true;
+							sep.cell().margin.set_vert(4);
+							sep.cell().set_end_line();
+						}
 
 						for(int i = 0; i < 4; ++i){
 							table.emplace_back<elem>().cell().set_size({120, 120});

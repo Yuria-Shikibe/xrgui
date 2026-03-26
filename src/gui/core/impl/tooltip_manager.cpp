@@ -160,7 +160,7 @@ bool tooltip_manager::drop(ActivesItr be, ActivesItr se){
 
 	auto range = std::ranges::subrange{be, se};
 	for (auto && validToolTip : range){
-		validToolTip.owner->tooltip_notify_drop();
+		validToolTip.owner->on_tooltip_drop();
 	}
 
 	dropped.append_range(range | std::ranges::views::as_rvalue | std::views::transform([](tooltip_instance&& validToolTip){
@@ -185,6 +185,7 @@ void tooltip_manager::updateDropped(float delta_in_time){
 		return dropped.remainTime <= 0;
 	});
 }
+
 
 
 void spawner::tooltip_drop(){

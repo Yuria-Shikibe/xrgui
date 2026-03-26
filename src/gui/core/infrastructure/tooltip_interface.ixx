@@ -97,12 +97,12 @@ public:
 		return ptr;
 	}
 
-	void tooltip_notify_drop(){
+	void on_tooltip_drop(){
 		tooltip_handle = nullptr;
 		tooltip_on_drop_behavior_impl();
 		//TODO Call scene drop
 	}
-
+private:
 	void tooltip_drop();
 
 protected:

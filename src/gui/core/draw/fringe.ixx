@@ -2,6 +2,12 @@ module;
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
+
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#include <beman/inplace_vector.hpp>
+#endif
+
+
 export module mo_yanxi.gui.fx.fringe;
 
 export import mo_yanxi.gui.renderer.frontend;
@@ -10,6 +16,10 @@ export import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.byte_pool;
 
 import std;
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <beman/inplace_vector.hpp>;
+#endif
 
 
 namespace mo_yanxi::gui::fx::fringe{
@@ -483,5 +493,8 @@ private:
 	}
 };
 
+export
+template <std::size_t N>
+using inplace_line_context = line_context<beman::inplace_vector::inplace_vector<instruction::line_node, N>>;
 
 }

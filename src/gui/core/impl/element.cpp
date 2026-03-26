@@ -117,16 +117,16 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 	region.scl_size(.25f, .25f);
 
 	// if(element.draw_flag.is_draw_required()){
-	auto opct = element.draw_flag.get_debug_count();
-		element.renderer().push(triangle{
-			.p0 = region.vert_00(),
-			.p1 = region.vert_10(),
-			.p2 = region.vert_01(),
-			.c0 = colors::pale_green.copy_set_a(opct * .25f),
-			.c1 = colors::pale_green.copy_set_a(opct * .25f),
-			.c2 = colors::pale_green.copy_set_a(opct * .25f)
-
-		});
+	// auto opct = element.draw_flag.get_debug_count();
+	// 	element.renderer().push(triangle{
+	// 		.p0 = region.vert_00(),
+	// 		.p1 = region.vert_10(),
+	// 		.p2 = region.vert_01(),
+	// 		.c0 = colors::pale_green.copy_set_a(opct * .25f),
+	// 		.c1 = colors::pale_green.copy_set_a(opct * .25f),
+	// 		.c2 = colors::pale_green.copy_set_a(opct * .25f)
+	//
+	// 	});
 	// }
 }
 
@@ -166,8 +166,16 @@ tooltip::align_config elem::tooltip_get_align_config() const{
 	return cfg;
 }
 
+void elem::create_tooltip(bool fade_in, bool below_scene){
+	get_scene().tooltip_manager_.append_tooltip(*this, below_scene, fade_in);
+}
+
 bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
 	return rect{extent()}.contains_loose(util::transform_scene2local(*this, cursorPos));
+}
+
+void elem::drop_tooltip() const{
+	if(has_tooltip())get_scene().tooltip_manager_.request_drop(this);
 }
 
 void elem::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{

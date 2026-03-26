@@ -212,7 +212,7 @@ namespace mo_yanxi::gui::layout{
 			return *this;
 		}
 
-		constexpr mastering_cell& set_external_weight(vec2 weight) noexcept {
+		constexpr mastering_cell& set_pending_weight(vec2 weight) noexcept {
 			if(weight.x > 0){
 				stated_extent.width.type = size_category::pending;
 				stated_extent.width.value = weight.x;
@@ -226,7 +226,7 @@ namespace mo_yanxi::gui::layout{
 			return *this;
 		}
 
-		constexpr mastering_cell& set_external(math::vector2<bool> weight) noexcept {
+		constexpr mastering_cell& set_pending(math::vector2<bool> weight) noexcept {
 			if(weight.x){
 				stated_extent.width.type = size_category::pending;
 				stated_extent.width.value = static_cast<float>(weight.x);
@@ -240,8 +240,8 @@ namespace mo_yanxi::gui::layout{
 			return *this;
 		}
 
-		constexpr mastering_cell& set_external() noexcept {
-			return set_external({true, true});
+		constexpr mastering_cell& set_pending() noexcept {
+			return set_pending({true, true});
 		}
 
 	};

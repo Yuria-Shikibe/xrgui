@@ -42,12 +42,16 @@ struct caret_cache{
 };
 
 export enum struct text_edit_view_type : std::uint8_t {
-	fix = 0,
+	fix,
 	fit,
-	dyn
+	dyn,
+	align_x,
+	align_y
 };
-
 export struct text_edit : elem{
+private:
+	static constexpr math::vec2 viewport_padding{ 16.0f, 16.0f };
+
 public:
 	inline static typesetting::layout_context layout_context{};
 
@@ -122,24 +126,35 @@ protected:
         }
     };
 
-    [[nodiscard]] text_transform_params get_transform_params() const noexcept{
-        const math::vec2 raw_ext = glyph_layout_.extent;
-        const math::vec2 abs_scale = scale_.copy().to_abs();
-        const math::vec2 trans_ext = raw_ext * abs_scale;
-        const math::vec2 reg_ext = get_glyph_draw_extent();
+	[[nodiscard]] bool is_scrollable_mode() const noexcept {
+		return view_mode_ == text_edit_view_type::dyn ||
+			   view_mode_ == text_edit_view_type::align_x ||
+			   view_mode_ == text_edit_view_type::align_y;
+	}
 
-        math::vec2 c_scale = scale_;
-        if(view_mode_ == text_edit_view_type::fit && trans_ext.x > 0.f && trans_ext.y > 0.f){
-            c_scale *= (reg_ext / trans_ext);
-        }
+	[[nodiscard]] text_transform_params get_transform_params() const noexcept{
+		const math::vec2 raw_ext = glyph_layout_.extent;
+		const math::vec2 abs_scale = scale_.copy().to_abs();
+		const math::vec2 trans_ext = raw_ext * abs_scale;
+		const math::vec2 reg_ext = get_glyph_draw_extent();
+		math::vec2 c_scale = scale_;
 
-        math::vec2 current_scroll = (view_mode_ == text_edit_view_type::dyn) ? scroll_offset_ : math::vec2{0.f, 0.f};
+		// 修复 1：所有的自适应拉伸模式（fit, align_x, align_y）都必须更新渲染器的缩放矩阵
+		// 否则偏移量计算中的 `reg_ext / 2 - raw_ext / 2 * c_scale` 会产生错位，将排版推出边界
+		if((view_mode_ == text_edit_view_type::fit ||
+			view_mode_ == text_edit_view_type::align_x ||
+			view_mode_ == text_edit_view_type::align_y) && trans_ext.x > 0.f && trans_ext.y > 0.f){
+			c_scale *= (reg_ext / trans_ext);
+			}
 
-        math::vec2 offset_abs = get_glyph_src_abs() + reg_ext * 0.5f - raw_ext * 0.5f * c_scale - current_scroll;
-        math::vec2 offset_local = get_glyph_src_local() + reg_ext * 0.5f - raw_ext * 0.5f * c_scale - current_scroll;
+		// 修复 2：所有允许滚动的模式（is_scrollable_mode）都应该应用 scroll_offset_
+		math::vec2 current_scroll = is_scrollable_mode() ? scroll_offset_ : math::vec2{0.f, 0.f};
 
-        return {c_scale, offset_abs, offset_local};
-    }
+		math::vec2 offset_abs = get_glyph_src_abs() + reg_ext * 0.5f - raw_ext * 0.5f * c_scale - current_scroll;
+		math::vec2 offset_local = get_glyph_src_local() + reg_ext * 0.5f - raw_ext * 0.5f * c_scale - current_scroll;
+
+		return {c_scale, offset_abs, offset_local};
+	}
 
 public:
 	[[nodiscard]] text_edit(scene& scene, elem* parent)
@@ -231,23 +246,20 @@ public:
 #pragma endregion
 
 #pragma region EditActions
-	template <std::invocable<std::u32string&> Action>
+	template <std::predicate<std::u32string&> Action>
 	void apply_edit(Action&& action){
-		bool actually_changed = false;
-		tokenized_text_.modify(apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw,
+		bool actually_changed = tokenized_text_.modify(apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw,
 			[&](std::u32string& text) -> bool{
-				std::u32string old_text = text;
-				bool result = std::invoke(std::forward<Action>(action), text);
-				if(old_text != text){
-					actually_changed = true;
-				}
-				return result;
+				return std::invoke(std::forward<Action>(action), text);
 			});
 
-		change_mark_ |= text_edit_change_type::text;
-		notify_isolated_layout_changed();
-
 		if(actually_changed){
+			if(is_idle()){
+				is_idle_ = false;
+			}
+			change_mark_ |= text_edit_change_type::text;
+			notify_isolated_layout_changed();
+
 			if(view_mode_ == text_edit_view_type::dyn)get_scene().update_cursor_type();
 
 			if(on_changed_interval_ > 0.f){
@@ -269,7 +281,7 @@ public:
 	void action_do_delete(){ apply_edit([&](std::u32string& text){ return core_.action_delete(text); }); }
 	void action_do_backspace(){ apply_edit([&](std::u32string& text){ return core_.action_backspace(text); }); }
 
-	void action_enter(){
+	virtual void action_enter(){
 		if(is_character_allowed(U'\n')){
 			apply_edit([&](std::u32string& text){ return core_.insert_text(text, U"\n"); });
 		} else{
@@ -328,9 +340,13 @@ public:
 
 #pragma endregion
 
-	void set_banned_characters(std::initializer_list<char32_t> chars){
-		set_character_filter_mode(false);
-		filter_code_points = chars;
+	template <std::ranges::range Rng = std::initializer_list<char32_t>>
+		requires (std::convertible_to<std::ranges::range_reference_t<Rng>, char32_t>)
+	void set_filter_characters(Rng&& chars){
+		filter_code_points.clear();
+		for (char32_t char_ : chars){
+			filter_code_points.insert(char_);
+		}
 	}
 
 	void set_character_filter_mode(bool is_whitelist) noexcept{
@@ -340,10 +356,6 @@ public:
 	[[nodiscard]] bool is_character_allowed(char32_t ch) const noexcept{
 		bool contains = filter_code_points.contains(ch);
 		return is_code_filter_whitelist_ ? contains : !contains;
-	}
-
-	void add_file_banned_characters(){
-		set_banned_characters(std::initializer_list{U'<', U'>', U':', U'"', U'/', U'\\', U'|', U'*', U'?'});
 	}
 
 	[[nodiscard]] std::size_t get_max_code_points() const noexcept{
@@ -388,6 +400,12 @@ protected:
 		math::vec2 base_ext = glyph_layout_.extent * abs_scale;
 		if(view_mode_ == text_edit_view_type::fit){
 			return mo_yanxi::gui::align::embed_to(align::scale::fit_smaller, base_ext, content_extent());
+		} else if (view_mode_ == text_edit_view_type::align_x) {
+			if (base_ext.x > 0.f) return base_ext * (content_extent().x / base_ext.x);
+			return base_ext;
+		} else if (view_mode_ == text_edit_view_type::align_y) {
+			if (base_ext.y > 0.f) return base_ext * (content_extent().y / base_ext.y);
+			return base_ext;
 		} else {
 			return base_ext;
 		}
@@ -397,10 +415,8 @@ protected:
 		const auto sz = get_glyph_draw_extent();
 		const math::vec2 vp = content_extent();
 
-		if (view_mode_ == text_edit_view_type::dyn) {
+		if (is_scrollable_mode()) { // 替换原来的 dyn 特判
 			math::vec2 align_offset = mo_yanxi::gui::align::get_offset_of(text_entire_align, sz, rect{vp});
-			// 如果文本尺寸小于视口尺寸，应用 text_entire_align 对齐
-			// 否则在超出视口的方向上固定为 0，由 scroll_offset_ 控制滑动
 			return {sz.x <= vp.x ? align_offset.x : 0.f,
 					sz.y <= vp.y ? align_offset.y : 0.f};
 		}
@@ -417,22 +433,19 @@ public:
 	bool update(float delta_in_ticks) override;
 
 	[[nodiscard]] align::padding2d<bool> get_scrollable_directions() const noexcept {
-		// 如果不是动态滑动模式，说明视口固定或完全自适应，不可滑动
-		if (view_mode_ != text_edit_view_type::dyn) {
+		if (!is_scrollable_mode()) {
 			return align::padding2d<bool>{};
 		}
 
 		const math::vec2 sz = get_glyph_draw_extent();
 		const math::vec2 vp = content_extent();
 
-		// 计算 X 和 Y 轴的最大可滚动距离
+		// 同步修复：条件触发式的 max_scroll
 		const math::vec2 max_scroll = {
-			std::max(0.f, sz.x - vp.x),
-			std::max(0.f, sz.y - vp.y)
+			sz.x > vp.x ? std::max(0.f, sz.x + viewport_padding.x - vp.x) : 0.f,
+			sz.y > vp.y ? std::max(0.f, sz.y + viewport_padding.y - vp.y) : 0.f
 		};
-
-		// 引入 0.1f 的容差，防止浮点数精度误差导致到达边缘时仍判定为可滑动
-		constexpr float epsilon = 0.1f;
+		constexpr float epsilon = 1.f;
 
 		return align::padding2d<bool>{
 			.left   = scroll_offset_.x > epsilon,
@@ -489,6 +502,7 @@ private:
 	void set_focus(bool keyFocused);
 	void set_text_internal(std::u32string_view str);
 
+protected:
 	void reset_blink(){
 		caret_blink_timer_ = 0.f;
 	}

@@ -1,18 +1,10 @@
 module;
 
-#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-#include <beman/inplace_vector.hpp>
-#endif
-
 module mo_yanxi.gui.infrastructure;
 
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.gui.fx.instruction_extension;
 import mo_yanxi.gui.fx.fringe;
-
-#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-import <beman/inplace_vector.hpp>;
-#endif
 
 namespace mo_yanxi::gui{
  constexpr inline float fringe_range = 2.f;
@@ -102,7 +94,7 @@ rect default_cursor_arrow::draw(gui::renderer_frontend& renderer, math::raw_frec
 	region.src -= region.extent * .5f;
 
 	auto rst = style::calculate_rect_arrow(region.src, region.extent, direction);
-	fx::fringe::line_context context{std::in_place_type<beman::inplace_vector::inplace_vector<line_node, (7 + 4) * 2>>};
+	fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
 	context.push(rst.p1, 3, graphic::colors::white);
 	context.push(rst.p2, 3, graphic::colors::white);
 	context.push(rst.p3, 3, graphic::colors::white);

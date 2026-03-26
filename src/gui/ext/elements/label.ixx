@@ -31,6 +31,12 @@ enum struct change_type : std::uint32_t{
 
 BITMASK_OPS(export, change_type);
 
+export enum struct label_fit_type : std::uint8_t {
+	fix,
+	fit,
+	scl
+};
+
 export enum struct text_rotation : std::uint8_t{
 	deg_0 = 0,
 	deg_90,
@@ -96,15 +102,16 @@ protected:
 
 private:
 
-	bool fit_{};
+	label_fit_type fit_type_{label_fit_type::fix};
+
 
 	bool is_layout_expired_() const noexcept{
 		return change_mark_ != change_type{};
 	}
 
 public:
-	math::vec2 max_fit_scale_bound{math::vectors::constant2<float>::inf_positive_vec2};
 	align::pos text_entire_align{align::pos::top_left};
+	math::vec2 max_fit_scale_bound{math::vectors::constant2<float>::inf_positive_vec2};
 
 	using elem::elem;
 
@@ -119,6 +126,24 @@ public:
 	}
 
 #pragma region LabelSetter
+
+	[[nodiscard]] label_fit_type get_fit_type() const noexcept{
+		return fit_type_;
+	}
+
+
+	void set_fit_type(const label_fit_type type){
+		if(util::try_modify(fit_type_, type)){
+			change_mark_ |= change_type::max_extent | change_type::config;
+			notify_isolated_layout_changed();
+		}
+	}
+
+	// 保留原有接口以兼容历史代码
+	void set_fit(bool fit = true){
+		set_fit_type(fit ? label_fit_type::fit : label_fit_type::fix);
+	}
+
 	const typesetting::tokenized_text& get_tokenized_text() const noexcept{
 		return tokenized_text_;
 	}
@@ -189,12 +214,6 @@ public:
 		}
 	}
 
-	void set_fit(bool fit = true){
-		if(util::try_modify(fit_, fit)){
-			change_mark_ |= change_type::max_extent | change_type::config;
-			notify_isolated_layout_changed();
-		}
-	}
 #pragma endregion
 
 	void layout_elem() override{
@@ -237,9 +256,34 @@ protected:
 			return std::nullopt;
 		}
 
-		if(!fit_){
+		if(fit_type_ == label_fit_type::fix){
 			const auto text_size = layout_text(extent.potential_extent());
 			extent.apply(text_size.required_extent);
+		} else if(fit_type_ == label_fit_type::scl){
+			// scl 模式下，首先无限制排版获取文本真实物理大小
+			const auto text_size = layout_text(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2);
+			math::vec2 nat_ext = text_size.required_extent;
+			math::vec2 pot_ext = extent.potential_extent();
+
+			bool x_det = !std::isinf(pot_ext.x);
+			bool y_det = !std::isinf(pot_ext.y);
+
+			math::vec2 target_ext = nat_ext;
+			if(x_det && !y_det && nat_ext.x > 0.0001f){
+				float ratio = pot_ext.x / nat_ext.x;
+				target_ext = {pot_ext.x, nat_ext.y * ratio};
+			} else if(!x_det && y_det && nat_ext.y > 0.0001f){
+				float ratio = pot_ext.y / nat_ext.y;
+				target_ext = {nat_ext.x * ratio, pot_ext.y};
+			} else if(x_det && y_det){
+				// 双侧均有确切值时，按常规的 embed 逻辑求取极限缩放边界
+				float ratio = align::get_fit_embed_scale(nat_ext, pot_ext);
+				target_ext = {nat_ext.x * ratio, nat_ext.y * ratio};
+			}
+
+			// 与 max_fit_scale_bound 结合使用，不超纲
+			target_ext = target_ext.min(max_fit_scale_bound);
+			extent.apply(target_ext);
 		}
 
 		const auto ext = extent.potential_extent().inf_to0();
@@ -251,15 +295,18 @@ protected:
 	[[nodiscard]] math::vec2 get_glyph_draw_extent() const noexcept{
 		math::vec2 base_ext = glyph_layout_.extent;
 
+		base_ext *= {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
+
 		if(transform_config_.is_vertical()){
 			base_ext.swap_xy();
 		}
 
-		// 新增：应用绝对缩放比例（取绝对值避免负数翻转缩小外包围盒尺寸）
-		base_ext *= {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
-
-		if(fit_){
+		if(fit_type_ == label_fit_type::fit){
 			return mo_yanxi::gui::align::embed_to(align::scale::fit_smaller, base_ext,
+				content_extent().min(max_fit_scale_bound));
+		} else if(fit_type_ == label_fit_type::scl){
+			// scl 模式下元素尺寸已等比调整，使用 fit 可以精准填满目标 content_extent
+			return mo_yanxi::gui::align::embed_to(align::scale::fit, base_ext,
 				content_extent().min(max_fit_scale_bound));
 		} else{
 			return base_ext;
@@ -281,32 +328,30 @@ protected:
 	}
 
 	text_layout_result layout_text(math::vec2 bound){
-		if(!fit_ && bound.area() < 32.0f) return {};
+		if(fit_type_ == label_fit_type::fix && bound.area() < 32.0f) return {};
 
 		math::vec2 local_bound = bound;
-
-		// 提取绝对缩放倍率
-		math::vec2 abs_scale = {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
-
-		// 提前将缩放影响逆向应用到传入引擎的排版空间（排除0避免除零异常）
-		if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
-			local_bound /= abs_scale;
-		}
-
 		const bool swap_axes = transform_config_.is_vertical();
+
 		if(swap_axes){
 			local_bound.swap_xy();
 		}
 
-		// 提取公共的输出尺寸处理函数，用于返回时将原始布局尺寸放大
+		// 提取绝对缩放倍率并逆向应用
+		math::vec2 abs_scale = {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
+		if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
+			local_bound /= abs_scale;
+		}
+
+		// 提取公共的输出尺寸处理函数
 		auto process_result_ext = [&]() -> math::vec2 {
 			math::vec2 ext = glyph_layout_.extent;
+			ext *= abs_scale;
 			if(swap_axes) ext.swap_xy();
-			ext *= abs_scale; // 应用缩放
 			return ext;
 		};
 
-		if(fit_){
+		if(fit_type_ != label_fit_type::fix){
 			if((change_mark_ & change_type::max_extent) != change_type{}){
 				if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
 				} else{

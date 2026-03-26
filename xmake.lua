@@ -37,7 +37,6 @@ add_requires("harfbuzz", {configs = {cxflags = "-DHB_NO_MT"}})
 add_requires("nanosvg")
 add_requires("spirv-reflect")
 add_requires("gtl")
--- add_requires("clipper2")
 add_requires("mimalloc v3.2.8")
 
 add_requires("glfw")
@@ -117,10 +116,10 @@ target("xrgui.example")
     add_files("src.backends/vulkan_glfw/**.cpp")
     add_files("src.examples/**.ixx", {public = true})
     add_files("src.examples/**.cpp")
-
-    if is_mode("release") then
-        set_policy("build.optimization.lto", true)
-    end
+--
+--     if is_mode("release") then
+--         set_policy("build.optimization.lto", true)
+--     end
 
     if is_plat("windows") then
         add_syslinks("imm32")
@@ -135,29 +134,59 @@ target("xrgui.example")
 
     before_build(function (target)
         import("core.project.config")
-        import("utils.binary.bin2c") -- 优化：将 import 移出循环，避免每次迭代重复加载模块
+        import("utils.binary.bin2c")
 
         local my_res_inc = path.join(config.builddir(), ".assets", "includes")
-
-        -- 定义需要保留层级结构的基准源文件夹
         local src_basedir = "./properties/assets/images"
 
-        for _, file in ipairs(os.files(path.join(src_basedir, "**.svg"))) do
-            -- 1. 获取文件相对于 src_basedir 的相对路径 (例如: "sub/icon.svg")
-            local rel_path = path.relative(file, src_basedir)
+        local summary_lines = { "#pragma once\n" }
 
-            -- 2. 拼接目标头文件路径 (例如: ".../icons/sub/icon.svg.h")
+        for _, file in ipairs(os.files(path.join(src_basedir, "**.svg"))) do
+            local rel_path = path.relative(file, src_basedir)
             local headerfile = path.join(my_res_inc, rel_path .. ".h")
 
-            -- 3. 确保目标文件所在的子目录存在 (os.mkdir 在 xmake 中会自动递归创建)
             os.mkdir(path.directory(headerfile))
 
-            -- 增量编译判断
             if not os.isfile(headerfile) or os.mtime(headerfile) < os.mtime(file) then
                 print("generating.bin2c " .. headerfile)
                 bin2c(file, headerfile)
             end
+
+            -- 标准化的包含路径 (用于 #include)
+            local inc_path = (rel_path .. ".h"):gsub("\\", "/")
+
+            -- 1. 提取并处理目录，生成命名空间
+            local dir = path.directory(rel_path)
+            local ns_decl = ""
+            local ns_close = ""
+
+            -- 如果存在子目录 (不是当前目录 "." 且不为空)
+            if dir and dir ~= "." and dir ~= "" then
+                -- 将路径分隔符替换为 C++ 的 ::，并将连字符等非法字符转为下划线
+                local ns_name = dir:gsub("[\\/]", "::"):gsub("[%.%-]", "_")
+                ns_decl = string.format("namespace %s {\n", ns_name)
+                ns_close = string.format("} // namespace %s\n", ns_name)
+            end
+
+            -- 2. 提取并处理文件名，生成变量名
+            local filename = path.filename(rel_path)
+            local var_name = filename:gsub("[%.%-]", "_")
+
+            -- 3. 拼接 C++ 代码块 (利用 C++ 命名空间可以重复打开的特性)
+            table.insert(summary_lines, string.format([[
+    %s#if __has_include("%s")
+    constexpr inline char %s[] = {
+    #include "%s"
+    };
+    #else
+    constexpr inline char %s[] = {};
+    #endif
+    %s]], ns_decl, inc_path, var_name, inc_path, var_name, ns_close))
+
         end
+
+        local summary_header_path = path.join(my_res_inc, "assets_summary.h")
+        io.writefile(summary_header_path, table.concat(summary_lines, "\n"))
     end)
 
 --     add_rules("utils.bin2c", {extensions = ".svg"})

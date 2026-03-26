@@ -101,20 +101,37 @@ public:
 	}
 
 	void switch_to(std::size_t index){
-		if(index == current_showing_)return;
+		if(index == current_showing_) return;
 		if(index > entries.size()){
 			throw std::out_of_range{"index out of range"};
 		}
+
+		// 记录交换前的当前显示元素
+		auto* old_item = items[1].get();
+
 		if(index == entries.size()){
 			std::swap(entries[current_showing_], items[1]);
-		}else{
+		} else{
 			get_button_sequence().children()[index]->set_toggled(true);
 
 			if(current_showing_ == entries.size()){
 				std::swap(entries[index], items[1]);
-			}else{
+			} else{
 				std::swap(entries[current_showing_], items[1]);
 				std::swap(items[1], entries[index]);
+			}
+		}
+
+		// 记录交换后的当前显示元素
+		auto* new_item = items[1].get();
+
+		// 如果发生了实质性的替换，更新显示状态
+		if(old_item != new_item){
+			if(old_item){
+				old_item->on_display_state_changed(false);
+			}
+			if(new_item){
+				new_item->on_display_state_changed(true);
 			}
 		}
 

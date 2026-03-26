@@ -212,12 +212,12 @@ protected:
 public:
 	bool invisible{};
 	bool sleep{};
+	bool is_transparent_in_inbound_filter{};
 
-	draw_flag draw_flag{};
+	// draw_flag draw_flag{};
 
 	update_flags update_flag{};
 
-	// bool is_transparent_in_inbound_filter{};
 
 private:
 	//TODO direct access
@@ -271,6 +271,8 @@ public:
 public:
 	[[nodiscard]] tooltip::align_config tooltip_get_align_config() const override;
 
+	void create_tooltip(bool fade_in = true, bool below_scene = false);
+
 	[[nodiscard]] bool tooltip_spawner_contains(math::vec2 cursorPos) const noexcept override;
 
 	[[nodiscard]] bool tooltip_should_build(math::vec2 cursorPos) const noexcept override{
@@ -285,6 +287,7 @@ public:
 		return !tooltip_create_config.auto_release || tooltip_handle.handle->is_focused_key();
 	}
 
+	void drop_tooltip() const;
 protected:
 	[[nodiscard]] scene& tooltip_get_scene() const noexcept final{
 		return get_scene();
@@ -298,6 +301,12 @@ public:
 #pragma endregion
 
 #pragma region Event
+
+	virtual void on_display_state_changed(bool is_shown){
+		for (auto child : children()){
+			child->on_display_state_changed(is_shown);
+		}
+	}
 
 	virtual void on_inbound_changed(bool is_inbounded, bool changed){
 		cursor_states_.inbound = is_inbounded;
@@ -338,7 +347,7 @@ public:
 		cursor_states_.time_stagnate = 0;
 		if(tooltip_create_config.use_stagnate_time && !event.delta().equals({})){
 			cursor_states_.time_tooltip = 0.;
-			tooltip_notify_drop();
+			on_tooltip_drop();
 		}
 		return events::op_afterwards::fall_through;
 	}
@@ -355,26 +364,26 @@ public:
 
 #pragma region Draw
 public:
-	void propagate_draw_requirement_since_self(bool required){
-		auto last = this;
-		auto cur = parent();
-		requirement_set_result cur_rst{true, required};
-		while(cur){
-			if((cur_rst = cur->draw_flag.set_children_draw_required(cur_rst.is_required()))){
-				last = cur;
-				cur = cur->parent();
-			}else{
-				break;
-			}
-		}
-	}
-
-public:
-	void set_draw_required(draw_flag::flag_type val, draw_flag::flag_type mask) noexcept{
-		if(const auto rst = draw_flag.set_self_draw_required(val, mask)){
-			propagate_draw_requirement_since_self(rst.is_required());
-		}
-	}
+// 	void propagate_draw_requirement_since_self(bool required){
+// 		auto last = this;
+// 		auto cur = parent();
+// 		requirement_set_result cur_rst{true, required};
+// 		while(cur){
+// 			if((cur_rst = cur->draw_flag.set_children_draw_required(cur_rst.is_required()))){
+// 				last = cur;
+// 				cur = cur->parent();
+// 			}else{
+// 				break;
+// 			}
+// 		}
+// 	}
+//
+// public:
+// 	void set_draw_required(draw_flag::flag_type val, draw_flag::flag_type mask) noexcept{
+// 		if(const auto rst = draw_flag.set_self_draw_required(val, mask)){
+// 			propagate_draw_requirement_since_self(rst.is_required());
+// 		}
+// 	}
 
 	// void try_draw(const rect clipSpace) const{
 	// 	if(invisible) return;
@@ -418,10 +427,10 @@ public:
 	FORCE_INLINE void try_draw_layer(const rect clipSpace, fx::layer_param_pass_t param){
 		if(invisible) return;
 		if(!clipSpace.overlap_inclusive(bound_abs())) return;
-		if(param.layer_index == 0)draw_flag.update_debug_count();
+		// if(param.layer_index == 0)draw_flag.update_debug_count();
 		// set_draw_required(0, 1 << param.layer_index);
 		draw_layer(clipSpace, param);
-		draw_flag.clear();
+		// draw_flag.clear();
 	}
 
 protected:
@@ -755,7 +764,12 @@ public:
 		if constexpr (!unchecked && !std::same_as<T, elem>){
 			return dynamic_cast<T&>(*parent_);
 		}else{
+#ifndef NDEBUG
+			return dynamic_cast<T&>(*parent_);
+#else
 			return static_cast<T&>(*parent_);
+#endif
+
 		}
 	}
 
@@ -873,9 +887,9 @@ public:
 		return true;
 	}
 
-	// [[nodiscard]] constexpr bool ignore_inbound() const noexcept{
-	// 	return is_transparent_in_inbound_filter;
-	// }
+	[[nodiscard]] constexpr bool ignore_inbound() const noexcept{
+		return is_transparent_in_inbound_filter;
+	}
 
 	[[nodiscard]] FORCE_INLINE inline bool touch_blocked() const noexcept{
 		return interactivity == interactivity_flag::disabled || interactivity == interactivity_flag::intercept;
@@ -1011,7 +1025,7 @@ void dfs_record_inbound_element(
 		return;
 	}
 
-	selected.push_back(current);
+	if(!current->ignore_inbound())selected.push_back(current);
 
 	if(current->touch_blocked() || !current->has_children()) return;
 

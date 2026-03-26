@@ -37,6 +37,9 @@ void scene::update(double delta_in_tick){
 
 	root().update(delta_in_tick);
 
+	active_update_elems.difference_update(active_update_to_be_removed_elems);
+	active_update_to_be_removed_elems.clear();
+
 	for (auto active_update_elem : active_update_elems){
 		active_update_elem->update(delta_in_tick);
 	}
@@ -244,15 +247,24 @@ void scene::update_cursor(){
 }
 
 void scene::update_cursor_type(math::vec2 cursor_local_pos){
+	if(!focus_cursor_){
+		current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style::cursor_style{style::cursor_type::regular});
+		return;
+	}
 	auto cursor_type = focus_cursor_->get_cursor_type(cursor_local_pos);
 	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(cursor_type);
 }
 
 void scene::update_cursor_type(){
+	if(!focus_cursor_){
+		current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style::cursor_style{style::cursor_type::regular});
+		return;
+	}
 	const auto cursor_transform_delta = util::transform_scene2local(get_inbounds(), {});
 	const auto cursor_transformed = get_cursor_pos() + cursor_transform_delta;
 
-	update_cursor_type(cursor_transformed);
+	auto cursor_type = focus_cursor_->get_cursor_type(cursor_transformed);
+	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(cursor_type);
 }
 
 events::op_afterwards scene::on_esc(){
@@ -290,6 +302,10 @@ void scene::layout(){
 			// break;
 			throw std::runtime_error("Bad Layout: Iteration Too Many Times");
 		}
+	}
+
+	if(count){
+		request_cursor_update();
 	}
 }
 
@@ -439,7 +455,7 @@ void scene::drop_(const elem* target) noexcept{
 void scene::update_elem_cursor_state_(float delta_in_tick) noexcept{
 	cursor_event_active_elems_.modify_and_erase([&](elem* e){
 		e->cursor_states_.update(delta_in_tick);
-		e->draw_flag.set_self_draw_required(1);
+		// e->draw_flag.set_self_draw_required(1);
 
 		if(e->cursor_states_.focused){
 			tooltip_manager_.try_append_tooltip(*e, false);

@@ -125,7 +125,7 @@ public:
 	}
 
 	template <std::invocable<std::u32string&> Fn>
-	constexpr void modify(tokenize_tag tag, Fn fn, const rich_text_look_up_table* table = look_up_table){
+	constexpr auto modify(tokenize_tag tag, Fn fn, const rich_text_look_up_table* table = look_up_table){
 		auto apply = [&]{
 			tokens_.clear();
 			switch(tag){
@@ -147,12 +147,14 @@ public:
 		if constexpr (std::predicate<Fn&, std::u32string&>){
 			if(std::invoke_r<bool>(fn, chars_)){
 				apply();
+				return true;
 			}
+			return false;
 		}else{
 			std::invoke(fn, chars_);
 			apply();
+			return ;
 		}
-
 	}
 
 	constexpr void reset(std::string_view string,

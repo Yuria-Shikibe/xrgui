@@ -315,7 +315,7 @@ protected:
 
 				if(edge.image_view){
 					auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
-					element.renderer() << fx::nine_patch_draw<>{
+					element.renderer() << fx::nine_patch_hollow_draw<>{
 							.patch = &edge,
 							.region = region,
 							.color = color_edge,
@@ -350,7 +350,7 @@ protected:
 			element.renderer().update_state(fx::batch_draw_mode::msdf);
 
 			auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
-			element.renderer() << fx::nine_patch_draw<>{
+			element.renderer() << fx::nine_patch_hollow_draw<>{
 				.patch = &edge,
 				.region = region,
 				.color = color_edge,

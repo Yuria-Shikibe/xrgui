@@ -121,7 +121,7 @@ public:
 		return current_active_index_;
 	}
 
-	template <std::derived_from<elem> E, bool unchecked = false>
+	template <std::derived_from<elem> E = elem, bool unchecked = false>
 	E& at(std::size_t index){
 		return gui::elem_cast<E, unchecked>(*candidates_.at(index));
 	}
@@ -131,8 +131,11 @@ public:
 			throw std::out_of_range{"index out of elem range"};
 		}
 
-		if(util::try_modify(current_active_index_, index)){
+		if(current_active_index_ != index){
+			get_active_elem_ptr()->on_display_state_changed(false);
+			current_active_index_ = index;
 			auto& cur = *get_active_elem_ptr();
+			cur.on_display_state_changed(true);
 			cur.restriction_extent = clip_boarder_from(restriction_extent, boarder_extent());
 			cur.update_abs_src(content_src_pos_abs());
 			cur.resize(content_extent());

@@ -56,6 +56,62 @@ export void terminate(){
 	CoUninitialize();
 }
 
+export
+[[nodiscard]] constexpr std::string_view get_invalid_filename_chars() noexcept {
+
+#if defined(_WIN32)
+	static constexpr auto arr = [](){
+		constexpr std::string_view chars = R"(<>:"/\|?*)";
+		constexpr auto sz = 32 + std::ranges::size(chars);
+		std::array<char, sz> char_array;
+		auto rst = std::ranges::copy(chars, char_array.begin());
+		for (std::uint32_t i = 0; i < 32; ++i) {
+			*rst.out = static_cast<char>(i);
+			++rst.out;
+		}
+		return char_array;
+	}();
+	return std::string_view(arr);
+#else
+	// POSIX (Linux, macOS, Unix) 仅禁用正斜杠和空字符
+	invalid_chars += '/';
+	invalid_chars += '\0';
+	return "/\0";
+#endif
+}
+
+export
+[[nodiscard]] constexpr std::string_view get_invalid_path_chars() noexcept {
+#if defined(_WIN32)
+	// 编译期生成 Windows 路径禁用字符数组
+	static constexpr auto arr = [](){
+		// 相比文件名，路径允许斜杠 '/'、反斜杠 '\' 和 盘符冒号 ':'
+		constexpr std::string_view chars = R"(<>"|?*)";
+		constexpr auto sz = 32 + chars.size(); // 32 个控制字符 (0-31) + 特殊符号
+
+		std::array<char, sz> char_array{};
+		auto rst = std::ranges::copy(chars, char_array.begin());
+
+		// 填入 ASCII 0 (\0) 到 31 的控制字符
+		for (std::uint32_t i = 0; i < 32; ++i) {
+			*rst.out = static_cast<char>(i);
+			++rst.out;
+		}
+		return char_array;
+	}();
+
+	// 使用 data() 和 size() 构造，防止遇到 '\0' 时被 C 风格字符串隐式截断
+	return std::string_view(arr.data(), arr.size());
+#else
+	// POSIX (Linux, macOS, Unix) 系统中，'/' 是合法的路径分隔符。
+	// 整个路径字符串中唯一真正非法的字符只有空字符 '\0'。
+	static constexpr std::array<char, 1> arr = {'\0'};
+	return std::string_view(arr.data(), arr.size());
+#endif
+}
+
+
+
 export struct driver_letters_info {
 	std::array<char, 128> buffer;
 	std::uint32_t size;

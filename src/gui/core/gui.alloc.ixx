@@ -16,88 +16,37 @@ namespace mo_yanxi::gui::mr{
 export
 class raw_memory_pool {
 public:
-    // 1. 構造函數 (資源獲取)
-    /**
-     * @brief 分配一個給定大小的內存塊。
-     * @param size 要分配的字節數。
-     */
+    // 1. 构造函数 (资源获取)
     explicit raw_memory_pool(const std::size_t size) : size_(size){
         if (size > 0) {
             ptr_ = allocate(size);
             if (!ptr_) {
                 throw std::bad_alloc();
-            }else{
-                bool success = mi_manage_os_memory_ex(ptr_, size, true, false, true, -1, true, &arena_id_);
-                if (!success){
-                    throw std::bad_alloc();
-                }
             }
+            // 将内存交给 mimalloc 托管
+            bool success = mi_manage_os_memory_ex(ptr_, size, true, false, true, -1, true, &arena_id_);
+            if (!success){
+                // 修复泄漏：如果 mimalloc 拒绝接管，抛出异常前必须手动释放刚才 allocate 的内存
+                deallocate(ptr_, size);
+                ptr_ = nullptr;
+                throw std::bad_alloc();
+            }
+            // 成功后，ptr_ 由 mimalloc 永久管理
         }
     }
 
-    // 默認構造函數，創建一個空的 pool
     raw_memory_pool() noexcept = default;
 
-    // 2. 析構函數 (資源釋放)
-    ~raw_memory_pool() {
-        if (ptr_) {
-            deallocate(ptr_, size_);
-        }
-    }
-
-    // 3. 禁用拷貝語義
-    raw_memory_pool(const raw_memory_pool&) = delete;
-    raw_memory_pool& operator=(const raw_memory_pool&) = delete;
-
-    // 4. 支持移動語義 (所有權轉移)
-    /**
-     * @brief 移動構造函數。從另一個 raw_memory_pool 轉移所有權。
-     */
-    raw_memory_pool(raw_memory_pool&& other) noexcept
-        : ptr_(std::exchange(other.ptr_, {}))
-    , size_(std::exchange(other.size_, {}))
-    , arena_id_(std::exchange(other.arena_id_, {}))
-    {
-    }
-
-    /**
-     * @brief 移動賦值運算符。從另一個 raw_memory_pool 轉移所有權。
-     */
-    raw_memory_pool& operator=(raw_memory_pool&& other) noexcept {
-        // 防止自我賦值
-        if (this != &other) {
-            // 首先釋放自己當前持有的資源
-            if (ptr_) {
-                deallocate(ptr_, size_);
-            }
-
-            // 從源對象竊取資源
-            ptr_ = std::exchange(other.ptr_, {});
-            size_ = std::exchange(other.size_, {});
-            arena_id_ = std::exchange(other.arena_id_, {});
-        }
-
-        return *this;
-    }
-
     [[nodiscard]] void* get() const noexcept { return ptr_; }
-
     [[nodiscard]] std::size_t size() const noexcept { return size_; }
-
-    [[nodiscard]] mi_arena_id_t get_arena_id() const noexcept{
-        return arena_id_;
-    }
-
-    explicit operator bool() const noexcept{
-        return ptr_ != nullptr;
-    }
+    [[nodiscard]] mi_arena_id_t get_arena_id() const noexcept { return arena_id_; }
+    explicit operator bool() const noexcept { return ptr_ != nullptr; }
 
 private:
     void* ptr_{};
     std::size_t size_{};
     mi_arena_id_t arena_id_{};
 
-    // --- 平台相關的分配和釋放邏輯 ---
     static void* allocate(std::size_t size) {
     #ifdef _WIN32
         return VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
@@ -109,7 +58,7 @@ private:
     static void deallocate(void* ptr, std::size_t size) noexcept {
     #ifdef _WIN32
         VirtualFree(ptr, 0, MEM_RELEASE);
-        (void)size; // 在 Windows 上 size 未被使用
+        (void)size;
     #else
         munmap(ptr, size);
     #endif
@@ -124,6 +73,10 @@ private:
 public:
 
     [[nodiscard]] heap() = default;
+
+    [[nodiscard]] explicit(false) heap(std::in_place_t)
+        : heap_(::mi_heap_new()){
+    }
 
     [[nodiscard]] explicit(false) heap(mi_heap_t* heap)
         : heap_(heap){

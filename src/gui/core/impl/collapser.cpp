@@ -35,6 +35,7 @@ void collapser::update_collapse(float delta) noexcept{
 			expand_reload_ = 0.f;
 			state_ = collapser_state::expanded;
 			if(update_opacity_during_expand_)body().update_context_opacity(get_draw_opacity());
+			body().on_display_state_changed(true);
 			set_update_disabled(update_channel::layout);
 		}else if(update_opacity_during_expand_){
 			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
@@ -72,6 +73,7 @@ void collapser::update_collapse(float delta) noexcept{
 		if(expand_reload_ == 0.f){
 			state_ = collapser_state::un_expand;
 			if(update_opacity_during_expand_)body().update_context_opacity(0);
+			body().on_display_state_changed(false);
 			set_update_disabled(update_channel::layout);
 		}else if(update_opacity_during_expand_){
 			body().update_context_opacity(get_interped_progress() * get_draw_opacity());

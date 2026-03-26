@@ -156,6 +156,14 @@ namespace mo_yanxi{
 			constexpr padding2d& set_zero() noexcept{
 				return set(0);
 			}
+
+			constexpr padding2d& scl(T scl) noexcept{
+				left *= scl;
+				right *= scl;
+				bottom *= scl;
+				top *= scl;
+				return *this;
+			}
 		};
 
 

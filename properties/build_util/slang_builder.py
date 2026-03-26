@@ -23,7 +23,7 @@ def check_slangc_compiler(slangc_path: Union[str, Path]) -> bool:
             [str(slangc_path), "-v"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=20
         )
         if result.returncode == 0:
             print(f"✓ slangc编译器有效: {slangc_path}")

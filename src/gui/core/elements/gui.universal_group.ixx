@@ -12,6 +12,7 @@ import mo_yanxi.handle_wrapper;
 import std;
 
 namespace mo_yanxi::gui{
+
 export
 template <typename Cell>
 struct create_handle_base{
@@ -223,7 +224,7 @@ public:
 		static_cast<universal_group&>(self).on_element_add(adaptor);
 	}
 
-	elem_ptr exchange(std::size_t where, elem_ptr&& elem, bool force_isolated_notify) final{
+	elem_ptr exchange(std::size_t where, elem_ptr&& elem, bool force_isolated_notify) override{
 		auto* p = elem.get();
 		auto rst = basic_group::exchange(where, std::move(elem), force_isolated_notify);
 		cells_[where].element = p;

@@ -9,7 +9,7 @@ bool text_edit::update(float delta_in_ticks){
 	if(!elem::update(delta_in_ticks)) return false;
 
 	// 动态滚动平滑插值处理
-	if(view_mode_ == text_edit_view_type::dyn) {
+	if(is_scrollable_mode()) {
 		if(!scroll_offset_.equals(target_scroll_offset_)) {
 			// 使用简单的线性插值靠近目标
 			scroll_offset_ = scroll_offset_.copy().lerp_inplace(target_scroll_offset_, 1.1f - std::pow(0.01f, delta_in_ticks / 60.f));
@@ -102,14 +102,14 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
         return glyph_layout_.extent * abs_scale;
     };
 
-    if(view_mode_ == text_edit_view_type::dyn) {
+    if(is_scrollable_mode()) {
         // dyn 模式下不受边界约束，XY无限排版（不自动换行）
-        if((change_mark_ & text_edit_change_type::max_extent) != text_edit_change_type::none){
-            if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
-            } else{
-                change_mark_ = change_mark_ & ~text_edit_change_type::max_extent;
-            }
-        }
+    	if((change_mark_ & text_edit_change_type::max_extent) != text_edit_change_type::none){
+    		if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
+    		} else{
+    			change_mark_ = change_mark_ & ~text_edit_change_type::max_extent;
+    		}
+    	}
 
     	if(is_layout_expired_()){
     		layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2);
@@ -194,6 +194,28 @@ std::optional<math::vec2> text_edit::pre_acquire_size_impl(layout::optional_mast
 		return std::nullopt;
 	}
 
+	if(view_mode_ == text_edit_view_type::align_x || view_mode_ == text_edit_view_type::align_y){
+		// 先使用无限大小排版获得文本的原生尺寸
+		const auto text_size = layout_text(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2);
+		math::vec2 raw_ext = text_size.required_extent;
+
+		if(view_mode_ == text_edit_view_type::align_y && !extent.height_pending()){
+			float target_y = extent.potential_height();
+			if(raw_ext.y > 0.0001f){
+				float ratio = target_y / raw_ext.y;
+				return math::vec2{raw_ext.x * ratio, target_y};
+			}
+		} else if(view_mode_ == text_edit_view_type::align_x && !extent.width_pending()){
+			float target_x = extent.potential_width();
+			if(raw_ext.x > 0.0001f){
+				float ratio = target_x / raw_ext.x;
+				return math::vec2{target_x, raw_ext.y * ratio};
+			}
+		}
+		// 若对应边是 inf (pending) 则无法推导，直接走默认逻辑或返回 nullopt
+		return std::nullopt;
+	}
+
 	if(view_mode_ != text_edit_view_type::fit){
 		const auto text_size = layout_text(extent.potential_extent());
 		extent.apply(text_size.required_extent);
@@ -208,7 +230,7 @@ void text_edit::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) c
 	draw_style(param);
 	if(param != 0) return;
 
-	if (view_mode_ == text_edit_view_type::dyn) {
+	if (is_scrollable_mode()) { // 修改这里
 		renderer().push_scissor({ content_bound_abs() });
 		renderer().notify_viewport_changed();
 	}
@@ -216,7 +238,7 @@ void text_edit::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) c
 	draw_selection_and_caret();
 
 	if(!render_cache_.has_drawable_text()) {
-		if (view_mode_ == text_edit_view_type::dyn) {
+		if (is_scrollable_mode()) {
 			renderer().pop_scissor();
 			renderer().notify_viewport_changed();
 		}
@@ -242,7 +264,7 @@ void text_edit::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) c
 		render_cache_.push_to_renderer(renderer());
 	}
 
-	if (view_mode_ == text_edit_view_type::dyn) {
+	if (is_scrollable_mode()) {
 		renderer().pop_scissor();
 		renderer().notify_viewport_changed();
 	}
@@ -552,53 +574,55 @@ math::frect text_edit::get_caret_local_aabb() const{
 }
 
 void text_edit::clamp_scroll_offset() {
-	if (view_mode_ != text_edit_view_type::dyn) return;
+	if (!is_scrollable_mode()) return;
 	math::vec2 sz = get_glyph_draw_extent();
 	math::vec2 vp = content_extent();
 
-	// 最大滚动距离等于 内容尺寸 减去 视口尺寸，若内容小于视口则最大滚动为 0
-	math::vec2 max_scroll = { std::max(0.f, sz.x - vp.x), std::max(0.f, sz.y - vp.y) };
-	target_scroll_offset_.clamp_xy(math::vec2{0.f, 0.f}, max_scroll);
+	math::vec2 padding{ 16.0f, 16.0f };
 
-	// 如果立刻钳制可能导致画面跳跃，可以在这里同步给 scroll_offset_，或者让 update 平滑处理
+	// 修复 3：仅当 sz 严格大于 vp 时，才允许产生可滚动距离
+	// 防止排版能够被完整呈现时，padding 产生虚空滚动区间导致整体左移被 Scissor 裁剪
+	math::vec2 max_scroll = {
+		sz.x > vp.x ? std::max(0.f, sz.x + padding.x - vp.x) : 0.f,
+		sz.y > vp.y ? std::max(0.f, sz.y + padding.y - vp.y) : 0.f
+	};
+	target_scroll_offset_.clamp_xy(math::vec2{0.f, 0.f}, max_scroll);
 }
 
 void text_edit::scroll_to_caret() {
-	if (view_mode_ != text_edit_view_type::dyn) return;
+	if (!is_scrollable_mode()) return;
 
 	// 获取未经过视口滚动偏移的局部坐标
+	auto t_params = get_transform_params();
 	math::frect caret_rect = caret_cache_.caret_rect_;
-	caret_rect.vert_00() *= scale_;
-	caret_rect.vert_11() *= scale_;
+	caret_rect.vert_00() *= t_params.scale;
+	caret_rect.vert_11() *= t_params.scale;
 
-	// 应用基础文本偏移（例如居中带来的偏移）
 	math::vec2 base_offset = get_glyph_src_local();
 	caret_rect.vert_00() += base_offset;
 	caret_rect.vert_11() += base_offset;
 
 	math::vec2 vp = content_extent();
-	math::vec2 padding{ 16.0f, 16.0f }; // 让光标不要贴死在边缘
 
 	// 检查 X 轴
-	if (caret_rect.get_end_x() > target_scroll_offset_.x + vp.x - padding.x) {
-		target_scroll_offset_.x = caret_rect.get_end_x() - vp.x + padding.x;
-	} else if (caret_rect.vert_00().x < target_scroll_offset_.x + padding.x) {
-		target_scroll_offset_.x = caret_rect.vert_00().x - padding.x;
+	if (caret_rect.get_end_x() > target_scroll_offset_.x + vp.x - viewport_padding.x) {
+		target_scroll_offset_.x = caret_rect.get_end_x() - vp.x + viewport_padding.x;
+	} else if (caret_rect.vert_00().x < target_scroll_offset_.x + viewport_padding.x) {
+		target_scroll_offset_.x = caret_rect.vert_00().x - viewport_padding.x;
 	}
 
 	// 检查 Y 轴
-	if (caret_rect.get_end_y() > target_scroll_offset_.y + vp.y - padding.y) {
-		target_scroll_offset_.y = caret_rect.get_end_y() - vp.y + padding.y;
-	} else if (caret_rect.vert_00().y < target_scroll_offset_.y + padding.y) {
-		target_scroll_offset_.y = caret_rect.vert_00().y - padding.y;
+	if (caret_rect.get_end_y() > target_scroll_offset_.y + vp.y - viewport_padding.y) {
+		target_scroll_offset_.y = caret_rect.get_end_y() - vp.y + viewport_padding.y;
+	} else if (caret_rect.vert_00().y < target_scroll_offset_.y + viewport_padding.y) {
+		target_scroll_offset_.y = caret_rect.vert_00().y - viewport_padding.y;
 	}
 
 	clamp_scroll_offset();
 }
 
 events::op_afterwards text_edit::on_scroll(const events::scroll event, std::span<elem* const> aboves) {
-	if (view_mode_ == text_edit_view_type::dyn) {
-		// 根据业务需求调整滑动灵敏度。通常 delta y 代表垂直滚动。
+	if (is_scrollable_mode()) { // 修改这里
 		float scroll_sensitivity = 40.0f;
 		target_scroll_offset_ -= event.delta * scroll_sensitivity;
 		clamp_scroll_offset();

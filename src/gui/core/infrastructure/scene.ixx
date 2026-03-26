@@ -288,6 +288,7 @@ protected:
 	std::array<mouse_state, std::to_underlying(input_handle::mouse::Count)> mouse_states_{};
 	input_handle::input_manager<scene&> inputs_{};
 
+	//TODO make them public?
 	elem* focus_scroll_{nullptr};
 	elem* focus_cursor_{nullptr};
 	elem* focus_key_{nullptr};
@@ -310,6 +311,7 @@ protected:
 	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> cursor_event_active_elems_{};
 public:
 	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> active_update_elems{};
+	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> active_update_to_be_removed_elems{};
 
 protected:
 
@@ -419,6 +421,10 @@ public:
 
 	[[nodiscard]] bool is_mouse_pressed(input_handle::mouse mouse_button_code) const noexcept{
 		return mouse_states_[std::to_underlying(mouse_button_code)].pressed;
+	}
+
+	void overwrite_last_inbound_click_quiet(elem* elem) noexcept{
+		last_inbound_click_ = elem;
 	}
 
 	void drop_event_focus(const elem* target) noexcept{

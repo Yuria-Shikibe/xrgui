@@ -17,26 +17,20 @@ struct select_box : dispersed_value_selector<elem, MaxSize>{
 	static_assert(max_size >= 2);
 	using pass_type = std::conditional_t<(max_size > 2), unsigned, bool>;
 
-private:
-	react_flow::node_holder<react_flow::provider_cached<pass_type>> prov_;
+// private:
+// 	react_flow::node_holder<react_flow::provider_cached<pass_type>> prov_;
 
 public:
 	using icon_type = icon<component::vertex_color, component::batch_draw_mode, component::draw_switch>;
 	std::array<icon_type, max_size> icons{};
-	std::array<graphic::color, max_size> mul_color{graphic::colors::white, graphic::colors::white};
+	std::array<graphic::color, max_size> mul_color{[]{
+		std::array<graphic::color, max_size> colors;
+		colors.fill(graphic::colors::white);
+		return colors;
+	}()};
 
 	[[nodiscard]] select_box(scene& scene, elem* parent)
 		: dispersed_value_selector<elem, MaxSize>(scene, parent){
-	}
-
-protected:
-	void on_selected_val_updated(unsigned value) override{
-		prov_->update_value(value);
-	}
-
-public:
-	react_flow::provider_cached<pass_type>& get_prov() noexcept{
-		return prov_.node;
 	}
 
 	void draw_layer(const math::frect clipSpace, fx::layer_param_pass_t param) const override{
@@ -52,6 +46,19 @@ public:
 
 export
 struct check_box : select_box<2>{
+	private:
+		react_flow::node_holder<react_flow::provider_cached<pass_type>> prov_;
+
+protected:
+	void on_selected_val_updated(unsigned value) override{
+		prov_->update_value(value);
+	}
+
+public:
+	react_flow::provider_cached<pass_type>& get_prov() noexcept{
+		return prov_.node;
+	}
+
 	[[nodiscard]] check_box(scene& scene, elem* parent)
 		: select_box<2>(scene, parent){
 	}
