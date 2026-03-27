@@ -4,6 +4,7 @@ module;
 
 export module mo_yanxi.gui.infrastructure:ui_manager;
 
+import std;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.gui.alloc;
 import :scene;

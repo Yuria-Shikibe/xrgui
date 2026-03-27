@@ -1,0 +1,11 @@
+{
+  "configurations": [
+    {
+      "name": "CLion",
+      "cStandard": "c17",
+      "cppStandard": "c++23",
+      "mergeConfigurations": true
+    }
+  ],
+  "version": 4
+}

@@ -97,7 +97,7 @@ import mo_yanxi.core.platform;
 
 #pragma optimize("", off)
 template <typename T>
-void DoNotOptimize(T const& value) {
+void DoNotOptimize(T const& value){
 	auto volatile* dummy = &value;
 }
 #pragma optimize("", on)
@@ -120,8 +120,7 @@ void app_run(
 	mo_yanxi::backend::vulkan::renderer& renderer,
 	mo_yanxi::graphic::compositor::manager& manager,
 	mo_yanxi::vk::command_buffer& cmdBUf
-	){
-
+){
 	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
@@ -131,7 +130,6 @@ void app_run(
 	trail.shrink_interval *= 2.f;
 
 	while(!ctx.window().should_close()){
-
 		ctx.window().poll_events();
 		timer.fetch_time();
 
@@ -283,55 +281,63 @@ void app_run(
 			const auto X_count = math::ceil<int>(ctx.get_extent().width / size);
 			const auto Y_count = math::ceil<int>(ctx.get_extent().height / size);
 			math::rand rand{54767963};
-			for(int x = 0; x < X_count; ++x){ for(int y = 0; y < Y_count; ++y){
-				r.push(rect_aabb{
-					.generic = {.mode = std::to_underlying(((x + y) % 3 == 0) ? gui::fx::primitive_draw_mode::draw_slide_line : gui::fx::primitive_draw_mode::none)},
-					.v00 = {x * size, y * size},
-					.v11 = {x * size + size, y * size + size},
-					.vert_color = {graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}}
-				});
-			}}
+			for(int x = 0; x < X_count; ++x){
+				for(int y = 0; y < Y_count; ++y){
+					r.push(rect_aabb{
+							.generic = {
+								.mode = std::to_underlying(((x + y) % 3 == 0)
+									                           ? gui::fx::primitive_draw_mode::draw_slide_line
+									                           : gui::fx::primitive_draw_mode::none)
+							},
+							.v00 = {x * size, y * size},
+							.v11 = {x * size + size, y * size + size},
+							.vert_color = {
+								graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}
+							}
+						});
+				}
+			}
 
 			if(false){
 				{
 					gui::state_guard g{r, gui::fx::blend::multiply};
 					r.push(poly{
-						.pos = current_focus.get_cursor_pos().add_x(-150),
-						.segments = 16,
-						.radius = {0, 64},
-						.color = {graphic::colors::gray, graphic::colors::white}
-					});
+							.pos = current_focus.get_cursor_pos().add_x(-150),
+							.segments = 16,
+							.radius = {0, 64},
+							.color = {graphic::colors::gray, graphic::colors::white}
+						});
 				}
 
 				{
 					gui::state_guard g{r, gui::fx::blend::pma::screen};
 					r.push(poly{
-						.pos = current_focus.get_cursor_pos().add_x(150),
-						.segments = 16,
-						.radius = {0, 64},
-						.color = {graphic::colors::gray, graphic::colors::white}
-					});
+							.pos = current_focus.get_cursor_pos().add_x(150),
+							.segments = 16,
+							.radius = {0, 64},
+							.color = {graphic::colors::gray, graphic::colors::white}
+						});
 				}
 
 				{
 					gui::state_guard g{r, gui::fx::blend::pma::additive};
 					r.push(poly{
-						.pos = current_focus.get_cursor_pos().add_y(150),
-						.segments = 16,
-						.radius = {0, 64},
-						.color = {graphic::colors::gray, graphic::colors::white}
-					});
+							.pos = current_focus.get_cursor_pos().add_y(150),
+							.segments = 16,
+							.radius = {0, 64},
+							.color = {graphic::colors::gray, graphic::colors::white}
+						});
 				}
 
 
 				{
 					gui::state_guard g{r, gui::fx::blend::pma::subtractive};
 					r.push(poly{
-						.pos = current_focus.get_cursor_pos().add_y(-150),
-						.segments = 16,
-						.radius = {0, 64},
-						.color = {graphic::colors::gray, graphic::colors::white}
-					});
+							.pos = current_focus.get_cursor_pos().add_y(-150),
+							.segments = 16,
+							.radius = {0, 64},
+							.color = {graphic::colors::gray, graphic::colors::white}
+						});
 				}
 
 				r.push(poly{
@@ -343,24 +349,26 @@ void app_run(
 			}
 
 			r.update_state(
-			{},
-			gui::fx::batch_draw_mode::msdf,
+				{},
+				gui::fx::batch_draw_mode::msdf,
 				gui::make_state_tag(gui::fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
 
 			r << gui::fx::nine_patch_draw_vert_color{
-				.patch = &gui::assets::builtin::default_round_square_boarder,
-				.region = {200, 200, 600, 600},
-				.color = {graphic::colors::white, graphic::colors::CYAN, graphic::colors::ROYAL, graphic::colors::GREEN}
-			};
+					.patch = &gui::assets::builtin::default_round_square_boarder,
+					.region = {200, 200, 600, 600},
+					.color = {
+						graphic::colors::white, graphic::colors::CYAN, graphic::colors::ROYAL, graphic::colors::GREEN
+					}
+				};
 
 
 			r.update_state(gui::fx::blit_config{
-				{
-					.src = {},
-					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-				},
-				{.pipeline_index = 1, .inout_define_index = 0}
-			});
+					{
+						.src = {},
+						.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+					},
+					{.pipeline_index = 1, .inout_define_index = 0}
+				});
 
 
 			{
@@ -375,7 +383,7 @@ void app_run(
 
 				trail.iterate(1.f,
 					[last = trail.head_pos_or({})](
-						const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable {
+					const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable{
 						using namespace graphic;
 						math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
 
@@ -389,7 +397,11 @@ void app_run(
 						const auto color = math::lerp(colors::black, colors::aqua.to_light(2.5f),
 							factor_global);
 						return trail_node_data{
-								n, factor_global | math::interp::pow2In | math::interp::interp_func{math::interp::spec::concave_curve_fixed{.1f}} | math::interp::reverse, color
+								n,
+								factor_global | math::interp::pow2In | math::interp::interp_func{
+									math::interp::spec::concave_curve_fixed{.1f}
+								} | math::interp::reverse,
+								color
 							};
 					}, [&](std::span<const trail_node_data, 4> sspn){
 						using namespace graphic;
@@ -400,13 +412,15 @@ void app_run(
 						const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 2U, 8U);
 
 						r.push(parametric_curve{
-								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(&trail_node_data::pos)),
+								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(
+									&trail_node_data::pos)),
 								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 10.f,
 								.segments = seg,
 								.color = {colors::aqua.to_light(2.5f)},
 							});
 						r.push(parametric_curve{
-								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(&trail_node_data::pos)),
+								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(
+									&trail_node_data::pos)),
 								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 5.f,
 								.segments = seg,
 								.color = {colors::black},
@@ -415,7 +429,7 @@ void app_run(
 
 				trail.iterate(1.f,
 					[last = trail.head_pos_or({})](
-						const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable {
+					const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable{
 						using namespace graphic;
 						math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
 
@@ -430,7 +444,9 @@ void app_run(
 						const auto color = math::lerp(colors::aqua.to_light(2.5f), colors::pale_green.to_light(1.5f),
 							factor_global);
 
-						factor_global = math::curve(factor_global | math::interp::interp_func{math::interp::spec::concave_curve_fixed{.1f}} | math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)), 1.f);
+						factor_global = math::curve(
+							factor_global | math::interp::interp_func{math::interp::spec::concave_curve_fixed{.1f}} |
+							math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)), 1.f);
 
 						return trail_node_data{n, factor_global, color};
 					}, [&](std::span<const trail_node_data, 4> sspn){
@@ -442,24 +458,23 @@ void app_run(
 						const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 4U, 12U);
 
 						r.push(parametric_curve{
-								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(&trail_node_data::pos)),
+								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(
+									&trail_node_data::pos)),
 								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 8.f,
 								.segments = seg,
 								.color = {sspn[1].color, sspn[1].color, sspn[2].color, sspn[2].color},
 							});
 					});
-
 			}
 
 			r.push(triangle{});
 			r.update_state(gui::fx::blit_config{
-				{
-					.src = {},
-					.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-				},
-				{.pipeline_index = 1}
-			});
-
+					{
+						.src = {},
+						.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
+					},
+					{.pipeline_index = 1}
+				});
 		}
 
 		gui::global::manager.draw();
@@ -474,21 +489,21 @@ void app_run(
 }
 
 // 定义 Unicode 区块结构体
-struct UnicodeRange {
+struct UnicodeRange{
 	char32_t start;
 	char32_t end;
 	std::uint32_t weight; // 权重，通常等于该区块包含的字符数量
 };
 
-std::u32string generateRandomU32String(std::size_t length) {
+std::u32string generateRandomU32String(std::size_t length){
 	// 预定义一些绝对可渲染的 Unicode 常见区块
 	// 你可以根据需求自由增删这些区块
 	std::vector<UnicodeRange> ranges = {
-		{0x0020, 0x007E, 0x007E - 0x0020 + 1},     // 基础拉丁字母 (可打印 ASCII)
-		{0x4E00, 0x9FFF, 0x9FFF - 0x4E00 + 1},     // CJK 统一表意文字 (常用汉字)
-		{0x3040, 0x309F, 0x309F - 0x3040 + 1},     // 日文平假名
-		{0x1F600, 0x1F64F, 0x1F64F - 0x1F600 + 1}  // 常见 Emoji 表情符号
-	};
+			{0x0020, 0x007E, 0x007E - 0x0020 + 1}, // 基础拉丁字母 (可打印 ASCII)
+			{0x4E00, 0x9FFF, 0x9FFF - 0x4E00 + 1}, // CJK 统一表意文字 (常用汉字)
+			{0x3040, 0x309F, 0x309F - 0x3040 + 1}, // 日文平假名
+			{0x1F600, 0x1F64F, 0x1F64F - 0x1F600 + 1} // 常见 Emoji 表情符号
+		};
 
 	std::random_device rd;
 	auto i = rd();
@@ -497,7 +512,7 @@ std::u32string generateRandomU32String(std::size_t length) {
 
 	// 提取权重，用于离散分布 (确保字符多的区块被选中的概率更大)
 	std::vector<std::uint32_t> weights;
-	for (const auto& r : ranges) {
+	for(const auto& r : ranges){
 		weights.push_back(r.weight);
 	}
 	std::discrete_distribution<std::size_t> rangeDist(weights.begin(), weights.end());
@@ -505,7 +520,7 @@ std::u32string generateRandomU32String(std::size_t length) {
 	std::u32string result;
 	result.reserve(length);
 
-	for (std::size_t i = 0; i < length; ++i) {
+	for(std::size_t i = 0; i < length; ++i){
 		// 1. 根据权重随机选择一个字符区块
 		std::size_t rangeIndex = rangeDist(gen);
 		const auto& selectedRange = ranges[rangeIndex];
@@ -526,13 +541,13 @@ std::u32string generateRandomU32String(std::size_t length) {
 void prepare(){
 	const auto shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
 	constexpr VkApplicationInfo ApplicationInfo{
-		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-		.pApplicationName = "Hello Xrgui",
-		.applicationVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
-		.pEngineName = "No Engine",
-		.engineVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
-		.apiVersion = VK_API_VERSION_1_3,
-	};
+			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+			.pApplicationName = "Hello Xrgui",
+			.applicationVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
+			.pEngineName = "No Engine",
+			.engineVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
+			.apiVersion = VK_API_VERSION_1_3,
+		};
 
 	using namespace mo_yanxi;
 	using namespace graphic;
@@ -591,7 +606,8 @@ void prepare(){
 									false, {0b1},
 									{
 										{vk::blending::scaled_alpha_blend}, false, true, false
-									}}
+									}
+								}
 							},
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
@@ -603,7 +619,8 @@ void prepare(){
 									false, {0b1},
 									{
 										{vk::blending::scaled_alpha_blend}
-									}}
+									}
+								}
 							},
 						},
 						{}
@@ -657,12 +674,12 @@ void prepare(){
 						},
 						{
 							compute_pipeline_blit_inout_config{
-									{
-										{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
-									},
-									{
-										{1, 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
-									}
+								{
+									{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+								},
+								{
+									{1, 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+								}
 							}
 						}
 					}
@@ -707,7 +724,7 @@ void prepare(){
 		auto& seguisym = font_manager.register_meta("segui", font_path / "seguisym.ttf");
 
 		std::vector<const font::font_face_meta*> code_faces_{};
-		for (const auto & [name, path] : consolas_family){
+		for(const auto& [name, path] : consolas_family){
 			auto& meta = font_manager.register_meta(name, path);
 			code_faces_.push_back(&meta);
 		}
@@ -739,14 +756,17 @@ void prepare(){
 	scene_add_rst.scene.ui_main_thread_id = std::this_thread::get_id();
 	scene_add_rst.root_group.on_context_sync_bind();
 
-	scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
+	scene_add_rst.scene.resize(
+		math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
 	auto ui_providers = gui::example::build_main_ui(ctx, scene_add_rst.scene, scene_add_rst.root_group);
 
 #pragma endregion
 
 #pragma region SetupRenderGraph
 	compositor::manager manager{ctx.get_allocator()};
-	vk::shader_module shader_filter_high_light = {ctx.get_device(), shader_spv_path / "post_process.highlight_extract.spv"};
+	vk::shader_module shader_filter_high_light = {
+			ctx.get_device(), shader_spv_path / "post_process.highlight_extract.spv"
+		};
 	vk::shader_module shader_merge = {ctx.get_device(), shader_spv_path / "ui.merge.spv"};
 	vk::shader_module shader_hdr_to_sdr = {ctx.get_device(), shader_spv_path / "post_process.hdr_to_sdr.spv"};
 
@@ -774,7 +794,8 @@ void prepare(){
 			}
 		});
 
-	auto pass_filter_high_light = manager.add_pass<compositor::post_process_pass_with_ubo<high_light_filter_args>>(compositor::post_process_meta{
+	auto pass_filter_high_light = manager.add_pass<compositor::post_process_pass_with_ubo<high_light_filter_args>>(
+		compositor::post_process_meta{
 			shader_filter_high_light, {
 				{{0}, compositor::no_slot, 0},
 				{{1}, 0, compositor::no_slot},
@@ -856,38 +877,48 @@ void prepare(){
 #pragma region GuiBinding
 	{
 		auto& m = gui::global::manager.get_current_focus();
-		auto& bloom_scale = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
-			p.set_scale(val);
-		}));
-		auto& bloom_src_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
-			p.set_strength_src(val);
-		}));
-		auto& bloom_dst_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
-			p.set_strength_dst(val);
-		}));
-		auto& bloom_mix_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_bloom.data](float val){
-			p.set_mix_factor(val);
-		}));
+		auto& bloom_scale = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_bloom.data](float val){
+				p.set_scale(val);
+			}));
+		auto& bloom_src_recv = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_bloom.data](float val){
+				p.set_strength_src(val);
+			}));
+		auto& bloom_dst_recv = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_bloom.data](float val){
+				p.set_strength_dst(val);
+			}));
+		auto& bloom_mix_recv = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_bloom.data](float val){
+				p.set_mix_factor(val);
+			}));
 
-		auto& highlight_thres_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_filter_high_light.data](float val){
-			p.set_ubo_value(&high_light_filter_args::threshold, val);
-		}));
-		auto& highlight_smooth_recv = m.request_independent_react_node(react_flow::make_listener([&p = pass_filter_high_light.data](float val){
-			p.set_ubo_value(&high_light_filter_args::smoothness, val);
-		}));
+		auto& highlight_thres_recv = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_filter_high_light.data](float val){
+				p.set_ubo_value(&high_light_filter_args::threshold, val);
+			}));
+		auto& highlight_smooth_recv = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_filter_high_light.data](float val){
+				p.set_ubo_value(&high_light_filter_args::smoothness, val);
+			}));
 
-		auto& tonemap_contrast = m.request_independent_react_node(react_flow::make_listener([&p = pass_h2s.data](float val){
-			p.set_ubo_value(&tonemap_args::contrast, val);
-		}));
-		auto& tonemap_exposure = m.request_independent_react_node(react_flow::make_listener([&p = pass_h2s.data](float val){
-			p.set_ubo_value(&tonemap_args::exposure, val);
-		}));
-		auto& tonemap_saturation = m.request_independent_react_node(react_flow::make_listener([&p = pass_h2s.data](float val){
-			p.set_ubo_value(&tonemap_args::saturation, val);
-		}));
-		auto& tonemap_gamma = m.request_independent_react_node(react_flow::make_listener([&p = pass_h2s.data](float val){
-			p.set_ubo_value(&tonemap_args::gamma, val);
-		}));
+		auto& tonemap_contrast = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_h2s.data](float val){
+				p.set_ubo_value(&tonemap_args::contrast, val);
+			}));
+		auto& tonemap_exposure = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_h2s.data](float val){
+				p.set_ubo_value(&tonemap_args::exposure, val);
+			}));
+		auto& tonemap_saturation = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_h2s.data](float val){
+				p.set_ubo_value(&tonemap_args::saturation, val);
+			}));
+		auto& tonemap_gamma = m.request_independent_react_node(react_flow::make_listener(
+			[&p = pass_h2s.data](float val){
+				p.set_ubo_value(&tonemap_args::gamma, val);
+			}));
 
 		bloom_scale.connect_predecessor(*ui_providers.shader_bloom_scale);
 		bloom_src_recv.connect_predecessor(*ui_providers.shader_bloom_src_factor);
@@ -911,7 +942,8 @@ void prepare(){
 	auto post_process_cmd = ctx.get_compute_command_pool().obtain();
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
 		renderer.resize({event.size.width, event.size.height});
-		gui::global::manager.resize(math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
+		gui::global::manager.resize(
+			math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
 
 		ui_input_base.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[0]};
 		ui_input_back.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[1]};
@@ -944,7 +976,7 @@ void prepare(){
 
 
 	constexpr static auto test_text =
-	R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
+		R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
 {u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâã ä åx̂̃ñ
 {color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
 
@@ -1002,7 +1034,7 @@ int main(){
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
 		vk::enable_validation_layers = false;
-	}else{
+	} else{
 		vk::enable_validation_layers = true;
 	}
 #endif
@@ -1020,39 +1052,39 @@ int main(){
 	font::terminate();
 	platform::terminate();
 
-// 	constexpr auto sv = UR"(
-// # 核心功能测试集
-//
-// 这是一段包含多元素的常规段落。这里有*斜体测试*，以及**加粗测试**。为了测试行内元素的解析与位置记录，这里提供一个包含内部代码的链接：[访问 `std::uint32_t` 文档](https://cppreference.com)，以及一张带有加粗替换文本的图片：![一张**可爱**的猫咪](https://example.com/cat.jpg)。
-//
-// ### 嵌套测试：标题中包含 **加粗** 和 `inline code`
-//
-// 下面是一个 C++ 代码块的解析测试，请注意检查前后空行和语言标签的提取：
-//
-// ```cpp
-// import std;
-// int main() {
-//     std::vector<std::uint32_t> vec;
-//     return 0;
-// }
-// ```
-//
-//
-// | 基础文本 | 样式测试 | 媒体与链接测试 |
-// |---|---|---|
-// | 单元格 A1 | **加粗的 A2** 和 *斜体* | [带样式的**链接**](http://link.com) |
-// | 行内 `code` | 普通文本 B2 |  |
-// | C1 | C2 | C3 结尾 |
-//
-//
-//
-// **💡 测试关注点提示：**
-// 1. **嵌套解析**：检查 `[带样式的**链接**](http://link.com)` 是否正确生成了 `link` 节点，并且它的 `children` 中是否包含了一个 `strong_emphasis` 节点。
-// 2. **位置偏移 (`start_pos`)**：检查表格第二个数据行第三列的 `![嵌套图片](img.png)`，它的 `start_pos` 是否与输入字符串的实际下标完全一致。
-// 3. **未实现提示**：你在 AST 中定义了 `list` (列表) 和 `thematic_break` (分割线) 节点，但目前提供的解析器代码逻辑中还没有针对它们的提取分支，因此测试用例中暂时省略了这两个元素（如果包含它们，目前会被回退解析为普通段落）。
-//
-// )";
-// 	auto rst = gui::md::markdown_parser{sv}.parse();
-//
-// 	std::println("{}", gui::md::ast_printer{}.print(rst));
+	// 	constexpr auto sv = UR"(
+	// # 核心功能测试集
+	//
+	// 这是一段包含多元素的常规段落。这里有*斜体测试*，以及**加粗测试**。为了测试行内元素的解析与位置记录，这里提供一个包含内部代码的链接：[访问 `std::uint32_t` 文档](https://cppreference.com)，以及一张带有加粗替换文本的图片：![一张**可爱**的猫咪](https://example.com/cat.jpg)。
+	//
+	// ### 嵌套测试：标题中包含 **加粗** 和 `inline code`
+	//
+	// 下面是一个 C++ 代码块的解析测试，请注意检查前后空行和语言标签的提取：
+	//
+	// ```cpp
+	// import std;
+	// int main() {
+	//     std::vector<std::uint32_t> vec;
+	//     return 0;
+	// }
+	// ```
+	//
+	//
+	// | 基础文本 | 样式测试 | 媒体与链接测试 |
+	// |---|---|---|
+	// | 单元格 A1 | **加粗的 A2** 和 *斜体* | [带样式的**链接**](http://link.com) |
+	// | 行内 `code` | 普通文本 B2 |  |
+	// | C1 | C2 | C3 结尾 |
+	//
+	//
+	//
+	// **💡 测试关注点提示：**
+	// 1. **嵌套解析**：检查 `[带样式的**链接**](http://link.com)` 是否正确生成了 `link` 节点，并且它的 `children` 中是否包含了一个 `strong_emphasis` 节点。
+	// 2. **位置偏移 (`start_pos`)**：检查表格第二个数据行第三列的 `![嵌套图片](img.png)`，它的 `start_pos` 是否与输入字符串的实际下标完全一致。
+	// 3. **未实现提示**：你在 AST 中定义了 `list` (列表) 和 `thematic_break` (分割线) 节点，但目前提供的解析器代码逻辑中还没有针对它们的提取分支，因此测试用例中暂时省略了这两个元素（如果包含它们，目前会被回退解析为普通段落）。
+	//
+	// )";
+	// 	auto rst = gui::md::markdown_parser{sv}.parse();
+	//
+	// 	std::println("{}", gui::md::ast_printer{}.print(rst));
 }

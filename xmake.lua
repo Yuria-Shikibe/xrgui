@@ -1,4 +1,3 @@
-
 local current_dir = os.scriptdir()
 
 set_config("spec_mo_yanxi_utility_path", path.join(current_dir, "./external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"))
