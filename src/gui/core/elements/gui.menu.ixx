@@ -33,18 +33,18 @@ private:
 
 	void init(elem_ptr&& default_content){
 		interactivity = interactivity_flag::children_only;
-		create_head([](scroll_pane& scroll_pane){
+		create_head([&](scroll_pane& scroll_pane){
 			scroll_pane.create([](sequence& sequence){
 				sequence.interactivity = interactivity_flag::children_only;
 				sequence.set_style();
 				sequence.set_expand_policy(layout::expand_policy::prefer);
-			});
+			}, layout::transpose_layout(layout_policy_));
 		}, layout::transpose_layout(layout_policy_));
 		items[1] = std::move(default_content);
 	}
 
 	[[nodiscard]] sequence& get_button_sequence() const{
-		return elem_cast<sequence, true>(elem_cast<scroll_pane, true>(*items[0]).get_item());
+		return elem_cast<sequence, true>(elem_cast<scroll_pane, true>(*items[0]).get_elem());
 	}
 
 public:

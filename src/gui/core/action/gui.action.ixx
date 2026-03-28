@@ -143,6 +143,16 @@ public:
 	action_ptr(const action_ptr&) = delete;
 	action_ptr& operator=(const action_ptr&) = delete;
 
+	bool operator==(const action_ptr&) const noexcept = default;
+
+	friend bool operator==(const action_ptr& v, std::nullptr_t) noexcept{
+		return v.action_ != nullptr;
+	}
+
+	friend bool operator==(std::nullptr_t, const action_ptr& v) noexcept{
+		return v.action_ != nullptr;
+	}
+
 	void reset(action<T>* ptr = nullptr) noexcept {
 		if (action_) {
 			destory_();

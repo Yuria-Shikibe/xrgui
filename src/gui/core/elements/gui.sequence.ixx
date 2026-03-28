@@ -21,8 +21,13 @@ private:
 	layout::expand_policy expand_policy_{};
 
 public:
+	[[nodiscard]] sequence(scene& scene, elem* parent, layout::layout_policy policy)
+		: universal_group(scene, parent),
+		  policy_(policy){
+	}
+
 	[[nodiscard]] sequence(scene& scene, elem* parent)
-		: universal_group<layout::partial_mastering_cell>(scene, parent){
+		: sequence(scene, parent, layout::layout_policy::hori_major){
 	}
 
 protected:

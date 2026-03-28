@@ -167,6 +167,9 @@ struct cursor_states{
 export
 using elem_span = transparent_span<elem* const>;
 
+export
+bool is_on_scene_thread(const scene& scene) noexcept;
+
 export struct elem : tooltip::spawner_general<elem>{
 	friend elem_ptr;
 	friend scene;
@@ -182,7 +185,7 @@ private:
 	math::vec2 absolute_pos_{};
 	boarder boarder_{};
 
-	std::atomic_bool context_synchronized_{this->is_on_ui_thread()};
+	std::atomic_bool context_synchronized_{is_on_scene_thread(get_scene())};
 
 public:
 	style::elem_style_ptr style{};
@@ -260,6 +263,22 @@ public:
 		return rst;
 	}
 
+	/**
+	 *
+	 * @return check if there are any action in queue, the consuming one is excluded
+	 */
+	bool has_pending_action() const noexcept{
+		return !actions.empty();
+	}
+
+	/**
+	 *
+	 * @return check if the element is consuming action, must called on main ui thread!
+	 */
+	bool has_consuming_action() const noexcept{
+		assert(is_on_scene_thread(get_scene()));
+		return actions.is_consuming();
+	}
 
 #pragma endregion
 
@@ -990,9 +1009,6 @@ public:
 
 	void try_sync_context();
 
-private:
-	bool is_on_ui_thread() const noexcept;
-
 protected:
 	template <typename S, typename T, typename ...Args>
 	T& request_and_cache_node(this S& self, T* S::* cache, Args&& ...args){
@@ -1064,6 +1080,37 @@ std::vector<elem*, std::remove_cvref_t<Alloc>> dfs_find_deepest_element(elem* ro
 
 
 export
+layout::optional_mastering_extent get_fill_parent_restriction(
+	const math::vec2 boundSize,
+	const math::bool2 fillparent = {true, true},
+	const math::bool2 expansion_mask = {false, false}){
+	const auto [fx, fy] = fillparent;
+	if(!fx && !fy) return {boundSize};
+	layout::optional_mastering_extent restriction_extent;
+
+
+	if(fx) restriction_extent.set_width(boundSize.x);
+	else{
+		if(expansion_mask.x){
+			restriction_extent.set_width_pending();
+		} else{
+			restriction_extent.set_width(boundSize.x);
+		}
+	}
+
+	if(fy) restriction_extent.set_height(boundSize.y);
+	else{
+		if(expansion_mask.y){
+			restriction_extent.set_height_pending();
+		} else{
+			restriction_extent.set_height(boundSize.y);
+		}
+	}
+
+	return restriction_extent;
+}
+
+export
 bool set_fill_parent(
 	elem& item,
 	const math::vec2 boundSize,
@@ -1073,30 +1120,13 @@ bool set_fill_parent(
 	const auto [fx, fy] = item.get_fill_parent() && mask;
 	if(!fx && !fy) return false;
 
+	item.restriction_extent = get_fill_parent_restriction(boundSize, {fx, fy}, expansion_mask);
+
 	const auto [ox, oy] = item.extent();
-
-	if(fx) item.restriction_extent.set_width(boundSize.x);
-	else{
-		if(expansion_mask.x){
-			item.restriction_extent.set_width_pending();
-		} else{
-			item.restriction_extent.set_width(boundSize.x);
-		}
-	}
-
-	if(fy) item.restriction_extent.set_height(boundSize.y);
-	else{
-		if(expansion_mask.y){
-			item.restriction_extent.set_height_pending();
-		} else{
-			item.restriction_extent.set_height(boundSize.y);
-		}
-	}
-
 	return item.resize({
-						   fx ? boundSize.x : ox,
-						   fy ? boundSize.y : oy
-					   }, direction_mask);
+		                   fx ? boundSize.x : ox,
+		                   fy ? boundSize.y : oy
+	                   }, direction_mask);
 }
 
 export
@@ -1308,6 +1338,16 @@ void push_runnable_action(E& e, Fn&& fn, float delay = 0){
 
 }
 
+export
+template <typename E, std::invocable<E&> Fn>
+	requires (std::derived_from<std::remove_const_t<E>, elem>)
+void post_sync_execute(E& e, Fn&& fn){
+	if(is_on_scene_thread(static_cast<const elem&>(e).get_scene())){
+		std::invoke(fn, e);
+	}else{
+		action::push_runnable_action(e, std::forward<Fn>(fn));
+	}
+}
 
 namespace events{
 math::vec2 click::get_content_pos(const elem& elem) const noexcept{

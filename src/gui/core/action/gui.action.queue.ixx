@@ -70,6 +70,14 @@ public:
     	}
 		return false;
     }
+
+	bool empty() const noexcept{
+		return async_queue.empty();
+	}
+
+	bool is_consuming() const noexcept{
+		return current_action_ != nullptr;
+	}
 };
 
 } // namespace mo_yanxi::gui

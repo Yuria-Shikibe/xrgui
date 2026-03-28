@@ -132,6 +132,10 @@ void style::debug_elem_drawer::draw_background(const elem& element, math::frect 
 		});
 }
 
+bool is_on_scene_thread(const scene& scene) noexcept{
+	return std::this_thread::get_id() == scene.ui_main_thread_id;
+}
+
 style::elem_style_ptr elem::get_elem_default_style_() const{
 	return get_style_manager().get_default<style::elem_style_drawer>();
 }
@@ -140,7 +144,7 @@ elem::elem(scene& scene, elem* parent) noexcept:
 	scene_(std::addressof(scene)),
 	parent_(parent){
 	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
-	action::push_runnable_action(*this, [](elem& elem){
+	post_sync_execute(*this, [](elem& elem){
 		elem.set_style(elem.get_elem_default_style_());
 	});
 }
@@ -180,8 +184,7 @@ void elem::drop_tooltip() const{
 }
 
 void elem::set_style() noexcept{
-
-	action::push_runnable_action(*this, [](elem& elem){
+	post_sync_execute(*this, [](elem& elem){
 		elem.style = nullptr;
 		if(util::try_modify(elem.style_boarder_cache_, {})){
 			elem.notify_isolated_layout_changed();
@@ -293,10 +296,6 @@ void elem::try_sync_context(){
 	if(std::this_thread::get_id() == scene_->ui_main_thread_id){
 		on_context_sync_bind();
 	}
-}
-
-bool elem::is_on_ui_thread() const noexcept{
-	return std::this_thread::get_id() == scene_->ui_main_thread_id;
 }
 
 

@@ -438,11 +438,17 @@ void scene::drop_(const elem* target) noexcept{
 	// asyncTaskOwners.erase(const_cast<elem*>(target));
 	cursor_event_active_elems_.erase(const_cast<elem*>(target));
 	active_update_elems.erase(const_cast<elem*>(target));
-	action_active_pending_elems_.modify([&](decltype(action_active_pending_elems_)::container_type& cont){
-		using std::erase;
-		erase(cont, const_cast<elem*>(target));
-	});
-	action_active_elems_.erase(const_cast<elem*>(target));
+
+	if(target->has_pending_action()){
+		action_active_pending_elems_.modify([&](decltype(action_active_pending_elems_)::container_type& cont){
+			using std::erase;
+			erase(cont, const_cast<elem*>(target));
+		});
+		action_active_async_elems_.erase(const_cast<elem*>(target));
+		action_active_elems_.erase(const_cast<elem*>(target));
+	}else if(target->has_consuming_action()){
+		action_active_elems_.erase(const_cast<elem*>(target));
+	}
 
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
 
