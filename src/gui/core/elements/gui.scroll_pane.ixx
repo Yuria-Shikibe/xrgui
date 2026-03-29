@@ -107,7 +107,7 @@ public:
 		}
 
 		return elem::on_click(event, aboves);
-	};
+	}
 
 	events::op_afterwards on_drag(const events::drag e) override;
 #pragma endregion
@@ -124,11 +124,11 @@ protected:
 		return false;
 	}
 
-	[[nodiscard]] std::optional<layout::layout_policy> search_layout_policy_getter_impl() const noexcept override{
+	[[nodiscard]] std::optional<layout::layout_policy> search_layout_policy_getter_impl() const noexcept final{
 		return get_layout_policy();
 	}
 
-	[[nodiscard]] bool parent_contain_constrain(math::vec2 relative_pos) const noexcept override{
+	[[nodiscard]] bool parent_contain_constrain(math::vec2 relative_pos) const noexcept final{
 		return rect{tags::from_extent, content_src_pos_rel(), get_viewport_extent()}.contains_loose(relative_pos) &&
 			elem::parent_contain_constrain(relative_pos);
 	}
@@ -146,11 +146,11 @@ public:
 
 	bool update(const float delta_in_ticks) override;
 
-	math::vec2 transform_to_content_space(math::vec2 where_relative_in_parent) const noexcept override{
+	math::vec2 transform_to_content_space(math::vec2 where_relative_in_parent) const noexcept final{
 		return elem::transform_to_content_space(where_relative_in_parent + scroll_.temp);
 	}
 
-	math::vec2 transform_from_content_space(math::vec2 where_relative_in_child) const noexcept override{
+	math::vec2 transform_from_content_space(math::vec2 where_relative_in_child) const noexcept final{
 		return elem::transform_from_content_space(where_relative_in_child - scroll_.temp);
 	}
 
@@ -170,15 +170,15 @@ public:
 	}
 
 	[[nodiscard]] bool is_hori_scroll_active() const noexcept{
-		return item_extent_cache_.x > content_width();
+		return item_extent().x > content_width();
 	}
 
 	[[nodiscard]] bool is_vert_scroll_active() const noexcept{
-		return item_extent_cache_.y > content_height();
+		return item_extent().y > content_height();
 	}
 
 	[[nodiscard]] math::vec2 scrollable_extent() const noexcept{
-		return (item_extent_cache_ - get_viewport_extent()).max({});
+		return (item_extent() - get_viewport_extent()).max({});
 	}
 
 	[[nodiscard]] math::nor_vec2 scroll_progress_at(const math::vec2 scroll_pos) const noexcept{
@@ -215,6 +215,10 @@ public:
 
 	[[nodiscard]] rect get_viewport() const noexcept{
 		return {tags::from_extent, content_src_pos_abs(), get_viewport_extent()};
+	}
+
+	[[nodiscard]] math::vec2 get_scroll_offset() const noexcept{
+		return scroll_.temp;
 	}
 
 	[[nodiscard]] rect get_hori_bar_rect() const noexcept{
@@ -271,17 +275,15 @@ template <typename T>
 struct scroll_adaptor_apply_interface_schema{
 	using element_type = T;
 	void update(element_type& element, float delta_in_tick) = delete;
-	void draw_layer(const element_type& element, rect clipSpace, fx::layer_param_pass_t param) const = delete;
+	void draw_layer(const element_type& element, const scroll_adaptor_base& scroll_adaptor_base, rect clipSpace, fx::layer_param_pass_t param) const = delete;
 	void layout_elem(element_type& element) = delete;
 	void set_prefer_extent(element_type& element, math::vec2 ext) = delete;
-	void util_set_fill_parent(element_type& element, math::vec2 content_ext, math::bool2 fill_mask, math::bool2 none_mask) = delete;
 	void on_context_sync_bind(element_type& element) = delete;
 	void update_abs_src(element_type& element, math::vec2 pos) = delete;
 	std::optional<math::vec2> pre_acq_size(element_type& element, layout::optional_mastering_extent bound) = delete;
 	bool resize(element_type& element, math::vec2 size, propagate_mask temp_mask) = delete;
 	math::vec2 get_extent(const element_type& element) const = delete;
 };
-
 
 template <typename Interface>
 struct interface_trait{
@@ -292,8 +294,8 @@ struct interface_trait{
 		i.update(e, d);
 	};
 
-	static constexpr bool has_draw_layer = requires(const interface_type& i, const element_type& e, rect c, fx::layer_param_pass_t p){
-		i.draw_layer(e, c, p);
+	static constexpr bool has_draw_layer = requires(const interface_type& i, const scroll_adaptor_base& scroll_adaptor_base, const element_type& e, rect c, fx::layer_param_pass_t p){
+		i.draw_layer(e, scroll_adaptor_base, c, p);
 	};
 
 	static constexpr bool has_layout_elem = requires(interface_type& i, element_type& e){
@@ -302,10 +304,6 @@ struct interface_trait{
 
 	static constexpr bool has_set_prefer_extent = requires(interface_type& i, element_type& e, math::vec2 ext){
 		i.set_prefer_extent(e, ext);
-	};
-
-	static constexpr bool has_util_set_fill_parent = requires(interface_type& i, element_type& e, math::vec2 c, math::bool2 f, math::bool2 n){
-		i.util_set_fill_parent(e, c, f, n);
 	};
 
 	static constexpr bool has_on_context_sync_bind = requires(interface_type& i, element_type& e){
@@ -324,14 +322,14 @@ struct interface_trait{
 		i.resize(e, s, m);
 	};
 
-	static constexpr bool has_get_real_item_extent = requires(const interface_type& i, const element_type& e){
+	static constexpr bool has_get_extent = requires(const interface_type& i, const element_type& e){
 		i.get_extent(e);
 	};
 };
 
 export
 template <typename ElementType = elem_ptr, typename Interface = scroll_adaptor_apply_interface_schema<ElementType>>
-struct scroll_adaptor final : scroll_adaptor_base{
+struct scroll_adaptor : scroll_adaptor_base{
 	using element_type = ElementType;
 	using adaptor_interface_type = Interface;
 	using adaptor_interface_trait = interface_trait<adaptor_interface_type>;
@@ -343,7 +341,7 @@ struct scroll_adaptor final : scroll_adaptor_base{
 	              "if element is not a T : elem, it must be default constructible");
 
 public:
-	ADAPTED_NO_UNIQUE_ADDRESS adaptor_interface_type item_adaptor;
+	ADAPTED_NO_UNIQUE_ADDRESS adaptor_interface_type item_adaptor{};
 
 private:
 	element_type item_;
@@ -372,8 +370,13 @@ public:
 		}
 	}
 
-	[[nodiscard]] elem_span children() const noexcept override{
-		return adaptor_children();
+	[[nodiscard]] elem_span children() const noexcept override {
+		if constexpr (is_elem_child){
+			return adaptor_children();
+		}else{
+			return {};
+		}
+
 	}
 
 	void draw_layer(rect clipSpace, fx::layer_param_pass_t param) const override{
@@ -449,7 +452,7 @@ public:
 		}
 	}
 
-	bool update_abs_src(math::vec2 parent_content_src) noexcept override{
+	bool update_abs_src(math::vec2 parent_content_src) noexcept final{
 		if(elem::update_abs_src(parent_content_src)){
 			update_children_abs_src();
 			return true;
@@ -626,7 +629,7 @@ protected:
 
 	void adaptor_draw_layer(rect clipSpace, fx::layer_param_pass_t param) const{
 		if constexpr(adaptor_interface_trait::has_draw_layer){
-			item_adaptor.draw_layer(item_, clipSpace, param);
+			item_adaptor.draw_layer(item_, *this, clipSpace, param);
 		} else if constexpr(is_elem_child){
 			get_elem().draw_layer(clipSpace, param);
 		}
@@ -665,7 +668,7 @@ protected:
 		}
 	}
 
-	elem_span adaptor_children() const noexcept{
+	elem_span adaptor_children() const noexcept requires(is_elem_child){
 		if constexpr(is_elem_child){
 			if constexpr(is_elem_ptr){
 				return {item_, elem_ptr::cvt_mptr};
@@ -674,8 +677,6 @@ protected:
 			} else{
 				static_assert(false, "unknown elem type");
 			}
-		} else{
-			static_assert(false, "only gui.element type can return a elem span");
 		}
 	}
 
@@ -704,8 +705,8 @@ protected:
 	}
 
 	[[nodiscard]] math::vec2 get_real_item_extent() const noexcept{
-		if constexpr(adaptor_interface_trait::has_get_real_item_extent){
-			return item_adaptor.get_real_item_extent(item_);
+		if constexpr(adaptor_interface_trait::has_get_extent){
+			return item_adaptor.get_extent(item_);
 		} else if constexpr(is_elem_child){
 			return get_elem().extent();
 		} else{

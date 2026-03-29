@@ -45,13 +45,17 @@ private:
 	template <bool flip>
 	struct file_three_way_comparator{
 		static auto operator()(const target_type& lhs, const target_type& rhs) noexcept{
-			if(std::filesystem::is_directory(lhs)){
-				if(std::filesystem::is_directory(rhs)){
+			std::error_code ec_l, ec_r;
+			bool is_dir_l = std::filesystem::is_directory(lhs, ec_l);
+			bool is_dir_r = std::filesystem::is_directory(rhs, ec_r);
+
+			if(is_dir_l){
+				if(is_dir_r){
 					return lhs <=> rhs;
 				}
 				return flip ? std::strong_ordering::greater : std::strong_ordering::less;
 			}
-			if(std::filesystem::is_directory(rhs)){
+			if(is_dir_r){
 				return flip ? std::strong_ordering::less : std::strong_ordering::greater;
 			}
 			return lhs <=> rhs;
@@ -62,19 +66,31 @@ public:
 	file_sort_category type{};
 	file_sort_method method{};
 
-	[[nodiscard]] constexpr bool operator()(const target_type& lhs, const target_type& rhs) const noexcept{
+	[[nodiscard]] bool operator()(const target_type& lhs, const target_type& rhs) const noexcept{
 		using namespace std::filesystem;
 		bool descend = (method & file_sort_method::descend) != file_sort_method::none;
+		std::error_code ec1, ec2;
+
 		switch(type){
 		case file_sort_category::alpha : return descend
 			                                        ? std::is_gt(file_three_way_comparator<true>{}(lhs, rhs))
 			                                        : std::is_lt(file_three_way_comparator<false>{}(lhs, rhs));
-		case file_sort_category::time : return descend
-			                                       ? std::ranges::greater{}(last_write_time(lhs), last_write_time(rhs))
-			                                       : std::ranges::less{}(last_write_time(lhs), last_write_time(rhs));
-		case file_sort_category::size : return descend
-			                                       ? std::ranges::greater{}(file_size(lhs), file_size(rhs))
-			                                       : std::ranges::less{}(file_size(lhs), file_size(rhs));
+		case file_sort_category::time :{
+			auto t1 = last_write_time(lhs, ec1);
+			auto t2 = last_write_time(rhs, ec2);
+			// 异常容错：读取失败则视为时间最小
+			if(ec1) t1 = decltype(t1)::min();
+			if(ec2) t2 = decltype(t2)::min();
+			return descend ? std::ranges::greater{}(t1, t2) : std::ranges::less{}(t1, t2);
+		}
+		case file_sort_category::size :{
+			auto s1 = file_size(lhs, ec1);
+			auto s2 = file_size(rhs, ec2);
+			// 异常容错：读取失败则视为大小为0
+			if(ec1) s1 = 0;
+			if(ec2) s2 = 0;
+			return descend ? std::ranges::greater{}(s1, s2) : std::ranges::less{}(s1, s2);
+		}
 		default : return std::is_gt(file_three_way_comparator<false>{}(lhs, rhs));
 		}
 	}

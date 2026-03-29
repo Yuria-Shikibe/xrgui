@@ -129,6 +129,23 @@ struct layer_viewport{
 		auto& last = element_local_transform.back();
 		element_local_transform.push_back({mat, last.accumul * mat});
 	}
+	void push_local_transform(const math::vec2 offset){
+		assert(!element_local_transform.empty());
+		auto& last = element_local_transform.back();
+		auto lm = last.accumul;
+		lm.c3.x += offset.x;
+		lm.c3.y += offset.y;
+		element_local_transform.push_back({auto{math::mat3_idt}.set_translation(offset), lm});
+	}
+
+	/**
+	 * @brief used to open a new transform layer
+	 */
+	void push_local_transform(){
+		assert(!element_local_transform.empty());
+		auto& last = element_local_transform.back();
+		element_local_transform.push_back({math::mat3_idt, last.accumul});
+	}
 
 	void pop_local_transform() noexcept{
 		assert(element_local_transform.size() > 1);
@@ -144,6 +161,12 @@ struct layer_viewport{
 		} else{
 			last.accumul = mat;
 		}
+	}
+
+	math::mat3 get_local_transform() const noexcept{
+		assert(!element_local_transform.empty() && "cannot set empty transform");
+		auto& last = element_local_transform.back();
+		return last.current;
 	}
 };
 

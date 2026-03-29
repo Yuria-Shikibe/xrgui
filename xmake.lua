@@ -1,28 +1,31 @@
 local current_dir = os.scriptdir()
+local root_dir = os.projectdir()
+
+if current_dir == root_dir then
+    set_project("xrgui")
+    add_vectorexts("avx", "avx2")
+    add_rules("mode.debug", "mode.release")
+    set_arch("x64")
+    set_encodings("utf-8")
+    set_symbols("debug")
+
+    if is_plat("windows") then
+        if is_mode("debug") then
+            set_runtimes("MDd")
+        else
+            set_runtimes("MD")
+        end
+    else
+        set_runtimes("c++_shared")
+    end
+
+    add_rules("plugin.compile_commands.autoupdate", {outputdir = "."})
+else
+end
 
 set_config("spec_mo_yanxi_utility_path", path.join(current_dir, "./external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"))
 
 includes("external/**/xmake.lua");
-
-
-add_rules("mode.debug", "mode.release")
-set_arch("x64")
-set_encodings("utf-8")
-set_project("xrgui")
-set_symbols("debug")
-
-if is_plat("windows") then
-    add_vectorexts("avx", "avx2")
-
-    if is_mode("debug") then
-        set_runtimes("MDd")
-    else
-        set_runtimes("MD")
-    end
-else
-    set_runtimes("c++_shared")
-end
-
 
 add_requires("msdfgen", {
     configs = {
@@ -79,18 +82,7 @@ function set_xrgui_deps()
     add_files(join_path("./src/**.ixx"), {public = true})
 
     add_links("shaderc_shared")
-
 end
-
-
--- target("xrgui.core")
---     set_kind("static")
---     set_languages("c++23")
---     set_policy("build.c++.modules", true)
---
---     set_xrgui_deps()
--- target_end()
-
 
 target("xrgui.example")
     set_extension(".exe")

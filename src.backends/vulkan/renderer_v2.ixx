@@ -399,7 +399,7 @@ export struct renderer{
 				auto param = entry.as<blend_write_mask_type>();
 				auto mask = make_render_target_mask(cur_pipe.option, draw_cfg, entry.tag.minor);
 				mask.for_each_popbit([&](unsigned i){
-					context_trace.set_blend_write_mask(entry.tag.minor, param);
+					context_trace.set_blend_write_mask(i, param);
 				});
 				break;
 

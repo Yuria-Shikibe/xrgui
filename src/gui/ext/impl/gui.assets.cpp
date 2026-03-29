@@ -138,7 +138,6 @@ void load_default_icons(graphic::image_atlas& image_atlas){
 }
 
 void dispose_generated_shapes(){
-	style::global_default_style_drawer = {};
 	style::global_scroll_pane_bar_drawer = {};
 
 	builtin::default_round_square_boarder = {};

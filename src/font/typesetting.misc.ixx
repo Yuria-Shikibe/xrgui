@@ -137,25 +137,31 @@ export struct line{
 	}
 };
 
-export struct glyph_layout{
+export struct glyph_layout_draw_only{
 	std::vector<glyph_elem> elems;
+	std::vector<line> lines;
+	math::vec2 extent;
+
+	void clear() noexcept{
+		elems.clear();
+		lines.clear();
+		extent = {};
+	}
+};
+
+export struct glyph_layout : glyph_layout_draw_only{
 	std::vector<underline> underlines;
 	std::vector<logical_cluster> clusters;
 	std::vector<wrap_frame> wrap_frames;
 
-	std::vector<line> lines;
-
-	math::vec2 extent;
 	layout_direction direction;
 	bool is_exhausted;
 
 	void clear() noexcept{
-		elems.clear();
+		glyph_layout_draw_only::clear();
 		underlines.clear();
 		clusters.clear();
 		wrap_frames.clear();
-		lines.clear();
-		extent = {};
 		direction = {};
 		is_exhausted = {};
 	}
@@ -171,7 +177,9 @@ export struct glyph_layout{
 		}
 	};
 
-	constexpr bool empty() const noexcept{ return lines.empty(); }
+	constexpr bool empty() const noexcept{
+		return lines.empty();
+	}
 
 	[[nodiscard]] hit_result hit_test(math::vec2 pos, line_alignment line_align) const noexcept{
 		if(line_align == line_alignment::justify || direction != layout_direction::ltr){

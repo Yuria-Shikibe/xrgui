@@ -309,6 +309,25 @@ BITMASK_OPS(export , primitive_draw_mode);
 export using blend_enable_flag = VkBool32;
 export using blend_write_mask_type = VkColorComponentFlags;
 
+export constexpr inline blend_write_mask_type make_blend_write_mask(bool r, bool g, bool b, bool a) noexcept{
+	return blend_write_mask_type{
+		0U
+		| (r ? VK_COLOR_COMPONENT_R_BIT : 0U)
+		| (g ? VK_COLOR_COMPONENT_G_BIT : 0U)
+		| (b ? VK_COLOR_COMPONENT_B_BIT : 0U)
+		| (a ? VK_COLOR_COMPONENT_A_BIT : 0U)
+	};
+}
+
+export constexpr inline blend_write_mask_type make_blend_write_mask(bool a) noexcept{
+	return blend_write_mask_type{
+		(a ? VK_COLOR_COMPONENT_A_BIT : 0U)
+		| VK_COLOR_COMPONENT_R_BIT
+		| VK_COLOR_COMPONENT_G_BIT
+		| VK_COLOR_COMPONENT_B_BIT
+	};
+}
+
 export
 struct blend_equation{
 	VkBlendFactor    src_color_blend_factor;
@@ -526,6 +545,10 @@ constexpr bool color_clear_value::is_clear() const noexcept{
 
 template <>
 struct state_type_deduce<blend_equation> : state_type_deduce_base<state_type::set_color_blend_equation, true>{
+};
+
+template <>
+struct state_type_deduce<blend_write_mask_type> : state_type_deduce_base<state_type::set_color_write_mask, true>{
 };
 
 template <>

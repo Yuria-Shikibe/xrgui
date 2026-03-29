@@ -340,7 +340,6 @@ public:
 					s.set_style();
 					s.set_vertical(layout_policy);
 					s.drawer_ = alpha_gradient_slider_drawer;
-					s._debug_identity = 1;
 					slider_alpha_ = &s;
 				}
 			}, layout_policy);

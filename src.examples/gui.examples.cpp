@@ -54,6 +54,7 @@ import mo_yanxi.graphic.draw.instruction.recorder;
 import mo_yanxi.gui.compound.color_picker;
 import mo_yanxi.gui.compound.named_slider;
 import mo_yanxi.gui.compound.file_selector;
+import mo_yanxi.gui.compound.data_table;
 
 import mo_yanxi.gui.style.round_square;
 import mo_yanxi.gui.style.progress_bars;
@@ -67,6 +68,23 @@ import mo_yanxi.backend.vulkan.context;
 
 namespace mo_yanxi::gui::example{
 
+struct test_entry{
+	std::string name;
+	std::function<elem_ptr(scene&, elem*)> creator;
+
+	[[nodiscard]] test_entry(const std::string& name, const std::function<elem_ptr(scene&, elem*)>& creator)
+		: name(name),
+		  creator(creator){
+	}
+
+	template <invocable_elem_init_func Fn>
+	[[nodiscard]] test_entry(const std::string& name, Fn&& fn)
+		: name(name),
+		  creator([f = std::forward<Fn>(fn)](scene& s, elem* p){
+			  return elem_ptr{s, p, f};
+		  }){
+	}
+};
 
 struct image_cursor : style::cursor{
 
@@ -239,10 +257,6 @@ void make_styles(scene& scene){
 
 }
 
-struct test_entry{
-	std::u32string name;
-	std::move_only_function<elem_ptr() const> prov;
-};
 
 ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
 	make_styles(scene);
@@ -275,16 +289,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 
 
 	{
-		referenced_ptr<style::round_style> round_style{std::in_place};
-		round_style->edge.pal = style::pal::white.border;
-		round_style->edge = assets::builtin::default_round_square_boarder_thin;
-		round_style->back.pal = style::pal::dark;
-		round_style->back = assets::builtin::default_round_square_base;
-
-		style::global_default_style_drawer = round_style;
-	}
-
-	{
 		referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
 		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
 		round_scroll_bar_style->bar_palette = style::pal::white.border.copy().mul_rgb(.8f);
@@ -294,13 +298,15 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 
 	ui_outputs result{};
 
-	auto make_create_table = [&]{
+	auto make_create_table = [&] -> std::vector<test_entry> {
 		using function_signature = void(scroll_pane&);
 		std::vector<test_entry> tests{
-
-		};
-		std::vector<std::function<function_signature>> creators{
-				[&](scroll_pane& pane){
+			test_entry{"csv", [](cpd::data_table& table){
+				table._debug_identity = 114;
+				table.get_item() = cpd::data_table_desc::from_csv(LR"(D:\projects\untitled\shader info.csv)");
+				table.notify_isolated_layout_changed();
+			}},
+			test_entry{"sliders", [&](scroll_pane& pane){
 					pane.create([&](sequence& sequence){
 						sequence.set_expand_policy(layout::expand_policy::prefer);
 						sequence.template_cell.set_pending();
@@ -443,7 +449,10 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							result.tonemap_gamma = &trans;
 						}
 					});
-				},
+				}}
+		};
+		std::vector<std::function<function_signature>> creators{
+
 				[&](scroll_pane& pane){
 					pane.create([&](sequence& sequence){
 						sequence.template_cell.set_pad({4, 4});
@@ -554,7 +563,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 					});
 				},
 				[&](scroll_pane& pane){
-					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create([](sequence& sequence){
 						sequence.set_style();
 						sequence.set_expand_policy(layout::expand_policy::prefer);
@@ -626,7 +634,8 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 								c.set_head_body_transpose(i & 1);
 							});
 						}
-					});
+					}, layout::layout_policy::vert_major);
+					pane.set_layout_policy(layout::layout_policy::vert_major);
 				},
 				[&](scroll_pane& pane){
 					auto& s = pane.emplace<gui::cpd::file_selector>();
@@ -719,7 +728,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 					});
 				},
 				[](scroll_pane& pane){
-					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create(
 						[](grid& table){
 							table.set_has_smooth_pos_animation(true);
@@ -756,9 +764,9 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 							grid_uniformed_mastering{6, 300.f, {4, 4}},
 							grid_uniformed_passive{8, {4, 4}}
 						});
+					pane.set_layout_policy(layout::layout_policy::vert_major);
 				},
 				[](scroll_pane& pane){
-					pane.set_layout_policy(layout::layout_policy::vert_major);
 					pane.create(
 						[](split_pane& table){
 							constexpr static auto test_text =
@@ -792,28 +800,24 @@ Edge Cases:
 							table.create_head([](split_pane& inner){
 								inner.set_expand_policy(layout::expand_policy::passive);
 								inner.set_layout_policy(layout::layout_policy::hori_major);
-								inner.create_head([](scroll_pane& p){
+								inner.create_head([](scroll_adaptor<label>& p){
 									p.set_style();
-									p.create([](label& l){
-										l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
-										l.set_expand_policy(layout::expand_policy::prefer);
-										// l.text_line_align = typesetting::content_alignment::justify;
-										l.set_fit(false);
-										l.set_text(test_text);
-									});
+									auto& l = p.get_elem();
+									l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
+									l.set_expand_policy(layout::expand_policy::prefer);
+									l.set_fit(false);
+									l.set_text(test_text);
+
 								});
-								inner.create_body([](scroll_pane& p){
+								inner.create_body([](scroll_adaptor<label>& p){
 									p.set_overlay_bar(true);
-									p.set_layout_policy(layout::layout_policy::vert_major);
 									// label.set_style();
-									p.create([&](gui::label& l){
-										l.set_expand_policy(layout::expand_policy::prefer);
-										l.set_fit(false);
-										l.set_typesetting_config(typesetting::layout_config{
-												.direction = typesetting::layout_direction::ttb
-											});
-										l.set_text(test_text);
-									});
+									auto& l = p.get_elem();
+									l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
+									l.set_expand_policy(layout::expand_policy::prefer);
+									l.set_fit(false);
+									l.set_text(test_text);
+									p.set_layout_policy(layout::layout_policy::vert_major);
 								});
 							});
 
@@ -833,7 +837,6 @@ Edge Cases:
 									});
 								});
 								inner.create_body([](scroll_pane& label){
-									label.set_layout_policy(layout::layout_policy::vert_major);
 									label.set_overlay_bar(true);
 									label.set_style();
 									label.create([&](gui::label& l){
@@ -844,30 +847,42 @@ Edge Cases:
 											});
 										l.set_text(test_text);
 									});
+									label.set_layout_policy(layout::layout_policy::vert_major);
 								});
 							});
 						});
+					pane.set_layout_policy(layout::layout_policy::vert_major);
 				},
 				[](scroll_pane& pane){
-					pane.set_layout_policy(layout::layout_policy::none);
 					pane.create(
 						[](table& table){
 							table.set_expand_policy(layout::expand_policy::prefer);
 							table.create_back([](cpd::rgb_picker& picker){
 							}).cell().set_size({600, 600});
 						});
+					pane.set_layout_policy(layout::layout_policy::none);
 				},
 				[](scroll_pane& pane){
+					pane.create(
+						[](sequence& table){
+							table.set_expand_policy(layout::expand_policy::prefer);
+							table.create_back([](cpd::data_table& table){
+								table.get_item() = cpd::data_table_desc::from_csv(LR"(D:\projects\untitled\shader info.csv)");
+							});
+						});
 					pane.set_layout_policy(layout::layout_policy::none);
+				},
+				[](scroll_pane& pane){
 					pane.create(
 						[](sequence& table){
 							table.set_expand_policy(layout::expand_policy::prefer);
 							table.emplace_back<vp>();
 						});
+					pane.set_layout_policy(layout::layout_policy::none);
 				}
 			};
 
-		return creators;
+		return tests;
 	};
 
 
@@ -885,16 +900,17 @@ Edge Cases:
 	menu_hdl->get_head_template_cell().set_pad({4, 4});
 
 	for(const auto& [idx, creator] : make_create_table() | std::views::enumerate){
-		menu_hdl->create_back([&](label& label){
-				label.set_text(std::format("Test: {}", idx));
-				label.text_entire_align = align::pos::center;
-				label.interactivity = interactivity_flag::enabled;
-			label.set_transform_config({
-				.rotation = text_rotation::deg_270
-			});
-			}, [&](scroll_pane& scroll_pane){
-				creator(scroll_pane);
-			});
+		menu_hdl->push_back(
+			elem_ptr{
+				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
+					label.set_text(std::format("Test[{}]: {}", idx, creator.name));
+					label.text_entire_align = align::pos::center;
+					label.interactivity = interactivity_flag::enabled;
+					label.set_transform_config({
+							.rotation = text_rotation::deg_270
+						});
+				}
+			}, creator.creator(menu_hdl->get_scene(), &menu_hdl.elem()));
 	}
 
 	return result;

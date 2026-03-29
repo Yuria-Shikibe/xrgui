@@ -23,7 +23,13 @@ void record_glyph_draw_instructions(
 	graphic::color color_scl, typesetting::line_alignment line_align
 );
 
-void push(gui::renderer_frontend& r, const graphic::draw::instruction::draw_record_storage<mr::heap_allocator<>>& buf){
+void record_glyph_draw_instructions_draw_only(
+	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
+	const typesetting::glyph_layout_draw_only& glyph_layout,
+	graphic::color color_scl, typesetting::line_alignment line_align, typesetting::layout_direction direction
+);
+
+void push(renderer_frontend& r, const graphic::draw::instruction::draw_record_storage<mr::heap_allocator<>>& buf){
 	r.push(buf.heads(), buf.data());
 }
 
@@ -80,11 +86,15 @@ public:
 
 	// 核心的指令录制，原 update_draw_buffer
 	void update_buffer(const typesetting::glyph_layout& layout, graphic::color color) {
-		mo_yanxi::gui::record_glyph_draw_instructions(draw_instr_buffer_, layout, color, line_align_);
+		record_glyph_draw_instructions(draw_instr_buffer_, layout, color, line_align_);
 	}
 
-	void push_to_renderer(gui::renderer_frontend& r) const {
-		mo_yanxi::gui::push(r, draw_instr_buffer_);
+	void update_buffer(const typesetting::glyph_layout_draw_only& layout, graphic::color color, typesetting::layout_direction direction = typesetting::layout_direction::ltr) {
+		record_glyph_draw_instructions_draw_only(draw_instr_buffer_, layout, color, line_align_, direction);
+	}
+
+	void push_to_renderer(renderer_frontend& r) const {
+		push(r, draw_instr_buffer_);
 	}
 };
 

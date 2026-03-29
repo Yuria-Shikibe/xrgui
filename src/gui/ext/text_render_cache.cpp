@@ -6,6 +6,36 @@ import mo_yanxi.gui.fx.instruction_extension;
 
 
 namespace mo_yanxi::gui{
+void record_elems(graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
+                  const typesetting::glyph_layout_draw_only& glyph_layout,
+                  graphic::color color_scl, typesetting::line_alignment line_align,
+                  typesetting::layout_direction direction
+){
+	using namespace mo_yanxi::graphic::draw::instruction;
+
+	for(const auto& current_line : glyph_layout.lines){
+		auto [line_src, spacing] = current_line.calculate_alignment(glyph_layout.extent, line_align,
+			direction);
+
+		for(const auto& [idx, val] : std::span{
+				glyph_layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size
+			} | std::views::enumerate){
+			if(!val.texture->view) continue;
+			auto start = math::fma(idx, spacing, line_src + val.aabb.src);
+			buffer.push(rect_aabb{
+					.generic = {val.texture->view},
+					.v00 = start,
+					.v11 = start + val.aabb.extent(),
+					.uv00 = val.texture->uv.v00(),
+					.uv11 = val.texture->uv.v11(),
+					.vert_color = {val.color * color_scl},
+					.slant_factor_asc = val.slant_factor_asc,
+					.slant_factor_desc = val.slant_factor_desc,
+					.sdf_expand = -val.weight_offset
+				});
+			}
+	}
+}
 
 void record_glyph_draw_instructions(
 	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
@@ -14,7 +44,7 @@ void record_glyph_draw_instructions(
 	using namespace mo_yanxi::graphic::draw::instruction;
 
 	buffer.clear();
-	buffer.reserve_heads(glyph_layout.elems.size() + glyph_layout.underlines.size());
+	buffer.reserve_heads(glyph_layout.elems.size() + glyph_layout.underlines.size() + glyph_layout.wrap_frames.size() * 3);
 	buffer.reserve_bytes(glyph_layout.elems.size() * sizeof(rect_aabb) + glyph_layout.underlines.size() * sizeof(line));
 
 	const auto& roundRegion = gui::assets::builtin::default_round_square_base;
@@ -51,28 +81,7 @@ void record_glyph_draw_instructions(
 
 	}
 
-	for(const auto& current_line : glyph_layout.lines){
-		auto [line_src, spacing] = current_line.calculate_alignment(glyph_layout.extent, line_align,
-			glyph_layout.direction);
-
-		for(const auto& [idx, val] : std::span{
-			    glyph_layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size
-		    } | std::views::enumerate){
-			if(!val.texture->view) continue;
-			auto start = math::fma(idx, spacing, line_src + val.aabb.src);
-			buffer.push(rect_aabb{
-					.generic = {val.texture->view},
-					.v00 = start,
-					.v11 = start + val.aabb.extent(),
-					.uv00 = val.texture->uv.v00(),
-					.uv11 = val.texture->uv.v11(),
-					.vert_color = {val.color * color_scl},
-					.slant_factor_asc = val.slant_factor_asc,
-					.slant_factor_desc = val.slant_factor_desc,
-					.sdf_expand = -val.weight_offset
-				});
-		}
-	}
+	record_elems(buffer, glyph_layout, color_scl, line_align, glyph_layout.direction);
 
 	for (const auto & underlines : glyph_layout.underlines | std::views::chunk_by(&typesetting::sub_line_decoration::chunk_by_line)){
 		auto [line_src, spacing] = glyph_layout.lines[underlines.front().line_index].calculate_alignment(glyph_layout.extent, line_align, glyph_layout.direction);
@@ -89,14 +98,19 @@ void record_glyph_draw_instructions(
 				});
 		}
 	}
+}
 
+void record_glyph_draw_instructions_draw_only(
+	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
+	const typesetting::glyph_layout_draw_only& glyph_layout, graphic::color color_scl,
+	typesetting::line_alignment line_align, typesetting::layout_direction direction){
+	using namespace mo_yanxi::graphic;
+	using namespace mo_yanxi::graphic::draw::instruction;
 
-	// buffer.push(rect_aabb_outline{
-	// 		.v00 = {},
-	// 		.v11 = glyph_layout.extent,
-	// 		.stroke = {2},
-	// 		.vert_color = graphic::colors::ACID
-	// 	});
+	buffer.clear();
+	buffer.reserve_heads(glyph_layout.elems.size());
+	buffer.reserve_bytes(glyph_layout.elems.size() * sizeof(rect_aabb));
 
+	record_elems(buffer, glyph_layout, color_scl, line_align, direction);
 }
 }

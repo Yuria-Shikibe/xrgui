@@ -78,6 +78,10 @@ public:
 		return {std::move(hdl), body_ref};
 	}
 
+	menu_create_result<elem, elem> push_back(elem_ptr&& head, elem_ptr&& body){
+		return insert(entries.size(), std::move(head), std::move(body));
+	}
+
 	template <elem_init_func HeadInit, elem_init_func BodyInit>
 	menu_create_result<elem_init_func_create_t<HeadInit>, elem_init_func_create_t<BodyInit>>
 		create(std::size_t index, HeadInit&& head, BodyInit&& body){

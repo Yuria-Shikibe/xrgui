@@ -1282,8 +1282,7 @@ private:
 
 public:
 	
-	
-	
+
 	void layout(const tokenized_text_view& full_text, const layout_config& config_, glyph_layout& layout_ref){
 		this->initialize_state(full_text, config_);
 
@@ -1311,6 +1310,12 @@ public:
 		layout_ref.is_exhausted = result;
 
 		this->finalize(layout_ref);
+	}
+
+    void layout(const tokenized_text_view& full_text, const layout_config& config_, glyph_layout_draw_only& draw_only){
+		glyph_layout results{std::move(draw_only)};
+		this->layout(full_text, config_, results);
+		draw_only = static_cast<glyph_layout_draw_only&&>(std::move(results));
 	}
 
 	[[nodiscard]] glyph_layout layout(const tokenized_text_view& full_text, const layout_config& config_){

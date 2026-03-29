@@ -82,11 +82,6 @@ using elem_style_ptr = referenced_ptr<const elem_style_drawer>;
 export constexpr inline debug_elem_drawer debug_style;
 export constexpr inline empty_drawer empty_style;
 
-export inline referenced_ptr<const elem_style_drawer> global_default_style_drawer{};
-
-export inline referenced_ptr<const elem_style_drawer> get_default_style_drawer() noexcept{
-	return global_default_style_drawer == nullptr ? referenced_ptr<const elem_style_drawer>{&debug_style} : global_default_style_drawer;
-}
 
 }
 
@@ -1085,7 +1080,6 @@ layout::optional_mastering_extent get_fill_parent_restriction(
 	const math::bool2 fillparent = {true, true},
 	const math::bool2 expansion_mask = {false, false}){
 	const auto [fx, fy] = fillparent;
-	if(!fx && !fy) return {boundSize};
 	layout::optional_mastering_extent restriction_extent;
 
 
@@ -1118,7 +1112,6 @@ bool set_fill_parent(
 	const math::bool2 expansion_mask = {false, false},
 	const propagate_mask direction_mask = propagate_mask::lower){
 	const auto [fx, fy] = item.get_fill_parent() && mask;
-	if(!fx && !fy) return false;
 
 	item.restriction_extent = get_fill_parent_restriction(boundSize, {fx, fy}, expansion_mask);
 
@@ -1260,6 +1253,12 @@ FORCE_INLINE constexpr bool contains(math::vector2<T> pos, math::vector2<T> exte
 }
 
 export
+template <typename T>
+FORCE_INLINE constexpr bool contains(math::vector2<T> pos, math::vector2<T> extent, math::vector2<T> margin) noexcept{
+	return pos.x >= -margin.x && pos.x < extent.x + margin.x && pos.y >= -margin.y && pos.y < extent.y + margin.y;
+}
+
+export
 template <std::unsigned_integral T>
 FORCE_INLINE constexpr bool contains(math::vector2<T> pos, math::vector2<T> extent) noexcept{
 	return pos.x < extent.x && pos.y < extent.y;
@@ -1346,6 +1345,23 @@ void post_sync_execute(E& e, Fn&& fn){
 		std::invoke(fn, e);
 	}else{
 		action::push_runnable_action(e, std::forward<Fn>(fn));
+	}
+}
+
+export
+template <typename E, typename T, typename Fn>
+	requires (
+		std::derived_from<std::remove_const_t<E>, elem>
+		&& std::is_invocable_r_v<T, Fn, E&>
+		&& std::is_assignable_v<std::invoke_result_t<T E::*, E&>, std::invoke_result_t<Fn, E&>>)
+T post_sync_assign(E& e, T E::* mptr, Fn&& fn){
+	if(is_on_scene_thread(static_cast<const elem&>(e).get_scene())){
+		return std::invoke_r<T>(fn, e);
+	}else{
+		action::push_runnable_action(e, [mptr, f = std::forward<Fn>(fn)](E& e){
+			std::invoke(mptr, e) = std::invoke_r<T>(f, e);
+		});
+		return T{};
 	}
 }
 

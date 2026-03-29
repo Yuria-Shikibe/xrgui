@@ -157,6 +157,7 @@ void app_run(
 			gui::fx::batch_draw_mode::def,
 			gui::make_state_tag(gui::fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
 		r.update_state(gui::fx::blend::pma::standard);
+		r.update_state(gui::fx::make_blend_write_mask(true), 0);
 		r.update_state(r.get_full_screen_scissor());
 		r.update_state(r.get_full_screen_viewport());
 
@@ -382,89 +383,92 @@ void app_run(
 				};
 
 				trail.iterate(1.f,
-					[last = trail.head_pos_or({})](
-					const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable{
-						using namespace graphic;
-						math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
+				              [last = trail.head_pos_or({})](
+				              const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable{
+					              using namespace graphic;
+					              math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
 
-						const float factor_global = math::idx_to_factor(idx, total);
-						const auto fac = factor_global | math::interp::pow2Out;
-						const auto off = rand.range(1.f) * fac * math::curve(factor_global, .05f, .2f);
-						const auto tan = (node.pos - last).rotate_rt_counter_clockwise() * off;
+					              const float factor_global = math::idx_to_factor(idx, total);
+					              const auto fac = factor_global | math::interp::pow2Out;
+					              const auto off = rand.range(1.f) * fac * math::curve(factor_global, .05f, .2f);
+					              const auto tan = (node.pos - last).rotate_rt_counter_clockwise() * off;
 
-						last = node.pos;
-						auto n = node;
-						const auto color = math::lerp(colors::black, colors::aqua.to_light(2.5f),
-							factor_global);
-						return trail_node_data{
-								n,
-								factor_global | math::interp::pow2In | math::interp::interp_func{
-									math::interp::spec::concave_curve_fixed{.1f}
-								} | math::interp::reverse,
-								color
-							};
-					}, [&](std::span<const trail_node_data, 4> sspn){
-						using namespace graphic;
-						using namespace graphic::draw;
+					              last = node.pos;
+					              auto n = node;
+					              const auto color = math::lerp(colors::black, colors::aqua.to_light(2.5f),
+					                                            factor_global);
+					              return trail_node_data{
+							              n,
+							              factor_global | math::interp::pow2In | math::interp::interp_func{
+								              math::interp::spec::concave_curve_fixed{.1f}
+							              } | math::interp::reverse,
+							              color
+						              };
+				              }, [&](std::span<const trail_node_data, 4> sspn){
+					              using namespace graphic;
+					              using namespace graphic::draw;
 
-						const auto appr = sspn[1].pos - sspn[2].pos;
-						const auto apprLen = appr.length();
-						const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 2U, 8U);
+					              const auto appr = sspn[1].pos - sspn[2].pos;
+					              const auto apprLen = appr.length();
+					              const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 2U, 8U);
 
-						r.push(parametric_curve{
-								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(
-									&trail_node_data::pos)),
-								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 10.f,
-								.segments = seg,
-								.color = {colors::aqua.to_light(2.5f)},
-							});
-						r.push(parametric_curve{
-								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(
-									&trail_node_data::pos)),
-								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 5.f,
-								.segments = seg,
-								.color = {colors::black},
-							});
-					});
+					              r.push(parametric_curve{
+							              .param = curve_trait_mat::b_spline * (sspn | std::views::transform(
+								              &trail_node_data::pos)),
+							              .stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 10.f,
+							              .segments = seg,
+							              .color = {colors::aqua.to_light(2.5f)},
+						              });
+					              r.push(parametric_curve{
+							              .param = curve_trait_mat::b_spline * (sspn | std::views::transform(
+								              &trail_node_data::pos)),
+							              .stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 5.f,
+							              .segments = seg,
+							              .color = {colors::black},
+						              });
+				              });
 
 				trail.iterate(1.f,
-					[last = trail.head_pos_or({})](
-					const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable{
-						using namespace graphic;
-						math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
+				              [last = trail.head_pos_or({})](
+				              const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable{
+					              using namespace graphic;
+					              math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
 
-						float factor_global = math::idx_to_factor(idx, math::max(total, 8U));
-						const auto fac = factor_global | math::interp::pow2Out;
-						const auto off = rand.range(1.f) * fac * math::curve(factor_global, .05f, .5f);
-						const auto tan = (node.pos - last).rotate_rt_counter_clockwise() * off;
+					              float factor_global = math::idx_to_factor(idx, math::max(total, 8U));
+					              const auto fac = factor_global | math::interp::pow2Out;
+					              const auto off = rand.range(1.f) * fac * math::curve(factor_global, .05f, .5f);
+					              const auto tan = (node.pos - last).rotate_rt_counter_clockwise() * off;
 
-						last = node.pos;
-						auto n = node;
-						n.pos += tan;
-						const auto color = math::lerp(colors::aqua.to_light(2.5f), colors::pale_green.to_light(1.5f),
-							factor_global);
+					              last = node.pos;
+					              auto n = node;
+					              n.pos += tan;
+					              const auto color = math::lerp(colors::aqua.to_light(2.5f),
+					                                            colors::pale_green.to_light(1.5f),
+					                                            factor_global);
 
-						factor_global = math::curve(
-							factor_global | math::interp::interp_func{math::interp::spec::concave_curve_fixed{.1f}} |
-							math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)), 1.f);
+					              factor_global = math::curve(
+						              factor_global | math::interp::interp_func{
+							              math::interp::spec::concave_curve_fixed{.1f}
+						              } |
+						              math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)), 1.f);
 
-						return trail_node_data{n, factor_global, color};
-					}, [&](std::span<const trail_node_data, 4> sspn){
-						using namespace graphic;
-						using namespace graphic::draw;
+					              return trail_node_data{n, factor_global, color};
+				              }, [&](std::span<const trail_node_data, 4> sspn){
+					              using namespace graphic;
+					              using namespace graphic::draw;
 
-						const auto appr = sspn[1].pos - sspn[2].pos;
-						const auto apprLen = appr.length();
-						const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 4U, 12U);
+					              const auto appr = sspn[1].pos - sspn[2].pos;
+					              const auto apprLen = appr.length();
+					              const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 4U, 12U);
 
-						r.push(parametric_curve{
-								.param = curve_trait_mat::b_spline * (sspn | std::views::transform(
-									&trail_node_data::pos)),
-								.stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 8.f,
-								.segments = seg,
-								.color = {sspn[1].color, sspn[1].color, sspn[2].color, sspn[2].color},
-							});
-					});
+					              r.push(parametric_curve{
+							              .param = curve_trait_mat::b_spline * (sspn | std::views::transform(
+								              &trail_node_data::pos)),
+							              .stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 8.f,
+							              .segments = seg,
+							              .color = {sspn[1].color, sspn[1].color, sspn[2].color, sspn[2].color},
+						              });
+				              });
 			}
 
 			r.push(triangle{});
@@ -605,7 +609,7 @@ void prepare(){
 								graphic_pipeline_option{
 									false, {0b1},
 									{
-										{vk::blending::scaled_alpha_blend}, false, true, false
+										{vk::blending::scaled_alpha_blend}, false, true, true
 									}
 								}
 							},

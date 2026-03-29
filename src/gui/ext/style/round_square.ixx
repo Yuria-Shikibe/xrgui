@@ -29,7 +29,7 @@ struct round_scroll_bar_style : scroll_pane_bar_drawer{
 
 protected:
 
-	void draw_layer_impl(const scroll_pane& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override{
+	void draw_layer_impl(const scroll_adaptor_base& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override{
 		if(opacityScl < 1 / 255.f)return;
 		switch(layer_param.layer_index){
 		case 0 :{
