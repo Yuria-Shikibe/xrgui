@@ -163,6 +163,17 @@ struct layer_viewport{
 		}
 	}
 
+	void set_local_transform_idt() noexcept{
+		assert(!element_local_transform.empty() && "cannot set empty transform");
+		auto& last = element_local_transform.back();
+		last.current = math::mat3_idt;
+		if(element_local_transform.size() > 1){
+			last.accumul = element_local_transform[element_local_transform.size() - 2].accumul;
+		} else{
+			last.accumul = math::mat3_idt;
+		}
+	}
+
 	math::mat3 get_local_transform() const noexcept{
 		assert(!element_local_transform.empty() && "cannot set empty transform");
 		auto& last = element_local_transform.back();

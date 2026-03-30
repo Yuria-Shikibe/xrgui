@@ -114,8 +114,8 @@ public:
 		return draw_sequence_;
 	}
 
-	void truncate(const elem* elem){
-		if(const auto itr = std::ranges::find(overlays_, elem, &overlay::get); itr != overlays_.end()){
+	void truncate(const elem* overlay_elem){
+		if(const auto itr = std::ranges::find(overlays_, overlay_elem, &overlay::get); itr != overlays_.end()){
 			truncate(itr);
 		}
 	}

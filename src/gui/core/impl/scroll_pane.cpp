@@ -70,8 +70,8 @@ namespace mo_yanxi::gui{
 
 		{
 			//scroll update
-			scroll_velocity_.lerp_inplace(scroll_target_velocity_, delta_in_ticks * VelocitySensitivity);
-			scroll_target_velocity_.lerp_inplace({}, delta_in_ticks * VelocityDragSensitivity);
+			scroll_velocity_.lerp_inplace(scroll_target_velocity_, math::clamp(delta_in_ticks * VelocitySensitivity));
+			scroll_target_velocity_.lerp_inplace({}, math::clamp(delta_in_ticks * VelocitySensitivity));
 
 			if(util::try_modify(
 				scroll_.base,
@@ -112,9 +112,11 @@ namespace mo_yanxi::gui{
 	}
 
 	events::op_afterwards scroll_adaptor_base::on_drag(const events::drag e){
+		if(util::contains(e.src, get_viewport_extent())){
+			return events::op_afterwards::fall_through;
+		}
 		activity_timer_ = 0.0f;
-		set_update_required(
-			update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
+		set_update_required(update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 
 		scroll_target_velocity_ = scroll_velocity_ = {};
 		const auto trans = e.delta() * get_vel_clamp();

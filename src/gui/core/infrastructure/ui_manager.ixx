@@ -34,10 +34,6 @@ struct ui_manager{
 
 	}
 
-	[[nodiscard]] explicit ui_manager(const std::size_t PoolSize_MB, std::string name, scene&& scene) : ui_manager(PoolSize_MB){
-		focus = &scenes.insert_or_assign(std::move(name), std::move(scene)).first->second;
-	}
-
 private:
 	mr::raw_memory_pool pool_{};
 	string_hash_map<scene_resources> resources{};
@@ -62,8 +58,9 @@ public:
 	}
 
 private:
-	scene& add_scene(std::string_view name, scene&& scene, bool focusIt = false){
-		auto itr = scenes.insert_or_assign(name, std::move(scene));
+	template <typename ...Args>
+	scene& add_scene(std::string_view name, bool focusIt, Args&& ...args){
+		std::pair<decltype(scenes)::iterator, bool> itr = scenes.try_emplace(name, std::forward<Args>(args)...);
 		if(focusIt){
 			focus = std::addressof(itr.first->second);
 		}
@@ -85,11 +82,10 @@ public:
 		Args&&... args){
 		auto& scene_ = this->add_scene(
 			name,
-			scene{
-				resources,
-				std::move(renderer_ui), std::in_place_type<T>,
-				std::forward<Args>(args)...
-			}, focus_it);
+			focus_it,
+			resources,
+			std::move(renderer_ui), std::in_place_type<T>,
+			std::forward<Args>(args)...);
 
 		auto& root = this->root_of<T>(name);
 		return {scene_, root};

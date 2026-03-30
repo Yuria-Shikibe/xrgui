@@ -25,14 +25,24 @@ struct data_table_desc{
 private:
 
 	struct entry{
-		mr::heap_string data{};
+		mr::string data{};
 		typesetting::glyph_layout_draw_only glyph_layout{};
 		text_render_cache render_cache{};
 		bool dirty{true};
 
+		[[nodiscard]] entry() = default;
+
+		bool empty() const noexcept{
+			return glyph_layout.elems.empty();
+		}
+
 		bool try_update(const typesetting::layout_config& cfg, typesetting::fast_plain_layout_context& ctx, typesetting::tokenized_text& cache){
 			if(!dirty)return false;
 			dirty = false;
+			if(data.empty()){
+				glyph_layout.clear();
+				return true;
+			}
 			cache.reset(data, typesetting::tokenize_tag::raw);
 			ctx.layout(cache, cfg, glyph_layout);
 			render_cache.update_buffer(glyph_layout, graphic::colors::white);
@@ -41,15 +51,17 @@ private:
 	};
 
 	struct head : entry{
+		using entry::entry;
+
 		snap_shot<float> actual_size;
 	};
 
 
 	typesetting::fast_plain_layout_context plain_layout_context{std::in_place};
 	typesetting::tokenized_text cache{};
-	mr::heap_vector<head> table_heads_{};
-	mr::heap_vector<entry> table_entries_{};
-	mr::heap_vector<typesetting::glyph_layout_draw_only> index_labels{};
+	mr::vector<head> table_heads_{};
+	mr::vector<entry> table_entries_{};
+	// mr::heap_vector<typesetting::glyph_layout_draw_only> index_labels{};
 	float entry_height_{80};
 	math::vec2 pad_{16, 4};
 
@@ -89,12 +101,11 @@ public:
 			extent.max_y(entry.glyph_layout.extent.y);
 			extent.x += pad_.x + entry.actual_size.temp;
 		}
-		extent.x = math::fdim(extent.x, pad_.x);
 
 		for(auto&& entry : table_entries_){
 			any |= entry.try_update(cfg, plain_layout_context, cache);
 		}
-		extent.y += (entry_height_ + pad_.y) * get_row_count();
+		extent.y += (entry_height_ + pad_.y) * get_row_count() + pad_.y;
 		extent_ = extent;
 
 		return any;
@@ -136,24 +147,16 @@ public:
 			if(num_cols){
 				static constexpr graphic::color entry_even_row_color = graphic::colors::dark_gray.create_lerp(graphic::colors::ROYAL, .25f);
 				current_offset = {0, head_max_height + pad_.y * .5f};
-				for(auto row = 0uz; row + 1 < num_rows; ++row){
+				for(auto row = 0uz; row < num_rows; ++row){
 					auto off = draw_offset + current_offset;
 					current_offset.y += entry_height_ + pad_.y;
 					if((row & 1) == 0){
 						renderer << rect_aabb{
 							.v00 = off,
-							.v11 = (draw_offset + current_offset  + math::vec2{get_extent().x}).min_y(get_extent().y),
+							.v11 = (draw_offset + current_offset  + math::vec2{get_extent().x}),
 							.vert_color = {entry_even_row_color}
 						};
 					}
-				}
-
-				if(num_rows & 1){
-					renderer << rect_aabb{
-						.v00 = draw_offset + current_offset,
-						.v11 = get_extent(),
-						.vert_color = {entry_even_row_color}
-					};
 				}
 
 				auto draw_col_line = [&](math::vec2 offset){
@@ -178,10 +181,10 @@ public:
 
 
 				//col separators
-				current_offset = {};
+				current_offset = {pad_.x * .5f};
 				for(auto col = 0uz; col < num_cols; ++col){
 					auto off = draw_offset + current_offset;
-					off.x = math::fdim(off.x, pad_.x * .5f);
+					off.x -= pad_.x * .5f;
 
 					draw_col_line(off);
 
@@ -200,90 +203,122 @@ public:
 					current_offset.y += entry_height_ + pad_.y;
 				}
 				draw_row_line(draw_offset + math::vec2{0, get_extent().y});
-				current_offset = {};
 			}
 
 		}
 
-
 		renderer.update_state(fx::batch_draw_mode::msdf);
 
-		constexpr auto get_align_off = [](const entry& entry, math::vec2 cell_size) static {
+		constexpr auto get_align_off = [](typesetting::line_alignment a, const math::vec2 layout_size, math::vec2 cell_size) static {
 			align::pos p;
-			auto a = entry.render_cache.get_line_align();
 			switch(a){
 			case typesetting::line_alignment::start : p = align::pos::center_left; break;
 			case typesetting::line_alignment::center : p = align::pos::center; break;
 			case typesetting::line_alignment::end : p = align::pos::center_right; break;
 			default : p = align::pos::center; break;
 			}
-			return align::get_offset_of(p, entry.glyph_layout.extent, math::frect{cell_size});
+			return align::get_offset_of(p, layout_size, math::frect{cell_size});
 		};
 
+		current_offset = {};
 		for(auto col = 0uz; col < num_cols; ++col){
 			auto& head_entry = table_heads_[col];
-			math::frect wrap_bound{tags::from_extent, current_offset, {head_entry.actual_size.temp + pad_.x, get_extent().y}};
+			const math::frect wrap_bound{tags::from_extent, current_offset + draw_offset, {head_entry.actual_size.temp + pad_.x, get_extent().y}};
 
-			if(clipspace.overlap_exclusive(wrap_bound)){
-				renderer.top_viewport().set_local_transform(math::mat3_idt);
-				// renderer.notify_viewport_changed();
-				// renderer << graphic::draw::instruction::rect_aabb_outline{
-				// 	.v00 = draw_offset + current_offset,
-				// 	.v11 = draw_offset + current_offset + math::vec2{head_entry.actual_size.temp, head_max_height + (pad_.y + entry_height_) * get_row_count()},
-				// 	.stroke = {2},
-				// 	.vert_color = {graphic::colors::YELLOW}
-				// };
-				renderer.push_scissor({.rect =
-					{tags::from_extent, draw_offset + current_offset, {head_entry.actual_size.temp, head_max_height + (pad_.y + entry_height_) * get_row_count()}}});
+			auto draw_entry = [&](const entry& e, math::vec2 src_offset, math::vec2 cell_size){
+				if(e.empty())return;
+				if(!math::frect{tags::from_extent, src_offset, cell_size}.overlap_exclusive(clipspace))return;
 
+				math::vec2 target_size;
+				if(cell_size.y >= e.glyph_layout.extent.y){
+					target_size = e.glyph_layout.extent;
+				}else{
+					target_size = align::embed_to(align::scale::fillY, e.glyph_layout.extent, cell_size);
+				}
 
-				mat3.set_translation(draw_offset + current_offset + get_align_off(head_entry, {head_entry.actual_size.temp, head_max_height}));
+				const math::vec2 offset = src_offset + get_align_off(e.render_cache.get_line_align(), target_size, cell_size);
+
+				mat3.set_rect_transform({}, e.glyph_layout.extent, offset, target_size);
 				renderer.top_viewport().set_local_transform(mat3);
 				renderer.notify_viewport_changed();
-				head_entry.render_cache.push_to_renderer(renderer);
+				e.render_cache.push_to_renderer(renderer);
+			};
 
+
+			if(clipspace.overlap_exclusive(wrap_bound)){
+				renderer.top_viewport().set_local_transform_idt();
+				renderer.push_scissor({.rect =
+					{tags::from_extent, draw_offset + current_offset, {head_entry.actual_size.temp + pad_.x, pad_.y + head_max_height + (pad_.y + entry_height_) * get_row_count()}}});
+
+				current_offset += pad_ * .5f;
+				draw_entry(head_entry, current_offset + draw_offset, {head_entry.actual_size.temp, head_max_height});
 
 				current_offset.y += head_max_height + pad_.y;
+
 				for(auto row = 0uz; row < num_rows; ++row){
 					auto& grid_entry = grid[row, col];
-					mat3.set_translation(draw_offset + current_offset + get_align_off(grid_entry, {head_entry.actual_size.temp, entry_height_}));
-					renderer.top_viewport().set_local_transform(mat3);
-					renderer.notify_viewport_changed();
-					grid_entry.render_cache.push_to_renderer(renderer);
+					draw_entry(grid_entry, current_offset + draw_offset, {head_entry.actual_size.temp, entry_height_});
 
 					current_offset.y += entry_height_ + pad_.y;
 				}
 
-				current_offset.y = 0;
 				renderer.pop_scissor();
+			}else{
+				current_offset.x += pad_.x * .5f;
 			}
 
-			current_offset.x += head_entry.actual_size.temp + pad_.x;
+			current_offset.y = 0;
+			current_offset.x += head_entry.actual_size.temp + pad_.x * .5f;
 		}
 
 		renderer.top_viewport().pop_local_transform();
 		renderer.notify_viewport_changed();
 	}
-
-	static data_table_desc from_csv(const std::filesystem::path& path, char delimiter = ','){
+	static data_table_desc from_csv(const std::filesystem::path& path, char delimiter = ',', mr::heap_allocator<> alloc = {}){
 		data_table_desc desc{};
-		csv::parse_file(path, [&](csv::coord coord, std::string_view sv){
-			auto& e = [&] -> entry& {
-				if(coord.row){
-					return desc.table_entries_.emplace_back();
-				}else{
-					return desc.table_heads_.emplace_back();
-				}
-			}();
 
-			csv::unescape_csv_field(e.data, sv);
-			std::ranges::replace(e.data, '\n', ' ');
-			e.render_cache.set_line_align((!coord.row)
-				                              ? typesetting::line_alignment::center
-				                              : csv::is_numeric(e.data)
-				                              ? typesetting::line_alignment::end
-				                              : typesetting::line_alignment::start);
+		unsigned col_count{};
+
+		csv::parse_file(path, [&](csv::coord coord, std::string_view sv){
+			if (coord.row == 0) {
+				// 第 0 行：生成表头并统计标准列数 (col_count)
+				col_count++;
+				auto& e = desc.table_heads_.emplace_back();
+				csv::unescape_csv_field(e.data, sv);
+				e.render_cache.set_line_align(typesetting::line_alignment::center);
+			} else {
+				// 数据行：如果当前列索引超出了表头列数，直接丢弃（处理多出的锯齿列）
+				if (coord.col >= col_count) {
+					return;
+				}
+
+				// 计算当前解析的单元格在一维 table_entries_ 数组中理论上的起始索引
+				// 因为数据行是从 coord.row = 1 开始的，所以减去 1
+				unsigned expected_index = (coord.row - 1) * col_count + coord.col;
+
+				// 如果数组当前大小落后于理论索引，说明之前的行存在列数不足（短行）
+				// 我们需要用空的 entry 进行占位补齐
+				while (desc.table_entries_.size() < expected_index) {
+					desc.table_entries_.emplace_back();
+				}
+
+				// 正常追加当前解析出的单元格
+				auto& e = desc.table_entries_.emplace_back();
+				csv::unescape_csv_field(e.data, sv);
+				e.render_cache.set_line_align(csv::is_numeric(e.data)
+												? typesetting::line_alignment::end
+												: typesetting::line_alignment::start);
+			}
 		}, delimiter);
+
+		// 收尾处理：如果整个文件的最后一行是短行，解析回调结束时它还没有被补齐。
+		// 这里确保最终的一维数组大小是 col_count 的整数倍。
+		if (col_count > 0) {
+			while (desc.table_entries_.size() % col_count != 0) {
+				desc.table_entries_.emplace_back();
+			}
+		}
+
 		return desc;
 	}
 
@@ -339,7 +374,7 @@ private:
 			extent.max_y(table_head.glyph_layout.extent.y);
 			extent.x += pad_.x + table_head.actual_size.temp;
 		}
-		extent.x = math::fdim(extent.x, pad_.x);
+		extent.x += pad_.x;
 		return extent;
 	}
 };
@@ -385,6 +420,11 @@ public:
 	}
 
 	events::op_afterwards on_drag(const events::drag event) override{
+		if(scroll_.is_dirty()){
+			//scroll bar dragging
+			return scroll_adaptor::on_drag(event);
+		}
+
 		const auto delta = get_scroll_offset();
 		auto& table = get_item();
 

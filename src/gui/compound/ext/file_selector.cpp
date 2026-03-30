@@ -719,7 +719,7 @@ namespace mo_yanxi::gui::cpd{
 		scene, parent, layout::layout_policy::hori_major){
 		prov_path_->update_value_quiet(this);
 		interactivity = interactivity_flag::children_only;
-		set_style_edge_only(*this);
+		this->is_transparent_in_inbound_filter = true;
 
 		this->create_head([this](head_body_no_invariant& s){
 			s.set_expand_policy(layout::expand_policy::passive);

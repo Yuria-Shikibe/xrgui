@@ -9,11 +9,15 @@ import :elem_ptr;
 import :tooltip_manager;
 import :dialog_manager;
 import :cursor;
+import :elem_async_task;
 import std;
 import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.math.rect_ortho;
 import mo_yanxi.concurrent.mpsc_double_buffer;
+import mo_yanxi.concurrent.mpsc_queue;
+import mo_yanxi.heterogeneous;
+import mo_yanxi.circular_queue;
 
 export import mo_yanxi.gui.util;
 export import mo_yanxi.gui.style.manager;
@@ -273,6 +277,20 @@ struct scene_base{
 protected:
 	scene_resources* resources_;
 
+#pragma region ElemAsyncTaskSection
+	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
+
+private:
+	std::jthread element_async_task_thread_{};
+	ccur::mpsc_queue<elem_async_task_ptr, std::deque<
+			elem_async_task_ptr, mr::heap_allocator<elem_async_task_ptr>
+		>> element_async_tasks_pending_{};
+	ccur::mpsc_double_buffer<elem_async_task_ptr, mr::heap_vector<elem_async_task_ptr>> element_async_tasks_done_{get_heap_allocator()};
+	mr::heap_umap<elem*, unsigned, transparent::ptr_hasher<elem>, transparent::ptr_equal_to<elem>> element_async_task_alive_owners_{get_heap()};
+
+protected:
+#pragma endregion
+
 private:
 	renderer_frontend renderer_{};
 
@@ -326,9 +344,10 @@ protected:
 
 	// layer_altitude_record layer_altitude_record_{get_heap()};
 
-	ccur::mpsc_double_buffer_no_propagate<elem*, std::vector<elem*, mr::heap_allocator<elem*>>> action_active_pending_elems_{std::vector<elem*, mr::heap_allocator<elem*>>{get_heap()}};
-	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> action_active_async_elems_{get_heap()};
-	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> action_active_elems_{get_heap()};
+	ccur::mpsc_double_buffer<elem*, mr::heap_vector<elem*>> action_active_pending_elems_{std::vector<elem*, mr::heap_allocator<elem*>>{get_heap()}};
+	linear_flat_set<mr::heap_vector<elem*>> action_active_async_elems_{get_heap()};
+	linear_flat_set<mr::heap_vector<elem*>> action_active_elems_{get_heap()};
+
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 
@@ -347,7 +366,9 @@ protected:
 		scene_resources& resources,
 		renderer_frontend&& renderer) :
 		resources_(&resources),
-		renderer_(std::move(renderer)){
+		element_async_task_thread_([this](std::stop_token t){
+			this->elem_async_tasks_process_(std::move(t));
+		}), renderer_(std::move(renderer)){
 	}
 
 public:
@@ -449,6 +470,36 @@ protected:
 		}
 		elem_owned_nodes_.erase(begin, end);
 	}
+
+	void drop_(const elem* target) noexcept;
+
+
+#pragma region elem_async_task_mfunc
+private:
+	void elem_async_tasks_process_(std::stop_token stop_token);
+
+protected:
+	void elem_async_tasks_process_done_();
+
+public:
+	template <std::derived_from<elem> E, std::invocable<E&> Prov>
+	void post_elem_async_task(E& e, Prov&& prov){
+		elem& owner = e;
+		++element_async_task_alive_owners_[&owner];
+		using task_type = std::decay_t<std::invoke_result_t<Prov&&, E&>>;
+		struct crop{
+			E& e;
+			Prov&& prov;
+			explicit(false) operator task_type(){
+				return std::invoke_r<task_type>(prov, e);
+			}
+		};
+		element_async_tasks_pending_.push(
+			mo_yanxi::make_allocate_aware_poly_unique<task_type, basic_elem_async_task>(get_heap_allocator<task_type>(), crop{e, std::forward<Prov>(prov)}));
+	}
+#pragma endregion
+
+
 };
 
 export
@@ -472,9 +523,9 @@ public:
 	}
 
 	scene(const scene& other) = delete;
-	scene(scene&& other) noexcept;
+	scene(scene&& other) noexcept = delete;
 	scene& operator=(const scene& other) = delete;
-	scene& operator=(scene&& other) noexcept;
+	scene& operator=(scene&& other) noexcept = delete;
 
 public:
 	template <std::derived_from<elem> T, typename ...Args>
@@ -492,6 +543,11 @@ public:
 	}
 
 	void resize(const math::frect region);
+
+	void close_overlay(const elem* overlay_elem){
+		overlay_manager_.truncate(overlay_elem);
+	}
+
 
 	template <invocable_elem_init_func Fn, typename... Args>
 	auto create_overlay(const overlay_layout layout, Fn&& fn, Args&&... args){
@@ -595,11 +651,9 @@ private:
 
 	void switch_key_focus(elem* element);
 
-	void try_swap_focus(elem* newFocus);
+	void try_swap_focus();
 
 	void swap_focus(elem* newFocus);
-
-	void drop_(const elem* target) noexcept;
 
 	void update_elem_cursor_state_(float delta_in_tick) noexcept;
 
@@ -612,5 +666,6 @@ private:
 	}
 
 };
+
 
 }

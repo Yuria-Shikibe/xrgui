@@ -18,35 +18,30 @@ import align;
 namespace mo_yanxi::gui {
 
 void record_glyph_draw_instructions(
-	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
+	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout& glyph_layout,
 	graphic::color color_scl, typesetting::line_alignment line_align
 );
 
 void record_glyph_draw_instructions_draw_only(
-	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
+	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout_draw_only& glyph_layout,
 	graphic::color color_scl, typesetting::line_alignment line_align, typesetting::layout_direction direction
 );
 
-void push(renderer_frontend& r, const graphic::draw::instruction::draw_record_storage<mr::heap_allocator<>>& buf){
+template <typename Alloc>
+void push(renderer_frontend& r, const graphic::draw::instruction::draw_record_storage<Alloc>& buf){
 	r.push(buf.heads(), buf.data());
 }
 
 export struct text_render_cache {
 private:
-	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<>> draw_instr_buffer_{
-		mr::get_default_heap_allocator()
-	};
+	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>> draw_instr_buffer_{};
 	std::optional<graphic::color> text_color_scl_{};
 	typesetting::line_alignment line_align_{};
 
 
 public:
-
-	void set_allocator(const mr::heap_allocator<std::byte>& alloc) {
-		draw_instr_buffer_ = {alloc};
-	}
 
 	[[nodiscard]] bool has_drawable_text() const noexcept {
 		return !draw_instr_buffer_.heads().empty();

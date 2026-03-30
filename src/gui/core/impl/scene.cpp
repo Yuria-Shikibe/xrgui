@@ -11,22 +11,23 @@ style::style_manager scene_resources::init_style_manager_() const{
 	return manager;
 }
 
-scene::scene(scene&& other) noexcept: scene_base{std::move(other)}, root_(std::move(other.root_)){
-	root().relocate_scene_(this);
-	inputs_.main_binds.set_context(std::ref(*this));
-}
-
-scene& scene::operator=(scene&& other) noexcept{
-	if(this == &other) return *this;
-	scene_base::operator =(std::move(other));
-	root_ = std::move(other.root_);
-	root().relocate_scene_(this);
-	inputs_.main_binds.set_context(std::ref(*this));
-	return *this;
-}
+// scene::scene(scene&& other) noexcept: scene_base{std::move(other)}, root_(std::move(other.root_)){
+// 	root().relocate_scene_(this);
+// 	inputs_.main_binds.set_context(std::ref(*this));
+// }
+//
+// scene& scene::operator=(scene&& other) noexcept{
+// 	if(this == &other) return *this;
+// 	scene_base::operator =(std::move(other));
+// 	root_ = std::move(other.root_);
+// 	root().relocate_scene_(this);
+// 	inputs_.main_binds.set_context(std::ref(*this));
+// 	return *this;
+// }
 
 void scene::update(double delta_in_tick){
 	react_flow_->update();
+	scene_base::elem_async_tasks_process_done_();
 
 	tooltip_manager_.update(delta_in_tick, get_cursor_pos(), is_mouse_pressed());
 	overlay_manager_.update(delta_in_tick);
@@ -333,7 +334,7 @@ void scene::update_inbounds(){
 
 	inbounds_.swap();
 
-	try_swap_focus(inbounds_.get_cur().empty() ? nullptr : inbounds_.get_cur().back());
+	try_swap_focus();
 }
 
 void scene::switch_key_focus(elem* element){
@@ -396,8 +397,17 @@ void scene::update_mouse_state(const input_handle::key_set k){
 }
 
 
-void scene::try_swap_focus(elem* newFocus){
+void scene::try_swap_focus(){
+	elem* newFocus = nullptr;
+	auto rst = std::ranges::find_last_if(inbounds_.get_cur(), [](const elem* e){
+		return e->is_interactable() && e->interactivity != interactivity_flag::children_only;
+	});
+	if(!rst.empty()){
+		newFocus = *rst.begin();
+	}
+
 	if(newFocus == focus_cursor_) return;
+
 
 	if(focus_cursor_){
 		if(focus_cursor_->is_focus_extended_by_mouse()){
@@ -428,34 +438,6 @@ void scene::swap_focus(elem* newFocus){
 			focus_cursor_->on_focus_changed(true);
 		}
 	}
-}
-
-void scene::drop_(const elem* target) noexcept{
-	drop_elem_nodes(target);
-	drop_event_focus(target);
-	std::erase(inbounds_.get_bak(), target);
-	std::erase(inbounds_.get_cur(), target);
-	// asyncTaskOwners.erase(const_cast<elem*>(target));
-	cursor_event_active_elems_.erase(const_cast<elem*>(target));
-	active_update_elems.erase(const_cast<elem*>(target));
-
-	if(target->has_pending_action()){
-		action_active_pending_elems_.modify([&](decltype(action_active_pending_elems_)::container_type& cont){
-			using std::erase;
-			erase(cont, const_cast<elem*>(target));
-		});
-		action_active_async_elems_.erase(const_cast<elem*>(target));
-		action_active_elems_.erase(const_cast<elem*>(target));
-	}else if(target->has_consuming_action()){
-		action_active_elems_.erase(const_cast<elem*>(target));
-	}
-
-	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
-
-	// layer_altitude_record_.erase(target->get_altitude());
-	// erase_independent_draw(target);
-	// erase_direct_access({}, target);
-	// tooltipManager.requestDrop(*target);
 }
 
 void scene::update_elem_cursor_state_(float delta_in_tick) noexcept{
@@ -496,4 +478,62 @@ void scene::dump_async_pending_actions_(){
 		return false;
 	});
 }
+
+void scene_base::elem_async_tasks_process_(std::stop_token stop_token){
+	while(!stop_token.stop_requested()){
+		auto task = element_async_tasks_pending_.consume([&] noexcept {
+			return stop_token.stop_possible();
+		});
+
+		if(task){
+			(*task)->process();
+			element_async_tasks_done_.push(std::move(*task));
+		}
+
+
+	}
+}
+
+void scene_base::elem_async_tasks_process_done_(){
+	if(auto cont = element_async_tasks_done_.fetch()){
+		for (auto && elem_async_task : *cont){
+			if (auto itr = element_async_task_alive_owners_.find(&elem_async_task->get_owner()); itr != element_async_task_alive_owners_.end()){
+				elem_async_task->on_done();
+				if(--(itr->second) == 0){
+					element_async_task_alive_owners_.erase(itr);
+				}
+
+			}
+
+		}
+	}
+}
+
+
+void scene_base::drop_(const elem* target) noexcept{
+	drop_elem_nodes(target);
+	drop_event_focus(target);
+	std::erase(inbounds_.get_bak(), target);
+	std::erase(inbounds_.get_cur(), target);
+	// asyncTaskOwners.erase(const_cast<elem*>(target));
+	cursor_event_active_elems_.erase(const_cast<elem*>(target));
+	active_update_elems.erase(const_cast<elem*>(target));
+
+	element_async_task_alive_owners_.erase(target);
+
+	if(target->has_pending_action()){
+		action_active_pending_elems_.modify([&](decltype(action_active_pending_elems_)::container_type& cont){
+			using std::erase;
+			erase(cont, const_cast<elem*>(target));
+		});
+		action_active_async_elems_.erase(const_cast<elem*>(target));
+		action_active_elems_.erase(const_cast<elem*>(target));
+	}else if(target->has_consuming_action()){
+		action_active_elems_.erase(const_cast<elem*>(target));
+	}
+
+	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
+
+}
+
 }

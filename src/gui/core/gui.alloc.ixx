@@ -214,6 +214,11 @@ using heap_vector = std::vector<T, heap_allocator<T>>;
 
 
 export
+template <typename T>
+using vector = std::vector<T, unvs_allocator<T>>;
+
+
+export
 template <typename T, class Hasher = std::hash<T>, class Keyeq = std::equal_to<T>>
 using heap_uset = std::unordered_set<T, Hasher, Keyeq, heap_allocator<T>>;
 
@@ -223,6 +228,9 @@ using heap_umap = std::unordered_map<K, V, Hasher, Keyeq, heap_allocator<std::pa
 
 export
 using heap_string = std::basic_string<char, std::char_traits<char>, heap_allocator<char>>;
+
+export
+using string = std::basic_string<char, std::char_traits<char>, unvs_allocator<char>>;
 
 export
 template <typename T>

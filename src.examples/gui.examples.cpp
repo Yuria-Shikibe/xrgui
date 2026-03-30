@@ -4,6 +4,7 @@
 
 module mo_yanxi.gui.examples;
 
+import mo_yanxi.gui.elem.button;
 
 
 import std;
@@ -114,7 +115,85 @@ struct image_cursor : style::cursor{
 };
 
 
+struct csv_file_reader : head_body{
+	struct file_listener : react_flow::terminal<std::span<const std::filesystem::path>>{
+		gui::overlay* overlay;
+		csv_file_reader* carrier;
 
+		[[nodiscard]] explicit file_listener(csv_file_reader* carrier)
+			: carrier(carrier){
+		}
+
+	protected:
+		void on_update(react_flow::data_carrier<std::span<const std::filesystem::path>>& data) override{
+			auto sp = data.get();
+			if(sp.empty())return;
+			auto& path = sp.front();
+
+			carrier->get_scene().close_overlay(std::exchange(overlay, nullptr)->element.get());
+
+			util::post_elem_async_task(*carrier, [&](csv_file_reader& r){
+				return elem_async_yield_task{r, [&](csv_file_reader& r){
+					return elem_ptr{r.get_scene(), &r, [p = path](cpd::data_table& table){
+						table.set_style();
+						table.get_item() = cpd::data_table_desc::from_csv(p, '|', table.get_heap_allocator());
+						table.get_item().try_update_glyph_layouts();
+						table.notify_isolated_layout_changed();
+					}};
+				}, [](csv_file_reader& r, elem_ptr&& ptr){
+					ptr->on_context_sync_bind();
+					r.set_body_elem(std::move(ptr));
+				}};
+			});
+
+			carrier->create_body([&](progress_bar& prog){
+				prog.set_style();
+				prog.progress.set_state(progress_state::approach_smooth);
+				prog.progress.set_speed(.0001f);
+				referenced_ptr<style::ring_progress> drawer{std::in_place};
+				drawer->thickness = 32;
+				prog.draw_config.color = {graphic::colors::white, graphic::colors::white};
+
+				prog.set_self_boarder(gui::boarder{}.set(32));
+				prog.drawer = std::move(drawer);
+				prog.set_progress_state(progress_state::rough);
+			});
+
+		}
+	};
+
+	react_flow::node_holder<file_listener> path_node_{this};
+
+	[[nodiscard]] csv_file_reader(scene& scene, elem* parent)
+		: head_body(scene, parent){
+		set_style();
+		set_expand_policy(layout::expand_policy::passive);
+
+		create_head([this](button<direct_label>& b){
+			b.set_tokenized_text({"Select File"});
+			b.set_button_callback([this](direct_label& e){
+				auto& p = e.parent_ref<csv_file_reader>();
+				this->path_node_.node.overlay = &e.get_scene().create_overlay(
+					{
+						.extent = {
+							{layout::size_category::passive, .95f},
+							{layout::size_category::passive, .95f}
+						},
+						.align = align::pos::center,
+					}, [this](cpd::file_selector& e){
+						e.set_cared_suffix({".csv"});
+						e.get_prov().connect_successor(this->path_node_.node);
+					}).dialog;
+			});
+		});
+		create_body([](cpd::data_table& data_table){
+
+		});
+
+		set_head_size(80);
+		set_pad(8);
+	}
+};
 
 struct vp : gui::viewport{
 	[[nodiscard]] vp(scene& scene, elem* parent)
@@ -306,151 +385,170 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 				table.get_item() = cpd::data_table_desc::from_csv(LR"(D:\projects\untitled\shader info.csv)");
 				table.notify_isolated_layout_changed();
 			}},
-			test_entry{"sliders", [&](scroll_pane& pane){
-					pane.create([&](sequence& sequence){
-						sequence.set_expand_policy(layout::expand_policy::prefer);
-						sequence.template_cell.set_pending();
-						sequence.template_cell.pad = {4, 4};
-						sequence.set_has_smooth_pos_animation(false);
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"Bloom Sample Scale", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(.25f);
+			test_entry{"file reader", [](csv_file_reader& table){
 
-
-							auto& trans = hdl->add_relay_func([](float val){
-								return math::lerp(0.25f, 4.f, val);
-							});
-							hdl->add_formatter_func([](float val){
-								return std::format("{:.2f}", val);
-							});
-							result.shader_bloom_scale = &trans;
-						}
-
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"BloomSrcFactor", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(.5f);
-
-							auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
-								return math::lerp(0.f, 2.f, val);
-							}));
-							auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer(
-								[](float val){
-									return std::format("{:.2f}", val);
-								}));
-							react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
-
-							result.shader_bloom_src_factor = &trans;
-						}
-
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"BloomDstFactor", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(.5f);
-
-							auto& trans = hdl->add_relay_func([](float val){
-								return math::lerp(0.f, 2.f, val);
-							});
-							hdl->add_formatter_func([](float val){
-								return std::format("{:.2f}", val);
-							});
-							result.shader_bloom_dst_factor = &trans;
-						}
-
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"BloomMixFactor", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(.5f);
-							result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
-						}
-
-						{
-							sequence.emplace_back<row_separator>().cell().set_size(8);
-						}
-
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"HighlightThres", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(.25f);
-							auto& trans = hdl->add_relay_func([](float val){
-								return math::lerp(0.5f, 2.5f, val);
-							});
-							hdl->add_formatter_func([](float val){
-								return std::format("{:.2f}", val);
-							});
-							result.highlight_filter_threshold = &trans;
-						}
-
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"HighlightSmooth", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(.5f);
-							hdl->add_formatter_func([](float val){
-								return std::format("{:.2f}", val);
-							});
-							result.highlight_filter_smooth = &hdl.elem().get_slider_provider();
-						}
-
-						{
-							sequence.emplace_back<row_separator>().cell().set_size(8);
-						}
-
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"Contrast", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(1.f);
-							hdl->add_formatter_func([](float val){
-								return std::format("{:.2f}", val);
-							});
-							result.tonemap_contrast = &hdl->get_slider_provider();
-						}
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"Exposure", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(.5f);
-							auto& trans = hdl->add_relay_func([](float val){
-								return math::lerp(0.f, 2.f, val);
-							});
-							hdl->add_formatter_func([](float val){
-								return std::format("{:.2f}", val);
-							});
-							result.tonemap_exposure = &hdl->get_slider_provider();
-						}
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"Saturation", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(1.f);
-							hdl->add_formatter_func([](float val){
-								return std::format("{:.2f}", val);
-							});
-							result.tonemap_saturation = &hdl->get_slider_provider();
-						}
-						{
-							auto hdl = sequence.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-								"Gamma", 50.f);
-							hdl->get_slider().set_smooth_drag(true);
-							hdl->get_slider().set_progress(math::map(1.2f, 0.5f, 3.f, 0.f, 1.f));
-							auto& trans = hdl->add_relay_func([](float val){
-								return math::lerp(0.5f, 3.f, val);
-							});
-							hdl->add_formatter_func([](float val){
-								return std::format("{:.2f}", val);
-							});
-							result.tonemap_gamma = &trans;
-						}
+			}},
+			test_entry{
+				"sliders", [&](scroll_adaptor<sequence>& pane){
+					sequence& s = pane.get_elem();
+					util::post_elem_async_task(s, [](gui::sequence& seq){
+						return elem_async_yield_task{
+							seq,
+							[](elem& e){
+								std::println(std::cerr, "Task Begin: current thread: {}", std::this_thread::get_id());
+								std::this_thread::sleep_for(std::chrono::milliseconds(500));
+								std::println(std::cerr, "Task End: current thread: {}", std::this_thread::get_id());
+								return 114;
+							},
+							[](elem& e, int val){
+								std::println(std::cerr, "Task Done: current thread: {} - {}", std::this_thread::get_id(), val);
+							}
+						};
 					});
-				}}
-		};
+
+					s.set_expand_policy(layout::expand_policy::prefer);
+					s.template_cell.set_pending();
+					s.template_cell.pad = {4, 4};
+					s.set_has_smooth_pos_animation(false);
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "Bloom Sample Scale", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.25f);
+
+
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.25f, 4.f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.shader_bloom_scale = &trans;
+					}
+
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "BloomSrcFactor", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
+
+						auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
+							return math::lerp(0.f, 2.f, val);
+						}));
+						auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer(
+							[](float val){
+								return std::format("{:.2f}", val);
+							}));
+						react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
+
+						result.shader_bloom_src_factor = &trans;
+					}
+
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "BloomDstFactor", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
+
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.f, 2.f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.shader_bloom_dst_factor = &trans;
+					}
+
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "BloomMixFactor", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
+						result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
+					}
+
+					{
+						s.emplace_back<row_separator>().cell().set_size(8);
+					}
+
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "HighlightThres", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.25f);
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.5f, 2.5f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.highlight_filter_threshold = &trans;
+					}
+
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "HighlightSmooth", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.highlight_filter_smooth = &hdl.elem().get_slider_provider();
+					}
+
+					{
+						s.emplace_back<row_separator>().cell().set_size(8);
+					}
+
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "Contrast", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(1.f);
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.tonemap_contrast = &hdl->get_slider_provider();
+					}
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "Exposure", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(.5f);
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.f, 2.f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.tonemap_exposure = &hdl->get_slider_provider();
+					}
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "Saturation", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(1.f);
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.tonemap_saturation = &hdl->get_slider_provider();
+					}
+					{
+						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+						                                                    "Gamma", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(math::map(1.2f, 0.5f, 3.f, 0.f, 1.f));
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.5f, 3.f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						result.tonemap_gamma = &trans;
+					}
+				}
+			}
+			};
 		std::vector<std::function<function_signature>> creators{
 
 				[&](scroll_pane& pane){
@@ -916,3 +1014,4 @@ Edge Cases:
 	return result;
 }
 }
+

@@ -13,6 +13,7 @@ export import :tooltip_manager;
 export import :dialog_manager;
 export import :cursor;
 export import :flags;
+export import :elem_async_task;
 
 export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.input_handle;
@@ -21,5 +22,13 @@ export import align;
 
 namespace mo_yanxi::gui{
 export namespace align = ::mo_yanxi::align;
+
+namespace util{
+export
+template <std::derived_from<elem> E, std::invocable<E&> Prov>
+void post_elem_async_task(E& e, Prov&& prov){
+	static_cast<const elem&>(e).get_scene().post_elem_async_task(e, std::forward<Prov>(prov));
+}
+}
 
 }

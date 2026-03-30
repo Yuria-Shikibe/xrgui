@@ -95,11 +95,11 @@ public:
 	}
 
 	[[nodiscard]] node_type head() const noexcept{
-		return points.front_or({});
+		return points.empty() ? node_type{} : points.front();
 	}
 
 	[[nodiscard]] node_type tail() const noexcept{
-		return points.back_or({});
+		return points.empty() ? node_type{} : points.back();
 	}
 
 	[[nodiscard]] math::vec2 head_pos_or(math::vec2 p) const noexcept{

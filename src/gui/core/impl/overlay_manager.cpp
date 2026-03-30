@@ -74,13 +74,17 @@ math::vec2 overlay::get_overlay_extent(const math::vec2 scene_viewport_size) con
 	ext = ext.promote();
 	const optional_mastering_extent validSz = ext.potential_max_size();
 	element->restriction_extent = validSz;
+	math::vec2 rst;
 
 	if(ext.width.pending() || ext.height.pending()){
 		auto sz = element->pre_acquire_size(validSz);
-		return sz.value_or(scene_viewport_size);
+		rst = sz.value_or(scene_viewport_size);
 	}else{
-		return validSz.potential_extent();
+		rst = validSz.potential_extent();
 	}
+
+	element->set_prefer_extent(rst.inf_to0());
+	return rst;
 }
 
 void overlay::update_bound(const rect scene_viewport) const{

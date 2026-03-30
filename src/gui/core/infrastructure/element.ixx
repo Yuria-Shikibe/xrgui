@@ -984,16 +984,18 @@ public:
 
 
 protected:
-	template <typename T = std::byte>
-	auto get_heap_allocator() const noexcept{
-		return scene_->get_heap_allocator<T>();
-	}
 
 	[[nodiscard]] auto* get_memory_resource() const noexcept{
 		return scene_->get_memory_resource();
 	}
 
 public:
+
+	template <typename T = std::byte>
+	auto get_heap_allocator() const noexcept{
+		return scene_->get_heap_allocator<T>();
+	}
+
 	/**
 	 *
 	 * @brief This function should only be called on the main UI thread.
@@ -1047,7 +1049,7 @@ void dfs_record_inbound_element(
 		return;
 	}
 
-	if(!current->ignore_inbound())selected.push_back(current);
+	selected.push_back(current);
 
 	if(current->touch_blocked() || !current->has_children()) return;
 

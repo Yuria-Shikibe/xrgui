@@ -9,6 +9,8 @@ import std;
 
 namespace mo_yanxi::gui{
 
+//TODO head base has the potential to become a static generic type
+
 export
 struct head_body_base : elem{
 protected:

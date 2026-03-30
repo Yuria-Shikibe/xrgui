@@ -6,7 +6,7 @@ import mo_yanxi.gui.fx.instruction_extension;
 
 
 namespace mo_yanxi::gui{
-void record_elems(graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
+void record_elems(graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
                   const typesetting::glyph_layout_draw_only& glyph_layout,
                   graphic::color color_scl, typesetting::line_alignment line_align,
                   typesetting::layout_direction direction
@@ -38,7 +38,7 @@ void record_elems(graphic::draw::instruction::draw_record_storage<mr::heap_alloc
 }
 
 void record_glyph_draw_instructions(
-	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
+	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout& glyph_layout, graphic::color color_scl, typesetting::line_alignment line_align){
 	using namespace mo_yanxi::graphic;
 	using namespace mo_yanxi::graphic::draw::instruction;
@@ -101,7 +101,7 @@ void record_glyph_draw_instructions(
 }
 
 void record_glyph_draw_instructions_draw_only(
-	graphic::draw::instruction::draw_record_storage<mr::heap_allocator<std::byte>>& buffer,
+	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout_draw_only& glyph_layout, graphic::color color_scl,
 	typesetting::line_alignment line_align, typesetting::layout_direction direction){
 	using namespace mo_yanxi::graphic;

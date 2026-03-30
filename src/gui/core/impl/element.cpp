@@ -232,8 +232,10 @@ void elem::notify_layout_changed(propagate_mask propagation){
 }
 
 void elem::notify_isolated_layout_changed(){
-	layout_state.notify_self_changed();
-	get_scene().notify_isolated_layout_update(this);
+	post_sync_execute(*this, [](elem& elem){
+		elem.layout_state.notify_self_changed();
+		elem.get_scene().notify_isolated_layout_update(&elem);
+	});
 }
 
 bool elem::update_abs_src(math::vec2 parent_content_src) noexcept{

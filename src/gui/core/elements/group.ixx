@@ -173,13 +173,13 @@ public:
 		layout_children();
 	}
 
-
-protected:
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		elem::draw_layer(clipSpace, param);
 		const auto space = content_bound_abs().intersection_with(clipSpace);
 		draw_children(space, param);
 	}
+
+protected:
 
 	bool resize_impl(const math::vec2 size) override{
 		if(elem::resize_impl(size)){
@@ -244,11 +244,6 @@ struct loose_group : basic_group{
 		layout_state.intercept_lower_to_isolated = true;
 	}
 
-protected:
-	void notify_layout_changed_on_element_change() override{
-		notify_isolated_layout_changed();
-	}
-
 	void layout_elem() override{
 		for(const auto& element : children_){
 			util::set_fill_parent(*element, content_extent());
@@ -257,6 +252,11 @@ protected:
 		}
 
 		elem::layout_elem();
+	}
+
+protected:
+	void notify_layout_changed_on_element_change() override{
+		notify_isolated_layout_changed();
 	}
 
 };
