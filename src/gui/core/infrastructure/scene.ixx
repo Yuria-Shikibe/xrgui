@@ -267,17 +267,12 @@ public:
 	[[nodiscard]] explicit scene_resources(mr::heap&& heap)
 		: heap(std::move(heap)), style_manager(init_style_manager_()){
 	}
+
 	[[nodiscard]] explicit scene_resources(mr::arena_id_t arena_id)
-		: heap(arena_id), style_manager(init_style_manager_()){
+		: scene_resources{mr::heap{arena_id}}{
 	}
 };
 
-struct scene_forkable_required_fields{
-protected:
-	rect region_{};
-	renderer_frontend renderer_{};
-
-};
 
 namespace scene_submodule{
 
@@ -513,6 +508,18 @@ public:
 
 }
 
+// struct scene_forkable_required_fields{
+// protected:
+// 	scene_resources* resources_{};
+// 	rect region_{};
+// 	std::thread::id ui_main_thread_id{std::this_thread::get_id()};
+//
+// public:
+// 	[[nodiscard]] scene_forkable_required_fields(scene_resources* resources)
+// 		: resources_(resources){
+// 	}
+// };
+
 struct scene_base{
 	friend elem;
 	friend ui_manager;
@@ -522,6 +529,12 @@ protected:
 
 	[[nodiscard]] mr::heap_handle get_heap() const noexcept{
 		return resources_->heap.get();
+	}
+
+public:
+	template <typename T = std::byte>
+	[[nodiscard]] mr::heap_allocator<T> get_heap_allocator() const noexcept {
+		return mr::heap_allocator<T>{get_heap()};
 	}
 
 private:
@@ -534,8 +547,8 @@ public:
 protected:
 
 	scene_submodule::async_sync_task_queue instant_task_queue_{get_heap_allocator()};
-	scene_submodule::async_async_task_queue async_task_queue_{get_heap_allocator()};
 	scene_submodule::action_queue action_queue_{get_heap_allocator()};
+	scene_submodule::async_async_task_queue async_task_queue_{get_heap_allocator()};
 	scene_submodule::input input_handler_{get_heap_allocator()};
 
 private:
@@ -578,6 +591,7 @@ protected:
 public:
 	template <std::derived_from<native_communicator> Ty, typename ...Args>
 	void set_native_communicator(Args&& ...args){
+		assert(is_on_scene_thread(*this));
 		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
 			mr::heap_allocator<native_communicator>{get_heap()}, std::forward<Args>(args)...);
 	}
@@ -622,10 +636,12 @@ public:
 #pragma endregion
 
 	[[nodiscard]] native_communicator* get_communicator() const noexcept{
+		assert(is_on_scene_thread(*this));
 		return communicator_.get();
 	}
 
 	[[nodiscard]] renderer_frontend& renderer() noexcept{
+		assert(is_on_scene_thread(*this));
 		return renderer_;
 	}
 
@@ -634,49 +650,54 @@ public:
 		return *resources_;
 	}
 
-	template <typename T = std::byte>
-	[[nodiscard]] mr::heap_allocator<T> get_heap_allocator() const noexcept {
-		return mr::heap_allocator<T>{get_heap()};
-	}
 
 	[[nodiscard]] auto* get_memory_resource() const noexcept {
 		return get_heap();
 	}
 
 	[[nodiscard]] rect get_region() const noexcept{
+		assert(is_on_scene_thread(*this));
 		return region_;
 	}
 
 	[[nodiscard]] vec2 get_extent() const noexcept{
+		assert(is_on_scene_thread(*this));
 		return region_.extent();
 	}
 
 	[[nodiscard]] vec2 get_cursor_pos() const noexcept{
+		assert(is_on_scene_thread(*this));
 		return input_handler_.inputs_.cursor_pos();
 	}
 
 	[[nodiscard]] std::span<elem * const> get_inbounds() const noexcept{
+		assert(is_on_scene_thread(*this));
 		return input_handler_.inbounds_.get_cur();
 	}
 
 	[[nodiscard]] input_handle::input_manager<scene&>& get_inputs() noexcept{
+		assert(is_on_scene_thread(*this));
 		return input_handler_.inputs_;
 	}
 
 	[[nodiscard]] input_handle::key_mapping_interface* find_input(std::string_view name) const noexcept{
+		assert(is_on_scene_thread(*this));
 		return input_handler_.inputs_.find_sub_input(name);
 	}
 
 	void overwrite_last_inbound_click_quiet(elem* elem) noexcept{
+		assert(is_on_scene_thread(*this));
 		input_handler_.last_inbound_click = elem;
 	}
 
 	[[nodiscard]] react_flow::manager& get_react_flow() const noexcept{
+		assert(is_on_scene_thread(*this));
 		return *react_flow_;
 	}
 
 protected:
 	void drop_elem_nodes(const elem* elem) noexcept{
+		assert(is_on_scene_thread(*this));
 		auto [begin, end] = elem_owned_nodes_.equal_range(elem);
 		for(auto cur = begin; cur != end; ++cur){
 			react_flow_->erase_node(*cur->second);
@@ -700,9 +721,10 @@ public:
 
 	template <std::derived_from<elem> T = elem, bool unchecked = false>
 	T& root(){
+		assert(is_on_scene_thread(*this));
 		assert(scene_root_ != nullptr);
 		if constexpr (std::same_as<T, elem> || unchecked){
-			return *static_cast<T*>(scene_root_);
+			return static_cast<T&>(*scene_root_);
 		}else{
 			return dynamic_cast<T&>(*scene_root_);
 		}
@@ -827,6 +849,7 @@ private:
 	void layout();
 
 	void add_isolated_layout_update(elem* element){
+		assert(is_on_scene_thread(*this));
 		independent_layouts_.get_bak().insert(element);
 	}
 

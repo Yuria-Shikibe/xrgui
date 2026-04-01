@@ -363,6 +363,7 @@ void scene_base::drop_(const elem* target) noexcept{
 }
 
 void scene_base::resize(const math::frect region){
+	assert(is_on_scene_thread(*this));
 	if(util::try_modify(region_, region)){
 		renderer().resize(region);
 		root().resize(region.extent());
@@ -479,6 +480,7 @@ events::op_afterwards scene_base::on_esc(){
 
 
 void scene_base::layout(){
+	assert(is_on_scene_thread(*this));
 	std::size_t count{};
 
 	independent_layouts_.swap();

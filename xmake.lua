@@ -18,8 +18,6 @@ if current_dir == root_dir then
     else
         set_runtimes("c++_shared")
     end
-
-    add_rules("plugin.compile_commands.autoupdate", {outputdir = "."})
 else
 end
 
