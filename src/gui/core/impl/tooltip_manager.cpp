@@ -73,7 +73,7 @@ tooltip_instance& tooltip_manager::append_tooltip(spawner& owner, elem_ptr&& ele
 	auto& scene = owner.tooltip_get_scene();
 	auto& val = actives_.emplace_back(std::move(elem), &owner);
 	val.update_layout(*this, scene.get_cursor_pos());
-	scene.update_cursor(/*true*/);
+	scene.request_cursor_update();
 
 	// TODO action
 	if(fade_in){

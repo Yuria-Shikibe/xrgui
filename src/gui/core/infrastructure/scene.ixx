@@ -1,6 +1,7 @@
 module;
 
 #include <cassert>
+#define UI_MAIN_THREAD_ONLY
 
 export module mo_yanxi.gui.infrastructure:scene;
 
@@ -226,17 +227,18 @@ public:
 };
 
 struct mouse_state{
-	math::vec2 src{};
-	bool pressed{};
+	math::optional_vec2<float> src{math::nullopt_vec2<float>};
 
 	void reset(const math::vec2 pos) noexcept{
 		src = pos;
-		pressed = true;
 	}
 
-	void clear(const math::vec2 pos) noexcept{
-		src = pos;
-		pressed = false;
+	void clear() noexcept{
+		src.reset();
+	}
+
+	constexpr explicit operator bool() const noexcept{
+		return src.has_value();
 	}
 };
 
@@ -270,6 +272,247 @@ public:
 	}
 };
 
+struct scene_forkable_required_fields{
+protected:
+	rect region_{};
+	renderer_frontend renderer_{};
+
+};
+
+namespace scene_submodule{
+
+struct action_queue{
+private:
+	ccur::mpsc_double_buffer<elem*, mr::heap_vector<elem*>> pendings{};
+	linear_flat_set<mr::heap_vector<elem*>> async_pending{};
+	linear_flat_set<mr::heap_vector<elem*>> active{};
+
+public:
+	[[nodiscard]] action_queue(const mr::heap_allocator<elem*>& alloc) :
+		pendings{alloc}
+		, async_pending{alloc}
+		, active{alloc}{
+	}
+
+	void push(elem* e){
+		pendings.push(e);
+	}
+
+	void update(float delta_in_tick) noexcept;
+
+	void try_dump_async();
+
+	void erase(const elem* e);
+};
+
+enum struct input_key_result{
+	none,
+	esc_required
+};
+
+struct input{
+	std::array<mouse_state, std::to_underlying(input_handle::mouse::Count)> mouse_states_{};
+	input_handle::input_manager<scene&> inputs_{};
+	double_buffer<mr::heap_vector<elem*>> inbounds_{};
+	linear_flat_set<mr::heap_vector<elem*>> cursor_event_active_elems_{};
+
+	elem* focus_scroll{nullptr};
+	elem* focus_cursor{nullptr};
+	elem* focus_key{nullptr};
+	elem* last_inbound_click{nullptr};
+
+	bool request_cursor_update_{};
+
+	explicit input(const mr::heap_allocator<elem*>& alloc) :
+		inbounds_{alloc}, cursor_event_active_elems_{alloc} {
+	}
+
+	void update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manager& tooltip) noexcept;
+
+	void drop_event_focus(const elem* target) noexcept{
+		if(focus_scroll == target)focus_scroll = nullptr;
+		if(focus_cursor == target)focus_cursor = nullptr;
+		if(focus_key == target)focus_key = nullptr;
+		if(last_inbound_click == target)last_inbound_click = nullptr;
+	}
+
+	void drop_elem(const elem* target) noexcept{
+		drop_event_focus(target);
+		std::erase(inbounds_.get_bak(), target);
+		std::erase(inbounds_.get_cur(), target);
+		cursor_event_active_elems_.erase(const_cast<elem*>(target));
+	}
+
+	void request_cursor_update() noexcept{
+		request_cursor_update_ = true;
+	}
+
+	void overwrite_last_inbound_click_quiet(elem* elem) noexcept{
+		last_inbound_click = elem;
+	}
+
+	void input_inbound(bool is_inbound){
+		inputs_.set_inbound(is_inbound);
+	}
+
+	[[nodiscard]] std::span<elem * const> get_inbounds() const noexcept{
+		return inbounds_.get_cur();
+	}
+
+	[[nodiscard]] bool is_mouse_pressed() const noexcept{
+		return std::ranges::any_of(mouse_states_, &mouse_state::operator bool);
+	}
+
+	[[nodiscard]] bool is_mouse_pressed(input_handle::mouse mouse_button_code) const noexcept{
+		return mouse_states_[std::to_underlying(mouse_button_code)] ? true : false;
+	}
+
+	math::vec2 get_cursor_pos() const noexcept{
+		return inputs_.cursor_pos();
+	}
+
+	// 移入的核心处理函数
+	void switch_key_focus(elem* element);
+	void try_swap_focus();
+	void swap_focus(elem* newFocus);
+
+	input_key_result on_key_input(input_handle::key_set key);
+	void on_unicode_input(char32_t val) const;
+	void on_scroll(math::vec2 scroll) const;
+	void update_inbounds();
+	void update_mouse_state(input_handle::key_set k);
+
+	style::cursor_style update_cursor(overlay_manager& overlays, tooltip::tooltip_manager& tooltips, elem& scene_root);
+
+	style::cursor_style get_cursor_style(math::vec2 cursor_local_pos) const;
+
+	style::cursor_style get_cursor_style() const;
+};
+
+struct async_sync_task_queue{
+	struct task_entry{
+		elem* e;
+		std::move_only_function<void(elem&)> func;
+
+		void exec(){
+			func(*e);
+		}
+	};
+
+	using container = mr::heap_vector<task_entry>;
+	ccur::mpsc_double_buffer<task_entry, container> async_tasks_{};
+
+	[[nodiscard]] explicit async_sync_task_queue(const container::allocator_type& alloc)
+		: async_tasks_(alloc){
+	}
+
+	template <std::derived_from<elem> E, std::invocable<E&> Fn>
+	void post(E& e, Fn&& fn){
+		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](elem& e){
+			std::invoke(f, static_cast<E&>(e));
+		});
+	}
+
+	template <std::derived_from<elem> E, std::invocable<> Fn>
+	void post(E& e, Fn&& fn){
+		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](elem& e){
+			std::invoke(f);
+		});
+	}
+
+	UI_MAIN_THREAD_ONLY void erase(const elem* e) noexcept {
+		async_tasks_.modify([&](container& c) noexcept {
+			std::erase_if(c, [&](const container::value_type& v) noexcept {
+				return v.e == e;
+			});
+		});
+	}
+
+	UI_MAIN_THREAD_ONLY void consume(){
+		if(auto ts = async_tasks_.fetch()){
+			for (auto&& t : *ts){
+				t.exec();
+			}
+		}
+	}
+};
+
+struct async_async_task_queue{
+	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
+
+private:
+	ccur::mpsc_queue<elem_async_task_ptr, std::deque<
+			elem_async_task_ptr, mr::heap_allocator<elem_async_task_ptr>
+		>> element_async_tasks_pending_{};
+	ccur::mpsc_double_buffer<elem_async_task_ptr, mr::heap_vector<elem_async_task_ptr>> element_async_tasks_done_{};
+	mr::heap_umap<elem*, unsigned, transparent::ptr_hasher<elem>, transparent::ptr_equal_to<elem>> element_async_task_alive_owners_{};
+	std::jthread element_async_task_thread_{};
+
+public:
+	[[nodiscard]] async_async_task_queue(const mr::heap_allocator<elem_async_task_ptr>& alloc)
+		:
+		element_async_tasks_pending_(alloc),
+		element_async_tasks_done_(alloc),
+		element_async_task_alive_owners_(alloc),
+		element_async_task_thread_([this](std::stop_token&& stop_token){
+			elem_async_tasks_process(std::move(stop_token));
+		}){
+	}
+
+private:
+	void elem_async_tasks_process(std::stop_token stop_token){
+		while(!stop_token.stop_requested()){
+			auto task = element_async_tasks_pending_.consume([&] noexcept {
+				return stop_token.stop_possible();
+			});
+
+			if(task){
+				(*task)->process();
+				element_async_tasks_done_.push(std::move(*task));
+			}
+		}
+	}
+
+public:
+	UI_MAIN_THREAD_ONLY void process_done(){
+		if(auto cont = element_async_tasks_done_.fetch()){
+			for(auto&& elem_async_task : *cont){
+				if(auto itr = element_async_task_alive_owners_.find(&elem_async_task->get_owner()); itr !=
+					element_async_task_alive_owners_.end()){
+					elem_async_task->on_done();
+					if(--(itr->second) == 0){
+						element_async_task_alive_owners_.erase(itr);
+					}
+				}
+			}
+		}
+	}
+
+	UI_MAIN_THREAD_ONLY void erase(const elem* owner){
+		element_async_task_alive_owners_.erase(owner);
+	}
+
+	template <std::derived_from<elem> E, std::invocable<E&> Prov>
+	void post(E& e, Prov&& prov){
+		elem& owner = e;
+		++element_async_task_alive_owners_[&owner];
+		using task_type = std::decay_t<std::invoke_result_t<Prov&&, E&>>;
+		struct crop{
+			E& e;
+			Prov&& prov;
+
+			explicit(false) operator task_type(){
+				return std::invoke_r<task_type>(prov, e);
+			}
+		};
+		element_async_tasks_pending_.push(
+			mo_yanxi::make_allocate_aware_poly_unique<task_type, basic_elem_async_task>(
+				element_async_task_alive_owners_.get_allocator(), crop{e, std::forward<Prov>(prov)}));
+	}
+};
+
+}
+
 struct scene_base{
 	friend elem;
 	friend ui_manager;
@@ -277,98 +520,59 @@ struct scene_base{
 protected:
 	scene_resources* resources_;
 
-#pragma region ElemAsyncTaskSection
-	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
-
-private:
-	std::jthread element_async_task_thread_{};
-	ccur::mpsc_queue<elem_async_task_ptr, std::deque<
-			elem_async_task_ptr, mr::heap_allocator<elem_async_task_ptr>
-		>> element_async_tasks_pending_{};
-	ccur::mpsc_double_buffer<elem_async_task_ptr, mr::heap_vector<elem_async_task_ptr>> element_async_tasks_done_{get_heap_allocator()};
-	mr::heap_umap<elem*, unsigned, transparent::ptr_hasher<elem>, transparent::ptr_equal_to<elem>> element_async_task_alive_owners_{get_heap()};
-
-protected:
-#pragma endregion
-
-private:
-	renderer_frontend renderer_{};
-
 	[[nodiscard]] mr::heap_handle get_heap() const noexcept{
 		return resources_->heap.get();
 	}
 
-
-protected:
+private:
+	renderer_frontend renderer_{};
 	rect region_{};
 
-
-	std::array<mouse_state, std::to_underlying(input_handle::mouse::Count)> mouse_states_{};
-	input_handle::input_manager<scene&> inputs_{};
-
-	//TODO make them public?
-	elem* focus_scroll_{nullptr};
-	elem* focus_cursor_{nullptr};
-	elem* focus_key_{nullptr};
-	elem* last_inbound_click_{nullptr};
-
-	/**
-	 * @brief Request to update cursor pos, even it never moves
-	 * Used for nested scene or scroll panes and other elements that change the element position
-	 */
-	bool request_cursor_update_{};
-
-	double_buffer<mr::heap_vector<elem*>> inbounds_{mr::heap_allocator<elem*>{get_heap()}};
-	double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap()}};
-
-
-	allocator_aware_unique_ptr<react_flow::manager, mr::heap_allocator<react_flow::manager>> react_flow_{
-		mo_yanxi::make_allocate_aware_unique<react_flow::manager>(mr::heap_allocator<react_flow::manager>{get_heap()})
-	};
-
-	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> cursor_event_active_elems_{};
 public:
-	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> active_update_elems{};
-	linear_flat_set<std::vector<elem*, mr::heap_allocator<elem*>>> active_update_to_be_removed_elems{};
-
-	std::thread::id ui_main_thread_id{};
+	std::thread::id ui_main_thread_id{std::this_thread::get_id()};
 
 protected:
 
-	//TODO own node_pointer instead?
+	scene_submodule::async_sync_task_queue instant_task_queue_{get_heap_allocator()};
+	scene_submodule::async_async_task_queue async_task_queue_{get_heap_allocator()};
+	scene_submodule::action_queue action_queue_{get_heap_allocator()};
+	scene_submodule::input input_handler_{get_heap_allocator()};
+
+private:
+	double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap_allocator()}};
+	linear_flat_set<mr::heap_vector<elem*>> active_update_elems_{get_heap_allocator()};
+
+protected:
+	allocator_aware_unique_ptr<react_flow::manager, mr::heap_allocator<react_flow::manager>> react_flow_{
+		mo_yanxi::make_allocate_aware_unique<react_flow::manager>(mr::heap_allocator<react_flow::manager>{get_heap_allocator()})
+	};
+
 	std::unordered_multimap<
 		const elem*, react_flow::node*,
 		std::hash<const elem*>, std::equal_to<const elem*>,
 		mr::heap_allocator<std::pair<const elem* const, react_flow::node*>>>
 	elem_owned_nodes_{};
 
-	// layer_altitude_record layer_altitude_record_{get_heap()};
-
-	ccur::mpsc_double_buffer<elem*, mr::heap_vector<elem*>> action_active_pending_elems_{std::vector<elem*, mr::heap_allocator<elem*>>{get_heap()}};
-	linear_flat_set<mr::heap_vector<elem*>> action_active_async_elems_{get_heap()};
-	linear_flat_set<mr::heap_vector<elem*>> action_active_elems_{get_heap()};
-
+private:
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 
-	//Frame things
 	unsigned long long current_frame_{};
 	double current_time_{};
 
+protected:
 	tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
 	overlay_manager overlay_manager_{get_heap_allocator()};
 
-
+	cursor_drawer current_cursor_drawers_{};
+	elem* scene_root_{};
 
 	[[nodiscard]] scene_base() = default;
 
 	explicit(false) scene_base(
 		scene_resources& resources,
 		renderer_frontend&& renderer) :
-		resources_(&resources),
-		element_async_task_thread_([this](std::stop_token t){
-			this->elem_async_tasks_process_(std::move(t));
-		}), renderer_(std::move(renderer)){
+		resources_(&resources), renderer_(std::move(renderer)){
 	}
 
 public:
@@ -390,14 +594,32 @@ public:
 		current_time_ = current_time;
 	}
 
-
-	[[nodiscard]] input_handle::input_manager<scene&>& get_inputs() noexcept{
-		return inputs_;
+#pragma region AsyncTask
+	template <std::derived_from<elem> E, std::invocable<E&> Fn>
+	void post(E& e, Fn&& fn){
+		instant_task_queue_.post(e, std::forward<Fn>(fn));
 	}
 
-	[[nodiscard]] input_handle::key_mapping_interface* find_input(std::string_view name) const noexcept{
-		return inputs_.find_sub_input(name);
+	template <std::derived_from<elem> E, std::invocable<> Fn>
+	void post(E& e, Fn&& fn){
+		instant_task_queue_.post(e, std::forward<Fn>(fn));
 	}
+
+#pragma endregion
+
+#pragma region IndependentUpdate
+
+	void insert_update(elem& p){
+		assert(is_on_scene_thread(*this));
+		active_update_elems_.insert(&p);
+	}
+
+	void erase_update(const elem* p) noexcept {
+		assert(is_on_scene_thread(*this));
+		active_update_elems_.erase(const_cast<elem*>(p));
+	}
+
+#pragma endregion
 
 	[[nodiscard]] native_communicator* get_communicator() const noexcept{
 		return communicator_.get();
@@ -421,8 +643,6 @@ public:
 		return get_heap();
 	}
 
-
-
 	[[nodiscard]] rect get_region() const noexcept{
 		return region_;
 	}
@@ -432,30 +652,23 @@ public:
 	}
 
 	[[nodiscard]] vec2 get_cursor_pos() const noexcept{
-		return inputs_.cursor_pos();
+		return input_handler_.inputs_.cursor_pos();
 	}
 
 	[[nodiscard]] std::span<elem * const> get_inbounds() const noexcept{
-		return inbounds_.get_cur();
+		return input_handler_.inbounds_.get_cur();
 	}
 
-	[[nodiscard]] bool is_mouse_pressed() const noexcept{
-		return std::ranges::any_of(mouse_states_, std::identity{}, &mouse_state::pressed);
+	[[nodiscard]] input_handle::input_manager<scene&>& get_inputs() noexcept{
+		return input_handler_.inputs_;
 	}
 
-	[[nodiscard]] bool is_mouse_pressed(input_handle::mouse mouse_button_code) const noexcept{
-		return mouse_states_[std::to_underlying(mouse_button_code)].pressed;
+	[[nodiscard]] input_handle::key_mapping_interface* find_input(std::string_view name) const noexcept{
+		return input_handler_.inputs_.find_sub_input(name);
 	}
 
 	void overwrite_last_inbound_click_quiet(elem* elem) noexcept{
-		last_inbound_click_ = elem;
-	}
-
-	void drop_event_focus(const elem* target) noexcept{
-		if(focus_scroll_ == target)focus_scroll_ = nullptr;
-		if(focus_cursor_ == target)focus_cursor_ = nullptr;
-		if(focus_key_ == target)focus_key_ = nullptr;
-		if(last_inbound_click_ == target)last_inbound_click_ = nullptr;
+		input_handler_.last_inbound_click = elem;
 	}
 
 	[[nodiscard]] react_flow::manager& get_react_flow() const noexcept{
@@ -475,30 +688,147 @@ protected:
 
 
 #pragma region elem_async_task_mfunc
-private:
-	void elem_async_tasks_process_(std::stop_token stop_token);
-
-protected:
-	void elem_async_tasks_process_done_();
 
 public:
 	template <std::derived_from<elem> E, std::invocable<E&> Prov>
 	void post_elem_async_task(E& e, Prov&& prov){
-		elem& owner = e;
-		++element_async_task_alive_owners_[&owner];
-		using task_type = std::decay_t<std::invoke_result_t<Prov&&, E&>>;
-		struct crop{
-			E& e;
-			Prov&& prov;
-			explicit(false) operator task_type(){
-				return std::invoke_r<task_type>(prov, e);
-			}
-		};
-		element_async_tasks_pending_.push(
-			mo_yanxi::make_allocate_aware_poly_unique<task_type, basic_elem_async_task>(get_heap_allocator<task_type>(), crop{e, std::forward<Prov>(prov)}));
+		async_task_queue_.post(e, std::forward<Prov>(prov));
+	}
+
+#pragma endregion
+
+
+	template <std::derived_from<elem> T = elem, bool unchecked = false>
+	T& root(){
+		assert(scene_root_ != nullptr);
+		if constexpr (std::same_as<T, elem> || unchecked){
+			return *static_cast<T*>(scene_root_);
+		}else{
+			return dynamic_cast<T&>(*scene_root_);
+		}
+	}
+
+
+	void resize(const math::frect region);
+
+	void close_overlay(const elem* overlay_elem){
+		overlay_manager_.truncate(overlay_elem);
+	}
+
+#pragma region ReactFlow
+	//TODO make these API async safe
+
+	template <typename T, typename ...Args>
+	[[nodiscard]] T& request_independent_react_node(Args&& ...args){
+		if(!is_on_scene_thread(*this)){
+			throw std::runtime_error{"create node not on main ui thread"};
+		}
+		return react_flow_->add_node<T>( std::forward<Args>(args)...);
+	}
+
+	template <typename T>
+	[[nodiscard]] auto& request_independent_react_node(T&& args){
+		if(!is_on_scene_thread(*this)){
+			throw std::runtime_error{"create node not on main ui thread"};
+		}
+		return react_flow_->add_node( std::forward<T>(args));
+	}
+
+	bool erase_independent_react_node(react_flow::node& node) /*noexcept*/ {
+		if(!is_on_scene_thread(*this)){
+			throw std::runtime_error{"erase node not on main ui thread"};
+		}
+		return react_flow_->erase_node(node);
+	}
+
+	template <typename T, std::derived_from<elem> E, typename ...Args>
+	T& request_react_node(E& elem, Args&& ...args){
+		if(!is_on_scene_thread(*this)){
+			throw std::runtime_error{"create node not on main ui thread"};
+		}
+		T& ptr = react_flow_->add_node<T>(elem, std::forward<Args>(args)...);
+		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
+		return ptr;
+	}
+
+	template <typename T, std::derived_from<elem> E>
+	T& request_embedded_react_node(E& elem, T&& args){
+		if(!is_on_scene_thread(*this)){
+			throw std::runtime_error{"create node not on main ui thread"};
+		}
+		T& ptr = react_flow_->add_node(std::forward<T>(args));
+		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
+		return ptr;
 	}
 #pragma endregion
 
+private:
+	void async_push_elem_to_action_pending(elem* e){
+		action_queue_.push(e);
+	}
+
+	void update(double delta_in_tick);
+
+	void draw_at(const elem& elem);
+
+	void draw(rect clip);
+
+	void draw(){
+		draw(region_);
+	}
+
+#pragma region Events
+public:
+	void update_cursor_type();
+
+private:
+	void update_mouse_state(input_handle::key_set k){
+		input_handler_.update_mouse_state(k);
+		update_cursor_type();
+	}
+
+	void on_cursor_move(math::vec2 pos){
+		input_handler_.inputs_.cursor_move_inform(pos);
+		input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
+	}
+
+	void on_mouse_input(const input_handle::key_set key){
+		input_handler_.inputs_.inform(key);
+		update_mouse_state(key);
+	}
+
+	void on_unicode_input(char32_t val) const{
+		input_handler_.on_unicode_input(val);
+	}
+
+	void on_scroll(const math::vec2 scroll) const{
+		input_handler_.on_scroll(scroll);
+	}
+
+	void on_key_input(input_handle::key_set key){
+		switch(input_handler_.on_key_input(key)){
+		case scene_submodule::input_key_result::none : break;
+		case scene_submodule::input_key_result::esc_required : on_esc();
+			break;
+		default : break;
+		}
+	}
+public:
+
+	events::op_afterwards on_esc();
+
+	void request_cursor_update() noexcept{
+		input_handler_.request_cursor_update_ = true;
+	}
+
+private:
+#pragma endregion
+
+	void layout();
+
+	void add_isolated_layout_update(elem* element){
+		independent_layouts_.get_bak().insert(element);
+	}
 
 };
 
@@ -509,7 +839,6 @@ struct scene : scene_base{
 
 private:
 	elem_ptr root_{};
-	cursor_drawer current_cursor_drawers_{};
 
 public:
 	template <std::derived_from<elem> T, typename ...Args>
@@ -519,7 +848,8 @@ public:
 		std::in_place_type_t<T>,
 		Args&& ...args
 		) : scene_base(resources, std::move(renderer)), root_(static_cast<scene&>(*this), nullptr, std::in_place_type<T>, std::forward<Args>(args)...){
-		inputs_.main_binds.set_context(std::ref(*this));
+		input_handler_.inputs_.main_binds.set_context(std::ref(*this));
+		scene_root_ = root_.get();
 	}
 
 	scene(const scene& other) = delete;
@@ -528,26 +858,11 @@ public:
 	scene& operator=(scene&& other) noexcept = delete;
 
 public:
+
 	template <std::derived_from<elem> T, typename ...Args>
 	[[nodiscard]] elem_ptr create(Args&& ...args){
 		return elem_ptr{*this, nullptr, std::in_place_type<T>, std::forward<Args>(args)...};
 	}
-
-	template <std::derived_from<elem> T = elem, bool unchecked = false>
-	T& root(){
-		assert(root_ != nullptr);
-		if constexpr (std::same_as<T, elem> || unchecked){
-			return *static_cast<T*>(root_.get());
-		}
-		return dynamic_cast<T&>(*root_);
-	}
-
-	void resize(const math::frect region);
-
-	void close_overlay(const elem* overlay_elem){
-		overlay_manager_.truncate(overlay_elem);
-	}
-
 
 	template <invocable_elem_init_func Fn, typename... Args>
 	auto create_overlay(const overlay_layout layout, Fn&& fn, Args&&... args){
@@ -563,109 +878,10 @@ public:
 			overlay_manager_.push_back(layout, elem_ptr{*this, nullptr, std::in_place_type<T>, std::forward<Args>(args)...})
 		);
 	}
-
-	template <typename T, typename ...Args>
-	[[nodiscard]] T& request_independent_react_node(Args&& ...args){
-		return react_flow_->add_node<T>( std::forward<Args>(args)...);
-	}
-
-	template <typename T>
-	[[nodiscard]] auto& request_independent_react_node(T&& args){
-		return react_flow_->add_node( std::forward<T>(args));
-	}
-
-	bool erase_independent_react_node(react_flow::node& node) noexcept {
-		return react_flow_->erase_node(node);
-	}
-
-	template <typename T, std::derived_from<elem> E, typename ...Args>
-	T& request_react_node(E& elem, Args&& ...args){
-		T& ptr = react_flow_->add_node<T>(elem, std::forward<Args>(args)...);
-		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
-		return ptr;
-	}
-
-	template <typename T, std::derived_from<elem> E>
-	T& request_embedded_react_node(E& elem, T&& args){
-		T& ptr = react_flow_->add_node(std::forward<T>(args));
-		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
-		return ptr;
-	}
-
-	void async_push_elem_to_action_pending(elem* e){
-		action_active_pending_elems_.push(e);
-	}
-
-private:
-	void update(double delta_in_tick);
-
-	void draw_at(const elem& elem);
-
-	void draw(rect clip);
-
-	void draw(){
-		draw(region_);
-	}
-
-#pragma region Events
-	void update_mouse_state(input_handle::key_set k);
-
-	void inform_cursor_move(math::vec2 pos){
-		inputs_.cursor_move_inform(pos);
-		update_cursor();
-	}
-
-	void input_key(const input_handle::key_set key);
-
-	void input_mouse(const input_handle::key_set key){
-		inputs_.inform(key);
-		update_mouse_state(key);
-	}
-
-	void input_inbound(bool is_inbound){
-		inputs_.set_inbound(is_inbound);
-	}
-
-	void on_unicode_input(char32_t val) const;
-
-	void on_scroll(const math::vec2 scroll) const;
-
-public:
-	void update_cursor();
-
-	void update_cursor_type(math::vec2 cursor_local_pos);
-	void update_cursor_type();
-
-	events::op_afterwards on_esc();
-
-private:
-#pragma endregion
-
-	void layout();
-
-	void request_cursor_update() noexcept{
-		request_cursor_update_ = true;
-	}
-
-	void update_inbounds();
-
-	void switch_key_focus(elem* element);
-
-	void try_swap_focus();
-
-	void swap_focus(elem* newFocus);
-
-	void update_elem_cursor_state_(float delta_in_tick) noexcept;
-
-	void update_elem_action_(float delta_in_tick) noexcept;
-
-	void dump_async_pending_actions_();
-
-	void notify_isolated_layout_update(elem* element){
-		independent_layouts_.get_bak().insert(element);
-	}
-
 };
 
+bool is_on_scene_thread(const scene_base& scene) noexcept{
+	return std::this_thread::get_id() == scene.ui_main_thread_id;
+}
 
 }

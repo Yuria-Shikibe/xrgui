@@ -17,7 +17,7 @@ import mo_yanxi.core.platform;
 namespace mo_yanxi::gui::cpd{
 	namespace{
 		void set_elem_style_(elem& e, std::string_view name){
-			post_sync_execute(e, [name](elem& el){
+			e.sync_run([name](elem& el){
 				el.set_style(el.get_style_manager().get_slice<style::elem_style_drawer>()->get_or_default(name));
 			});
 		}
@@ -52,7 +52,7 @@ namespace mo_yanxi::gui::cpd{
 			constexpr float scl = .12f;
 			if(elem::update(delta_in_ticks)){
 				switch(s){
-				case closed : get_scene().active_update_to_be_removed_elems.insert(this);
+				case closed : post_task(util::erase_update);
 					progress_ = 0;
 					break;
 				case expanding : progress_ += delta_in_ticks * scl;
@@ -61,7 +61,7 @@ namespace mo_yanxi::gui::cpd{
 						s = expanded;
 					}
 					break;
-				case expanded : get_scene().active_update_to_be_removed_elems.insert(this);
+				case expanded : post_task(util::erase_update);
 					progress_ = 1;
 					break;
 				case closing : progress_ -= delta_in_ticks * scl;
@@ -83,7 +83,7 @@ namespace mo_yanxi::gui::cpd{
 			case closed : s = closed;
 				break;
 			default : s = closing;
-				get_scene().active_update_elems.insert(this);
+				sync_run(util::insert_update);
 				break;
 			}
 		}
@@ -115,7 +115,7 @@ namespace mo_yanxi::gui::cpd{
 					drop_tooltip();
 					break;
 				}
-				get_scene().active_update_elems.insert(this);
+				sync_run(util::insert_update);
 			}
 			return events::op_afterwards::intercepted;
 		}

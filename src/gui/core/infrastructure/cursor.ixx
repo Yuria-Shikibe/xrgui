@@ -14,6 +14,8 @@ export import mo_yanxi.math.rect_ortho;
 export import mo_yanxi.math.vector2;
 
 namespace mo_yanxi::gui{
+struct scene_base;
+
 namespace style{
 export
 enum class cursor_arrow_direction{
@@ -199,7 +201,7 @@ struct cursor_drawer{
 	const style::cursor* main;
 	const style::cursor* dcor[style::dcor_max_count];
 
-	void draw(scene& scene, vec2 cursor_size_) const;
+	void draw(scene_base& scene, vec2 cursor_size_) const;
 };
 
 struct cursor_collection{

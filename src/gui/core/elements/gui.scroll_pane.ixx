@@ -198,12 +198,16 @@ public:
 
 	[[nodiscard]] float bar_hori_length() const{
 		const auto w = get_viewport_extent().x;
-		return math::clamp_positive(math::min(w / item_extent_cache_.x, 1.0f) * w);
+		const float theoretical_length = math::clamp_positive(math::min(w / item_extent_cache_.x, 1.0f) * w);
+		const float min_length = math::min(scroll_bar_stroke_, w);
+		return math::max(theoretical_length, min_length);
 	}
 
 	[[nodiscard]] float bar_vert_length() const{
 		const auto h = get_viewport_extent().y;
-		return math::clamp_positive(math::min(h / item_extent_cache_.y, 1.0f) * h);
+		const float theoretical_length = math::clamp_positive(math::min(h / item_extent_cache_.y, 1.0f) * h);
+		const float min_length = math::min(scroll_bar_stroke_, h);
+		return math::max(theoretical_length, min_length);
 	}
 
 	[[nodiscard]] vec2 get_viewport_extent() const noexcept{

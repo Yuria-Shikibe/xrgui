@@ -132,9 +132,6 @@ void style::debug_elem_drawer::draw_background(const elem& element, math::frect 
 		});
 }
 
-bool is_on_scene_thread(const scene& scene) noexcept{
-	return std::this_thread::get_id() == scene.ui_main_thread_id;
-}
 
 style::elem_style_ptr elem::get_elem_default_style_() const{
 	return get_style_manager().get_default<style::elem_style_drawer>();
@@ -144,7 +141,7 @@ elem::elem(scene& scene, elem* parent) noexcept:
 	scene_(std::addressof(scene)),
 	parent_(parent){
 	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
-	post_sync_execute(*this, [](elem& elem){
+	sync_run([](elem& elem){
 		elem.set_style(elem.get_elem_default_style_());
 	});
 }
@@ -184,7 +181,7 @@ void elem::drop_tooltip() const{
 }
 
 void elem::set_style() noexcept{
-	post_sync_execute(*this, [](elem& elem){
+	sync_run([](elem& elem){
 		elem.style = nullptr;
 		if(util::try_modify(elem.style_boarder_cache_, {})){
 			elem.notify_isolated_layout_changed();
@@ -232,9 +229,9 @@ void elem::notify_layout_changed(propagate_mask propagation){
 }
 
 void elem::notify_isolated_layout_changed(){
-	post_sync_execute(*this, [](elem& elem){
+	sync_run([](elem& elem){
 		elem.layout_state.notify_self_changed();
-		elem.get_scene().notify_isolated_layout_update(&elem);
+		elem.get_scene().add_isolated_layout_update(&elem);
 	});
 }
 
@@ -257,35 +254,35 @@ bool elem::parent_contain_constrain(const math::vec2 pos_relative) const noexcep
 
 bool elem::is_focused_scroll() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->focus_cursor_ == this;
+	return scene_->input_handler_.focus_cursor == this;
 
 }
 
 bool elem::is_focused_key() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->focus_key_ == this;
+	return scene_->input_handler_.focus_key == this;
 }
 
 bool elem::is_focused() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->focus_cursor_ == this;
+	return scene_->input_handler_.focus_cursor == this;
 }
 
 bool elem::is_inbounded() const noexcept{
 	assert(scene_ != nullptr);
-	return std::ranges::contains(scene_->get_inbounds(), this);
+	return std::ranges::contains(scene_->input_handler_.get_inbounds(), this);
 }
 
 void elem::set_focused_scroll(const bool focus) noexcept{
 	if(!focus && !is_focused_scroll()) return;
-	this->scene_->focus_scroll_ = focus ? this : nullptr;
+	this->scene_->input_handler_.focus_scroll = focus ? this : nullptr;
 }
 
 void elem::set_focused_key(const bool focus) noexcept{
 	if(focus){
-		get_scene().switch_key_focus(this);
+		get_scene().input_handler_.switch_key_focus(this);
 	}else if(is_focused_key()){
-		get_scene().switch_key_focus(nullptr);
+		get_scene().input_handler_.switch_key_focus(nullptr);
 	}
 
 }
@@ -333,4 +330,5 @@ events::op_afterwards util::thoroughly_esc(elem* where) noexcept{
 	}
 	return events::op_afterwards::fall_through;
 }
+
 }

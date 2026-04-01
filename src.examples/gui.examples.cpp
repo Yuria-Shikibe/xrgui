@@ -136,7 +136,7 @@ struct csv_file_reader : head_body{
 				return elem_async_yield_task{r, [&](csv_file_reader& r){
 					return elem_ptr{r.get_scene(), &r, [p = path](cpd::data_table& table){
 						table.set_style();
-						table.get_item() = cpd::data_table_desc::from_csv(p, '|', table.get_heap_allocator());
+						table.get_item() = cpd::data_table_desc::from_csv(p, '|');
 						table.get_item().try_update_glyph_layouts();
 						table.notify_isolated_layout_changed();
 					}};
@@ -376,6 +376,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 	}
 
 	ui_outputs result{};
+
 
 	auto make_create_table = [&] -> std::vector<test_entry> {
 		using function_signature = void(scroll_pane&);
@@ -984,7 +985,9 @@ Edge Cases:
 	};
 
 
-	root.set_style();
+	action::push_runnable_action(root, [](elem& e){
+		e.set_style();
+	});
 	mroot.set_style();
 
 	const auto menu_hdl = mroot.emplace_back<menu>();

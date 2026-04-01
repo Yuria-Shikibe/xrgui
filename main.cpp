@@ -51,61 +51,10 @@ import mo_yanxi.react_flow;
 import mo_yanxi.gui.markdown;
 import mo_yanxi.core.platform;
 
-// template <typename FWIT, typename ...Args>
-// auto copy_classify(FWIT begin, FWIT end, Args&& ...args){
-// 	static_assert(sizeof...(Args) & 1);
-// 	using ParamTup = std::tuple<Args&&...>;
-// 	using IteratorFwdTup = tuple_stride_t<2, ParamTup, std::identity, 1>;
-// 	using PredFwdTup = tuple_stride_t<2, ParamTup, decltype([](auto&& decay) -> auto {return decay;})>;
-//
-// 	auto forward = std::forward_as_tuple(std::forward<Args>(args)...);
-// 	auto pred_tup = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
-// 		return PredFwdTup{std::get<Idx * 2>(std::move(forward)) ...};
-// 	}(std::make_index_sequence<std::tuple_size_v<PredFwdTup>>{});
-//
-// 	auto iter_tup = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
-// 		return IteratorFwdTup{std::get<Idx * 2 + 1>(std::move(forward)) ...};
-// 	}(std::make_index_sequence<std::tuple_size_v<IteratorFwdTup>>{});
-//
-// 	auto write = []<typename OutputItr, typename Val>(OutputItr& itr, Val&& input){
-// 		*itr = std::forward<Val>(input);
-// 		++itr;
-// 	};
-//
-// 	auto cur = begin;
-// 	while(cur != end){
-// 		auto&& value = *cur;
-// 		bool any = [&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
-// 			return ([&]<std::size_t I>(){
-// 				auto&& pred = std::get<I>(pred_tup);
-// 				if(pred(value)){
-// 					std::get<I>(pred_tup) = iter_tup;
-// 					write(std::get<I>(pred_tup), std::forward<decltype(value)>(value));
-// 					return true;
-// 				}
-// 				return false;
-// 			}.template operator()<Idx>() || ...);
-// 		}(std::make_index_sequence<std::tuple_size_v<PredFwdTup>>{});
-// 		if(!any){
-// 			write(std::get<std::tuple_size_v<PredFwdTup>>(pred_tup), std::forward<decltype(value)>(value));
-// 		}
-// 		++cur;
-// 	}
-//
-// 	return iter_tup;
-// }
-
-#pragma optimize("", off)
-template <typename T>
-void DoNotOptimize(T const& value){
-	auto volatile* dummy = &value;
-}
-#pragma optimize("", on)
-
 struct alignas(16) high_light_filter_args{
 	float threshold{1.3f};
 	float smoothness{.5f};
-	float max_brightness{10}; // 新增：用于抑制超高亮像素，防止 Bloom 闪烁
+	float max_brightness{10};
 };
 
 struct alignas(16) tonemap_args{

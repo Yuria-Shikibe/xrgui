@@ -120,15 +120,15 @@ public:
 	}
 
 	void input_key(const input_handle::key_set k) const{
-		if(focus) focus->input_key(k);
+		if(focus) focus->on_key_input(k);
 	}
 
 	void input_inbound(bool is_inbound) const{
-		if(focus) focus->input_inbound(is_inbound);
+		if(focus) focus->input_handler_.input_inbound(is_inbound);
 	}
 
 	void input_mouse(const input_handle::key_set k) const{
-		if(focus) focus->input_mouse(k);
+		if(focus) focus->on_mouse_input(k);
 	}
 
 	void input_scroll(const float x, const float y) const{
@@ -141,7 +141,7 @@ public:
 	}
 
 	void cursor_pos_update(const float x, const float y) const{
-		if(focus) focus->inform_cursor_move({x, y});
+		if(focus) focus->on_cursor_move({x, y});
 	}
 
 	void scroll_update(const float x, const float y) const{
@@ -175,11 +175,11 @@ public:
 	}
 
 	[[nodiscard]] bool is_scroll_idle() const noexcept{
-		return !focus || focus->focus_scroll_ == nullptr;
+		return !focus || focus->input_handler_.focus_scroll == nullptr;
 	}
 
 	[[nodiscard]] bool is_focus_idle() const noexcept{
-		return !focus || focus->focus_cursor_ == nullptr;
+		return !focus || focus->input_handler_.focus_cursor == nullptr;
 	}
 
 	[[nodiscard]] mr::arena_id_t get_arena_id() const{

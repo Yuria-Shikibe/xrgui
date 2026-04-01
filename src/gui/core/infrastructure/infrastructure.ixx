@@ -23,6 +23,17 @@ export import align;
 namespace mo_yanxi::gui{
 export namespace align = ::mo_yanxi::align;
 
+
+template <typename E, std::invocable<E&> Fn>
+void elem::post_task(this E& e, Fn&& fn){
+	static_cast<const elem&>(e).get_scene().post(e, std::forward<Fn>(fn));
+}
+
+template <typename E, std::invocable<> Fn>
+void elem::post_task(this E& e, Fn&& fn){
+	static_cast<const elem&>(e).get_scene().post(e, std::forward<Fn>(fn));
+}
+
 namespace util{
 export
 template <std::derived_from<elem> E, std::invocable<E&> Prov>

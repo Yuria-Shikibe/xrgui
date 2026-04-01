@@ -9,7 +9,7 @@ import mo_yanxi.gui.fx.fringe;
 namespace mo_yanxi::gui{
  constexpr inline float fringe_range = 2.f;
 
-void cursor_drawer::draw(scene& scene, vec2 cursor_size_) const{
+void cursor_drawer::draw(scene_base& scene, vec2 cursor_size_) const{
 	scene.renderer().update_state(fx::pipeline_config{
 			.draw_targets = {0b1},
 			.pipeline_index = 1

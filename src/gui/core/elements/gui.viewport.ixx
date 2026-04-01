@@ -25,8 +25,8 @@ namespace mo_yanxi::gui{
 	public:
 		viewport(scene& scene, elem* parent)
 			: elem(scene, parent){
+			sync_run(util::insert_update);
 
-			get_scene().active_update_elems.insert(this);
 			this->interactivity = interactivity_flag::enabled;
 			extend_focus_until_mouse_drop = true;
 			camera.speed_scale = 0;

@@ -696,7 +696,7 @@ void text_edit::set_focus(bool keyFocused){
 	failed_hint_timer_ = 0.f;
 
 	if(keyFocused){
-		get_scene().active_update_elems.insert(this);
+		sync_run(util::insert_update);
 
 		if(is_idle_){
 			is_idle_ = false;
@@ -720,7 +720,7 @@ void text_edit::set_focus(bool keyFocused){
 			on_changed();
 		}
 
-		get_scene().active_update_elems.erase(this);
+		sync_run(util::erase_update);
 
 		if(tokenized_text_.get_text().empty()){
 			is_idle_ = true;

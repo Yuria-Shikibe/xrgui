@@ -177,7 +177,21 @@ target("xrgui.example")
         end
 
         local summary_header_path = path.join(my_res_inc, "assets_summary.h")
-        io.writefile(summary_header_path, table.concat(summary_lines, "\n"))
+        local new_content = table.concat(summary_lines, "\n")
+
+        -- 核心逻辑：只有当内容真正发生变化时，才覆盖写入，避免刷新修改时间
+        local need_update = true
+        if os.isfile(summary_header_path) then
+            local old_content = io.readfile(summary_header_path)
+            if old_content == new_content then
+                need_update = false
+            end
+        end
+
+        if need_update then
+            print("updating " .. summary_header_path)
+            io.writefile(summary_header_path, new_content)
+        end
     end)
 
 --     add_rules("utils.bin2c", {extensions = ".svg"})
@@ -218,21 +232,46 @@ task("gen_slang")
     })
 task_end()
 
-task("set_mode")
-set_menu({
-    usage = "xmake build_release",
-    description = "Switch to mode and generate cmake",
-    options = {
-        {'m', "mode", "kv", nil, "Select mode"}
-    }
-})
+task("switch_mode")
+    set_menu({
+        usage = "xmake switch_mode [mode]",
+        description = "切换编译模式。若模式改变，则执行 clean 并重新生成 compile_commands",
+        options = {
+            {nil, "mode", "v", nil, "目标编译模式 (例如: debug, release)"}
+        }
+    })
 
-on_run(function ()
-    import("core.base.task")
-    import("core.base.option")
+    on_run(function ()
+        import("core.project.config")
+        import("core.base.option")
+        -- 引入 task 模块，用于调用内置任务或插件
+        import("core.base.task")
 
-    task.run("gen_ide_hintonly_cmake", {mode = option.get("mode")})
+        local target_mode = option.get("mode")
+        if not target_mode then
+            cprint("${red}错误: 请指定目标模式！例如: xmake switch_mode debug${clear}")
+            return
+        end
 
-    print("Switch To " .. option.get("mode"))
-end)
-task_end()
+        config.load()
+        local current_mode = config.get("mode")
+
+        if current_mode == target_mode then
+            cprint("${color.success}当前已经是 %s 模式，无需进行任何操作。${clear}", target_mode)
+            return
+        end
+
+        cprint("${yellow}正在将模式从 '%s' 切换至 '%s'...${clear}", tostring(current_mode), target_mode)
+
+        -- 1. 等价于 xmake f --mode=...
+        task.run("config", {mode = target_mode})
+
+        -- 2. 等价于 xmake clean
+        task.run("clean")
+
+        -- 3. 等价于 xmake project -k compile_commands
+        -- 注意：命令行的短选项 -k 对应底层参数长选项 kind
+        task.run("project", {kind = "compile_commands"})
+
+        cprint("${color.success}模式切换与清理配置完成！${clear}")
+    end)

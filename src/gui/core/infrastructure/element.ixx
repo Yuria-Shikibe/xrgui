@@ -162,12 +162,16 @@ struct cursor_states{
 export
 using elem_span = transparent_span<elem* const>;
 
-export
-bool is_on_scene_thread(const scene& scene) noexcept;
+namespace scene_submodule{
+struct input;
+struct async_sync_task_queue;
+}
 
 export struct elem : tooltip::spawner_general<elem>{
 	friend elem_ptr;
 	friend scene;
+	friend scene_base;
+	friend scene_submodule::input;
 
 private:
 	void(*deleter_)(elem*) noexcept = nullptr;
@@ -178,16 +182,20 @@ private:
 	std::optional<math::vec2> preferred_size_{};
 	math::vec2 relative_pos_{};
 	math::vec2 absolute_pos_{};
-	boarder boarder_{};
 
 	std::atomic_bool context_synchronized_{is_on_scene_thread(get_scene())};
 
+
 public:
+	bool is_synced_to_ui_thread() const noexcept{
+		return context_synchronized_.load(std::memory_order::acquire);
+	}
 	style::elem_style_ptr style{};
 
 private:
 	[[nodiscard]] style::elem_style_ptr get_elem_default_style_() const;
 
+	boarder boarder_{};
 	boarder style_boarder_cache_{style ? style->get_boarder() : gui::boarder{}};
 
 	mpsc_action_queue<elem> actions{};
@@ -250,6 +258,23 @@ public:
 private:
 	void push_to_action_queue();
 public:
+
+	template <typename E, std::invocable<E&> Fn>
+	void post_task(this E& e, Fn&& fn);
+
+	template <typename E, std::invocable<> Fn>
+	void post_task(this E& e, Fn&& fn);
+
+	template <typename E, std::invocable<E&> Fn>
+		requires (std::derived_from<std::remove_const_t<E>, elem>)
+	void sync_run(this E& e, Fn&& fn){
+		if(is_on_scene_thread(static_cast<const elem&>(e).get_scene())){
+			std::invoke(fn, e);
+		}else{
+			e.post_task(std::forward<Fn>(fn));
+		}
+	}
+
 	template <std::derived_from<action::action<elem>> ActionType, typename... Args>
 		requires (std::constructible_from<ActionType, mr::heap_allocator<>, Args&&...>)
 	ActionType& push_action(Args&&... args){
@@ -1026,6 +1051,7 @@ private:
 	void relocate_scene_(struct scene* scene) noexcept;
 };
 
+
 namespace util{
 
 export
@@ -1266,6 +1292,17 @@ FORCE_INLINE constexpr bool contains(math::vector2<T> pos, math::vector2<T> exte
 	return pos.x < extent.x && pos.y < extent.y;
 }
 
+
+export
+void insert_update(elem& e){
+	e.get_scene().insert_update(e);
+}
+
+export
+void erase_update(elem& e){
+	e.get_scene().erase_update(&e);
+}
+
 }
 
 export
@@ -1339,16 +1376,6 @@ void push_runnable_action(E& e, Fn&& fn, float delay = 0){
 
 }
 
-export
-template <typename E, std::invocable<E&> Fn>
-	requires (std::derived_from<std::remove_const_t<E>, elem>)
-void post_sync_execute(E& e, Fn&& fn){
-	if(is_on_scene_thread(static_cast<const elem&>(e).get_scene())){
-		std::invoke(fn, e);
-	}else{
-		action::push_runnable_action(e, std::forward<Fn>(fn));
-	}
-}
 
 export
 template <typename E, typename T, typename Fn>
@@ -1360,12 +1387,13 @@ T post_sync_assign(E& e, T E::* mptr, Fn&& fn){
 	if(is_on_scene_thread(static_cast<const elem&>(e).get_scene())){
 		return std::invoke_r<T>(fn, e);
 	}else{
-		action::push_runnable_action(e, [mptr, f = std::forward<Fn>(fn)](E& e){
+		e.post_task([mptr, f = std::forward<Fn>(fn)](E& e){
 			std::invoke(mptr, e) = std::invoke_r<T>(f, e);
 		});
 		return T{};
 	}
 }
+
 
 namespace events{
 math::vec2 click::get_content_pos(const elem& elem) const noexcept{

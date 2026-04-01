@@ -31,7 +31,7 @@ void record_glyph_draw_instructions_draw_only(
 
 template <typename Alloc>
 void push(renderer_frontend& r, const graphic::draw::instruction::draw_record_storage<Alloc>& buf){
-	r.push(buf.heads(), buf.data());
+	r.push(buf.heads(), buf.data().data());
 }
 
 export struct text_render_cache {
