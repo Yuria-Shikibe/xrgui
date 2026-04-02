@@ -7,6 +7,7 @@ export module mo_yanxi.gui.infrastructure:ui_manager;
 import std;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.gui.alloc;
+import mo_yanxi.input_handle.input_event_queue;
 import :scene;
 
 
@@ -17,9 +18,9 @@ constexpr std::string_view main{"main"};
 }
 
 export
-template <typename T>
+template <typename S, typename T>
 struct scene_add_result{
-	scene& scene;
+	S& scene;
 	T& root_group;
 };
 
@@ -37,7 +38,7 @@ struct ui_manager{
 private:
 	mr::raw_memory_pool pool_{};
 	string_hash_map<scene_resources> resources{};
-	string_hash_map<scene> scenes{};
+	string_hash_map<std::unique_ptr<scene>> scenes{};
 	scene* focus{};
 
 public:
@@ -47,7 +48,7 @@ public:
 
 	scene* switch_scene_to(std::string_view name) noexcept{
 		if(auto scene = scenes.try_find(name)){
-			return std::exchange(focus, scene);
+			return std::exchange(focus, scene->get());
 		}
 		return nullptr;
 	}
@@ -58,29 +59,29 @@ public:
 	}
 
 private:
-	template <typename ...Args>
+	template <typename S, typename ...Args>
 	scene& add_scene(std::string_view name, bool focusIt, Args&& ...args){
-		std::pair<decltype(scenes)::iterator, bool> itr = scenes.try_emplace(name, std::forward<Args>(args)...);
+		std::pair<decltype(scenes)::iterator, bool> itr = scenes.try_emplace(name, std::make_unique<S>(std::forward<Args>(args)...));
 		if(focusIt){
-			focus = std::addressof(itr.first->second);
+			focus = itr.first->second.get();
 		}
 
-		return itr.first->second;
+		return *itr.first->second.get();
 	}
 public:
 	[[nodiscard]] mr::raw_memory_pool& get_pool() noexcept{
 		return pool_;
 	}
 
-	template <std::derived_from<elem> T, typename... Args>
+	template <std::derived_from<scene> S = scene, std::derived_from<elem> T, typename... Args>
 		requires (std::constructible_from<T, scene&, elem*, Args&&...>)
-	scene_add_result<T> add_scene(
+	scene_add_result<S, T> add_scene(
 		std::string_view name,
 		scene_resources& resources,
 		bool focus_it,
 		renderer_frontend&& renderer_ui,
 		Args&&... args){
-		auto& scene_ = this->add_scene(
+		auto& scene_ = this->add_scene<S>(
 			name,
 			focus_it,
 			resources,
@@ -93,11 +94,11 @@ public:
 
 	bool erase_scene(std::string_view name) /*noexcept*/{
 		if(auto itr = scenes.find(name); itr != scenes.end()){
-			if(std::addressof(itr->second) == focus){
+			if(itr->second.get() == focus){
 				if(name == scene_names::main){
 					throw std::runtime_error{"erase main while focusing it"};
 				}
-				focus = &scenes.at(scene_names::main);
+				focus = scenes.at(scene_names::main).get();
 			}
 
 			scenes.erase(itr);
@@ -149,13 +150,14 @@ public:
 	}
 
 	scene* get_scene(const std::string_view sceneName){
-		return scenes.try_find(sceneName);
+		auto ptr = scenes.try_find(sceneName);
+		return ptr ? ptr->get() : nullptr;
 	}
 
 	template <typename T>
 	[[nodiscard]] T& root_of(const std::string_view sceneName){
 		if(const auto rst = scenes.try_find(sceneName)){
-			return rst->root<T>();
+			return (*rst)->root<T>();
 		}
 
 		std::println(std::cerr, "Scene {} Not Found", sceneName);
@@ -164,13 +166,13 @@ public:
 
 	void resize(const math::frect region, const std::string_view name = scene_names::main){
 		if(const auto rst = scenes.try_find(name)){
-			rst->resize(region);
+			(*rst)->resize(region);
 		}
 	}
 
 	void resize_all(const math::frect region){
-		for(auto& scene : scenes | std::views::values){
-			scene.resize(region);
+		for(auto& rst : scenes | std::views::values){
+			rst->resize(region);
 		}
 	}
 
@@ -185,5 +187,36 @@ public:
 	[[nodiscard]] mr::arena_id_t get_arena_id() const{
 		return pool_.get_arena_id();
 	}
+
+	void consume(std::span<const input_handle::input_event_variant> events) const {
+		using namespace input_handle;
+		auto& f = get_current_focus();
+		for(const auto& ev : events){
+			switch(ev.type){
+			case input_event_type::input_key:
+				f.on_key_input(ev.input_key);
+				break;
+			case input_event_type::input_mouse:
+				f.on_mouse_input(ev.input_key);
+				break;
+			case input_event_type::input_scroll:
+				f.on_scroll(ev.cursor);
+				break;
+			case input_event_type::input_u32:
+				f.on_unicode_input(ev.input_char);
+				break;
+			case input_event_type::cursor_inbound:
+				f.on_inbound_changed(ev.is_inbound);
+				break;
+			case input_event_type::cursor_move:
+				f.on_cursor_move(ev.cursor);
+				break;
+			case input_event_type::frame_split:
+				f.update(std::chrono::duration_cast<std::chrono::duration<double, std::ratio<1, 60>>>(ev.frame_delta_time).count());
+				break;
+			}
+		}
+	}
 };
+
 }

@@ -99,11 +99,11 @@ private:
 
 	bool any_changed_{true};
 	instr_recorder glyph_instructions{};
-	typesetting::fast_plain_layout_context plain_layout_context{std::in_place};
+	typesetting::fast_plain_layout_context plain_layout_context{};
 	typesetting::tokenized_text cache{};
 	mr::vector<head> table_heads_{};
 	mr::vector<entry> table_entries_{};
-	// mr::heap_vector<typesetting::glyph_layout_draw_only> index_labels{};
+
 	data_table_config config_{};
 
 	snap_shot<math::vec2> extent_{};

@@ -72,12 +72,16 @@ struct persistent_run_state{
 };
 
 export
+struct no_buffer_init_t{};
+export constexpr inline no_buffer_init_t no_buffer_init;
+
+export
 struct layout_ctx_base{
 protected:
 	font::font_manager* manager_{font::default_font_manager};
 	lru_cache<font::font_face_handle*, font::hb::font_ptr, 4> hb_cache_;
-	font::hb::buffer_ptr hb_buffer_;
-	std::vector<hb_feature_t> feature_stack_;
+	font::hb::buffer_ptr hb_buffer_{font::hb::make_buffer()};
+	std::vector<hb_feature_t> feature_stack_{};
 	layout_state_t state_{};
 	indicator_cache cached_indicator_{};
 
@@ -86,13 +90,10 @@ protected:
 public:
 	layout_ctx_base() = default;
 
-	explicit layout_ctx_base(std::in_place_t){
-		hb_buffer_ = font::hb::make_buffer();
-	}
+	explicit layout_ctx_base(no_buffer_init_t) : hb_buffer_(){}
 
 	explicit layout_ctx_base(font::font_manager& m)
 		: manager_(&m){
-		hb_buffer_ = font::hb::make_buffer();
 	}
 
 	[[nodiscard]] FORCE_INLINE inline layout_direction

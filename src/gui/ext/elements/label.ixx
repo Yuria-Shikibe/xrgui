@@ -83,7 +83,6 @@ protected:
 //TODO provide a convenient constructor
 
 export struct direct_label : elem{
-	inline static typesetting::layout_context_impl<typesetting::policies::ignore_clusters> layout_context{};
 
 protected:
 	typesetting::tokenized_text tokenized_text_{};
@@ -351,6 +350,10 @@ protected:
 			return ext;
 		};
 
+		auto get_layout = [&](){
+			return get_scene().resources().object_pool.acquire<typesetting::layout_context>();
+		};
+
 		if(fit_type_ != label_fit_type::fix){
 			if((change_mark_ & change_type::max_extent) != change_type{}){
 				if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
@@ -363,7 +366,7 @@ protected:
 				if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
 					((change_mark_ & change_type::config) != change_type{}) || ((change_mark_ & change_type::text) !=
 						change_type{})){
-					layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+					get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
 					render_cache_.update_buffer(glyph_layout_,
 						render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
 					change_mark_ = change_type::none;
@@ -373,7 +376,7 @@ protected:
 				change_mark_ = change_type::none;
 			}
 		} else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
-			layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+			get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
 			render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
 			change_mark_ = change_type::none;
 

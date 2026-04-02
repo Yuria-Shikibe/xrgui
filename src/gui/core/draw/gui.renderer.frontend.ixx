@@ -221,7 +221,7 @@ private:
 	std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>> cache_instr_buffer_inner_usage_{};
 	std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>> cache_instr_buffer_external_usage_{};
 
-	byte_pool<mr::aligned_heap_allocator<std::byte, 32>> mem_pool_{};
+	// byte_pool<mr::aligned_heap_allocator<std::byte, 32>> mem_pool_{};
 
 	binary_config_trace state_trace_{};
 
@@ -247,9 +247,9 @@ public:
 		return self.viewports_.back();
 	}
 
-	byte_pool<mr::aligned_heap_allocator<std::byte, 32>>& get_mem_pool() noexcept{
-		return mem_pool_;
-	}
+	// byte_pool<mr::aligned_heap_allocator<std::byte, 32>>& get_mem_pool() noexcept{
+	// 	return mem_pool_;
+	// }
 
 	fx::scissor get_full_screen_scissor() const noexcept{
 		return {region_.src.round<int>(), region_.extent().round<unsigned>()};

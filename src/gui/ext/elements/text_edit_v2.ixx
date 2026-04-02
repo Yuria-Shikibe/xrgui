@@ -52,9 +52,6 @@ export struct text_edit : elem{
 private:
 	static constexpr math::vec2 viewport_padding{ 16.0f, 16.0f };
 
-public:
-	inline static typesetting::layout_context layout_context{};
-
 protected:
 	text_editor_core core_{};
 	typesetting::tokenized_text tokenized_text_{};

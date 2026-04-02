@@ -2,10 +2,14 @@ export module mo_yanxi.gui.global;
 
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.gui.style.manager;
+export import mo_yanxi.input_handle.input_event_queue;
+
 import std;
+
 namespace mo_yanxi::gui::global{
 
 export inline ui_manager manager{0};
+export inline input_handle::input_event_queue event_queue{};
 
 export
 void initialize(){
@@ -17,6 +21,13 @@ export
 void terminate() noexcept {
 	std::destroy_at(&manager);
 	std::construct_at(&manager, 0);
+}
+
+export
+void consume_current_input(){
+	event_queue.consume([](auto span){
+		manager.consume(span);
+	});
 }
 
 }

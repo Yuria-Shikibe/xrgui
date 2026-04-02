@@ -89,18 +89,22 @@ bool text_edit::update(float delta_in_ticks){
 }
 
 text_layout_result text_edit::layout_text(math::vec2 bound){
-    if(view_mode_ != text_edit_view_type::fit && bound.area() < 32.0f) return {};
+	if(view_mode_ != text_edit_view_type::fit && bound.area() < 32.0f) return {};
 
-    math::vec2 local_bound = bound;
-    math::vec2 abs_scale = {std::abs(scale_.x), std::abs(scale_.y)};
+	math::vec2 local_bound = bound;
+	math::vec2 abs_scale = {std::abs(scale_.x), std::abs(scale_.y)};
 
-    if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
-        local_bound /= abs_scale;
-    }
+	if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
+		local_bound /= abs_scale;
+	}
 
-    auto process_result_ext = [&]() -> math::vec2{
-        return glyph_layout_.extent * abs_scale;
-    };
+	auto process_result_ext = [&]() -> math::vec2{
+		return glyph_layout_.extent * abs_scale;
+	};
+
+	auto get_layout = [&](){
+		return get_scene().resources().object_pool.acquire<typesetting::layout_context>();
+	};
 
     if(is_scrollable_mode()) {
         // dyn 模式下不受边界约束，XY无限排版（不自动换行）
@@ -113,7 +117,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
 
     	if(is_layout_expired_()){
     		layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2);
-    		layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+    		get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
     		render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
     		change_mark_ = text_edit_change_type::none;
 
@@ -135,7 +139,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
             if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
                 ((change_mark_ & text_edit_change_type::config) != text_edit_change_type::none) || ((change_mark_ &
                     text_edit_change_type::text) != text_edit_change_type::none)){
-            	layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+            	get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
             	render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
             	change_mark_ = text_edit_change_type::none;
 
@@ -149,7 +153,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
     } else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
         // 原有 fix 逻辑...
         bool is_text_changed = (change_mark_ & text_edit_change_type::text) != text_edit_change_type::none;
-        layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+        get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
         if(!glyph_layout_.is_exhausted && is_text_changed){
             tokenized_text_.modify(apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw,
                 [&](std::u32string& text) -> bool{
@@ -158,7 +162,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
                     return true;
                 });
             set_input_invalid();
-            layout_context.layout(tokenized_text_, layout_config_, glyph_layout_);
+            get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
         }
         render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
         change_mark_ = text_edit_change_type::none;

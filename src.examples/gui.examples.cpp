@@ -341,7 +341,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 	make_styles(scene);
 	set_cursors(scene);
 
-	scene.resources().pass_config = {
+	scene.pass_config = {
 			{
 				fx::scene_render_pass_config::value_type{
 					.begin_config = {

@@ -3,6 +3,10 @@ module;
 #include <cassert>
 #define UI_MAIN_THREAD_ONLY
 
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#include <plf_hive.h>
+#endif
+
 export module mo_yanxi.gui.infrastructure:scene;
 
 import :defines;
@@ -11,6 +15,7 @@ import :tooltip_manager;
 import :dialog_manager;
 import :cursor;
 import :elem_async_task;
+import :object_pool;
 import std;
 import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.handle_wrapper;
@@ -31,6 +36,10 @@ export import mo_yanxi.react_flow;
 
 import mo_yanxi.allocator_aware_unique_ptr;
 import mo_yanxi.flat_set;
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <plf_hive.h>;
+#endif
 
 namespace mo_yanxi::gui{
 
@@ -258,9 +267,10 @@ private:
 	style::style_manager init_style_manager_() const;
 
 public:
+	any_pool<false, mr::unvs_allocator<std::byte>> object_pool{};
+
 	style::style_manager style_manager{};
 	cursor_collection cursor_collection_manager{};
-	fx::scene_render_pass_config pass_config{};
 
 	[[nodiscard]] scene_resources() = default;
 
@@ -506,19 +516,10 @@ public:
 	}
 };
 
+
 }
 
-// struct scene_forkable_required_fields{
-// protected:
-// 	scene_resources* resources_{};
-// 	rect region_{};
-// 	std::thread::id ui_main_thread_id{std::this_thread::get_id()};
-//
-// public:
-// 	[[nodiscard]] scene_forkable_required_fields(scene_resources* resources)
-// 		: resources_(resources){
-// 	}
-// };
+
 
 struct scene_base{
 	friend elem;
@@ -595,6 +596,7 @@ public:
 		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
 			mr::heap_allocator<native_communicator>{get_heap()}, std::forward<Args>(args)...);
 	}
+
 
 	[[nodiscard]] unsigned long long get_current_frame() const noexcept{
 		return current_frame_;
@@ -789,45 +791,50 @@ private:
 		action_queue_.push(e);
 	}
 
-	void update(double delta_in_tick);
-
-	void draw_at(const elem& elem);
-
-	void draw(rect clip);
-
-	void draw(){
-		draw(region_);
-	}
 
 #pragma region Events
+
 public:
 	void update_cursor_type();
 
 private:
+	void update(double delta_in_tick);
+
 	void update_mouse_state(input_handle::key_set k){
+		assert(is_on_scene_thread(*this));
 		input_handler_.update_mouse_state(k);
 		update_cursor_type();
 	}
 
 	void on_cursor_move(math::vec2 pos){
+		assert(is_on_scene_thread(*this));
 		input_handler_.inputs_.cursor_move_inform(pos);
 		input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
 	}
 
 	void on_mouse_input(const input_handle::key_set key){
+		assert(is_on_scene_thread(*this));
 		input_handler_.inputs_.inform(key);
 		update_mouse_state(key);
 	}
 
 	void on_unicode_input(char32_t val) const{
+		assert(is_on_scene_thread(*this));
 		input_handler_.on_unicode_input(val);
 	}
 
 	void on_scroll(const math::vec2 scroll) const{
+		assert(is_on_scene_thread(*this));
 		input_handler_.on_scroll(scroll);
 	}
 
+	void on_inbound_changed(bool inbounded){
+		assert(is_on_scene_thread(*this));
+		input_handler_.input_inbound(inbounded);
+	}
+
 	void on_key_input(input_handle::key_set key){
+		assert(is_on_scene_thread(*this));
 		switch(input_handler_.on_key_input(key)){
 		case scene_submodule::input_key_result::none : break;
 		case scene_submodule::input_key_result::esc_required : on_esc();
@@ -835,8 +842,8 @@ private:
 		default : break;
 		}
 	}
-public:
 
+public:
 	events::op_afterwards on_esc();
 
 	void request_cursor_update() noexcept{
@@ -880,7 +887,23 @@ public:
 	scene& operator=(const scene& other) = delete;
 	scene& operator=(scene&& other) noexcept = delete;
 
+protected:
+	virtual void draw_impl(rect clip);
+
 public:
+	virtual ~scene() = default;
+
+	fx::scene_render_pass_config pass_config{};
+
+	void draw_at(const elem& elem);
+
+	void draw(){
+		draw_impl(get_region());
+	}
+
+	void draw(rect region){
+		draw_impl(region);
+	}
 
 	template <std::derived_from<elem> T, typename ...Args>
 	[[nodiscard]] elem_ptr create(Args&& ...args){

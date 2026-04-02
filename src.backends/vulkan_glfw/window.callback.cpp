@@ -103,30 +103,38 @@ mo_yanxi::math::vec2 CalculateWindowPPI(GLFWwindow* window) {
 }
 
 void charInputCallback(glfw::Wptr window, unsigned codepoint){
-	mo_yanxi::gui::global::manager.input_unicode(codepoint);
+	// mo_yanxi::gui::global::manager.input_unicode(codepoint);
+	mo_yanxi::gui::global::event_queue.push_u32(codepoint);
 }
 
 void mouseBottomCallBack(glfw::Wptr window, const int button, const int action, const int mods){
 	using namespace mo_yanxi::input_handle;
-	mo_yanxi::gui::global::manager.input_mouse(key_set{static_cast<std::uint16_t>(button), static_cast<act>(action), static_cast<mode>(mods)});
+	// mo_yanxi::gui::global::manager.input_mouse(key_set{static_cast<std::uint16_t>(button), static_cast<act>(action), static_cast<mode>(mods)});
+	mo_yanxi::gui::global::event_queue.push_mouse(key_set{static_cast<std::uint16_t>(button), static_cast<act>(action), static_cast<mode>(mods)});
 }
 
 void cursorPosCallback(glfw::Wptr window, const double xPos, const double yPos){
-	mo_yanxi::gui::global::manager.cursor_pos_update(xPos, yPos);
+	// mo_yanxi::gui::global::manager.cursor_pos_update(xPos, yPos);
+	mo_yanxi::gui::global::event_queue.push_cursor_move(mo_yanxi::math::vector2{xPos, yPos}.as<float>());
 }
 
 void cursorEnteredCallback(glfw::Wptr window, const int entered){
-	mo_yanxi::gui::global::manager.input_inbound(entered);
+	// mo_yanxi::gui::global::manager.input_inbound(entered);
+	mo_yanxi::gui::global::event_queue.push_cursor_inbound(entered);
 }
 
 void scrollCallback(glfw::Wptr window, const double xOffset, const double yOffset){
-	mo_yanxi::gui::global::manager.scroll_update(xOffset, yOffset);
+	// mo_yanxi::gui::global::manager.scroll_update(xOffset, yOffset);
+	mo_yanxi::gui::global::event_queue.push_scroll(mo_yanxi::math::vector2{xOffset, yOffset}.as<float>());
 }
 
 void keyCallback(glfw::Wptr window, const int key, const int scanCode, const int action, const int mods){
 	if(key >= 0 && key < GLFW_KEY_LAST){
 		using namespace mo_yanxi::input_handle;
-		mo_yanxi::gui::global::manager.input_key(key_set{
+		// mo_yanxi::gui::global::manager.input_key(key_set{
+		// 		static_cast<std::uint16_t>(key), static_cast<act>(action), static_cast<mode>(mods)
+		// 	});
+		mo_yanxi::gui::global::event_queue.push_key(key_set{
 				static_cast<std::uint16_t>(key), static_cast<act>(action), static_cast<mode>(mods)
 			});
 	}

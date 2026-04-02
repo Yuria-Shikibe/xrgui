@@ -82,7 +82,9 @@ void app_run(
 		ctx.window().poll_events();
 		timer.fetch_time();
 
-		gui::global::manager.update(timer.global_delta_tick());
+		gui::global::consume_current_input();
+		gui::global::event_queue.push_frame_split(timer.global_delta());
+		// gui::global::manager.update(timer.global_delta_tick());
 		gui::global::manager.layout();
 
 
@@ -441,77 +443,15 @@ void app_run(
 	}
 }
 
-// 定义 Unicode 区块结构体
-struct UnicodeRange{
-	char32_t start;
-	char32_t end;
-	std::uint32_t weight; // 权重，通常等于该区块包含的字符数量
-};
-
-std::u32string generateRandomU32String(std::size_t length){
-	// 预定义一些绝对可渲染的 Unicode 常见区块
-	// 你可以根据需求自由增删这些区块
-	std::vector<UnicodeRange> ranges = {
-			{0x0020, 0x007E, 0x007E - 0x0020 + 1}, // 基础拉丁字母 (可打印 ASCII)
-			{0x4E00, 0x9FFF, 0x9FFF - 0x4E00 + 1}, // CJK 统一表意文字 (常用汉字)
-			{0x3040, 0x309F, 0x309F - 0x3040 + 1}, // 日文平假名
-			{0x1F600, 0x1F64F, 0x1F64F - 0x1F600 + 1} // 常见 Emoji 表情符号
-		};
-
-	std::random_device rd;
-	auto i = rd();
-
-	std::mt19937 gen(i);
-
-	// 提取权重，用于离散分布 (确保字符多的区块被选中的概率更大)
-	std::vector<std::uint32_t> weights;
-	for(const auto& r : ranges){
-		weights.push_back(r.weight);
-	}
-	std::discrete_distribution<std::size_t> rangeDist(weights.begin(), weights.end());
-
-	std::u32string result;
-	result.reserve(length);
-
-	for(std::size_t i = 0; i < length; ++i){
-		// 1. 根据权重随机选择一个字符区块
-		std::size_t rangeIndex = rangeDist(gen);
-		const auto& selectedRange = ranges[rangeIndex];
-
-		// 2. 在选定的区块内进行均匀随机分布
-		std::uniform_int_distribution<std::uint32_t> charDist(
-			static_cast<std::uint32_t>(selectedRange.start),
-			static_cast<std::uint32_t>(selectedRange.end)
-		);
-
-		// 3. 将生成的随机码位转换为 char32_t 并存入字符串
-		result.push_back(static_cast<char32_t>(charDist(gen)));
-	}
-
-	return result;
-}
-
-void prepare(){
-	const auto shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
-	constexpr VkApplicationInfo ApplicationInfo{
-			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-			.pApplicationName = "Hello Xrgui",
-			.applicationVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
-			.pEngineName = "No Engine",
-			.engineVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
-			.apiVersion = VK_API_VERSION_1_3,
-		};
-
+void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
+	const auto shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
+
+	vk::register_default_requirements(ctx.get_device(), ctx.get_physical_device());
 	gui::global::initialize();
 	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
-
-	backend::vulkan::context ctx{ApplicationInfo};
-	vk::register_default_requirements(ctx.get_device(), ctx.get_physical_device());
-
-	vk::load_ext(ctx.get_instance());
 
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 	auto renderer = [&]() -> backend::vulkan::renderer{
@@ -640,22 +580,6 @@ void prepare(){
 			};
 	}();
 
-
-	{
-		//
-		// vk::shader_module bindless_shader_mesh{ctx.get_device(), shader_spv_path / "ui.draw_bindless.glsl.spv"};
-		// vk::shader_module bindless_shader_frag{ctx.get_device(), shader_spv_path / "ui.frag.spv"};
-
-		// vk::graphic_pipeline_template template_{};
-		// template_.set_shaders({bindless_shader_mesh.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT), bindless_shader_frag.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT)});
-		// template_.push_color_attachment_format(VK_FORMAT_R8G8B8A8_UNORM);
-		// template_.push_color_attachment_blend_state(vk::blending::scaled_alpha_blend);
-		// vk::pipeline pipeline{ctx.get_device(), 0, VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT, template_};
-		//
-		// renderer._temp_pipeline = std::move(pipeline);
-	}
-
-
 #pragma region LoadResource
 	image_atlas image_atlas{
 			ctx,
@@ -691,8 +615,6 @@ void prepare(){
 		font_manager.set_default_family(&default_family2);
 
 		font::default_font_manager = &font_manager;
-		gui::direct_label::layout_context = decltype(gui::direct_label::layout_context){font_manager};
-		gui::text_edit::layout_context = decltype(gui::text_edit::layout_context){font_manager};
 	}
 
 	{
@@ -705,7 +627,7 @@ void prepare(){
 
 	auto& ui_root = gui::global::manager;
 	auto& res = ui_root.add_scene_resources("main");
-	const auto scene_add_rst = ui_root.add_scene<gui::loose_group>("main", res, true, renderer.create_frontend());
+	const auto scene_add_rst = ui_root.add_scene<gui::scene, gui::loose_group>("main", res, true, renderer.create_frontend());
 	scene_add_rst.scene.ui_main_thread_id = std::this_thread::get_id();
 	scene_add_rst.root_group.on_context_sync_bind();
 
@@ -956,25 +878,13 @@ Edge Cases:
 
 	typesetting::tokenized_text text{test_text};
 	typesetting::segmented_layout_manager seg{text};
-	// typesetting::layout_context layout_ctx{std::in_place};
 
-	// std::vector<typesetting::glyph_layout> glyph_layouts(400);
-	// for (auto & glyph_layout : glyph_layouts){
-	// 	typesetting::tokenized_text text{generateRandomU32String(256)};
-	// 	layout_ctx.layout(text, {}, glyph_layout);
-	// 	// DoNotOptimize(rst);
-	// }
 	app_run(ctx, renderer, manager, post_process_cmd);
 
 	gui::assets::dispose_generated_shapes();
 	gui::global::terminate_assets_manager();
 	gui::global::terminate();
 
-
-	gui::direct_label::layout_context = decltype(gui::direct_label::layout_context){};
-	gui::text_edit::layout_context = decltype(gui::text_edit::layout_context){};
-
-	ctx.window().poll_events();
 	image_atlas.request_stop();
 	ctx.wait_on_device();
 }
@@ -999,45 +909,24 @@ int main(){
 
 	typesetting::rich_text_look_up_table table;
 	typesetting::look_up_table = &table;
-	prepare();
+
+	constexpr VkApplicationInfo ApplicationInfo{
+		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+		.pApplicationName = "Hello Xrgui",
+		.applicationVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
+		.pEngineName = "No Engine",
+		.engineVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
+		.apiVersion = VK_API_VERSION_1_3,
+	};
+
+	{
+		backend::vulkan::context ctx{ApplicationInfo};
+		vk::load_ext(ctx.get_instance());
+
+		prepare(ctx);
+	}
 
 	backend::glfw::terminate();
 	font::terminate();
 	platform::terminate();
-
-	// 	constexpr auto sv = UR"(
-	// # 核心功能测试集
-	//
-	// 这是一段包含多元素的常规段落。这里有*斜体测试*，以及**加粗测试**。为了测试行内元素的解析与位置记录，这里提供一个包含内部代码的链接：[访问 `std::uint32_t` 文档](https://cppreference.com)，以及一张带有加粗替换文本的图片：![一张**可爱**的猫咪](https://example.com/cat.jpg)。
-	//
-	// ### 嵌套测试：标题中包含 **加粗** 和 `inline code`
-	//
-	// 下面是一个 C++ 代码块的解析测试，请注意检查前后空行和语言标签的提取：
-	//
-	// ```cpp
-	// import std;
-	// int main() {
-	//     std::vector<std::uint32_t> vec;
-	//     return 0;
-	// }
-	// ```
-	//
-	//
-	// | 基础文本 | 样式测试 | 媒体与链接测试 |
-	// |---|---|---|
-	// | 单元格 A1 | **加粗的 A2** 和 *斜体* | [带样式的**链接**](http://link.com) |
-	// | 行内 `code` | 普通文本 B2 |  |
-	// | C1 | C2 | C3 结尾 |
-	//
-	//
-	//
-	// **💡 测试关注点提示：**
-	// 1. **嵌套解析**：检查 `[带样式的**链接**](http://link.com)` 是否正确生成了 `link` 节点，并且它的 `children` 中是否包含了一个 `strong_emphasis` 节点。
-	// 2. **位置偏移 (`start_pos`)**：检查表格第二个数据行第三列的 `![嵌套图片](img.png)`，它的 `start_pos` 是否与输入字符串的实际下标完全一致。
-	// 3. **未实现提示**：你在 AST 中定义了 `list` (列表) 和 `thematic_break` (分割线) 节点，但目前提供的解析器代码逻辑中还没有针对它们的提取分支，因此测试用例中暂时省略了这两个元素（如果包含它们，目前会被回退解析为普通段落）。
-	//
-	// )";
-	// 	auto rst = gui::md::markdown_parser{sv}.parse();
-	//
-	// 	std::println("{}", gui::md::ast_printer{}.print(rst));
 }

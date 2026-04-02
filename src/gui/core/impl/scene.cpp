@@ -372,6 +372,8 @@ void scene_base::resize(const math::frect region){
 }
 
 void scene_base::update(double delta_in_tick){
+	assert(is_on_scene_thread(*this));
+
 	react_flow_->update();
 	async_task_queue_.process_done();
 	instant_task_queue_.consume();
@@ -397,11 +399,11 @@ void scene_base::update(double delta_in_tick){
 	current_frame_++;
 }
 
-void scene_base::draw_at(const elem& elem){
+void scene::draw_at(const elem& elem){
 	auto c = get_region().intersection_with(elem.bound_abs());
 	const auto bound = c.round<int>();
 
-	auto& cfg = resources_->pass_config;
+	auto& cfg = pass_config;
 
 	for(unsigned i = 0; i < cfg.size(); ++i){
 		renderer().update_state(cfg[i].begin_config);
@@ -426,12 +428,12 @@ void scene_base::draw_at(const elem& elem){
 		});
 }
 
-void scene_base::draw(rect clip){
+void scene::draw_impl(rect clip){
 	renderer().init_projection();
 
 
 	{
-		viewport_guard _{renderer(), region_};
+		viewport_guard _{renderer(), get_region()};
 
 		auto draw_elem = [&](const elem& e, rect region){
 			draw_at(e);
