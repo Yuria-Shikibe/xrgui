@@ -16,6 +16,26 @@ import mo_yanxi.vk.util;
 import mo_yanxi.type_register; // For user_data_index_table
 import std;
 
+namespace mo_yanxi::graphic::draw::instruction {
+
+// 严格对应 Slang 中的 vertex_resolve_info，16 Bytes 布局
+struct alignas(16) vertex_resolve_info {
+	std::uint32_t packed_type_timeline; // [15:0]: instr_type, [31:16]: relative_timeline
+	std::uint32_t payload_offset;       // 绝对 Payload 偏移
+	std::uint32_t packed_skips;         // [15:0]: vtx_skip, [31:16]: prm_skip (0xFFFF 为哨兵)
+	std::uint32_t payload_size;         // 该指令的真实 Payload 尺寸
+};
+
+// 严格对应 Slang 中的 mesh_dispatch_info_v3
+struct alignas(16) mesh_dispatch_info_v3 {
+	std::uint32_t global_vertex_offset;
+	std::uint32_t primitives;
+	std::uint32_t base_timeline_index;
+	std::uint32_t cap;
+};
+
+} // namespace mo_yanxi::graphic::draw::instruction
+
 namespace mo_yanxi::graphic::draw::instruction{
 /**
  * @brief info per contiguous mesh dispatch
@@ -483,6 +503,12 @@ struct frame_resource{
 	}
 };
 
+struct instruction_resolve_info{
+	std::vector<std::uint32_t> timelines;
+	std::vector<vertex_resolve_info> thread_resolve_info;
+	std::vector<mesh_dispatch_info_v3> group_dispatch_info;
+};
+
 export class batch_vulkan_executor{
 private:
 	vk::allocator_usage allocator_{};
@@ -492,6 +518,7 @@ private:
 
 	data_layout_spec volatile_data_layout_{};
 	std::vector<std::uint32_t> cached_state_timelines_{};
+	instruction_resolve_info cached_instruction_resolve_info_{};
 
 	/**
 	 * @brief Descriptor maintain the same during all the mesh dispatch.
@@ -547,6 +574,157 @@ public:
 		}
 	}
 
+	void templ_to_mapper(draw_list_context& host_ctx){
+		const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
+
+		std::uint32_t current_global_vertex_base = 0;
+		constexpr std::uint32_t VERTEX_PER_MESH_LIMIT = 64;
+
+		// 动态获取 N (Timeline 的槽位数量)
+		const std::uint32_t num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().
+			size());
+
+		auto& cpu_timelines = cached_instruction_resolve_info_.timelines;
+		auto& cpu_resolve_infos = cached_instruction_resolve_info_.thread_resolve_info;
+		auto& cpu_dispatch_infos = cached_instruction_resolve_info_.group_dispatch_info;
+		cpu_timelines.clear();
+		cpu_resolve_infos.clear();
+		cpu_dispatch_infos.clear();
+
+		std::vector<std::uint32_t> current_timeline_state(num_timeline_slots, 0);
+
+		// 压入 relative_timeline == 0 的初始状态 (安全判断防崩溃)
+		if(num_timeline_slots > 0){
+			cpu_timelines.append_range(current_timeline_state);
+		}
+
+		// 遍历所有的连续提交组
+		for(const auto& group : submit_group_subrange){
+			const auto dispatches = group.get_dispatch_infos();
+			const auto heads = group.get_instruction_heads();
+
+			for(std::size_t i = 0; i < dispatches.size(); ++i){
+				const auto& dispatch_info = dispatches[i];
+
+				// 构建 V3 版 Group Dispatch 信息
+				mesh_dispatch_info_v3 v3_info{};
+				v3_info.global_vertex_offset = current_global_vertex_base;
+				v3_info.primitives = dispatch_info.primitive_count;
+
+				// base_timeline_index 是在 N 的跨度上的索引，因此除以 N
+				if(num_timeline_slots > 0){
+					v3_info.base_timeline_index = static_cast<std::uint32_t>(cpu_timelines.size()) / num_timeline_slots
+						- 1;
+				} else{
+					v3_info.base_timeline_index = 0;
+				}
+
+				const std::uint32_t end_head_idx = (i + 1 < dispatches.size())
+					                                   ? dispatches[i + 1].instruction_head_index
+					                                   : static_cast<std::uint32_t>(heads.size());
+
+				cpu_dispatch_infos.push_back(v3_info);
+
+				const std::uint32_t patch_til_index = dispatch_info.vertex_offset ? 2 : 0;
+
+				// --- 核心优化：将状态游标提取到 target_index 循环外侧 ---
+				std::uint32_t skipped_vertices = 0;
+				std::int32_t skipped_primitives = -static_cast<std::int32_t>(dispatch_info.primitive_offset);
+				std::uint32_t ptr_to_payload = dispatch_info.instruction_offset;
+				std::uint32_t idx_to_head = dispatch_info.instruction_head_index;
+				std::uint32_t relative_timeline = 0; // 局部时间线游标
+
+				// 生成 64 个顶点的确定性映射信息
+				for(std::uint32_t target_index = 0; target_index < VERTEX_PER_MESH_LIMIT; ++target_index){
+					std::uint32_t thread_vtx_skip = target_index + dispatch_info.vertex_offset;
+
+					vertex_resolve_info resolve_res{};
+					resolve_res.packed_type_timeline = 0;
+					resolve_res.payload_offset = 0;
+					resolve_res.packed_skips = 0xFFFF0000; // 哨兵：0xFFFF 代表无图元
+					resolve_res.payload_size = 0;
+
+					bool is_found = false;
+
+					while(idx_to_head < end_head_idx){
+						const auto& head = heads[idx_to_head];
+
+						// 1. 同步处理 Timeline 的推演
+						if(head.type == instr_type::uniform_update){
+							if(num_timeline_slots > 0){
+								const std::uint32_t slot_idx = head.payload.marching_data.index;
+								current_timeline_state[slot_idx]++;
+								cpu_timelines.append_range(current_timeline_state);
+							}
+							relative_timeline++;
+							idx_to_head++;
+							continue;
+						}
+
+						if(skipped_primitives >= static_cast<std::int32_t>(dispatch_info.primitive_count)){
+							break; // 越界，当前 target_index 填入 0xFFFF 哨兵即可
+						}
+
+						const std::uint32_t head_vtx_count = head.payload.draw.vertex_count;
+						const std::uint32_t local_skip = thread_vtx_skip - skipped_vertices;
+
+						if(local_skip < head_vtx_count){
+							is_found = true;
+							break; // 找到了当前 target_index 所属的指令，中断 while 但**不推进** idx_to_head
+						}
+
+						// 没找到，说明跨过了这条指令，向前推进游标
+						ptr_to_payload += head.payload_size;
+						skipped_vertices += head_vtx_count;
+						skipped_primitives += head.payload.draw.primitive_count;
+						idx_to_head++;
+					}
+
+					// 若顺利找到，则计算最终的 skips 并压入结果
+					if(is_found){
+						const auto& head = heads[idx_to_head];
+						const std::uint32_t local_skip = thread_vtx_skip - skipped_vertices;
+
+						std::uint32_t idc_idx = 0xFFFF; // 默认 0xFFFF 为不生成图元的哨兵
+
+						// 严格校验图元生成条件：
+						// 1. target_index >= patch_til_index: 避开跨组缝合顶点
+						// 2. local_skip >= 2: 当前指令必须积累足够顶点以组成基础图元
+						if(target_index >= patch_til_index && local_skip >= 2){
+							idc_idx = static_cast<std::uint32_t>(skipped_primitives) + local_skip - 2;
+						}
+
+						resolve_res.packed_type_timeline = static_cast<std::uint32_t>(head.type) | (relative_timeline <<
+							16);
+						resolve_res.payload_offset = ptr_to_payload;
+
+						// 彻底移除对 local_skip 的污染，只存入最原生的局部索引
+						resolve_res.packed_skips = (local_skip & 0xFFFF) | (idc_idx << 16);
+						resolve_res.payload_size = head.payload_size;
+					}
+
+					cpu_resolve_infos.push_back(resolve_res);
+				}
+
+				// --- 扫尾阶段：处理剩余未被顶点消耗的 uniform_update 指令 ---
+				// 这是绝对必要的。吸收 Dispatch 尾部到下一组 Dispatch 头部之间的状态跳跃。
+				while(idx_to_head < end_head_idx){
+					const auto& head = heads[idx_to_head];
+					if(head.type == instr_type::uniform_update){
+						if(num_timeline_slots > 0){
+							const std::uint32_t slot_idx = head.payload.marching_data.index;
+							current_timeline_state[slot_idx]++;
+							cpu_timelines.append_range(current_timeline_state);
+						}
+					}
+					idx_to_head++;
+				}
+
+				current_global_vertex_base += VERTEX_PER_MESH_LIMIT;
+			}
+		}
+	}
+
 	void upload(
 		std::uint32_t target_section,
 		vk::resource_descriptor_heap& resource_descriptor_heap,
@@ -555,6 +733,8 @@ public:
 		std::uint32_t frame_index
 	){
 		cached_state_timelines_.clear();
+
+		templ_to_mapper(host_ctx);
 
 		auto& frame = frames_[frame_index];
 		const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
