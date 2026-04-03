@@ -4,7 +4,7 @@ import general_lib;
 import slide_line;
 import sdf;
 
-[[vk::binding(3, 0)]]
+[[vk::binding(4, 0)]]
 uniform Sampler2D textures[];
 
 struct ubo_ui_state {

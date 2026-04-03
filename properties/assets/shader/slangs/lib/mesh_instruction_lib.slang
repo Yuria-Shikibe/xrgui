@@ -65,22 +65,19 @@ struct quad_vert_color{
     }
 };
 
-struct resolve_param
-{
+struct resolve_param {
     uint vtx_idx;
     uint vtx_skip;
-    uint vtx_patch_idx; // should only be 1, 2, or 0 as no patch
+    uint prm_skip; // 现在它代表的是确切的本地图元索引，或是 0xFFFF 哨兵
 
-    int prm_skip;
-
-    [ForceInline]
-    uint get_primitive_index() {
-        return prm_skip + vtx_skip - 2;
+    [[ForceInline]]
+    bool generates_primitive() {
+        return prm_skip != 0xFFFF;
     }
 
     [[ForceInline]]
-    bool isPatch() {
-        return vtx_patch_idx > 0;
+    uint get_primitive_index() {
+        return prm_skip; // 无需再进行任何加减法计算！
     }
 
     [[ForceInline]]
@@ -197,7 +194,7 @@ struct triangle_draw : instr_resolver
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
     {
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -236,7 +233,7 @@ struct quad_draw : instr_resolver
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
     {
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -263,13 +260,12 @@ struct rectangle_draw : instr_resolver
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
     {
-        let isPatch = param.isPatch();
         let idx = param.vtx_skip;// + (isPatch ? param.vtx_patch_idx : 0);
 
         let rotX = get_dir_vec2(angle) * scale * .5f;
         let rotY = rotate_rt_counter_clockwise(rotX);
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -310,7 +306,7 @@ struct rectangle_ortho : instr_resolver {
         OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
         OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, 
     ) {
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             var pmt = Primitive(generic, param);
             pmt.sdf_expand = sdf_expand;
@@ -375,7 +371,7 @@ struct line : instr_resolver{
         // 向量化偏移计算：方向向量与法线向量的线性组合
         let offset = dir * sign_dir + normal * sign_norm;
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -455,7 +451,7 @@ struct line_draw
 
         let vert_nor = calculate_vert_nor(nodeL.pos, nodeC.pos, nodeR.pos);
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -486,7 +482,7 @@ struct line_draw
         let nodeR = line_node_at((i + 1) % mod, instruction, payload_begin);
         let vert_nor = calculate_vert_nor(nodeL.pos, nodeC.pos, nodeR.pos);
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -531,7 +527,7 @@ struct circle_fill_draw : instr_resolver
         let direction = get_dir_vec2(angle);
         let r = radius[param.vtx_skip];
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -587,7 +583,7 @@ struct partial_circle_fill_draw : instr_resolver
         let colorDst = color_dst[param.vtx_skip];
         let color = lerp(colorSrc, colorDst, float(i) / float(segments));
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -652,9 +648,8 @@ struct constrained_curve : instr_resolver{
         let pos = mul(facVec, constrain_vector);
 
         let normal = normalize(mul(velFacVec, constrain_vector)).rotate_rt_counter_clockwise();
-        
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -695,7 +690,7 @@ struct rectangle_ortho_outline : instr_resolver{
         let sgn = sign_at(i);
         let off = select(bool(param.vtx_skip & 1), -.5, .5f) * strokes[i];
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -781,7 +776,7 @@ struct row_patch : instr_resolver {
         let colorMinor2 = select(bool(cur_coord.y), color.c11, color.c10);
         let c = lerp(colorMinor1, colorMinor2, mixMajor);
 
-        if (param.vtx_skip > 1) {
+        if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             primits[idc_idx] = Primitive(generic, param);
             indices[idc_idx] = param.getTrivialIndicies();
@@ -855,74 +850,67 @@ public interface vertex_transformer_2<T, uint N> {
     [[mutating]] void set_timeline(uint32_t[N] value);
 }
 
-public struct mesh_dispatch_info_v2<uint n>
-{
-    public uint instruction_head_index;
-    public uint instruction_offset;
-    public uint vertex_offset;
-    public uint primit_offset;
-    public uint primitives;
+// 2. 核心 16-Byte 打包结构
+public struct vertex_resolve_info {
+    uint packed_type_timeline; // [15:0]: instruction_type, [31:16]: relative_timeline_index
+    uint payload_offset;       // 绝对 Payload 偏移
+    uint packed_skips;         // [15:0]: vtx_skip, [31:16]: prm_skip
+    uint payload_size;         // 替代 _pad，用于动态长度指令
 
-    public uint[n] timeline;
-}
+    [ForceInline] instruction_type get_type() { return (instruction_type)(packed_type_timeline & 0xFFFF); }
+    [ForceInline] uint get_relative_timeline() { return packed_type_timeline >> 16; }
+    [ForceInline] uint get_vtx_skip() { return packed_skips & 0xFFFF; }
+    [ForceInline] uint get_prm_skip() { return packed_skips >> 16; }
+};
 
+// 3. 简化 Dispatch Info
+public struct mesh_dispatch_info_v3 {
+    uint global_vertex_offset;
+    uint primitives;
+    uint base_timeline_index;
+    uint cap;
+};
 
+// 4. O(1) 解析主循环
 [ForceInline]
-public uint resolve_instruction_v2<T, uint n, L : IBufferDataLayout>(
+public uint resolve_instruction_v3<T, uint n>(
     const uint threadId,
-    const in mesh_dispatch_info_v2<n> mesh_subrange,
-
-    const in StructuredBuffer<instruction_head, L> instruction_heads,
+    const in mesh_dispatch_info_v3 mesh_subrange,
+    const in StructuredBuffer<vertex_resolve_info> resolve_infos,
+    const in StructuredBuffer<uint[n]> timelines,
     const in ByteAddressBuffer instruction,
-    in vertex_transformer_2<T, n> transformer,
 
+    in vertex_transformer_2<T, n> transformer,
+    
     OutputVertices<T, VERTEX_PER_MESH> verts: __ref,
     OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> prims: __ref,
     OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices: __ref
 ) {
-    let patch_til_index = bool(mesh_subrange.vertex_offset) * 2;
-
-    uint skipped_vertices = 0;
-    int skipped_primitives = -int(mesh_subrange.primit_offset);
-    var ptr_to_payload = mesh_subrange.instruction_offset;
-    var idx_to_head = mesh_subrange.instruction_head_index;
-
-    transformer.set_timeline(mesh_subrange.timeline);
+    let global_vtx_base = mesh_subrange.global_vertex_offset;
 
     [ForceUnroll]
-    outer: for (int i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
-        let target_index = select(i == 1, (VERTEX_PER_MESH - threadId - 1), threadId);
-        let thread_vtx_skip = target_index + mesh_subrange.vertex_offset;
+    for (uint i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
+        let target_index = threadId * (VERTEX_PER_MESH / GROUP_COUNT) + i;
 
-        while (true) {
-            let head = instruction_heads[idx_to_head];
+        let info = resolve_infos[global_vtx_base + target_index];
+        let type = info.get_type();
 
-            if (head.type == instruction_type::uniform_update) {
-                transformer(head.vertex_count);
-                ++idx_to_head;
-                continue;
-            }
+        if (type == instruction_type::noop) continue;
 
-            if (skipped_primitives >= int(mesh_subrange.primitives)) break outer;
+        let absolute_timeline_idx = mesh_subrange.base_timeline_index + info.get_relative_timeline();
+        transformer.set_timeline(timelines[absolute_timeline_idx]);
 
-            let local_skip = thread_vtx_skip - skipped_vertices;
-            if (local_skip < head.vertex_count) {
+        instruction_head dummy_head;
+        dummy_head.type = type;
+        dummy_head.size = info.payload_size;
 
-                let patch_index = patch_til_index > target_index ? patch_til_index - target_index : 0;
-                var vtx = push_vertex(
-                    head, instruction, ptr_to_payload,
-                    resolve_param(target_index, local_skip, patch_index, skipped_primitives),
-                    prims, indices);
+        var vtx = push_vertex(
+            dummy_head, instruction, info.payload_offset,
+            resolve_param(target_index, info.get_vtx_skip(), info.get_prm_skip()),
+            prims, indices
+        );
 
-                verts[target_index] = transformer(vtx);
-                break;
-            }
-
-            ptr_to_payload += head.size;
-            skipped_vertices += head.vertex_count;
-            skipped_primitives += head.primit_count;
-            ++idx_to_head;
-        }
+        verts[target_index] = transformer(vtx);
     }
 
     return mesh_subrange.primitives;
