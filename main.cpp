@@ -459,6 +459,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		vk::shader_module shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.frag_basic.spv"};
 		vk::shader_module shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.frag_outlined.spv"};
 
+		vk::shader_module shader_draw_frag_coord{ctx.get_device(), shader_spv_path / "ui.frag_coord_draw.spv"};
+
 		vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
 		vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
 		vk::shader_module shader_inverse{ctx.get_device(), shader_spv_path / "ui.inverse.spv"};
@@ -489,6 +491,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 					},
 					.draw_pipe_config = graphic_pipeline_create_config{
 						{
+							//basic draw
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
@@ -502,11 +505,26 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									}
 								}
 							},
+							//outline sdf
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
 									shader_draw_vert.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
 									shader_draw_frag_outlined.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+								},
+								graphic_pipeline_option{
+									false, {0b1},
+									{
+										{vk::blending::scaled_alpha_blend}
+									}
+								}
+							},
+							//coordiante draw
+							graphic_pipeline_create_config::config{
+								{},
+								{
+									shader_draw_frag_coord.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
+									shader_draw_frag_coord.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, {0b1},
@@ -886,6 +904,7 @@ Edge Cases:
 	gui::global::terminate();
 
 	image_atlas.request_stop();
+	image_atlas.wait_load();
 	ctx.wait_on_device();
 }
 

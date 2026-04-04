@@ -66,6 +66,10 @@ import mo_yanxi.gui.assets.manager;
 import mo_yanxi.backend.communicator;
 import mo_yanxi.backend.vulkan.context;
 
+import celestial_display;
+import mo_yanxi.graphic.trail;
+import mo_yanxi.math.rand;
+
 
 namespace mo_yanxi::gui::example{
 
@@ -196,8 +200,200 @@ struct csv_file_reader : head_body{
 };
 
 struct vp : gui::viewport{
+	std::vector<math::vec2> curve_points;
+
+	celestial::planetary_system system;
+	std::vector<simulation_data::body_info> body_infos;
+
 	[[nodiscard]] vp(scene& scene, elem* parent)
 		: viewport(scene, parent){
+		auto gen = [](float cx, float cy, float a, float b) -> std::vector<math::vec2>{
+			// 使用 8 个控制点来近似
+			// 为了让三次 B 样条闭合，通常需要将前 3 个点重复添加到末尾
+			std::vector<math::vec2> points = {};
+			for(int i = 0; i < 12; ++i){
+				float angle = i * (360.0f / 12.0f) * (std::numbers::pi_v<float> / 180.0f);
+
+				points.push_back({
+						cx + a * std::cos(angle),
+						cy + b * std::sin(angle)
+					});
+			}
+			return points;
+		};
+
+		curve_points = gen(100, 200, 400, 300);
+		body_infos = simulation_data::populate_solar_system(system);
+	}
+
+	bool update(float delta_in_ticks) override{
+		if(viewport::update(delta_in_ticks)){
+			system.update(get_scene().get_current_time());
+			return true;
+		}
+		return false;
+	}
+
+	void draw_system() const{
+		const auto& states = system.get_states();
+		const auto& constants = system.get_constants();
+
+		// 建议：先渲染所有轨迹，再渲染所有星体，这样星体会覆盖在轨迹上方
+
+		// 绘制轨迹
+		for (std::size_t i = 0; i < states.size(); ++i) {
+			const auto& state = states[i];
+			const auto& constant = constants[i];
+
+			struct trail_node_data : graphic::trail::node_type{
+				float idx_scale;
+				graphic::color color;
+
+				[[nodiscard]] float get_width() const noexcept{
+					return idx_scale * scale;
+				}
+			};
+
+			if(state.path_trail.size() >= 2){
+				state.path_trail.iterate(
+					1.f,
+					[&, last = state.path_trail.head_pos_or({})](
+					const graphic::trail::node_type& node, const unsigned idx,
+					const unsigned total) mutable{
+						using namespace graphic;
+						math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
+
+						float factor_global = math::idx_to_factor(idx, math::max(total, 8U));
+						const auto fac = factor_global | math::interp::pow2Out;
+						const auto off = rand.range(1.f) * fac * math::curve(
+							factor_global, .05f, .5f);
+						const auto tan = (node.pos - last).rotate_rt_counter_clockwise() * off;
+
+						last = node.pos;
+						auto n = node;
+						n.pos += tan;
+						const auto color = math::lerp(constant.hdr_color * 1.5f, constant.hdr_color.to_light(0.5f).set_a(.0f), factor_global);
+
+						factor_global = math::curve(
+							factor_global | math::interp::interp_func{
+								math::interp::spec::concave_curve_fixed{.1f}
+							} |
+							math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)),
+							1.f);
+
+						return trail_node_data{n, factor_global, color};
+					}, [&](std::span<const trail_node_data, 4> sspn){
+						using namespace graphic;
+						using namespace graphic::draw;
+
+						const auto appr = sspn[1].pos - sspn[2].pos;
+						const auto apprLen = appr.length();
+						const auto seg = math::clamp(
+							static_cast<unsigned>(apprLen / 16.f), 4U, 12U);
+
+						renderer().push(instruction::parametric_curve{
+								.param = instruction::curve_trait_mat::b_spline * (sspn |
+									std::views::transform(
+										&trail_node_data::pos)),
+								.stroke = math::range{
+									sspn[1].get_width(), sspn[2].get_width()
+								} * 8.f,
+								.segments = seg,
+								.color = {
+									sspn[1].color, sspn[1].color, sspn[2].color, sspn[2].color
+								},
+							});
+					});
+
+			}
+		}
+
+		// 绘制星体球形
+		for (std::size_t i = 0; i < states.size(); ++i) {
+			const auto& state = states[i];
+			const auto& constant = constants[i];
+			float render_radius = body_infos[i].render_radius;
+
+			// 调用底层的画圆或画球函数，传入HDR发光颜色
+			fx::circle c{
+				.pos = state.global_position,
+				.radius = {0, render_radius},
+				.color = constant.hdr_color * 1.65f
+			};
+			fx::fringe::poly(renderer(), c);
+		}
+	}
+
+	void draw_geom(){
+		float fringe_s = fx::fringe::fringe_size / camera.get_scale();
+
+		using namespace graphic::draw;
+
+		instruction::poly my_circle{
+				.pos = {100.f, 100.f},
+				.segments = fx::get_smooth_circle_vertex_count(50.f, 1.0f),
+				.radius = {0.f, 50.f}, // 从中心 0.f 到边缘 50.f
+				.color = {graphic::colors::white * 2, graphic::colors::CORAL * 2}
+			};
+
+		// 提交给 fringe 进行边缘抗锯齿绘制
+		// 假设 renderer() 返回 renderer_frontend 的引用
+		fx::fringe::poly(renderer(), my_circle, fringe_s);
+
+		instruction::poly_partial my_arc{
+				.pos = {},
+				.segments = 32U,
+				.range = {0.2f, .5f}, // 0 到 Pi，表示半圆
+				.radius = {120.f, 150.f}, // 内径 40，外径 50 的环形
+				.color = {
+					graphic::colors::pale_green, graphic::colors::pale_green,
+					graphic::colors::red_dusted, graphic::colors::red_dusted,
+				}
+			};
+
+		fx::fringe::poly_partial_with_cap(renderer(), my_arc, fringe_s, fringe_s, fringe_s);
+
+		{
+			state_guard _{renderer(), fx::blend::pma::additive};
+			for(unsigned i = 0; i < curve_points.size(); ++i){
+				fx::fringe::curve(renderer(), {
+					                  .param = instruction::curve_trait_mat::b_spline.apply_to(
+						                  curve_points[i], curve_points[(i + 1) % curve_points.size()],
+						                  curve_points[(i + 2) % curve_points.size()],
+						                  curve_points[(i + 3) % curve_points.size()]),
+					                  .stroke = {12, 12},
+					                  .segments = 6,
+					                  .color = {graphic::colors::aqua.copy_set_a(.52f)}
+				                  });
+			}
+		}
+
+		{
+			using namespace fx;
+			fringe::inplace_line_context<32> ctx;
+
+			// 压入折线的各个节点
+			ctx.push({-2000.f, 100.f}, 25.f, graphic::colors::white);
+			ctx.push({450.f, 600.f}, 50.f, graphic::colors::ENERGY);
+			ctx.push({900.f, -200.f}, 75.f, graphic::colors::FOREST);
+
+			// 为折线首尾添加透明渐变的端点，用于抗锯齿
+			ctx.add_fringe_cap(fringe_s, fringe_s);
+
+			// 准备非闭合折线的指令头
+			instruction::line_segments line_head{};
+
+			// 依次提交主体、内侧边缘、外侧边缘
+			ctx.dump_mid(renderer(), line_head);
+			ctx.dump_fringe_inner(renderer(), line_head, fringe_s);
+			ctx.dump_fringe_outer(renderer(), line_head, fringe_s);
+		}
+
+		renderer() << instruction::rect_aabb{
+				.v00 = {-50, -50},
+				.v11 = {50, 50},
+				.vert_color = {graphic::colors::gray}
+			};
 	}
 
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
@@ -206,20 +402,27 @@ struct vp : gui::viewport{
 		if(param.is_top()){
 			viewport_begin();
 
-			renderer() << graphic::draw::instruction::rect_aabb{
-					.v00 = {-50, -50},
-					.v11 = {50, 50},
+			{
+				renderer().update_state(fx::pipeline_config{
+					.draw_targets = {0b1},
+					.pipeline_index = 2
+				});
+
+				auto region = camera.get_viewport();
+
+				renderer() << graphic::draw::instruction::rect_aabb{
+					.v00 = region.vert_00(),
+					.v11 = region.vert_11(),
 					.vert_color = {graphic::colors::white}
 				};
+				renderer().update_state(fx::pipeline_config{
+									.draw_targets = {0b1},
+									.pipeline_index = 0
+								});
+			}
 
-			auto trans = renderer().top_viewport().get_element_to_root_screen();
+			draw_system();
 
-
-			// renderer() << graphic::draw::instruction::rect_aabb{
-			// 	.v00 = {content_bound_abs().vert_00()},
-			// 	.v11 = {content_bound_abs().vert_11()},
-			// 	.vert_color = {graphic::colors::white}
-			// };
 
 			viewport_end();
 		}
@@ -248,33 +451,41 @@ void make_styles(scene& scene){
 
 
 	{
-		referenced_ptr<style::round_style> round_style{std::in_place};
-		round_style->edge.pal = style::pal::white.border;
-		round_style->edge = assets::builtin::default_round_square_boarder_thin;
-		round_style->back.pal = style::pal::dark;
-		round_style->back = assets::builtin::default_round_square_base;
+		using namespace style;
+		round_style templt{};
+		templt.edge.pal = pal::white.border;
+		templt.edge = assets::builtin::default_round_square_boarder_thin;
+		templt.back.pal = pal::dark;
+		templt.back = assets::builtin::default_round_square_base;
 
-		sm.register_style<style::elem_style_drawer>(round_style);
+		auto [itr, suc] = sm.register_style<elem_style_drawer>(referenced_ptr<round_style>{std::in_place, templt});
+		auto& default_family = itr->second.get_default();
+
+		{
+			auto gst = templt;
+			gst.edge.pal.set_cursor_ignored();
+			gst.back.pal.set_cursor_ignored();
+			default_family.set(family_variant::general_static, referenced_ptr<round_style>{std::in_place, gst});
+		}
+
+		{
+			referenced_ptr<round_style_base_only> round_style{std::in_place};
+			round_style->boarder.set(4);
+			round_style->base = templt.base;
+			round_style->back = templt.back;
+
+			default_family.set(family_variant::base_only, std::move(round_style));
+		}
+
+		{
+			referenced_ptr<round_style_edge_only> round_style{std::in_place};
+			round_style->edge = templt.edge;
+
+			default_family.set(family_variant::edge_only, std::move(round_style));
+		}
 	}
 
 	auto elem_slice = sm.get_slice<style::elem_style_drawer>().value();
-
-	{
-		referenced_ptr<style::round_style_no_edge> round_style{std::in_place};
-		round_style->boarder.set(4);
-		round_style->back.pal = style::pal::dark;
-		round_style->back = assets::builtin::default_round_square_base;
-
-		elem_slice.insert_or_assign("round_base_only", round_style);
-	}
-
-	{
-		referenced_ptr<style::round_style_edge_only> round_style{std::in_place};
-		round_style->edge.pal = style::pal::white.border;
-		round_style->edge = assets::builtin::default_round_square_boarder_thin;
-
-		elem_slice.insert_or_assign("round_edge_only", round_style);
-	}
 
 	{
 		referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
@@ -287,7 +498,7 @@ void make_styles(scene& scene){
 	{
 		referenced_ptr<style::thin_slider_drawer> round_scroll_bar_style{std::in_place};
 
-		constexpr auto pal = gui::style::make_theme_palette(graphic::colors::ROYAL);
+		constexpr auto pal = style::make_theme_palette(graphic::colors::ROYAL);
 		round_scroll_bar_style->handle_palette = pal;
 		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
 		round_scroll_bar_style->bar_palette = pal;
@@ -329,6 +540,16 @@ void make_styles(scene& scene){
 			s.pos = style::side_bar_pos::bottom;
 			elem_slice.insert_or_assign("side_bar_bottom", referenced_ptr<style::side_bar_style>{std::in_place, s});
 		}
+
+
+		{
+			referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
+			round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
+			round_scroll_bar_style->bar_palette = style::pal::white.border.copy().mul_rgb(.8f);
+			sm.register_style<style::scroll_pane_bar_drawer>(std::move(round_scroll_bar_style));
+
+		}
+
 	}
 
 	sm.register_style<style::slider2d_drawer>(referenced_ptr<style::default_slider2d_drawer>{std::in_place});
@@ -364,15 +585,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 	auto e = scene.create<scaling_stack>();
 	e->set_fill_parent({true, true});
 	auto& mroot = static_cast<scaling_stack&>(root.insert(0, std::move(e)));
-
-
-	{
-		referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
-		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
-		round_scroll_bar_style->bar_palette = style::pal::white.border.copy().mul_rgb(.8f);
-
-		style::global_scroll_pane_bar_drawer = round_scroll_bar_style;
-	}
 
 	ui_outputs result{};
 
@@ -654,7 +866,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 					}
 				},
 				test_entry{
-					"", [](scroll_pane& pane){
+					"table/check box", [](scroll_pane& pane){
 						pane.create([](table& table){
 							table.set_expand_policy(layout::expand_policy::prefer);
 							table.set_entire_align(align::pos::center);
@@ -717,7 +929,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 					}
 				},
 				test_entry{
-					"", [](scroll_pane& pane){
+					"grid", [](scroll_pane& pane){
 						pane.create(
 							[](grid& table){
 								table.set_has_smooth_pos_animation(true);
@@ -758,7 +970,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 					}
 				},
 				test_entry{
-					"", [](scroll_pane& pane){
+					"drag/label", [](scroll_pane& pane){
 						pane.create(
 							[](split_pane& table){
 								constexpr static auto test_text =
@@ -795,7 +1007,7 @@ Edge Cases:
 									inner.create_head([](scroll_adaptor<label>& p){
 										p.set_style();
 										auto& l = p.get_elem();
-										l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
+										// l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
 										l.set_expand_policy(layout::expand_policy::prefer);
 										l.set_fit(false);
 										l.set_text(test_text);
@@ -846,7 +1058,7 @@ Edge Cases:
 					}
 				},
 				test_entry{
-					"", [](scroll_pane& pane){
+					"color picker", [](scroll_pane& pane){
 						pane.create(
 							[](table& table){
 								table.set_expand_policy(layout::expand_policy::prefer);
@@ -857,26 +1069,8 @@ Edge Cases:
 					}
 				},
 				test_entry{
-					"", [](scroll_pane& pane){
-						pane.create(
-							[](sequence& table){
-								table.set_expand_policy(layout::expand_policy::prefer);
-								table.create_back([](cpd::data_table& table){
-									table.get_item() = cpd::data_table_desc::from_csv(
-										LR"(D:\projects\untitled\shader info.csv)");
-								});
-							});
-						pane.set_layout_policy(layout::layout_policy::none);
-					}
-				},
-				test_entry{
-					"", [](scroll_pane& pane){
-						pane.create(
-							[](sequence& table){
-								table.set_expand_policy(layout::expand_policy::prefer);
-								table.emplace_back<vp>();
-							});
-						pane.set_layout_policy(layout::layout_policy::none);
+					"view port", [](vp& vp){
+
 					}
 				}
 			};
@@ -895,16 +1089,17 @@ Edge Cases:
 		l.set_style();
 		l.text_entire_align = align::pos::center;
 		l.set_tokenized_text(typesetting::tokenized_text{
-			U"{b}{#8999F9}{+#223344}X{//}"
-			U"{#DB827D}r{/}"
+			U"{f:code}"
+			U"{#8999F9}{+#223344}X{//}"
+			U"{#DB827D}{b}r{//}"
 			U"{#69D897aa}g{/}"
 			U"{u}u{/}"
 			U"{i}i{/}"
-			U" {f:code}{w:r}{s:*.9}{b}T{/}est"
+			U"{s:*.4} {/}{w:r}{s:*.9}{b}Test"
 		});
 	});
 	menu_hdl->set_expand_policy(layout::expand_policy::passive);
-	menu_hdl->set_head_size({layout::size_category::mastering, 80});
+	menu_hdl->set_head_size({layout::size_category::mastering, 100});
 	menu_hdl.cell().region_scale = {.0f, .0f, .8f, 1.f};
 	menu_hdl.cell().align = align::pos::left;
 

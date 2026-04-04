@@ -23,8 +23,8 @@ namespace style{
 export
 struct scroll_pane_bar_drawer;
 
-export
-extern referenced_ptr<const scroll_pane_bar_drawer> global_scroll_pane_bar_drawer;
+// export
+// extern referenced_ptr<const scroll_pane_bar_drawer> global_scroll_pane_bar_drawer;
 }
 
 
@@ -54,12 +54,15 @@ protected:
 	bool overlay_scroll_bars_{false};
 	bool scroll_changed_in_update_{false};
 
+private:
+	referenced_ptr<const style::scroll_pane_bar_drawer> init_drawer_();
+
 public:
 	bool draw_track_if_locked{true};
 	float fade_delay_ticks{60.0f * 1.5f};
 	float fade_duration_ticks{60.0f * 0.5f};
 
-	referenced_ptr<const style::scroll_pane_bar_drawer> drawer{style::global_scroll_pane_bar_drawer};
+	referenced_ptr<const style::scroll_pane_bar_drawer> drawer{init_drawer_()};
 
 	[[nodiscard]] scroll_adaptor_base(scene& scene, elem* parent, layout::layout_policy policy)
 		: elem(scene, parent), layout_policy_{policy}{

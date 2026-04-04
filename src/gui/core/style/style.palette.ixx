@@ -40,6 +40,12 @@ struct palette{
 		return *this;
 	}
 
+	constexpr palette& set_cursor_ignored() noexcept {
+		on_focus = general;
+		on_press = general;
+		return *this;
+	}
+
 	constexpr palette& mul_alpha(const float alpha) noexcept{
 		general.mul_a(alpha);
 		on_focus.mul_a(alpha);
@@ -200,9 +206,9 @@ constexpr graphic::color c = graphic::color::from_string("F2F4F7");
 export namespace pal{
 	inline constexpr palette dark = make_palette(
 		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .75f),
+		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .35f),
 		graphic::colors::dark_gray,
-		graphic::colors::dark_gray.create_lerp(graphic::colors::gray, .5f),
-		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .85f));
+		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .95f));
 
 	inline constexpr component_palette white{
 		.background = make_palette("F2F4F7", "F9FAFB", "FFFFFF", "E4E7EC"),

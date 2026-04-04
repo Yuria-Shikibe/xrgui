@@ -22,16 +22,22 @@ namespace mo_yanxi::gui::cpd{
 			});
 		}
 
+		void set_elem_style_(elem& e, style::family_variant v){
+			e.sync_run([v](elem& el){
+				el.set_style(el.get_style_manager().get_slice<style::elem_style_drawer>()->default_style(v));
+			});
+		}
+
 		void set_style_side_bar(elem& e){
 			set_elem_style_(e, "side_bar_left");
 		}
 
 		void set_style_edge_only(elem& e){
-			set_elem_style_(e, "round_edge_only");
+			set_elem_style_(e, style::family_variant::edge_only);
 		}
 
 		void set_style_base_only(elem& e){
-			set_elem_style_(e, "round_base_only");
+			set_elem_style_(e, style::family_variant::base_only);
 		}
 
 	template <typename Func>
@@ -218,9 +224,14 @@ namespace mo_yanxi::gui::cpd{
 				t.set_style();
 				std::size_t count{};
 				auto hdl = t.create_back([&](scroll_adaptor<sequence>& p){
+					p.sync_run([](elem& e){
+						e.set_style(e.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::general_static));
+					});
+
 					sequence& seq = p.get_elem();
+
 					seq.template_cell.set_size(60).set_pad({2, 2});
-						seq.set_style();
+					seq.set_style();
 
 					safe_iterate_directory(
 						s.get_trace().path,

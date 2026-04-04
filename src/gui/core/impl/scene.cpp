@@ -362,7 +362,7 @@ void elem_async_sync_task_queue::on_sync_relocate_consume(){
 }
 
 style::style_manager scene_resources::init_style_manager_() const{
-	style::style_manager manager{mr::heap_allocator<>{heap.get()}};
+	style::style_manager manager{};
 	manager.reserve(64);
 	manager.register_style<style::elem_style_drawer>(referenced_ptr<style::debug_elem_drawer>{std::in_place, style_config{}});
 	return manager;

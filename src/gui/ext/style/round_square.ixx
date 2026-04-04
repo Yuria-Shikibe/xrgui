@@ -248,16 +248,16 @@ struct basic_elem_style_drawer : elem_style_drawer{
 };
 
 export
-struct round_style_no_edge : basic_elem_style_drawer{
+struct round_style_base_only : basic_elem_style_drawer{
 	palette_with<image_nine_region> base{};
 	palette_with<image_nine_region> back{};
 
 
-	explicit round_style_no_edge(const tags::persistent_tag_t& persistent_tag)
+	explicit round_style_base_only(const tags::persistent_tag_t& persistent_tag)
 			: basic_elem_style_drawer(persistent_tag, {{0b11}}){
 	}
 
-	round_style_no_edge() : basic_elem_style_drawer({{0b11}}){
+	round_style_base_only() : basic_elem_style_drawer({{0b11}}){
 
 	}
 
@@ -297,10 +297,10 @@ protected:
 };
 
 export
-struct round_style : round_style_no_edge{
+struct round_style : round_style_base_only{
 	palette_with<image_nine_region> edge{};
 
-	using round_style_no_edge::round_style_no_edge;
+	using round_style_base_only::round_style_base_only;
 
 protected:
 	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
@@ -365,13 +365,13 @@ enum struct side_bar_pos{
 };
 
 export
-struct side_bar_style : round_style_no_edge{
+struct side_bar_style : round_style_base_only{
 	palette_with<image_row_patch> bar{};
 	side_bar_pos pos{};
 	graphic::draw::instruction::row_patch_flags flags{};
 
 
-	using round_style_no_edge::round_style_no_edge;
+	using round_style_base_only::round_style_base_only;
 
 	constexpr float get_bar_stroke() const noexcept{
 		switch(pos){

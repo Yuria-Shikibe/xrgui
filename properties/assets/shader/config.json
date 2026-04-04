@@ -50,8 +50,14 @@
     {
       "file": "ui/frag_basic.slang"
     },
+    
     {
       "file": "ui/frag_outlined.slang"
+    },
+    
+
+    {
+      "file": "ui/frag_coord_draw.slang"
     },
     
 

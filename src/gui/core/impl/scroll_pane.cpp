@@ -7,9 +7,9 @@ module mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
-	namespace style{
-		referenced_ptr<const scroll_pane_bar_drawer> global_scroll_pane_bar_drawer = default_scroll_pane_drawer;
-	}
+	// namespace style{
+	// 	referenced_ptr<const scroll_pane_bar_drawer> global_scroll_pane_bar_drawer = default_scroll_pane_drawer;
+	// }
 
 
 	void style::scroll_pane_bar_drawer::draw_layer_impl(const scroll_adaptor_base& element, math::frect region,
@@ -94,6 +94,12 @@ namespace mo_yanxi::gui{
 
 	void scroll_adaptor_base::draw_scroll_bar(fx::layer_param_pass_t param) const{
 		if(drawer) drawer->draw_layer(*this, content_bound_abs(), bar_opacity_ * get_draw_opacity(), param);
+	}
+
+	referenced_ptr<const style::scroll_pane_bar_drawer> scroll_adaptor_base::init_drawer_(){
+		return post_sync_assign(*this, &scroll_adaptor_base::drawer, [](scroll_adaptor_base& b){
+			return b.get_style_manager().get_default<style::scroll_pane_bar_drawer>();
+		});
 	}
 
 	events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std::span<elem* const> aboves){

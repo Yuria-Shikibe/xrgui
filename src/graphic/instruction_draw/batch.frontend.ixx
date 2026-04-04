@@ -390,6 +390,14 @@ public:
 			return;
 		}
 
+		// constexpr std::uint32_t PERFORMANCE_DISPATCH_THRESHOLD = 64; // 建议根据实际 Profile 调整
+		//
+		// if (current_group->get_dispatch_infos().size() >= PERFORMANCE_DISPATCH_THRESHOLD) {
+		// 	// 强制插入一个空的 state_transition 来切分 Draw Call
+		// 	// 这会触发 advance_current_group() 并清理 tracker [cite: 211, 218]
+		// 	force_break_and_insert(state_transition_config{});
+		// }
+
 		// --- Check for State Changes (Lazy Evaluation) ---
 		{
 			state_transition_config diff_config;

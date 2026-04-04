@@ -1,20 +1,15 @@
 
 import mesh_instruction_lib;
 import general_lib;
+import ui_structs;
 import slide_line;
 import sdf;
 
-[[vk::binding(4, 0)]]
+[[vk::binding(mesh_instr::TEXTURE_BINDING_INDEX, 0)]]
 uniform Sampler2D textures[];
 
-struct ubo_ui_state {
-    float2 screen_extent;
-    float time;
-    uint32_t _cap;
-};
-
 [[vk::binding(1, 1)]]
-ConstantBuffer<ubo_ui_state> ui_state;
+ConstantBuffer<gui::ubo_ui_state> ui_state;
 
 [[vk::binding(2, 1)]]
 ConstantBuffer<slide_line::slide_line_style> slide_line_style;
@@ -45,8 +40,8 @@ pipeline_flags constant_flags;
 
 [shader("fragment")]
 FragOut main_frag(
-    in Vertex vtx,
-    in Primitive primit
+    in mesh_instr::Vertex vtx,
+    in mesh_instr::Primitive primit
 ) {
 
     let no_tex = bool(primit.texture_index == ~0U);

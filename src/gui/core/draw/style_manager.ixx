@@ -12,43 +12,90 @@ import mo_yanxi.gui.alloc;
 
 namespace mo_yanxi::gui::style {
 
-enum struct family_variant{
-	general,
-	general_static,
-	base_only,
-	edge_only,
+export enum class family_variant : std::size_t {
+    general,
+    general_static,
+    base_only,
+    edge_only,
 
-	emphasize,
-	accepted,
-	warning,
-	invalid,
-
+    emphasize,
+    accepted,
+    warning,
+    invalid,
 };
 
-using style_map_allocator = mr::heap_allocator<std::pair<const std::string, referenced_ptr<style_drawer_base>>>;
+export enum class direction_variant : std::size_t {
+    left, right, top, bottom,
+};
+
+export struct style_family {
+    std::vector<referenced_ptr<style_drawer_base>> styles;
+
+    // 要求在创建时[0]必须有一个合法元素
+    explicit style_family(referenced_ptr<style_drawer_base>&& default_val) {
+        if (!default_val) {
+            throw std::invalid_argument{"style family index [0] cannot be null"};
+        }
+        styles.push_back(std::move(default_val));
+    }
+
+    // 整数索引查找，下标不可用或者值为空，返回[0]
+    [[nodiscard]] referenced_ptr<style_drawer_base> get(std::size_t index) const noexcept {
+        if (index < styles.size() && styles[index]) {
+            return styles[index];
+        }
+        return styles[0];
+    }
+
+	template <typename T> requires std::is_enum_v<T>
+    [[nodiscard]] referenced_ptr<style_drawer_base> get(T variant) const noexcept {
+        return this->get(std::to_underlying(variant));
+    }
+
+    void set(std::size_t index, referenced_ptr<style_drawer_base> new_style) {
+        if (index == 0 && !new_style) {
+            throw std::invalid_argument{"style family index [0] cannot be null"};
+        }
+        if (index >= styles.size()) {
+            styles.resize(index + 1);
+        }
+        styles[index] = std::move(new_style);
+    }
+
+	template <typename T> requires std::is_enum_v<T>
+    void set(T variant, referenced_ptr<style_drawer_base> new_style) {
+        this->set(std::to_underlying(variant), std::move(new_style));
+    }
+};
+
+using style_map_allocator = mr::unvs_allocator<std::pair<const std::string, style_family>>;
 
 struct style_collection {
-    mr::heap_umap<std::string, referenced_ptr<style_drawer_base>, transparent::string_hasher, transparent::string_equal_to> map;
-    referenced_ptr<style_drawer_base> default_style;
+    std::unordered_map<std::string, style_family, transparent::string_hasher, transparent::string_equal_to, style_map_allocator> map;
+    style_family default_family;
 
     explicit style_collection(
-        referenced_ptr<style_drawer_base> default_val,
-        const style_map_allocator& alloc = mr::get_default_heap_allocator<std::pair<const std::string, referenced_ptr<style_drawer_base>>>()
-    ) : map(alloc), default_style(std::move(default_val)) {
-        if (!default_style) {
-            throw std::invalid_argument{"default_style cannot be null"};
-        }
-    }
+        style_family default_val,
+        const style_map_allocator& alloc = {}
+    ) : map(alloc), default_family(std::move(default_val)) {}
 
     void set_default(referenced_ptr<style_drawer_base> new_default) {
         if (!new_default) {
-            throw std::invalid_argument{"new_default cannot be null"};
+            throw std::invalid_argument{"new_default (index 0) cannot be null"};
         }
-        default_style = std::move(new_default);
+        default_family.set(0, std::move(new_default));
     }
 
-    [[nodiscard]] referenced_ptr<style_drawer_base> get_default() const noexcept {
-        return default_style;
+    void set_default_family(style_family new_family) {
+        default_family = std::move(new_family);
+    }
+
+    [[nodiscard]] const style_family& get_default() const noexcept {
+        return default_family;
+    }
+
+    [[nodiscard]] style_family& get_default() noexcept {
+        return default_family;
     }
 };
 
@@ -58,24 +105,63 @@ struct style_manager_slice {
 private:
     style_collection* collection;
 
-    // 内部代理类：用于完美支持 slice["key"] = value 的直觉赋值语法
+    // 内部代理类：完美支持 slice["key"][variant] = value 的直觉语法
     template <typename KeyType>
     struct slice_proxy {
         style_collection* m_collection;
         KeyType m_key;
 
-        // 读操作：隐式转换为 referenced_ptr<T>
-        [[nodiscard]] operator referenced_ptr<T>() const {
-            if (const auto itr = m_collection->map.find(m_key); itr != m_collection->map.end()) {
-                return referenced_ptr<T>{static_cast<T*>(itr->second.get())};
+        struct variant_proxy {
+            const slice_proxy* parent;
+            std::size_t index;
+
+            [[nodiscard]] operator referenced_ptr<T>() const {
+                if (const auto itr = parent->m_collection->map.find(parent->m_key); itr != parent->m_collection->map.end()) {
+                    return referenced_ptr<T>{static_cast<T*>(itr->second.get(index).get())};
+                }
+                return nullptr;
             }
-            return nullptr;
+
+            variant_proxy& operator=(referenced_ptr<T> value) {
+                if (const auto itr = parent->m_collection->map.find(parent->m_key); itr != parent->m_collection->map.end()) {
+                    itr->second.set(index, referenced_ptr<style_drawer_base>{static_cast<style_drawer_base*>(value.get())});
+                } else {
+                    if (index == 0) {
+                        parent->m_collection->map.insert_or_assign(
+                            parent->m_key,
+                            style_family{referenced_ptr<style_drawer_base>{static_cast<style_drawer_base*>(value.get())}}
+                        );
+                    } else {
+                        throw std::invalid_argument{"must assign to index [0] before assigning to other indices for a new key"};
+                    }
+                }
+                return *this;
+            }
+        };
+
+        // 读操作：隐式转换为 referenced_ptr<T> (退化请求 [0])
+        [[nodiscard]] operator referenced_ptr<T>() const {
+            return variant_proxy{this, 0};
         }
 
-        // 写操作：支持直接赋值
+        // 写操作：支持直接赋值 (退化赋值给 [0])
         slice_proxy& operator=(referenced_ptr<T> value) {
-            m_collection->map.insert_or_assign(m_key, std::move(value));
+            variant_proxy{this, 0} = std::move(value);
             return *this;
+        }
+
+        slice_proxy& operator=(style_family family) {
+            m_collection->map.insert_or_assign(m_key, std::move(family));
+            return *this;
+        }
+
+        [[nodiscard]] variant_proxy operator[](std::size_t index) const {
+            return {this, index};
+        }
+
+    	template <typename ITy> requires std::is_enum_v<ITy>
+        [[nodiscard]] variant_proxy operator[](ITy variant) const {
+            return {this, std::to_underlying(variant)};
         }
     };
 
@@ -83,29 +169,44 @@ public:
     [[nodiscard]] explicit(false) style_manager_slice(style_collection& coll)
         : collection(&coll) {}
 
-    // 默认样式访问接口（带类型安全检查）
-    [[nodiscard]] referenced_ptr<T> default_style() const noexcept {
-        return referenced_ptr<T>{static_cast<T*>(collection->get_default().get())};
+    // 默认样式访问接口（支持指定 variant）
+    [[nodiscard]] referenced_ptr<T> default_style(std::size_t index = 0) const noexcept {
+        return referenced_ptr<T>{static_cast<T*>(collection->get_default().get(index).get())};
     }
 
-	template <typename Key>
-    [[nodiscard]] referenced_ptr<T> get_or_default(Key&& key) const noexcept {
-    	if (const auto itr = collection->map.find(key); itr != collection->map.end()) {
-    		return referenced_ptr<T>{static_cast<T*>(itr->second.get())};
-        }
-    	return default_style();
-    }
-
-    void set_default(referenced_ptr<T> new_default) const {
-        collection->set_default(referenced_ptr{static_cast<style_drawer_base*>(new_default.get())});
+	template <typename ITy> requires std::is_enum_v<ITy>
+    [[nodiscard]] referenced_ptr<T> default_style(ITy variant) const noexcept {
+        return this->default_style(std::to_underlying(variant));
     }
 
     template <typename Key>
-    [[nodiscard]] referenced_ptr<T> at(Key&& key) const {
+    [[nodiscard]] referenced_ptr<T> get_or_default(Key&& key, std::size_t index = 0) const noexcept {
+    	if (const auto itr = collection->map.find(key); itr != collection->map.end()) {
+    		return referenced_ptr<T>{static_cast<T*>(itr->second.get(index).get())};
+    	}
+    	return default_style(index);
+    }
+
+    template <typename Key, typename ITy> requires std::is_enum_v<ITy>
+    [[nodiscard]] referenced_ptr<T> get_or_default(Key&& key, ITy variant) const noexcept {
+        return this->get_or_default(std::forward<Key>(key), std::to_underlying(variant));
+    }
+
+    void set_default(referenced_ptr<T> new_default) const {
+        collection->set_default(referenced_ptr<style_drawer_base>{static_cast<style_drawer_base*>(new_default.get())});
+    }
+
+    template <typename Key>
+    [[nodiscard]] referenced_ptr<T> at(Key&& key, std::size_t index = 0) const {
         if (const auto itr = collection->map.find(key); itr != collection->map.end()) {
-            return referenced_ptr<T>{static_cast<T*>(itr->second.get())};
+            return referenced_ptr<T>{static_cast<T*>(itr->second.get(index).get())};
         }
         throw std::out_of_range{"key not found"};
+    }
+
+    template <typename Key, typename ITy> requires std::is_enum_v<ITy>
+    [[nodiscard]] referenced_ptr<T> at(Key&& key, ITy variant) const {
+        return at(std::forward<Key>(key), std::to_underlying(variant));
     }
 
     template <typename Key>
@@ -113,11 +214,17 @@ public:
         return {collection, std::forward<Key>(key)};
     }
 
+    template <typename Key>
+    auto insert_or_assign(Key&& key, referenced_ptr<T> style) const {
+        return collection->map.insert_or_assign(
+            std::forward<Key>(key),
+            style_family{referenced_ptr<style_drawer_base>{static_cast<style_drawer_base*>(style.get())}}
+        );
+    }
 
-    template <typename Key, typename... Args>
-        requires(std::constructible_from<referenced_ptr<T>, Args&&...>)
-    auto insert_or_assign(Key&& key, Args&&... args) const {
-        return collection->map.insert_or_assign(std::forward<Key>(key), std::forward<Args>(args)...);
+    template <typename Key>
+    auto insert_or_assign(Key&& key, style_family family) const {
+        return collection->map.insert_or_assign(std::forward<Key>(key), std::move(family));
     }
 
     template <typename Key>
@@ -139,35 +246,35 @@ public:
     }
 };
 
-using manager_map_allocator = mr::heap_allocator<std::pair<const type_identity_index, style_collection>>;
+using manager_map_allocator = mr::unvs_allocator<std::pair<const type_identity_index, style_collection>>;
 
 export
 struct style_manager {
 private:
-    mr::heap_umap<type_identity_index, style_collection> style_map;
+    std::unordered_map<type_identity_index, style_collection, std::hash<type_identity_index>, std::equal_to<>, manager_map_allocator> style_map;
 
 public:
     [[nodiscard]] explicit style_manager(
-        const manager_map_allocator& alloc = mr::get_default_heap_allocator()
+        const manager_map_allocator& alloc = {}
     ) : style_map(alloc) {}
 
 	void reserve(std::size_t size){
 		style_map.reserve(size);
-    }
+	}
 
-    // 2. 注册函数：要求传入非空默认值
     template <typename T_Explicit>
     auto register_style(referenced_ptr<std::type_identity_t<T_Explicit>> default_style) {
         if (!default_style) {
             throw std::invalid_argument{"default style cannot be null"};
         }
 
-        // 传递当前 map 的 allocator 给子集合，保持内存分配区域的一致性
         style_map_allocator coll_alloc{style_map.get_allocator()};
-
         return style_map.insert_or_assign(
             mo_yanxi::unstable_type_identity_of<T_Explicit>(),
-            style_collection{referenced_ptr<style_drawer_base>{std::move(default_style)}, coll_alloc}
+            style_collection{
+                style_family{referenced_ptr<style_drawer_base>{std::move(default_style)}},
+                coll_alloc
+            }
         );
     }
 
@@ -180,8 +287,14 @@ public:
     }
 
     template <typename T>
-    [[nodiscard]] referenced_ptr<T> get_default() noexcept {
-    	return referenced_ptr{static_cast<T&>(*style_map.at(mo_yanxi::unstable_type_identity_of<T>()).get_default())};
+    [[nodiscard]] referenced_ptr<T> get_default(std::size_t index = 0) noexcept {
+    	auto* gptr = style_map.at(mo_yanxi::unstable_type_identity_of<T>()).get_default().get(index).get();
+    	return referenced_ptr<T>{static_cast<T*>(gptr)};
+    }
+
+    template <typename T>
+    [[nodiscard]] referenced_ptr<T> get_default(family_variant variant) noexcept {
+        return get_default<T>(static_cast<std::size_t>(variant));
     }
 
     template <typename T>

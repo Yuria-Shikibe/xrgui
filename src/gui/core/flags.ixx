@@ -136,9 +136,14 @@ public:
 };
 
 export enum struct interactivity_flag : std::uint8_t{
-	disabled,
-	children_only,
-	enabled,
-	intercept,
+	self_interactable = 1 << 0,
+	ppgt_interactable = 1 << 1,
+
+	disabled = 0 ,
+	children_only = ppgt_interactable,
+	enabled = ppgt_interactable | self_interactable,
+	intercept = self_interactable,
 };
+
+BITMASK_OPS(export, interactivity_flag);
 }
