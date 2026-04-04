@@ -22,7 +22,7 @@ void collapser::update_collapse(float delta) noexcept{
 			}
 		}else{
 			expand_reload_ = 0;
-			set_update_disabled(update_channel::layout);
+			this->post_task([](const elem& e){util::update_erase(e, update_channel::layout);});
 		}
 		break;
 	}
@@ -36,7 +36,7 @@ void collapser::update_collapse(float delta) noexcept{
 			state_ = collapser_state::expanded;
 			if(update_opacity_during_expand_)body().update_context_opacity(get_draw_opacity());
 			body().on_display_state_changed(true);
-			set_update_disabled(update_channel::layout);
+			if(expandable())this->post_task([](const elem& e){util::update_erase(e, update_channel::layout);});
 		}else if(update_opacity_during_expand_){
 			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
 		}
@@ -61,7 +61,7 @@ void collapser::update_collapse(float delta) noexcept{
 			}
 		}else{
 			expand_reload_ = 0;
-			set_update_disabled(update_channel::layout);
+			this->post_task([](const elem& e){util::update_erase(e, update_channel::layout);});
 		}
 		break;
 	}
@@ -74,7 +74,7 @@ void collapser::update_collapse(float delta) noexcept{
 			state_ = collapser_state::un_expand;
 			if(update_opacity_during_expand_)body().update_context_opacity(0);
 			body().on_display_state_changed(false);
-			set_update_disabled(update_channel::layout);
+			this->post_task([](const elem& e){util::update_erase(e, update_channel::layout);});
 		}else if(update_opacity_during_expand_){
 			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
 		}
@@ -123,16 +123,16 @@ void collapser::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) c
 
 	head().try_draw_layer(space, param);
 
-	if(true){
-		auto region = get_expand_region();
-		renderer().push(graphic::draw::instruction::rect_aabb_outline{
-			.v00 = region.vert_00(),
-			.v11 = region.vert_11(),
-			.stroke = {3},
-			.vert_color = {graphic::colors::GOLD.copy_set_a(.4f)}
-		});
-
-	}
+	// if(true){
+	// 	auto region = get_expand_region();
+	// 	renderer().push(graphic::draw::instruction::rect_aabb_outline{
+	// 		.v00 = region.vert_00(),
+	// 		.v11 = region.vert_11(),
+	// 		.stroke = {3},
+	// 		.vert_color = {graphic::colors::GOLD.copy_set_a(.4f)}
+	// 	});
+	//
+	// }
 
 	switch(state_){
 	case collapser_state::un_expand : break;

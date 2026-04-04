@@ -199,7 +199,7 @@ constexpr graphic::color c = graphic::color::from_string("F2F4F7");
 
 export namespace pal{
 	inline constexpr palette dark = make_palette(
-		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .5f),
+		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .75f),
 		graphic::colors::dark_gray,
 		graphic::colors::dark_gray.create_lerp(graphic::colors::gray, .5f),
 		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .85f));

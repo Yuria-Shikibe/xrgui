@@ -96,8 +96,8 @@ protected:
     }
 
     void update_approach_state() noexcept {
-        if(bar.is_sliding()) set_update_required(update_channel::value_approach);
-        else set_update_disabled(update_channel::value_approach);
+        if(bar.is_sliding()) this->post_task([](elem& e){util::update_insert(e, update_channel::value_approach);});
+        else this->post_task([](elem& e){util::update_erase(e, update_channel::value_approach);});
     }
 
     void check_apply() {
@@ -117,7 +117,7 @@ public:
         if(elem::update(delta_in_ticks)) {
             if(!drag_src_ && (smooth_scroll_ || smooth_jump_ || smooth_drag_)) {
                 if(bar.update(delta_in_ticks * approach_speed_scl)) on_changed();
-                if(!bar.is_sliding()) set_update_disabled(update_channel::value_approach);
+                if(!bar.is_sliding()) this->post_task([](elem& e){util::update_erase(e, update_channel::value_approach);});
             }
             return true;
         }

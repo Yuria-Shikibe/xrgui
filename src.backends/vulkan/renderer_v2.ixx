@@ -274,7 +274,7 @@ export struct renderer{
 			r.batch_device.load_descriptors(descriptor_context, r.current_frame_index_);
 			descriptor_context.prepare_bindings();
 			descriptor_context(pc.pipeline_layout, cmd, index, VK_PIPELINE_BIND_POINT_GRAPHICS);
-			r.batch_device.cmd_draw(cmd, index, r.current_frame_index_);
+			r.batch_device.cmd_draw(cmd, index);
 		}
 
 		/** 处理 Blit 操作：Compute Shader 实现的图像处理 */

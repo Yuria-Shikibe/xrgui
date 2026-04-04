@@ -700,7 +700,7 @@ void text_edit::set_focus(bool keyFocused){
 	failed_hint_timer_ = 0.f;
 
 	if(keyFocused){
-		sync_run(util::insert_update);
+		sync_run(util::update_insert, update_channel::all);
 
 		if(is_idle_){
 			is_idle_ = false;
@@ -724,7 +724,7 @@ void text_edit::set_focus(bool keyFocused){
 			on_changed();
 		}
 
-		sync_run(util::erase_update);
+		sync_run(util::update_erase, update_channel::all);
 
 		if(tokenized_text_.get_text().empty()){
 			is_idle_ = true;

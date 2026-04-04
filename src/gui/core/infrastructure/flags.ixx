@@ -38,9 +38,12 @@ enum class update_channel : unsigned{
 	custom = 1 << 3,
 
 	value_approach = 1 << 4,
+
+	all = ~0
 };
 
 BITMASK_OPS(export, update_channel)
+BITMASK_OPS_ADDITIONAL(export, update_channel)
 
 export
 struct update_flags{

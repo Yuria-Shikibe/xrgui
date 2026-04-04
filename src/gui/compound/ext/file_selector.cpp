@@ -33,6 +33,28 @@ namespace mo_yanxi::gui::cpd{
 		void set_style_base_only(elem& e){
 			set_elem_style_(e, "round_base_only");
 		}
+
+	template <typename Func>
+		inline void safe_iterate_directory(const std::filesystem::path& path, Func&& callback) {
+			std::error_code ec;
+			auto dir_it = std::filesystem::directory_iterator(path, ec);
+			if(ec) return; // 目录不可访问
+
+			try{
+				for(; dir_it != std::filesystem::directory_iterator{}; dir_it.increment(ec)) {
+					if(ec) continue; // 忽略无权限的子项
+					if constexpr (std::predicate<Func, const std::filesystem::directory_entry&, std::error_code&>) {
+						// 如果回调返回 bool，并且为 false，则提前终止迭代
+						if(!callback(*dir_it, ec)) break;
+					} else {
+						callback(*dir_it, ec);
+					}
+				}
+			}catch(...){
+
+			}
+
+		}
 	}
 
 	struct trace_entry;
@@ -52,7 +74,7 @@ namespace mo_yanxi::gui::cpd{
 			constexpr float scl = .12f;
 			if(elem::update(delta_in_ticks)){
 				switch(s){
-				case closed : post_task(util::erase_update);
+				case closed : post_task([](const elem& e){util::update_erase(e, update_channel::draw);});
 					progress_ = 0;
 					break;
 				case expanding : progress_ += delta_in_ticks * scl;
@@ -61,7 +83,7 @@ namespace mo_yanxi::gui::cpd{
 						s = expanded;
 					}
 					break;
-				case expanded : post_task(util::erase_update);
+				case expanded : post_task([](const elem& e){util::update_erase(e, update_channel::draw);});
 					progress_ = 1;
 					break;
 				case closing : progress_ -= delta_in_ticks * scl;
@@ -83,7 +105,7 @@ namespace mo_yanxi::gui::cpd{
 			case closed : s = closed;
 				break;
 			default : s = closing;
-				sync_run(util::insert_update);
+				post_task([](elem& e){util::update_insert(e, update_channel::draw);});
 				break;
 			}
 		}
@@ -115,7 +137,7 @@ namespace mo_yanxi::gui::cpd{
 					drop_tooltip();
 					break;
 				}
-				sync_run(util::insert_update);
+				post_task([](elem& e){util::update_insert(e, update_channel::draw);});
 			}
 			return events::op_afterwards::intercepted;
 		}
@@ -130,7 +152,7 @@ namespace mo_yanxi::gui::cpd{
 				auto [cos, sin] = math::cos_sin(prog * math::pi_half);
 				for(auto vertex : arrow.vertices){
 					context.push(vertex.rotate(cos, sin) + content_bound_abs().get_center(), arrow.thick,
-					             graphic::colors::white);
+					             graphic::colors::white.copy_set_a(get_draw_opacity()));
 				}
 
 				context.add_cap();
@@ -195,35 +217,32 @@ namespace mo_yanxi::gui::cpd{
 			}, [this](const arrow_button& s, table& t){
 				t.set_style();
 				std::size_t count{};
-				auto hdl = t.create_back([&](scroll_pane& p){
-					p.create([&](sequence& seq){
-						seq.template_cell.set_size(60).set_pad({2, 2});
+				auto hdl = t.create_back([&](scroll_adaptor<sequence>& p){
+					sequence& seq = p.get_elem();
+					seq.template_cell.set_size(60).set_pad({2, 2});
 						seq.set_style();
 
-						std::error_code ec;
-						auto dir_it = std::filesystem::directory_iterator(s.get_trace().path, ec);
-						if(!ec){
-							for(; dir_it != std::filesystem::directory_iterator{}; dir_it.increment(ec)){
-								if(ec) continue; // 忽略无权限的子项
+					safe_iterate_directory(
+						s.get_trace().path,
+						[&](const std::filesystem::directory_entry& entry,
+						    std::error_code& inner_ec){
+							if(!entry.is_directory(inner_ec) || inner_ec) return;
 
-								auto& pth = *dir_it;
-								if(!pth.is_directory(ec)) continue;
-								if(ec) continue;
-
-								++count;
-								seq.create_back([&](button<direct_label>& but){
-									set_style_side_bar(but);
-									but.set_fit_type(label_fit_type::scl);
-									but.set_tokenized_text({
-											pth.path().filename().u32string(), typesetting::tokenize_tag::raw
-										});
-									but.set_button_callback([this, p = pth.path()]{
-										get_trace().selector->visit_directory(p);
+							++count;
+							seq.create_back([&](button<direct_label>& but){
+								set_style_side_bar(but);
+								but.set_fit_type(label_fit_type::scl);
+								but.set_tokenized_text({
+										entry.path().filename().u32string(),
+										typesetting::tokenize_tag::raw
 									});
+								but.set_button_callback([this, p = entry.path()]{
+									get_trace().selector->visit_directory(p);
 								});
-							}
-						}
-					});
+							});
+						});
+
+
 				});
 
 				if(count){
@@ -913,20 +932,12 @@ namespace mo_yanxi::gui::cpd{
 		} else{
 			try{
 				std::vector<std::filesystem::path> valid_paths;
-				auto dir_it = std::filesystem::directory_iterator(current, ec);
-
-				if(!ec){
-					for(; dir_it != std::filesystem::directory_iterator{}; dir_it.increment(ec)){
-						if(ec) continue; // 忽略没有权限（如 Permission Denied）等无法访问的路径
-						auto p = dir_it->path();
-						if(cared_file(p)){
-							valid_paths.push_back(std::move(p));
-						}
+				safe_iterate_directory(current, [&](const std::filesystem::directory_entry& entry, std::error_code&) {
+					auto p = entry.path();
+					if(cared_file(p)){
+						valid_paths.push_back(std::move(p));
 					}
-				} else{
-					pop_visited_and_resume();
-					return;
-				}
+				});
 
 				transform_list_to_entry_elements(std::move(valid_paths));
 			} catch(...){

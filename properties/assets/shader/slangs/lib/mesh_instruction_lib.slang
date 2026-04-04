@@ -855,7 +855,7 @@ public struct vertex_resolve_info {
     uint packed_type_timeline; // [15:0]: instruction_type, [31:16]: relative_timeline_index
     uint payload_offset;       // 绝对 Payload 偏移
     uint packed_skips;         // [15:0]: vtx_skip, [31:16]: prm_skip
-    uint payload_size;         // 替代 _pad，用于动态长度指令
+    uint payload_size;         // 用于动态长度指令
 
     [ForceInline] instruction_type get_type() { return (instruction_type)(packed_type_timeline & 0xFFFF); }
     [ForceInline] uint get_relative_timeline() { return packed_type_timeline >> 16; }
@@ -890,7 +890,7 @@ public uint resolve_instruction_v3<T, uint n>(
 
     [ForceUnroll]
     for (uint i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
-        let target_index = threadId * (VERTEX_PER_MESH / GROUP_COUNT) + i;
+        let target_index = i * GROUP_COUNT + threadId;
 
         let info = resolve_infos[global_vtx_base + target_index];
         let type = info.get_type();

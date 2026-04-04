@@ -337,7 +337,28 @@ style::cursor_style input::get_cursor_style() const{
 	return focus_cursor->get_cursor_type(cursor_transformed);
 }
 
+void elem_async_sync_task_queue::consume(){
+	if(auto ts = async_tasks_.fetch()){
+		for (auto&& t : *ts){
+			if(static_cast<elem*>(t.e)->is_synced_to_ui_thread()){
+				t.exec();
+			}else{
+				unsync_pending_.push_back(std::move(t));
+			}
+		}
+	}
+}
 
+void elem_async_sync_task_queue::on_sync_relocate_consume(){
+	modifiable_erase_if(unsync_pending_, [](task_entry& t){
+		if(static_cast<elem*>(t.e)->is_synced_to_ui_thread()){
+				t.exec();
+			return true;
+		}else{
+			return false;
+		}
+	});
+}
 }
 
 style::style_manager scene_resources::init_style_manager_() const{
@@ -354,7 +375,7 @@ void scene_base::drop_(const elem* target) noexcept{
 	input_handler_.drop_elem(target);
 
 	instant_task_queue_.erase(target);
-	active_update_elems_.erase(const_cast<elem*>(target));
+	active_update_elems_.erase({const_cast<elem*>(target)});
 
 	async_task_queue_.erase(target);
 	action_queue_.erase(target);
@@ -388,9 +409,15 @@ void scene_base::update(double delta_in_tick){
 
 	root().update(delta_in_tick);
 
+#ifndef NDEBUG
+	debug__is_updating_elems_ = true;
+#endif
 	for (auto active_update_elem : active_update_elems_){
-		active_update_elem->update(delta_in_tick);
+		active_update_elem.elem->update(delta_in_tick);
 	}
+#ifndef NDEBUG
+	debug__is_updating_elems_ = false;
+#endif
 
 	input_handler_.update_elem_cursor_state(delta_in_tick, tooltip_manager_);
 	action_queue_.update(delta_in_tick);

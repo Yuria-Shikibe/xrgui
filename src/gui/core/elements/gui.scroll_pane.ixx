@@ -93,7 +93,7 @@ public:
 	events::op_afterwards on_cursor_moved(const events::cursor_move event) override{
 		last_local_cursor_pos_ = event.dst;
 		if(overlay_scroll_bars_ && is_cursor_pos_in_scroll_bar_region()){
-			set_update_required(update_channel::draw);
+			this->sync_run([](elem& e){util::update_insert(e, update_channel::draw);});
 		}
 
 		return elem::on_cursor_moved(event);
@@ -137,7 +137,7 @@ public:
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
 		elem::on_inbound_changed(is_inbounded, changed);
 		set_focused_scroll(is_inbounded);
-		if(changed && overlay_scroll_bars_) set_update_required(update_channel::draw);
+		if(changed && overlay_scroll_bars_) this->sync_run([](elem& e){util::update_insert(e, update_channel::draw);});
 	}
 
 	void on_focus_changed(bool is_focused) override{
@@ -360,7 +360,7 @@ public:
 		requires std::constructible_from<element_type, scene&, elem*, Args&&...>
 	[[nodiscard]] scroll_adaptor(scene& scene, elem* parent, layout::layout_policy policy, Args&&... args) requires
 		(is_elem_value)
-		: scroll_adaptor_base(scene, parent, policy), item_(scene, parent, std::forward<Args>(args)...){
+		: scroll_adaptor_base(scene, parent, policy), item_(scene, this, std::forward<Args>(args)...){
 	}
 
 	[[nodiscard]] scroll_adaptor(scene& scene, elem* parent)
@@ -568,7 +568,7 @@ private:
 		}
 
 		adaptor_layout_elem();
-		if(overlay_scroll_bars_) set_update_required(update_channel::draw);
+		if(overlay_scroll_bars_) this->post_task([](elem& e){util::update_insert(e, update_channel::draw);});
 	}
 
 	void deduced_set_child_fill_parent(elem& element) const noexcept{
@@ -811,6 +811,9 @@ protected:
 constexpr scroll_pane_bar_drawer default_scroll_pane_drawer{tags::persistent, {0b1}};
 }
 
+/**
+ * @warning in most cases, generic scroll pane is not recommended to use, use scroll adaptor instead.
+ */
 export
 using scroll_pane = scroll_adaptor<elem_ptr>;
 }

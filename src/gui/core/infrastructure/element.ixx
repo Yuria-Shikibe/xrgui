@@ -164,7 +164,6 @@ using elem_span = transparent_span<elem* const>;
 
 namespace scene_submodule{
 struct input;
-struct async_sync_task_queue;
 }
 
 export struct elem : tooltip::spawner_general<elem>{
@@ -265,13 +264,19 @@ public:
 	template <typename E, std::invocable<> Fn>
 	void post_task(this E& e, Fn&& fn);
 
-	template <typename E, std::invocable<E&> Fn>
-		requires (std::derived_from<std::remove_const_t<E>, elem>)
-	void sync_run(this E& e, Fn&& fn){
+	template <typename E, typename Fn, typename ...Args>
+		requires (std::derived_from<std::remove_const_t<E>, elem> && std::invocable<Fn&&, E&, Args&&...>)
+	void sync_run(this E& e, Fn&& fn, Args&&... args){
 		if(is_on_scene_thread(static_cast<const elem&>(e).get_scene())){
-			std::invoke(fn, e);
+			std::invoke(fn, e, std::forward<Args>(args)...);
 		}else{
-			e.post_task(std::forward<Fn>(fn));
+			if constexpr (sizeof...(Args) > 0){
+				e.post_task([f = std::forward<Fn>(fn), ...a = std::forward<Args>(args)](E& v) mutable{
+					std::invoke(std::move(f), v, std::move(a)...);
+				});
+			} else{
+				e.post_task(std::forward<Fn>(fn));
+			}
 		}
 	}
 
@@ -521,12 +526,13 @@ protected:
 		}
 	}
 public:
-	void set_update_required(update_channel channel, update_channel mask = update_channel{~0U}) noexcept{
+	[[deprecated]] void set_update_required(update_channel channel, update_channel mask = update_channel{~0U}) noexcept{
 		if(const auto rst = update_flag.set_self_update_required(channel, mask)){
 			propagate_update_requirement_since_self(rst.is_required());
 		}
 	}
-	void set_update_disabled(update_channel channel) noexcept{
+
+	[[deprecated]] void set_update_disabled(update_channel channel) noexcept{
 		set_update_required({}, channel);
 	}
 
@@ -1294,13 +1300,19 @@ FORCE_INLINE constexpr bool contains(math::vector2<T> pos, math::vector2<T> exte
 
 
 export
-void insert_update(elem& e){
-	e.get_scene().insert_update(e);
+void update_insert(elem& e, update_channel channel){
+	e.get_scene().insert_update(e, channel);
 }
 
 export
-void erase_update(elem& e){
-	e.get_scene().erase_update(&e);
+void update_erase(const elem& e, update_channel channel){
+	e.get_scene().erase_update(&e, channel);
+}
+
+export
+void sync_elem_tree(elem& e){
+	e.on_context_sync_bind();
+	e.get_scene().notify_instant_queue_consume();
 }
 
 }

@@ -116,6 +116,15 @@ public:
 		tokenize_tag tag = tokenize_tag::def) : tokenized_text(string, tag, nullptr){
 	}
 
+	[[nodiscard]] constexpr explicit(false) tokenized_text(const char32_t* string,
+		tokenize_tag tag = tokenize_tag::def) : tokenized_text(std::u32string_view{string}, tag, nullptr){
+	}
+
+	template <std::size_t Sz>
+	[[nodiscard]] constexpr explicit(false) tokenized_text(char32_t const (&string)[Sz],
+		tokenize_tag tag = tokenize_tag::def) : tokenized_text(std::u32string_view{string, Sz}, tag, nullptr){
+	}
+
 	[[nodiscard]] constexpr explicit(false) tokenized_text(std::u32string&& string,
 		tokenize_tag tag = tokenize_tag::def) : tokenized_text(std::move(string), tag, nullptr){
 	}

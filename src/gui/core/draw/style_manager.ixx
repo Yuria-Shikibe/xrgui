@@ -12,6 +12,19 @@ import mo_yanxi.gui.alloc;
 
 namespace mo_yanxi::gui::style {
 
+enum struct family_variant{
+	general,
+	general_static,
+	base_only,
+	edge_only,
+
+	emphasize,
+	accepted,
+	warning,
+	invalid,
+
+};
+
 using style_map_allocator = mr::heap_allocator<std::pair<const std::string, referenced_ptr<style_drawer_base>>>;
 
 struct style_collection {

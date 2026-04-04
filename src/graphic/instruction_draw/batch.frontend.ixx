@@ -331,6 +331,10 @@ public:
 		return std::span{submit_groups_.data(), current_group};
 	}
 
+	std::span<const contiguous_draw_list> get_valid_submit_groups() const noexcept{
+		return std::span{submit_groups_.data(), current_group};
+	}
+
 	std::span<const state_transition> get_state_transitions() const noexcept{
 		return std::span{submit_transitions_.data(), submit_transitions_.size()};
 	}

@@ -191,6 +191,159 @@ struct instruction_resolve_info{
 	std::vector<std::uint32_t> timelines;
 	std::vector<vertex_resolve_info> thread_resolve_info;
 	std::vector<mesh_dispatch_info_v3> group_dispatch_info;
+
+	void update(const draw_list_context& host_ctx){
+		const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
+
+		std::uint32_t current_global_vertex_base = 0;
+		std::uint32_t current_global_payload_base = 0;
+		constexpr std::uint32_t VERTEX_PER_MESH_LIMIT = 64;
+
+		const std::uint32_t num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().
+			size());
+
+		auto& cpu_timelines = timelines;
+		auto& cpu_resolve_infos = thread_resolve_info;
+		auto& cpu_dispatch_infos = group_dispatch_info;
+		cpu_timelines.clear();
+		cpu_resolve_infos.clear();
+		cpu_dispatch_infos.clear();
+
+		// 【新增】用于缓存未提交的 timeline 状态和脏标记
+		std::vector<std::uint32_t> current_timeline_state;
+		bool timeline_dirty = false;
+
+		if(num_timeline_slots > 0){
+			cpu_timelines.resize(num_timeline_slots, 0);
+			current_timeline_state.resize(num_timeline_slots, 0); // 初始化当前状态
+		}
+
+		// 【优化】通过脏标记记录更新，合并连续的 timeline 变化
+		auto mark_timeline_dirty = [&](std::uint32_t slot_idx){
+			current_timeline_state[slot_idx]++;
+			timeline_dirty = true;
+		};
+
+		for(const auto& group : submit_group_subrange){
+			const auto dispatches = group.get_dispatch_infos();
+			const auto heads = group.get_instruction_heads();
+
+			for(std::size_t i = 0; i < dispatches.size(); ++i){
+				const auto& dispatch_info = dispatches[i];
+
+				mesh_dispatch_info_v3 v3_info{};
+				v3_info.global_vertex_offset = current_global_vertex_base;
+				v3_info.primitives = dispatch_info.primitive_count;
+
+				if(num_timeline_slots > 0){
+					v3_info.base_timeline_index = static_cast<std::uint32_t>(cpu_timelines.size()) / num_timeline_slots
+						- 1;
+				} else{
+					v3_info.base_timeline_index = 0;
+				}
+
+				cpu_dispatch_infos.push_back(v3_info);
+
+				const std::uint32_t patch_til_index = dispatch_info.vertex_offset ? 2 : 0;
+
+				std::uint32_t skipped_vertices = 0;
+				std::int32_t skipped_primitives = -static_cast<std::int32_t>(dispatch_info.primitive_offset);
+
+				std::uint32_t ptr_to_payload = current_global_payload_base + dispatch_info.instruction_offset;
+				std::uint32_t idx_to_head = dispatch_info.instruction_head_index;
+				std::uint32_t relative_timeline = 0;
+
+				for(std::uint32_t target_index = 0; target_index < VERTEX_PER_MESH_LIMIT; ++target_index){
+					std::uint32_t thread_vtx_skip = target_index + dispatch_info.vertex_offset;
+
+					vertex_resolve_info resolve_res{};
+					resolve_res.packed_type_timeline = 0;
+					resolve_res.payload_offset = 0;
+					resolve_res.packed_skips = 0xFFFF0000;
+					resolve_res.payload_size = 0;
+
+					bool is_found = false;
+
+					while(idx_to_head < heads.size()){
+						if(skipped_primitives >= static_cast<std::int32_t>(dispatch_info.primitive_count)){
+							break;
+						}
+
+						const auto& head = heads[idx_to_head];
+
+						if(head.type == instr_type::uniform_update){
+							if(num_timeline_slots > 0){
+								// 【优化】记录脏状态，不立即追加
+								mark_timeline_dirty(head.payload.marching_data.index);
+							}
+							// 跨越多条 timeline 修改时，relative_timeline 不再无脑暴增
+							idx_to_head++;
+							continue;
+						}
+
+						const std::uint32_t head_vtx_count = head.payload.draw.vertex_count;
+						const std::uint32_t local_skip = thread_vtx_skip - skipped_vertices;
+
+						if(local_skip < head_vtx_count){
+							is_found = true;
+							break;
+						}
+
+						ptr_to_payload += head.payload_size;
+						skipped_vertices += head_vtx_count;
+						skipped_primitives += head.payload.draw.primitive_count;
+						idx_to_head++;
+					}
+
+					if(is_found){
+						const auto& head = heads[idx_to_head];
+						const std::uint32_t local_skip = thread_vtx_skip - skipped_vertices;
+
+						std::uint32_t idc_idx = 0xFFFF;
+						if(target_index >= patch_til_index && local_skip >= 2){
+							idc_idx = static_cast<std::uint32_t>(skipped_primitives) + local_skip - 2;
+						}
+
+						// 【新增】如果 timeline 已脏，说明之前有缓存的 uniform_update 变更。
+						// 由于当前遇到实际需要发射的顶点了，正式合并并提交状态。
+						if(timeline_dirty) {
+							cpu_timelines.insert(cpu_timelines.end(), current_timeline_state.begin(), current_timeline_state.end());
+							relative_timeline++;
+							timeline_dirty = false;
+						}
+
+						resolve_res.packed_type_timeline = static_cast<std::uint32_t>(head.type) | (relative_timeline <<
+							16);
+						resolve_res.payload_offset = ptr_to_payload;
+						resolve_res.packed_skips = (local_skip & 0xFFFF) | (idc_idx << 16);
+						resolve_res.payload_size = head.payload_size;
+					}
+
+					cpu_resolve_infos.push_back(resolve_res);
+				}
+
+				// --- 扫尾阶段：专属边界，只为拦截剩余的 uniform_update ---
+				const std::uint32_t sweep_end_idx = (i + 1 < dispatches.size())
+					                                    ? dispatches[i + 1].instruction_head_index
+					                                    : static_cast<std::uint32_t>(heads.size());
+
+				while(idx_to_head < sweep_end_idx){
+					const auto& head = heads[idx_to_head];
+					if(head.type == instr_type::uniform_update){
+						if(num_timeline_slots > 0){
+							// 【优化】同样只做脏标记记录
+							mark_timeline_dirty(head.payload.marching_data.index);
+						}
+					}
+					idx_to_head++;
+				}
+
+				current_global_vertex_base += VERTEX_PER_MESH_LIMIT;
+			}
+
+			current_global_payload_base += static_cast<std::uint32_t>(group.get_pushed_instruction_size());
+		}
+	}
 };
 
 struct frame_resource{
@@ -202,7 +355,7 @@ struct frame_resource{
     vk::buffer_cpu_to_gpu buffer_timelines{};     // 新增：拍平的 Timeline 快照缓冲
     vk::buffer_cpu_to_gpu buffer_instruction{};   // Payload 缓冲保持不变
 
-    vk::buffer_cpu_to_gpu buffer_indirect{};
+    // vk::buffer_cpu_to_gpu buffer_indirect{};
     vk::buffer_cpu_to_gpu buffer_volatile_data{};
     vk::buffer_cpu_to_gpu buffer_per_draw_call_data{};
 
@@ -216,9 +369,10 @@ struct frame_resource{
     frame_resource(const vk::allocator_usage& allocator,
         const vk::descriptor_layout& layout,
         const vk::descriptor_layout& volatile_layout, const draw_list_context& batch_frontend)
-        : buffer_indirect(allocator, sizeof(VkDrawMeshTasksIndirectCommandEXT) * 32,
-            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)
-        , bindings{[&]{
+        :
+	// buffer_indirect(allocator, sizeof(VkDrawMeshTasksIndirectCommandEXT) * 32,
+ //            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) ,
+        bindings{[&]{
             std::vector<vk::binding_spec> bindings{
                 {0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // V3 Dispatch Info
                 {1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Thread Resolve Infos
@@ -235,14 +389,14 @@ struct frame_resource{
         cache_buffer_ranges_(get_required_buffer_descriptor_count_per_frame(batch_frontend)){
     }
 
-	void upload_indirect(
-		const vk::allocator_usage& allocator,
-		const std::span<const VkDrawMeshTasksIndirectCommandEXT> submit_info){
-		if(const auto reqSize = submit_info.size_bytes(); buffer_indirect.get_size() < reqSize){
-			buffer_indirect = vk::buffer_cpu_to_gpu(allocator, reqSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
-		}
-		vk::buffer_mapper{buffer_indirect}.load_range(submit_info);
-	}
+	// void upload_indirect(
+	// 	const vk::allocator_usage& allocator,
+	// 	const std::span<const VkDrawMeshTasksIndirectCommandEXT> submit_info){
+	// 	if(const auto reqSize = submit_info.size_bytes(); buffer_indirect.get_size() < reqSize){
+	// 		buffer_indirect = vk::buffer_cpu_to_gpu(allocator, reqSize, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+	// 	}
+	// 	vk::buffer_mapper{buffer_indirect}.load_range(submit_info);
+	// }
 
 	void upload_v3_data(
         const vk::allocator_usage& allocator,
@@ -535,147 +689,6 @@ public:
 		}
 	}
 
-	void templ_to_mapper(draw_list_context& host_ctx){
-    const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
-
-    std::uint32_t current_global_vertex_base = 0;
-    std::uint32_t current_global_payload_base = 0; // 【新增】绝对 Payload 偏移基址
-    constexpr std::uint32_t VERTEX_PER_MESH_LIMIT = 64;
-
-    const std::uint32_t num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().size());
-
-    auto& cpu_timelines = cached_instruction_resolve_info_.timelines;
-    auto& cpu_resolve_infos = cached_instruction_resolve_info_.thread_resolve_info;
-    auto& cpu_dispatch_infos = cached_instruction_resolve_info_.group_dispatch_info;
-    cpu_timelines.clear();
-    cpu_resolve_infos.clear();
-    cpu_dispatch_infos.clear();
-
-    std::vector<std::uint32_t> current_timeline_state(num_timeline_slots, 0);
-
-    if (num_timeline_slots > 0) {
-        cpu_timelines.append_range(current_timeline_state);
-    }
-
-    for(const auto& group : submit_group_subrange){
-       const auto dispatches = group.get_dispatch_infos();
-       const auto heads = group.get_instruction_heads();
-
-       for(std::size_t i = 0; i < dispatches.size(); ++i){
-          const auto& dispatch_info = dispatches[i];
-
-          mesh_dispatch_info_v3 v3_info{};
-          v3_info.global_vertex_offset = current_global_vertex_base;
-          v3_info.primitives = dispatch_info.primitive_count;
-
-          if (num_timeline_slots > 0) {
-              v3_info.base_timeline_index = static_cast<std::uint32_t>(cpu_timelines.size()) / num_timeline_slots - 1;
-          } else {
-              v3_info.base_timeline_index = 0;
-          }
-
-          cpu_dispatch_infos.push_back(v3_info);
-
-          const std::uint32_t patch_til_index = dispatch_info.vertex_offset ? 2 : 0;
-
-          std::uint32_t skipped_vertices = 0;
-          std::int32_t skipped_primitives = -static_cast<std::int32_t>(dispatch_info.primitive_offset);
-
-          // 【修正】使用全局累计的绝对 Payload 偏移
-          std::uint32_t ptr_to_payload = current_global_payload_base + dispatch_info.instruction_offset;
-
-          std::uint32_t idx_to_head = dispatch_info.instruction_head_index;
-          std::uint32_t relative_timeline = 0;
-
-          for(std::uint32_t target_index = 0; target_index < VERTEX_PER_MESH_LIMIT; ++target_index){
-             std::uint32_t thread_vtx_skip = target_index + dispatch_info.vertex_offset;
-
-             vertex_resolve_info resolve_res{};
-             resolve_res.packed_type_timeline = 0;
-             resolve_res.payload_offset = 0;
-             resolve_res.packed_skips = 0xFFFF0000;
-             resolve_res.payload_size = 0;
-
-             bool is_found = false;
-
-             // 【关键修复 1】不再使用 end_head_idx 限制主循环，放开视野
-             while(idx_to_head < heads.size()){
-                // 【关键修复 2】调换顺序：图元超限必须最先检查！
-                // 如果为 True，意味着后续所有的 target_index 都是凑数的 padding 废弃顶点，立刻 Break，防止误读下一组指令
-                if(skipped_primitives >= static_cast<std::int32_t>(dispatch_info.primitive_count)){
-                   break;
-                }
-
-                const auto& head = heads[idx_to_head];
-
-                if(head.type == instr_type::uniform_update){
-                   if (num_timeline_slots > 0) {
-                       const std::uint32_t slot_idx = head.payload.marching_data.index;
-                       current_timeline_state[slot_idx]++;
-                       cpu_timelines.append_range(current_timeline_state);
-                   }
-                   relative_timeline++;
-                   idx_to_head++;
-                   continue;
-                }
-
-                const std::uint32_t head_vtx_count = head.payload.draw.vertex_count;
-                const std::uint32_t local_skip = thread_vtx_skip - skipped_vertices;
-
-                if(local_skip < head_vtx_count){
-                   is_found = true;
-                   break;
-                }
-
-                ptr_to_payload += head.payload_size;
-                skipped_vertices += head_vtx_count;
-                skipped_primitives += head.payload.draw.primitive_count;
-                idx_to_head++;
-             }
-
-             if(is_found){
-                const auto& head = heads[idx_to_head];
-                const std::uint32_t local_skip = thread_vtx_skip - skipped_vertices;
-
-                std::uint32_t idc_idx = 0xFFFF;
-                if (target_index >= patch_til_index && local_skip >= 2) {
-                   idc_idx = static_cast<std::uint32_t>(skipped_primitives) + local_skip - 2;
-                }
-
-                resolve_res.packed_type_timeline = static_cast<std::uint32_t>(head.type) | (relative_timeline << 16);
-                resolve_res.payload_offset = ptr_to_payload; // 此处即为绝对地址
-                resolve_res.packed_skips = (local_skip & 0xFFFF) | (idc_idx << 16);
-                resolve_res.payload_size = head.payload_size;
-             }
-
-             cpu_resolve_infos.push_back(resolve_res);
-          }
-
-          // --- 扫尾阶段：专属边界，只为拦截剩余的 uniform_update ---
-          // 这里继续使用严格边界，防止 Timeline 状态超前泄漏到下一个 Dispatch 中
-          const std::uint32_t sweep_end_idx = (i + 1 < dispatches.size())
-                                                ? dispatches[i + 1].instruction_head_index
-                                                : static_cast<std::uint32_t>(heads.size());
-
-          while(idx_to_head < sweep_end_idx){
-             const auto& head = heads[idx_to_head];
-             if(head.type == instr_type::uniform_update){
-                if (num_timeline_slots > 0) {
-                    const std::uint32_t slot_idx = head.payload.marching_data.index;
-                    current_timeline_state[slot_idx]++;
-                    cpu_timelines.append_range(current_timeline_state);
-                }
-             }
-             idx_to_head++;
-          }
-
-          current_global_vertex_base += VERTEX_PER_MESH_LIMIT;
-       }
-
-       // 【新增】累加上当前整个 Submit Group 的 payload 数据尺寸，用于正确的跨组偏移定位
-       current_global_payload_base += static_cast<std::uint32_t>(group.get_pushed_instruction_size());
-    }
-}
 
 	void upload(
 		std::uint32_t target_section,
@@ -686,7 +699,7 @@ public:
 	){
 		cached_state_timelines_.clear();
 
-		templ_to_mapper(host_ctx);
+		cached_instruction_resolve_info_.update(host_ctx);
 
 		auto& frame = frames_[frame_index];
 		const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
@@ -710,7 +723,7 @@ public:
 			return std::span{std::as_const(cache_submit_info_)};
 		}();
 
-		frame.upload_indirect(allocator_, dispatchCountGroups);
+		// frame.upload_indirect(allocator_, dispatchCountGroups);
 
 		std::uint32_t payloadSize = 0;
 		frame.upload_v3_data(allocator_, cached_instruction_resolve_info_, submit_group_subrange, payloadSize);
@@ -745,9 +758,9 @@ public:
 		return cache_submit_info_[frame_index].groupCountX == 0;
 	}
 
-	void cmd_draw(VkCommandBuffer cmd, std::uint32_t dispatch_group_index, std::uint32_t frame_index) const{
-		vk::cmd::drawMeshTasksIndirect(cmd, frames_[frame_index].buffer_indirect,
-			dispatch_group_index * sizeof(VkDrawMeshTasksIndirectCommandEXT), 1);
+	void cmd_draw(VkCommandBuffer cmd, std::uint32_t dispatch_group_index) const{
+		const auto& submit_info = cache_submit_info_[dispatch_group_index];
+		vk::cmd::drawMeshTasks(cmd, submit_info.groupCountX, submit_info.groupCountY, submit_info.groupCountZ);
 	}
 
 };

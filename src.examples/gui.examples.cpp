@@ -141,7 +141,7 @@ struct csv_file_reader : head_body{
 						table.notify_isolated_layout_changed();
 					}};
 				}, [](csv_file_reader& r, elem_ptr&& ptr){
-					ptr->on_context_sync_bind();
+					util::sync_elem_tree(*ptr);
 					r.set_body_elem(std::move(ptr));
 				}};
 			});
@@ -256,7 +256,6 @@ void make_styles(scene& scene){
 
 		sm.register_style<style::elem_style_drawer>(round_style);
 	}
-
 
 	auto elem_slice = sm.get_slice<style::elem_style_drawer>().value();
 
@@ -381,295 +380,193 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 	auto make_create_table = [&] -> std::vector<test_entry> {
 		using function_signature = void(scroll_pane&);
 		std::vector<test_entry> tests{
-			test_entry{"csv", [](cpd::data_table& table){
-				table._debug_identity = 114;
-				table.get_item() = cpd::data_table_desc::from_csv(LR"(D:\projects\untitled\shader info.csv)");
-				table.notify_isolated_layout_changed();
-			}},
-			test_entry{"file reader", [](csv_file_reader& table){
-
-			}},
-			test_entry{
-				"sliders", [&](scroll_adaptor<sequence>& pane){
-					sequence& s = pane.get_elem();
-					util::post_elem_async_task(s, [](gui::sequence& seq){
-						return elem_async_yield_task{
-							seq,
-							[](elem& e){
-								std::println(std::cerr, "Task Begin: current thread: {}", std::this_thread::get_id());
-								std::this_thread::sleep_for(std::chrono::milliseconds(500));
-								std::println(std::cerr, "Task End: current thread: {}", std::this_thread::get_id());
-								return 114;
-							},
-							[](elem& e, int val){
-								std::println(std::cerr, "Task Done: current thread: {} - {}", std::this_thread::get_id(), val);
-							}
-						};
-					});
-
-					s.set_expand_policy(layout::expand_policy::prefer);
-					s.template_cell.set_pending();
-					s.template_cell.pad = {4, 4};
-					s.set_has_smooth_pos_animation(false);
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "Bloom Sample Scale", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.25f);
-
-
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.25f, 4.f, val);
-						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.shader_bloom_scale = &trans;
+				test_entry{
+					"csv", [](cpd::data_table& table){
+						table._debug_identity = 114;
+						table.get_item() = cpd::data_table_desc::from_csv(LR"(D:\projects\untitled\shader info.csv)");
+						table.notify_isolated_layout_changed();
 					}
-
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "BloomSrcFactor", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
-
-						auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
-							return math::lerp(0.f, 2.f, val);
-						}));
-						auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer(
-							[](float val){
-								return std::format("{:.2f}", val);
-							}));
-						react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
-
-						result.shader_bloom_src_factor = &trans;
+				},
+				test_entry{
+					"file reader", [](csv_file_reader& table){
 					}
-
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "BloomDstFactor", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
-
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.f, 2.f, val);
+				},
+				test_entry{
+					"sliders", [&](scroll_adaptor<sequence>& pane){
+						sequence& s = pane.get_elem();
+						util::post_elem_async_task(s, [](gui::sequence& seq){
+							return elem_async_yield_task{
+									seq,
+									[](elem& e){
+										std::println(std::cerr, "Task Begin: current thread: {}",
+										             std::this_thread::get_id());
+										std::this_thread::sleep_for(std::chrono::milliseconds(500));
+										std::println(std::cerr, "Task End: current thread: {}",
+										             std::this_thread::get_id());
+										return 114;
+									},
+									[](elem& e, int val){
+										std::println(std::cerr, "Task Done: current thread: {} - {}",
+										             std::this_thread::get_id(), val);
+									}
+								};
 						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.shader_bloom_dst_factor = &trans;
-					}
 
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "BloomMixFactor", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
-						result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
-					}
-
-					{
-						s.emplace_back<row_separator>().cell().set_size(8);
-					}
-
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "HighlightThres", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.25f);
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.5f, 2.5f, val);
-						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.highlight_filter_threshold = &trans;
-					}
-
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "HighlightSmooth", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.highlight_filter_smooth = &hdl.elem().get_slider_provider();
-					}
-
-					{
-						s.emplace_back<row_separator>().cell().set_size(8);
-					}
-
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "Contrast", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(1.f);
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.tonemap_contrast = &hdl->get_slider_provider();
-					}
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "Exposure", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(.5f);
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.f, 2.f, val);
-						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.tonemap_exposure = &hdl->get_slider_provider();
-					}
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "Saturation", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(1.f);
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.tonemap_saturation = &hdl->get_slider_provider();
-					}
-					{
-						auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
-						                                                    "Gamma", 50.f);
-						hdl->get_slider().set_smooth_drag(true);
-						hdl->get_slider().set_progress(math::map(1.2f, 0.5f, 3.f, 0.f, 1.f));
-						auto& trans = hdl->add_relay_func([](float val){
-							return math::lerp(0.5f, 3.f, val);
-						});
-						hdl->add_formatter_func([](float val){
-							return std::format("{:.2f}", val);
-						});
-						result.tonemap_gamma = &trans;
-					}
-				}
-			}
-			};
-		std::vector<std::function<function_signature>> creators{
-
-				[&](scroll_pane& pane){
-					pane.create([&](sequence& sequence){
-						sequence.template_cell.set_pad({4, 4});
-
-						auto slider = sequence.emplace_back<gui::slider1d_with_output>();
-						slider->set_smooth_scroll(true);
-						slider->set_smooth_jump(false);
-						slider->set_smooth_drag(true);
-						slider.cell().set_size(60);
-
-						auto& progNode = slider->get_provider();
-
-						sequence.create_back([&](progress_bar& prog){
-							prog.progress.set_state(progress_state::approach_smooth);
-							prog.progress.set_speed(.0001f);
-							auto& t = prog.request_receiver();
-							react_flow::connect_chain(progNode, t);
-						}).cell().set_size(60);
-
-						sequence.create_back([&](progress_bar& prog){
-							prog.progress.set_state(progress_state::approach_smooth);
-							prog.progress.set_speed(.0001f);
-							referenced_ptr<style::ring_progress> drawer{std::in_place};
-							drawer->thickness = 32;
-							prog.draw_config.color = {graphic::colors::white, graphic::colors::white};
-
-
-							prog.set_self_boarder(gui::boarder{}.set(32));
-							prog.drawer = std::move(drawer);
-							prog.set_progress_state(progress_state::rough);
-							auto& t = prog.request_receiver();
-							react_flow::connect_chain(progNode, t);
-						}).cell().set_size(400);
-
+						s.set_expand_policy(layout::expand_policy::prefer);
+						s.template_cell.set_pending();
+						s.template_cell.pad = {4, 4};
+						s.set_has_smooth_pos_animation(false);
 						{
-							auto label = sequence.create_back([&](direct_label& l){});
-							label.cell().set_pending();
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "Bloom Sample Scale", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.25f);
 
-							auto& ln = label->request_react_node<direct_label_text_prov>();
-							auto& trans = label->request_embedded_react_node(react_flow::make_transformer([](std::u32string_view sv){
-								return typesetting::tokenized_text{sv};
-							}));
-
-							sequence.create_back([&](text_edit_prov& area){
-								area.set_on_changed_interval(30.f);
-							   react_flow::connect_chain(area.get_provider(), trans, ln);
-						   }).cell().set_pending();
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.25f, 4.f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.shader_bloom_scale = &trans;
 						}
 
-						struct ds : double_side<2>{
-							[[nodiscard]] ds(gui::scene& scene, elem* parent)
-								: double_side<2>(scene, parent){
-								interactivity = interactivity_flag::intercept;
-								set_expand_policy(layout::expand_policy::passive);
-								set_style();
+						{
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "BloomSrcFactor", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
 
-								create(0, [](gui::label& edit){
-									edit.set_expand_policy(layout::expand_policy::passive);
-									edit.set_text("OnLabel");
-									edit.set_fit();
-								});
+							auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
+								return math::lerp(0.f, 2.f, val);
+							}));
+							auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer(
+								[](float val){
+									return std::format("{:.2f}", val);
+								}));
+							react_flow::connect_chain(trans, formatter, hdl->get_display_text_receiver());
 
-								create(1, [](gui::text_edit& edit){
-									edit.set_expand_policy(layout::expand_policy::passive);
-									// edit.set_fit(true);
-									edit.set_view_type(text_edit_view_type::dyn);
-								});
-							}
+							result.shader_bloom_src_factor = &trans;
+						}
 
-							void on_last_clicked_changed(bool isFocused) override{
-								if(isFocused){
-									switch_to(1);
-									at<text_edit>(1).on_last_clicked_changed(true);
-								}else{
-									at<text_edit>(1).on_last_clicked_changed(false);
-									switch_to(0);
-								}
-							}
+						{
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "BloomDstFactor", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
 
-							events::op_afterwards on_click(events::click event, std::span<elem* const> aboves) override{
-								elem::on_click(event, aboves);
-								if(get_current_active_index() == 1){
-									auto& e = at<text_edit>(1);
-									auto pos = e.transform_to_content_space(event.pos);
-									event.pos = pos;
-									e.on_click(event, {});
-								}
-								return events::op_afterwards::intercepted;
-							}
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.f, 2.f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.shader_bloom_dst_factor = &trans;
+						}
 
-							events::op_afterwards on_drag(events::drag event) override{
-								auto& e = get_current_active();
-								event.src = e.transform_to_content_space(event.src);
-								event.dst = e.transform_to_content_space(event.dst);
-								return e.on_drag(event);
-							}
+						{
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "BloomMixFactor", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
+							result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
+						}
 
-							gui::style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
-								auto& e = get_current_active();
-								return e.get_cursor_type(e.transform_to_content_space(cursor_pos_at_content_local));
-							}
-						};
+						{
+							s.emplace_back<row_separator>().cell().set_size(8);
+						}
 
-						sequence.create_back([&](ds& area){
+						{
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "HighlightThres", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.25f);
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.5f, 2.5f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.highlight_filter_threshold = &trans;
+						}
 
+						{
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "HighlightSmooth", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.highlight_filter_smooth = &hdl.elem().get_slider_provider();
+						}
 
-						}).cell().set_size(160);
-					});
+						{
+							s.emplace_back<row_separator>().cell().set_size(8);
+						}
+
+						{
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "Contrast", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(1.f);
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.tonemap_contrast = &hdl->get_slider_provider();
+						}
+						{
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "Exposure", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(.5f);
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.f, 2.f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.tonemap_exposure = &hdl->get_slider_provider();
+						}
+						{
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "Saturation", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(1.f);
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.tonemap_saturation = &hdl->get_slider_provider();
+						}
+						{
+							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
+							                                             "Gamma", 50.f);
+							hdl->get_slider().set_smooth_drag(true);
+							hdl->get_slider().set_progress(math::map(1.2f, 0.5f, 3.f, 0.f, 1.f));
+							auto& trans = hdl->add_relay_func([](float val){
+								return math::lerp(0.5f, 3.f, val);
+							});
+							hdl->add_formatter_func([](float val){
+								return std::format("{:.2f}", val);
+							});
+							result.tonemap_gamma = &trans;
+						}
+					}
 				},
-				[&](scroll_pane& pane){
-					pane.create([](sequence& sequence){
-						sequence.set_style();
-						sequence.set_expand_policy(layout::expand_policy::prefer);
-						sequence.template_cell.set_pending();
-						sequence.template_cell.set_pad({6.f});
+				test_entry{
+					"collapsers", [&](scroll_adaptor<sequence>& pane){
+						pane.set_layout_policy(layout::layout_policy::vert_major);
+
+						sequence& s = pane.get_elem();
+						s.set_layout_policy(layout::layout_policy::vert_major);
+
+						s.set_style();
+						s.set_expand_policy(layout::expand_policy::prefer);
+						s.template_cell.set_pending();
+						s.template_cell.set_pad({6.f});
 
 						for(int i = 0; i < 14; ++i){
-							sequence.create_back([&](collapser& c){
+							s.create_back([&](collapser& c){
 								c.set_update_opacity_during_expand(true);
 								c.set_expand_cond(collapser_expand_cond::inbound);
 
@@ -733,20 +630,11 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 								c.set_head_body_transpose(i & 1);
 							});
 						}
-					}, layout::layout_policy::vert_major);
-					pane.set_layout_policy(layout::layout_policy::vert_major);
+					}
 				},
-				[&](scroll_pane& pane){
-					auto& s = pane.emplace<gui::cpd::file_selector>();
-					s.set_multiple_selection(true);
-					auto& n = s.request_embedded_react_node(react_flow::make_listener([](std::span<const std::filesystem::path> paths){
-						std::println(std::cerr, "{::?}", paths | std::views::transform([](const std::filesystem::path& p){return p.string();}));
-					}));
-					n.connect_predecessor(s.get_prov());
-				},
-				[](scroll_pane& pane){
-					pane.create([](menu& menu){
-						menu.set_expand_policy(layout::expand_policy::prefer);
+				test_entry{
+					"menu", [](menu& menu){
+						menu.set_expand_policy(layout::expand_policy::passive);
 						menu.set_head_size(90);
 						menu.get_head_template_cell().set_size(240).set_pad({4, 4});
 
@@ -763,113 +651,118 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 									}
 								});
 						}
-					});
+					}
 				},
-				[](scroll_pane& pane){
-					pane.create([](table& table){
-						table.set_expand_policy(layout::expand_policy::prefer);
-						table.set_entire_align(align::pos::center);
-						for(int i = 0; i < 4; ++i){
-							auto check_box = table.emplace_back<gui::check_box>(std::in_place);
-							check_box->icons[1].components.color = {graphic::colors::pale_green};
-							check_box.cell().set_size({60, 60});
-
-							auto receiver = table.emplace_back<label>();
-							receiver->set_fit();
-							auto& listener = receiver->request_embedded_react_node(react_flow::make_listener(
-								[&e = receiver.elem()](bool i){
-									e.set_toggled(i);
-									if(i){
-										e.set_text("Toggled");
-									} else{
-										e.set_text("");
-									}
-								}));
-							listener.connect_predecessor(check_box->get_prov());
-
-							receiver.cell().set_end_line();
-						}
-
-						{
-							auto sep = table.emplace_back<row_separator>();
-						   sep.cell().set_height(20).set_width_passive(.85f).saturate = true;
-						   sep.cell().margin.set_vert(4);
-						   sep.cell().set_end_line();
-						}
-
-						{
-							auto sep = table.create_back([](overflow_sequence& seq){
-								seq.set_layout_policy(layout::layout_policy::vert_major);
-								seq.template_cell.set_size(120).set_pad({2, 2});
-								auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
-									i.set_style();
-								}, gui::assets::builtin::shape_id::more);
-								cell.set_size({layout::size_category::scaling});
-
-								for(unsigned i = 0; i < 12; ++i){
-									seq.create_back([&](label& l){
-										l.set_text(std::format("{}", i));
-										l.set_fit();
-									});
-								}
-								seq.set_split_index(2);
-							});
-							sep.cell().set_height(80).saturate = true;
-							sep.cell().margin.set_vert(4);
-							sep.cell().set_end_line();
-						}
-
-						for(int i = 0; i < 4; ++i){
-							table.emplace_back<elem>().cell().set_size({120, 120});
-							table.emplace_back<elem>();
-							table.end_line();
-						}
-					});
-				},
-				[](scroll_pane& pane){
-					pane.create(
-						[](grid& table){
-							table.set_has_smooth_pos_animation(true);
+				test_entry{
+					"", [](scroll_pane& pane){
+						pane.create([](table& table){
 							table.set_expand_policy(layout::expand_policy::prefer);
-							table.emplace_back<elem>().cell().extent = {
-									{.type = grid_extent_type::src_extent, .desc = {0, 2},},
-									{.type = grid_extent_type::src_extent, .desc = {0, 1},},
-								};
-							table.emplace_back<elem>().cell().extent = {
-									{.type = grid_extent_type::src_extent, .desc = {1, 2},},
-									{.type = grid_extent_type::src_extent, .desc = {1, 1},},
-								};
-							table.emplace_back<elem>().cell().extent = {
-									{.type = grid_extent_type::src_extent, .desc = {2, 2},},
-									{.type = grid_extent_type::src_extent, .desc = {2, 1},},
-								};
-							table.emplace_back<elem>().cell().extent = {
-									{.type = grid_extent_type::src_extent, .desc = {0, 4},},
-									{.type = grid_extent_type::src_extent, .desc = {2, 2},},
-								};
-							table.emplace_back<elem>().cell().extent = {
-									{.type = grid_extent_type::margin, .desc = {1, 1},},
-									{.type = grid_extent_type::src_extent, .desc = {5, 1},},
-								};
-							table.emplace_back<elem>().cell().extent = {
-									{.type = grid_extent_type::margin, .desc = {4, 1},},
-									{.type = grid_extent_type::src_extent, .desc = {7, 1},},
-								};
-							table.emplace_back<elem>().cell().extent = {
-									{.type = grid_extent_type::src_extent, .desc = {5, 6},},
-									{.type = grid_extent_type::margin, .desc = {0, 0},},
-								};
-						}, math::vector2<grid_dim_spec>{
-							grid_uniformed_mastering{6, 300.f, {4, 4}},
-							grid_uniformed_passive{8, {4, 4}}
+							table.set_entire_align(align::pos::center);
+							for(int i = 0; i < 4; ++i){
+								auto check_box = table.emplace_back<gui::check_box>(std::in_place);
+								check_box->icons[1].components.color = {graphic::colors::pale_green};
+								check_box.cell().set_size({60, 60});
+
+								auto receiver = table.emplace_back<label>();
+								receiver->set_fit();
+								auto& listener = receiver->request_embedded_react_node(react_flow::make_listener(
+									[&e = receiver.elem()](bool i){
+										e.set_toggled(i);
+										if(i){
+											e.set_text("Toggled");
+										} else{
+											e.set_text("");
+										}
+									}));
+								listener.connect_predecessor(check_box->get_prov());
+
+								receiver.cell().set_end_line();
+							}
+
+							{
+								auto sep = table.emplace_back<row_separator>();
+								sep.cell().set_height(20).set_width_passive(.85f).saturate = true;
+								sep.cell().margin.set_vert(4);
+								sep.cell().set_end_line();
+							}
+
+							{
+								auto sep = table.create_back([](overflow_sequence& seq){
+									seq.set_layout_policy(layout::layout_policy::vert_major);
+									seq.template_cell.set_size(120).set_pad({2, 2});
+									auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
+										i.set_style();
+									}, gui::assets::builtin::shape_id::more);
+									cell.set_size({layout::size_category::scaling});
+
+									for(unsigned i = 0; i < 12; ++i){
+										seq.create_back([&](label& l){
+											l.set_text(std::format("{}", i));
+											l.set_fit();
+										});
+									}
+									seq.set_split_index(2);
+								});
+								sep.cell().set_height(80).saturate = true;
+								sep.cell().margin.set_vert(4);
+								sep.cell().set_end_line();
+							}
+
+							for(int i = 0; i < 4; ++i){
+								table.emplace_back<elem>().cell().set_size({120, 120});
+								table.emplace_back<elem>();
+								table.end_line();
+							}
 						});
-					pane.set_layout_policy(layout::layout_policy::vert_major);
+					}
 				},
-				[](scroll_pane& pane){
-					pane.create(
-						[](split_pane& table){
-							constexpr static auto test_text =
-								R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
+				test_entry{
+					"", [](scroll_pane& pane){
+						pane.create(
+							[](grid& table){
+								table.set_has_smooth_pos_animation(true);
+								table.set_expand_policy(layout::expand_policy::prefer);
+								table.emplace_back<elem>().cell().extent = {
+										{.type = grid_extent_type::src_extent, .desc = {0, 2},},
+										{.type = grid_extent_type::src_extent, .desc = {0, 1},},
+									};
+								table.emplace_back<elem>().cell().extent = {
+										{.type = grid_extent_type::src_extent, .desc = {1, 2},},
+										{.type = grid_extent_type::src_extent, .desc = {1, 1},},
+									};
+								table.emplace_back<elem>().cell().extent = {
+										{.type = grid_extent_type::src_extent, .desc = {2, 2},},
+										{.type = grid_extent_type::src_extent, .desc = {2, 1},},
+									};
+								table.emplace_back<elem>().cell().extent = {
+										{.type = grid_extent_type::src_extent, .desc = {0, 4},},
+										{.type = grid_extent_type::src_extent, .desc = {2, 2},},
+									};
+								table.emplace_back<elem>().cell().extent = {
+										{.type = grid_extent_type::margin, .desc = {1, 1},},
+										{.type = grid_extent_type::src_extent, .desc = {5, 1},},
+									};
+								table.emplace_back<elem>().cell().extent = {
+										{.type = grid_extent_type::margin, .desc = {4, 1},},
+										{.type = grid_extent_type::src_extent, .desc = {7, 1},},
+									};
+								table.emplace_back<elem>().cell().extent = {
+										{.type = grid_extent_type::src_extent, .desc = {5, 6},},
+										{.type = grid_extent_type::margin, .desc = {0, 0},},
+									};
+							}, math::vector2<grid_dim_spec>{
+								grid_uniformed_mastering{6, 300.f, {4, 4}},
+								grid_uniformed_passive{8, {4, 4}}
+							});
+						pane.set_layout_policy(layout::layout_policy::vert_major);
+					}
+				},
+				test_entry{
+					"", [](scroll_pane& pane){
+						pane.create(
+							[](split_pane& table){
+								constexpr static auto test_text =
+									R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
 {u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâã ä åx̂̃ñ
 {color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
 
@@ -894,90 +787,97 @@ Edge Cases:
 4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
 )";
 
-							table.set_expand_policy(layout::expand_policy::prefer);
-							using namespace std::literals;
-							table.create_head([](split_pane& inner){
-								inner.set_expand_policy(layout::expand_policy::passive);
-								inner.set_layout_policy(layout::layout_policy::hori_major);
-								inner.create_head([](scroll_adaptor<label>& p){
-									p.set_style();
-									auto& l = p.get_elem();
-									l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
-									l.set_expand_policy(layout::expand_policy::prefer);
-									l.set_fit(false);
-									l.set_text(test_text);
-
-								});
-								inner.create_body([](scroll_adaptor<label>& p){
-									p.set_overlay_bar(true);
-									// label.set_style();
-									auto& l = p.get_elem();
-									l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
-									l.set_expand_policy(layout::expand_policy::prefer);
-									l.set_fit(false);
-									l.set_text(test_text);
-									p.set_layout_policy(layout::layout_policy::vert_major);
-								});
-							});
-
-
-							table.create_body([](split_pane& inner){
-								inner.set_expand_policy(layout::expand_policy::passive);
-								inner.set_layout_policy(layout::layout_policy::hori_major);
-								inner.create_head([](scroll_pane& label){
-									label.set_style();
-									label.create([](gui::label& l){
+								table.set_expand_policy(layout::expand_policy::prefer);
+								using namespace std::literals;
+								table.create_head([](split_pane& inner){
+									inner.set_expand_policy(layout::expand_policy::passive);
+									inner.set_layout_policy(layout::layout_policy::hori_major);
+									inner.create_head([](scroll_adaptor<label>& p){
+										p.set_style();
+										auto& l = p.get_elem();
+										l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
 										l.set_expand_policy(layout::expand_policy::prefer);
 										l.set_fit(false);
-										l.set_typesetting_config(typesetting::layout_config{
-												.direction = typesetting::layout_direction::rtl,
-											});
 										l.set_text(test_text);
 									});
-								});
-								inner.create_body([](scroll_pane& label){
-									label.set_overlay_bar(true);
-									label.set_style();
-									label.create([&](gui::label& l){
+									inner.create_body([](scroll_adaptor<label>& p){
+										p.set_overlay_bar(true);
+										// label.set_style();
+										auto& l = p.get_elem();
+										l.set_tokenizer_tag(typesetting::tokenize_tag::raw);
 										l.set_expand_policy(layout::expand_policy::prefer);
 										l.set_fit(false);
-										l.set_typesetting_config(typesetting::layout_config{
-												.direction = typesetting::layout_direction::btt
-											});
 										l.set_text(test_text);
+										p.set_layout_policy(layout::layout_policy::vert_major);
 									});
-									label.set_layout_policy(layout::layout_policy::vert_major);
+								});
+
+
+								table.create_body([](split_pane& inner){
+									inner.set_expand_policy(layout::expand_policy::passive);
+									inner.set_layout_policy(layout::layout_policy::hori_major);
+									inner.create_head([](scroll_pane& label){
+										label.set_style();
+										label.create([](gui::label& l){
+											l.set_expand_policy(layout::expand_policy::prefer);
+											l.set_fit(false);
+											l.set_typesetting_config(typesetting::layout_config{
+													.direction = typesetting::layout_direction::rtl,
+												});
+											l.set_text(test_text);
+										});
+									});
+									inner.create_body([](scroll_pane& label){
+										label.set_overlay_bar(true);
+										label.set_style();
+										label.create([&](gui::label& l){
+											l.set_expand_policy(layout::expand_policy::prefer);
+											l.set_fit(false);
+											l.set_typesetting_config(typesetting::layout_config{
+													.direction = typesetting::layout_direction::btt
+												});
+											l.set_text(test_text);
+										});
+										label.set_layout_policy(layout::layout_policy::vert_major);
+									});
 								});
 							});
-						});
-					pane.set_layout_policy(layout::layout_policy::vert_major);
+						pane.set_layout_policy(layout::layout_policy::vert_major);
+					}
 				},
-				[](scroll_pane& pane){
-					pane.create(
-						[](table& table){
-							table.set_expand_policy(layout::expand_policy::prefer);
-							table.create_back([](cpd::rgb_picker& picker){
-							}).cell().set_size({600, 600});
-						});
-					pane.set_layout_policy(layout::layout_policy::none);
-				},
-				[](scroll_pane& pane){
-					pane.create(
-						[](sequence& table){
-							table.set_expand_policy(layout::expand_policy::prefer);
-							table.create_back([](cpd::data_table& table){
-								table.get_item() = cpd::data_table_desc::from_csv(LR"(D:\projects\untitled\shader info.csv)");
+				test_entry{
+					"", [](scroll_pane& pane){
+						pane.create(
+							[](table& table){
+								table.set_expand_policy(layout::expand_policy::prefer);
+								table.create_back([](cpd::rgb_picker& picker){
+								}).cell().set_size({600, 600});
 							});
-						});
-					pane.set_layout_policy(layout::layout_policy::none);
+						pane.set_layout_policy(layout::layout_policy::none);
+					}
 				},
-				[](scroll_pane& pane){
-					pane.create(
-						[](sequence& table){
-							table.set_expand_policy(layout::expand_policy::prefer);
-							table.emplace_back<vp>();
-						});
-					pane.set_layout_policy(layout::layout_policy::none);
+				test_entry{
+					"", [](scroll_pane& pane){
+						pane.create(
+							[](sequence& table){
+								table.set_expand_policy(layout::expand_policy::prefer);
+								table.create_back([](cpd::data_table& table){
+									table.get_item() = cpd::data_table_desc::from_csv(
+										LR"(D:\projects\untitled\shader info.csv)");
+								});
+							});
+						pane.set_layout_policy(layout::layout_policy::none);
+					}
+				},
+				test_entry{
+					"", [](scroll_pane& pane){
+						pane.create(
+							[](sequence& table){
+								table.set_expand_policy(layout::expand_policy::prefer);
+								table.emplace_back<vp>();
+							});
+						pane.set_layout_policy(layout::layout_policy::none);
+					}
 				}
 			};
 
@@ -990,10 +890,21 @@ Edge Cases:
 	});
 	mroot.set_style();
 
-	const auto menu_hdl = mroot.emplace_back<menu>();
-	menu_hdl->set_layout_policy(layout::layout_policy::vert_major);
+	const auto menu_hdl = mroot.emplace_back<menu>(layout::layout_policy::vert_major, [](gui::direct_label& l){
+		l.set_fit_type(label_fit_type::scl);
+		l.set_style();
+		l.text_entire_align = align::pos::center;
+		l.set_tokenized_text(typesetting::tokenized_text{
+			U"{b}{#8999F9}{+#223344}X{//}"
+			U"{#DB827D}r{/}"
+			U"{#69D897aa}g{/}"
+			U"{u}u{/}"
+			U"{i}i{/}"
+			U" {f:code}{w:r}{s:*.9}{b}T{/}est"
+		});
+	});
 	menu_hdl->set_expand_policy(layout::expand_policy::passive);
-	menu_hdl->set_head_size({layout::size_category::mastering, 256});
+	menu_hdl->set_head_size({layout::size_category::mastering, 80});
 	menu_hdl.cell().region_scale = {.0f, .0f, .8f, 1.f};
 	menu_hdl.cell().align = align::pos::left;
 
@@ -1004,7 +915,11 @@ Edge Cases:
 		menu_hdl->push_back(
 			elem_ptr{
 				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
-					label.set_text(std::format("Test[{}]: {}", idx, creator.name));
+					label.sync_run([](elem& el){
+						el.set_style(el.get_style_manager().get_slice<style::elem_style_drawer>()->get_or_default("side_bar_top"));
+					});
+					label.set_fit_type(label_fit_type::scl);
+					label.set_text(std::format("[{}]-{}", idx, creator.name));
 					label.text_entire_align = align::pos::center;
 					label.interactivity = interactivity_flag::enabled;
 					label.set_transform_config({

@@ -16,6 +16,7 @@ import :dialog_manager;
 import :cursor;
 import :elem_async_task;
 import :object_pool;
+import :flags;
 import std;
 import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.handle_wrapper;
@@ -394,33 +395,51 @@ struct input{
 	style::cursor_style get_cursor_style() const;
 };
 
-struct async_sync_task_queue{
+struct associated_async_sync_task_queue_base{
+protected:
 	struct task_entry{
-		elem* e;
-		std::move_only_function<void(elem&)> func;
+		void* e;
+		std::move_only_function<void(void*)> func;
 
 		void exec(){
-			func(*e);
+			func(e);
 		}
 	};
 
 	using container = mr::heap_vector<task_entry>;
+
 	ccur::mpsc_double_buffer<task_entry, container> async_tasks_{};
 
-	[[nodiscard]] explicit async_sync_task_queue(const container::allocator_type& alloc)
+public:
+	[[nodiscard]] explicit associated_async_sync_task_queue_base(const container::allocator_type& alloc)
 		: async_tasks_(alloc){
 	}
 
-	template <std::derived_from<elem> E, std::invocable<E&> Fn>
+	UI_MAIN_THREAD_ONLY void consume(){
+		if(auto ts = async_tasks_.fetch()){
+			for (auto&& t : *ts){
+				t.exec();
+			}
+		}
+	}
+};
+
+template <typename T>
+struct associated_async_sync_task_queue : associated_async_sync_task_queue_base{
+	using owner_type = T;
+
+	using associated_async_sync_task_queue_base::associated_async_sync_task_queue_base;
+
+	template <std::derived_from<owner_type> E, std::invocable<E&> Fn>
 	void post(E& e, Fn&& fn){
-		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](elem& e){
-			std::invoke(f, static_cast<E&>(e));
+		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](void* e) mutable {
+			std::invoke(f, *static_cast<E*>(e));
 		});
 	}
 
-	template <std::derived_from<elem> E, std::invocable<> Fn>
+	template <std::derived_from<owner_type> E, std::invocable<> Fn>
 	void post(E& e, Fn&& fn){
-		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](elem& e){
+		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](void* e) mutable {
 			std::invoke(f);
 		});
 	}
@@ -433,14 +452,57 @@ struct async_sync_task_queue{
 		});
 	}
 
+};
+
+struct elem_async_sync_task_queue : associated_async_sync_task_queue<elem>{
+private:
+	mr::heap_vector<task_entry> unsync_pending_;
+
+public:
+	[[nodiscard]] explicit elem_async_sync_task_queue(const container::allocator_type& alloc)
+		: associated_async_sync_task_queue(alloc), unsync_pending_(alloc){
+	}
+
+	UI_MAIN_THREAD_ONLY void erase(const elem* e) noexcept {
+		associated_async_sync_task_queue::erase(e);
+		std::erase_if(unsync_pending_, [&](const container::value_type& v) noexcept {
+			return v.e == e;
+		});
+	}
+
+	UI_MAIN_THREAD_ONLY void consume();
+	UI_MAIN_THREAD_ONLY void on_sync_relocate_consume();
+};
+
+
+struct async_sync_task_queue{
+private:
+	using func = std::move_only_function<void()>;
+	using container = mr::heap_vector<func>;
+	ccur::mpsc_double_buffer<func, container> async_tasks_{};
+
+public:
+	[[nodiscard]] explicit async_sync_task_queue(const container::allocator_type& alloc)
+		: async_tasks_(alloc){
+	}
+
+	template <std::invocable<> Fn>
+	void post(Fn&& fn){
+		async_tasks_.emplace([f = std::forward<Fn>(fn)](){
+			std::invoke(f);
+		});
+	}
+
 	UI_MAIN_THREAD_ONLY void consume(){
 		if(auto ts = async_tasks_.fetch()){
 			for (auto&& t : *ts){
-				t.exec();
+				t();
 			}
 		}
 	}
 };
+
+
 
 struct async_async_task_queue{
 	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
@@ -547,14 +609,34 @@ public:
 
 protected:
 
-	scene_submodule::async_sync_task_queue instant_task_queue_{get_heap_allocator()};
+	scene_submodule::elem_async_sync_task_queue instant_task_queue_{get_heap_allocator()};
+
 	scene_submodule::action_queue action_queue_{get_heap_allocator()};
 	scene_submodule::async_async_task_queue async_task_queue_{get_heap_allocator()};
 	scene_submodule::input input_handler_{get_heap_allocator()};
 
 private:
+
 	double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap_allocator()}};
-	linear_flat_set<mr::heap_vector<elem*>> active_update_elems_{get_heap_allocator()};
+
+	struct update_entry{
+		elem* elem;
+		update_channel channels;
+
+		constexpr auto operator<=>(const update_entry& o) const noexcept{
+			return elem <=> o.elem;
+		}
+
+		constexpr bool operator==(const update_entry& o) const noexcept{
+			return elem == o.elem;
+		}
+	};
+
+	linear_flat_set<mr::heap_vector<update_entry>> active_update_elems_{get_heap_allocator()};
+#ifndef NDEBUG
+	bool debug__is_updating_elems_{false};
+#endif
+
 
 protected:
 	allocator_aware_unique_ptr<react_flow::manager, mr::heap_allocator<react_flow::manager>> react_flow_{
@@ -621,18 +703,33 @@ public:
 		instant_task_queue_.post(e, std::forward<Fn>(fn));
 	}
 
+	void notify_instant_queue_consume(){
+		instant_task_queue_.on_sync_relocate_consume();
+	}
+
 #pragma endregion
 
 #pragma region IndependentUpdate
 
-	void insert_update(elem& p){
+	void insert_update(elem& p, update_channel channel){
+		assert(!debug__is_updating_elems_ && "insert during update causes iterators invalid");
 		assert(is_on_scene_thread(*this));
-		active_update_elems_.insert(&p);
+		if(auto itr = active_update_elems_.find({&p}); itr != active_update_elems_.end()){
+			itr->channels |= channel;
+		}else{
+			active_update_elems_.insert({&p, channel});
+		}
+
 	}
 
-	void erase_update(const elem* p) noexcept {
+	void erase_update(const elem* p, update_channel channel) noexcept {
+		assert(!debug__is_updating_elems_ && "erase during update causes iterators invalid");
 		assert(is_on_scene_thread(*this));
-		active_update_elems_.erase(const_cast<elem*>(p));
+		if(auto itr = active_update_elems_.find({const_cast<elem*>(p)}); itr != active_update_elems_.end()){
+			if((itr->channels -= channel) == update_channel::none){
+				active_update_elems_.erase(itr);
+			}
+		}
 	}
 
 #pragma endregion
@@ -800,22 +897,19 @@ public:
 private:
 	void update(double delta_in_tick);
 
-	void update_mouse_state(input_handle::key_set k){
-		assert(is_on_scene_thread(*this));
-		input_handler_.update_mouse_state(k);
-		update_cursor_type();
-	}
 
 	void on_cursor_move(math::vec2 pos){
 		assert(is_on_scene_thread(*this));
 		input_handler_.inputs_.cursor_move_inform(pos);
 		input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
+		update_cursor_type();
 	}
 
 	void on_mouse_input(const input_handle::key_set key){
 		assert(is_on_scene_thread(*this));
 		input_handler_.inputs_.inform(key);
-		update_mouse_state(key);
+		input_handler_.update_mouse_state(key);
+		update_cursor_type();
 	}
 
 	void on_unicode_input(char32_t val) const{

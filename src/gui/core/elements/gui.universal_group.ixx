@@ -180,7 +180,7 @@ public:
 
 		if(has_smooth_pos_animation_){
 			if(auto done = !update_children_src(delta_in_ticks)){
-				set_update_disabled(update_channel::position);
+				this->post_task([](elem& e){util::update_erase(e, update_channel::position);});
 			}
 		}
 
@@ -302,9 +302,9 @@ public:
 			if(!has_smooth_pos_animation){
 				notify_isolated_layout_changed();
 				update_children_src_instantly();
-				set_update_disabled(update_channel::position);
+				this->post_task([](elem& e){util::update_erase(e, update_channel::position);});
 			}else{
-				set_update_required(update_channel::position);
+				this->post_task([](elem& e){util::update_insert(e, update_channel::position);});
 			}
 		}
 	}
@@ -340,7 +340,7 @@ protected:
 			update_children_src_instantly();
 		}else{
 			if(layout_state.any_lower_changed()){
-				set_update_required(update_channel::position);
+				this->sync_run([](elem& e){util::update_insert(e, update_channel::position);});
 			}
 		}
 		basic_group::layout_elem();
@@ -349,7 +349,7 @@ protected:
 	bool resize_impl(const math::vec2 size) override{
 		if(basic_group::resize_impl(size)){
 			if(has_smooth_pos_animation_){
-				set_update_required(update_channel::position);
+				this->sync_run([](elem& e){util::update_insert(e, update_channel::position);});
 			}
 			return true;
 		}

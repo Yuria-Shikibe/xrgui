@@ -23,6 +23,8 @@ struct menu_create_result{
 
 export
 struct menu : head_body{
+	using button_panel_type = scroll_adaptor<sequence>;
+
 private:
 
 	/**
@@ -33,18 +35,18 @@ private:
 
 	void init(elem_ptr&& default_content){
 		interactivity = interactivity_flag::children_only;
-		create_head([&](scroll_pane& scroll_pane){
-			scroll_pane.create([](sequence& sequence){
-				sequence.interactivity = interactivity_flag::children_only;
-				sequence.set_style();
-				sequence.set_expand_policy(layout::expand_policy::prefer);
-			}, layout::transpose_layout(layout_policy_));
+		create_head([&](button_panel_type& pane){
+			sequence& sequence = pane.get_elem();
+			sequence.set_layout_policy(layout::transpose_layout(layout_policy_));
+			sequence.interactivity = interactivity_flag::children_only;
+			sequence.set_style();
+			sequence.set_expand_policy(layout::expand_policy::prefer);
 		}, layout::transpose_layout(layout_policy_));
 		items[1] = std::move(default_content);
 	}
 
 	[[nodiscard]] sequence& get_button_sequence() const{
-		return elem_cast<sequence, true>(elem_cast<scroll_pane, true>(*items[0]).get_elem());
+		return elem_cast<button_panel_type, true>(*items[0]).get_elem();
 	}
 
 public:
@@ -158,7 +160,7 @@ protected:
 		head_body::on_layout_policy_changed(layout_policy);
 
 		const auto trsp = layout::transpose_layout(layout_policy);
-		elem_cast<scroll_pane, true>(*items[0]).set_layout_policy(trsp);
+		elem_cast<button_panel_type, true>(*items[0]).set_layout_policy(trsp);
 		get_button_sequence().set_layout_policy(trsp);
 	}
 

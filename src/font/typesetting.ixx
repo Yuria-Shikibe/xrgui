@@ -730,8 +730,36 @@ private:
 			rs.prev_color = get_font_color_(config_);
 			auto rich_offset = get_font_offset_(config_);
 
+			bool wrap_changed = layout_buffer_.active_wrap_type != current_wrap_state.type;
+
+			if(wrap_changed && rs.active_ul_start){
+				this->submit_underline(results, *rs.active_ul_start, rs.prev_color, is_delimiter);
+				rs.active_ul_start.reset();
+			}
+
+			if(wrap_changed){
+				if(rs.active_wrap_start){
+					this->submit_wrap_frame(results, *rs.active_wrap_start, rs.prev_color, is_delimiter);
+					rs.active_wrap_start.reset();
+				}
+
+				float pad_prev = get_safe_pad(layout_buffer_.active_wrap_type);
+				float pad_curr = get_safe_pad(current_wrap_state.type);
+				float total_pad = pad_prev + pad_curr;
+
+				if(total_pad > 0.001f){
+					if(this->is_reversed()){
+						layout_buffer_.cursor.*state_.major_p -= total_pad;
+					} else{
+						layout_buffer_.cursor.*state_.major_p += total_pad;
+					}
+				}
+
+				layout_buffer_.active_wrap_type = current_wrap_state.type;
+			}
+
 			if(was_ul && !is_ul && rs.active_ul_start){
-				submit_underline(results, *rs.active_ul_start, rs.prev_color, is_delimiter);
+				this->submit_underline(results, *rs.active_ul_start, rs.prev_color, is_delimiter);
 				rs.active_ul_start.reset();
 			}
 
@@ -739,6 +767,13 @@ private:
 				rs.active_ul_start = ul_start_info{
 						layout_buffer_.cursor, this->get_current_gap_index(results, is_delimiter), metrics.ul_position,
 						metrics.ul_thickness
+					};
+			}
+
+			if(is_wrap && !rs.active_wrap_start){
+				rs.active_wrap_start = wrap_start_info{
+						layout_buffer_.cursor, this->get_current_gap_index(results, is_delimiter),
+						current_wrap_state.type, current_cluster
 					};
 			}
 
