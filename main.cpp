@@ -626,7 +626,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 		font_manager.register_family("code", code_faces_, {&SourceHanSansCN_regular, &seguisym});
 
-		auto& default_family = font_manager.register_family("def", {&telegrama, &SourceHanSansCN_regular, &seguisym});
+		auto& default_family = font_manager.register_family("tele", {&telegrama, &SourceHanSansCN_regular, &seguisym});
 
 		auto& default_family2 = font_manager.register_family("gui", {&SourceHanSansCN_regular, &seguisym});
 

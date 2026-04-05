@@ -40,7 +40,6 @@ private:
 	std::optional<graphic::color> text_color_scl_{};
 	typesetting::line_alignment line_align_{};
 
-
 public:
 
 	[[nodiscard]] bool has_drawable_text() const noexcept {

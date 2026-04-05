@@ -34,7 +34,8 @@ namespace mo_yanxi::gui{
 
 		bool update(const float delta_in_ticks) override{
 			if(!elem::update(delta_in_ticks)) return false;
-			const auto [w, h]{viewport_clamp_region - camera.get_viewport().extent()};
+			const auto [w, h] = viewport_clamp_region.copy().fdim(camera.get_viewport().extent());
+
 			camera.clamp_position({math::vec2{}, w, h});
 			camera.update(delta_in_ticks);
 			return true;

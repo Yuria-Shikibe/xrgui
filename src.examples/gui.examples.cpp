@@ -205,8 +205,11 @@ struct vp : gui::viewport{
 	celestial::planetary_system system;
 	std::vector<simulation_data::body_info> body_infos;
 
+	graphic::draw::instruction::draw_record_chunked_storage<mr::unvs_allocator<std::byte>> text_render_cache;
+
 	[[nodiscard]] vp(scene& scene, elem* parent)
 		: viewport(scene, parent){
+		camera.set_scale_range({.1f, 5.f});
 		auto gen = [](float cx, float cy, float a, float b) -> std::vector<math::vec2>{
 			// 使用 8 个控制点来近似
 			// 为了让三次 B 样条闭合，通常需要将前 3 个点重复添加到末尾
@@ -224,6 +227,41 @@ struct vp : gui::viewport{
 
 		curve_points = gen(100, 200, 400, 300);
 		body_infos = simulation_data::populate_solar_system(system);
+
+		auto ctx = get_scene().resources().object_pool.acquire<typesetting::layout_context>();
+		typesetting::tokenized_text txt;
+		typesetting::glyph_layout layout;
+		for (const auto & [tidx, body_info] : body_infos | std::views::enumerate){
+			txt.reset(body_info.name);
+			ctx->layout(txt, {}, layout);
+
+			for(const auto& current_line : layout.lines){
+				auto [line_src, spacing] = current_line.calculate_alignment(
+					layout.extent, typesetting::line_alignment::start, typesetting::layout_direction::ltr);
+
+				for(const auto& [idx, val] : std::span{
+						layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size
+					} | std::views::enumerate){
+					if(!val.texture->view) continue;
+					auto start = math::fma(idx, spacing, line_src + val.aabb.src);
+					text_render_cache.push(graphic::draw::instruction::rect_aabb{
+							.generic = {val.texture->view},
+							.v00 = start,
+							.v11 = start + val.aabb.extent(),
+							.uv00 = val.texture->uv.v00(),
+							.uv11 = val.texture->uv.v11(),
+							.vert_color = {val.color * system.get_constants()[tidx].get_hdr_color()},
+							.slant_factor_asc = val.slant_factor_asc,
+							.slant_factor_desc = val.slant_factor_desc,
+							.sdf_expand = -val.weight_offset
+						});
+					}
+			}
+
+			text_render_cache.split(true);
+
+			layout.clear();
+		}
 	}
 
 	bool update(float delta_in_ticks) override{
@@ -244,6 +282,7 @@ struct vp : gui::viewport{
 		for (std::size_t i = 0; i < states.size(); ++i) {
 			const auto& state = states[i];
 			const auto& constant = constants[i];
+			auto col = constant.get_hdr_color();
 
 			struct trail_node_data : graphic::trail::node_type{
 				float idx_scale;
@@ -272,7 +311,7 @@ struct vp : gui::viewport{
 						last = node.pos;
 						auto n = node;
 						n.pos += tan;
-						const auto color = math::lerp(constant.hdr_color * 1.5f, constant.hdr_color.to_light(0.5f).set_a(.0f), factor_global);
+						const auto color = math::lerp(col, col.copy_set_a(.0f), factor_global);
 
 						factor_global = math::curve(
 							factor_global | math::interp::interp_func{
@@ -313,15 +352,33 @@ struct vp : gui::viewport{
 			const auto& state = states[i];
 			const auto& constant = constants[i];
 			float render_radius = body_infos[i].render_radius;
-
+			auto col = constant.get_hdr_color();
 			// 调用底层的画圆或画球函数，传入HDR发光颜色
 			fx::circle c{
 				.pos = state.global_position,
-				.radius = {0, render_radius},
-				.color = constant.hdr_color * 1.65f
+				.radius = {0, render_radius * .75f},
+				.color = {col * 1.2f, col}
 			};
-			fx::fringe::poly(renderer(), c);
+			fx::fringe::poly(renderer(), c, (i == 0 ? 12 : fx::fringe::fringe_size) / camera.get_scale());
 		}
+
+		renderer().top_viewport().push_local_transform();
+		for (std::size_t i = 0; i < states.size(); ++i) {
+			const auto& state = states[i];
+			const auto& constant = constants[i];
+			float render_radius = body_infos[i].render_radius;
+			auto col = constant.get_hdr_color();
+			// 调用底层的画圆或画球函数，传入HDR发光颜色
+			auto chunk = this->text_render_cache[i];
+
+			auto mov = auto{math::mat3_idt}.set_translation(state.global_position + render_radius * 1.7f);
+			auto scl = auto{math::mat3_idt}.from_scaling(body_infos[i].text_scale);
+			renderer().top_viewport().set_local_transform(mov * scl);
+			renderer().notify_viewport_changed();
+			renderer().push(chunk.heads, chunk.data.data());
+		}
+		renderer().top_viewport().pop_local_transform();
+		renderer().notify_viewport_changed();
 	}
 
 	void draw_geom(){

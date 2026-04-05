@@ -14,6 +14,7 @@ export import mo_yanxi.graphic.draw.instruction.batch.common;
 export import mo_yanxi.graphic.draw.instruction.general;
 export import mo_yanxi.graphic.draw.instruction.state_tracker; // Import the tracker
 export import mo_yanxi.graphic.draw.instruction.util;
+export import mo_yanxi.graphic.draw.instruction;
 export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.type_register;
@@ -315,9 +316,31 @@ public:
 				switch(head.type){
 				case instr_type::noop : break;
 				case instr_type::uniform_update : break;
-				default : auto& gen = *instruction::start_lifetime_as<primitive_generic>(payload);
+				default : {
+					auto& gen = *instruction::start_lifetime_as<primitive_generic>(payload);
 					gen.image.index = dynamic_image_view_history_.try_push(gen.image.get_image_view());
+
+					// 追加：针对需要除法优化的指令，就地转换为浮点倒数
+					switch(head.type) {
+						case instr_type::poly: {
+							auto& instr = *instruction::start_lifetime_as<poly>(payload);
+							instr.segments.apply_reciprocal();
+							break;
+						}
+						case instr_type::poly_partial: {
+							auto& instr = *instruction::start_lifetime_as<poly_partial>(payload);
+							instr.segments.apply_reciprocal();
+							break;
+						}
+						case instr_type::constrained_curve: {
+							auto& instr = *instruction::start_lifetime_as<parametric_curve>(payload);
+							instr.segments.apply_reciprocal();
+							break;
+						}
+						default: break;
+					}
 					break;
+				}
 				}
 			});
 		}

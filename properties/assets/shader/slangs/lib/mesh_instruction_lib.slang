@@ -27,7 +27,7 @@ public static const uint TEXTURE_BINDING_INDEX = 4;
     quad,
     rectangle,
 
-    line,
+    line_frag,
     line_segments,
     line_segments_closed,
     
@@ -143,20 +143,22 @@ public struct Primitive
     }
 };
 
+struct resolve_result {
+    Vertex vtx;
+    Primitive pmt;
+};
+
 interface instr_resolver
 {
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits: __ref,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices: __ref, );
+    resolve_result push_vertex(resolve_param param);
 }
 
 struct instruction_head
 {
     instruction_type type;
     uint32_t size;
-    uint32_t vertex_count; //Or timeline index
+    uint32_t vertex_count; // Or timeline index
     uint32_t primit_count;
 };
 
@@ -166,7 +168,7 @@ struct section<T>
     T from;
     T to;
 
-    __subscript(uint index) ->T {
+    __subscript(uint index)->T {
         get { return bool(index & 1U) ? to : from; }
         set {
             if (bool(index & 1U)) {
@@ -178,9 +180,7 @@ struct section<T>
     }
 };
 
-
 typealias range = section<float>;
-
 
 struct triangle_draw : instr_resolver
 {
@@ -190,32 +190,19 @@ struct triangle_draw : instr_resolver
     float4 c0, c1, c2;
 
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
+    resolve_result push_vertex(resolve_param param)
     {
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
 
         switch (param.vtx_skip) {
-        case 0: 
-            return Vertex(float3(p0, generic.depth), c0, uv0);
-
-        case 1:
-            return Vertex(float3(p1, generic.depth), c1, uv1);
-
-        case 2:
-            return Vertex(float3(p2, generic.depth), c2, uv2);
-
-        default:
-            return Vertex();
+        case 0: rst.vtx = Vertex(float3(p0, generic.depth), c0, uv0); break;
+        case 1: rst.vtx = Vertex(float3(p1, generic.depth), c1, uv1); break;
+        case 2: rst.vtx = Vertex(float3(p2, generic.depth), c2, uv2); break;
+        default: rst.vtx = Vertex(); break;
         }
 
+        return rst;
     }
 };
 
@@ -224,24 +211,15 @@ struct quad_draw : instr_resolver
     primitive_generic generic;
     float2 vts[4];
     float2 uv[4];
-
     quad_vert_color vert_color;
 
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
+    resolve_result push_vertex(resolve_param param)
     {
-
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
-
-        return Vertex(float3(vts[param.vtx_skip], generic.depth), vert_color[param.vtx_skip], uv[param.vtx_skip]);
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.vtx = Vertex(float3(vts[param.vtx_skip], generic.depth), vert_color[param.vtx_skip], uv[param.vtx_skip]);
+        return rst;
     }
 };
 
@@ -256,39 +234,24 @@ struct rectangle_draw : instr_resolver
     float2 uv00, uv11;
 
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
+    resolve_result push_vertex(resolve_param param)
     {
-        let idx = param.vtx_skip;// + (isPatch ? param.vtx_patch_idx : 0);
-
+        let idx = param.vtx_skip;
         let rotX = get_dir_vec2(angle) * scale * .5f;
         let rotY = rotate_rt_counter_clockwise(rotX);
 
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
 
         switch (idx) {
-        case 0:
-            return Vertex(float3(center - extent.x * rotX - extent.y * rotY, generic.depth), vert_color.c00, uv00);
-
-        case 1:
-            return Vertex(float3(center + extent.x * rotX - extent.y * rotY, generic.depth), vert_color.c10, {uv11.x, uv00.y});
-
-        case 2:
-            return Vertex(float3(center - extent.x * rotX + extent.y * rotY, generic.depth), vert_color.c01, { uv00.x, uv11.y });
-
-        case 3:
-            return Vertex(float3(center + extent.x * rotX + extent.y * rotY, generic.depth), vert_color.c11, uv11);
-
-        default:
-            return Vertex();
+        case 0: rst.vtx = Vertex(float3(center - extent.x * rotX - extent.y * rotY, generic.depth), vert_color.c00, uv00); break;
+        case 1: rst.vtx = Vertex(float3(center + extent.x * rotX - extent.y * rotY, generic.depth), vert_color.c10, { uv11.x, uv00.y }); break;
+        case 2: rst.vtx = Vertex(float3(center - extent.x * rotX + extent.y * rotY, generic.depth), vert_color.c01, { uv00.x, uv11.y }); break;
+        case 3: rst.vtx = Vertex(float3(center + extent.x * rotX + extent.y * rotY, generic.depth), vert_color.c11, uv11); break;
+        default: rst.vtx = Vertex(); break;
         }
+
+        return rst;
     }
 };
 
@@ -299,38 +262,27 @@ struct rectangle_ortho : instr_resolver {
     quad_vert_color vert_color;
     float slant_factor_asc;
     float slant_factor_desc;
-
     float sdf_expand;
 
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, 
-    ) {
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            var pmt = Primitive(generic, param);
-            pmt.sdf_expand = sdf_expand;
-            primits[idc_idx] = pmt;
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
+    resolve_result push_vertex(resolve_param param) {
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.pmt.sdf_expand = sdf_expand;
 
         switch (param.vtx_skip) {
-        case 0:
-            return Vertex(float3(v00 + float2(slant_factor_asc, 0), generic.depth), vert_color.c00, uv00);
-        case 1:
-            return Vertex(float3(float2(v11.x + slant_factor_asc, v00.y), generic.depth), vert_color.c10, float2(uv11.x, uv00.y));
-        case 2:
-            return Vertex(float3(float2(v00.x - slant_factor_desc, v11.y), generic.depth), vert_color.c01, float2(uv00.x, uv11.y));
-        case 3:
-            return Vertex(float3(v11 - slant_factor_desc, generic.depth), vert_color.c11, uv11);
-        default: return Vertex();
+        case 0: rst.vtx = Vertex(float3(v00 + float2(slant_factor_asc, 0), generic.depth), vert_color.c00, uv00); break;
+        case 1: rst.vtx = Vertex(float3(float2(v11.x + slant_factor_asc, v00.y), generic.depth), vert_color.c10, float2(uv11.x, uv00.y)); break;
+        case 2: rst.vtx = Vertex(float3(float2(v00.x - slant_factor_desc, v11.y), generic.depth), vert_color.c01, float2(uv00.x, uv11.y)); break;
+        case 3: rst.vtx = Vertex(float3(v11 - slant_factor_desc, generic.depth), vert_color.c11, uv11); break;
+        default: rst.vtx = Vertex(); break;
         }
+
+        return rst;
     }
 }
 
-struct line : instr_resolver{
+struct line_frag : instr_resolver {
     primitive_generic generic;
     float2 src, dst;
     float4 src_color;
@@ -341,45 +293,26 @@ struct line : instr_resolver{
     uint32_t _cap1, cap2;
 
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, 
-    ) {
+    resolve_result push_vertex(resolve_param param) {
         let h_stroke = stroke * 0.5f;
         let dir = normalize(dst - src);
         let normal = float2(dir.y, -dir.x);
 
-        // 2. 利用位运算提取状态标志 (无需分支)
         let idx = param.vtx_skip;
-
-        // Bit 1 (值 2) 决定是处理终点(dst)还是起点(src)
         let is_dst_end = (idx & 2u) != 0u;
-
-        // Bit 0 (值 1) 决定法线方向的正负
-        // idx=0(00)->Norm+, idx=1(01)->Norm-, idx=2(10)->Norm+, idx=3(11)->Norm-
         let is_neg_normal = (idx & 1u) != 0u;
 
-        // 3. 计算系数 (利用三元运算符或直接数学转换，GPU编译器会将其编译为条件传送指令)
         let sign_dir = is_dst_end ? cap_length : -cap_length;
-
         let sign_norm = is_neg_normal ? -h_stroke : h_stroke;
 
-        // 4. 计算顶点位置和颜色
-        // 逻辑等价于：Original_Pos + h_stroke * (sign_dir * dir + sign_norm * normal)
         let base_pos = is_dst_end ? dst : src;
         let color = is_dst_end ? dst_color : src_color;
-
-        // 向量化偏移计算：方向向量与法线向量的线性组合
         let offset = dir * sign_dir + normal * sign_norm;
 
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
-
-        return Vertex(float3(base_pos + offset, generic.depth), color, 0);
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.vtx = Vertex(float3(base_pos + offset, generic.depth), color, 0);
+        return rst;
     }
 };
 
@@ -388,7 +321,6 @@ struct line_node {
     float stroke;
     float offset; // TODO ?
     section<float4> color;
-    
 };
 
 struct line_draw
@@ -406,21 +338,13 @@ struct line_draw
         let dirL = posC - posL;
         let dirR = posR - posC;
 
-        // 2. 计算垂直法向 (旋转 90 度)
-        // 如果是端点，dirL 或 dirR 至少有一个为 0
         let nL = float2(-dirL.y, dirL.x);
         let nR = float2(-dirR.y, dirR.x);
 
-        // 3. 归一化 (加上极小值防止除以 0)
-        // 即使在端点，只要线段长度不为 0，n_sum 归一化后就是正确的端点法向
         let nL_u = nL * rsqrt(max(dot(nL, nL), 0.00001f));
         let nR_u = nR * rsqrt(max(dot(nR, nR), 0.00001f));
 
-        // 4. Miter Join 核心逻辑
         let miter_dir = nL_u + nR_u;
-
-        // 计算投影长度的倒数: 1 / cos(theta)
-        // 使用 max 防止夹角为 180 度时除以 0
         let k = dot(miter_dir, nL_u);
         var inv_k = rcp(max(k, 0.0001f));
 
@@ -433,18 +357,13 @@ struct line_draw
     }
 
     [ForceInline]
-    Vertex push_vertex(
+    resolve_result push_vertex(
         resolve_param param,
-
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices,
-
         const in instruction_head head,
         const in ByteAddressBuffer instruction,
-        const in uint payload_begin,
+        const in uint payload_begin
     ) {
         let node_length = (head.size - sizeof(line_draw)) / sizeof(line_node);
-        
         let i = param.vtx_skip / 2 + 1;
 
         let nodeL = line_node_at(i - 1, instruction, payload_begin);
@@ -452,57 +371,44 @@ struct line_draw
         let nodeR = line_node_at(i + 1, instruction, payload_begin);
 
         let vert_nor = calculate_vert_nor(nodeL.pos, nodeC.pos, nodeR.pos);
-
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
-
         let offset = fma(bool(param.vtx_skip & 1U) ? .5f : -.5f, nodeC.stroke, nodeC.offset);
 
-        return Vertex(float3(fma(vert_nor, offset, nodeC.pos), generic.depth), nodeC.color[param.vtx_skip], 0);
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.vtx = Vertex(float3(fma(vert_nor, offset, nodeC.pos), generic.depth), nodeC.color[param.vtx_skip], 0);
+        return rst;
     }
 
     [ForceInline]
-    Vertex push_vertex_closed(
+    resolve_result push_vertex_closed(
         resolve_param param,
-
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices,
-
         const in instruction_head head,
         const in ByteAddressBuffer instruction,
-        const in uint payload_begin,
+        const in uint payload_begin
     ) {
         let node_length = (head.size - sizeof(line_draw)) / sizeof(line_node);
         let mod = node_length;
         let i = param.vtx_skip / 2;
-
         let nodeL = line_node_at((i + mod - 1) % mod, instruction, payload_begin);
         let nodeC = line_node_at(i % mod, instruction, payload_begin);
         let nodeR = line_node_at((i + 1) % mod, instruction, payload_begin);
+
         let vert_nor = calculate_vert_nor(nodeL.pos, nodeC.pos, nodeR.pos);
-
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
-
         let offset = fma(bool(param.vtx_skip & 1U) ? .5f : -.5f, nodeC.stroke, nodeC.offset);
 
-        return Vertex(float3(fma(vert_nor, offset, nodeC.pos), generic.depth), nodeC.color[param.vtx_skip], 0);
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.vtx = Vertex(float3(fma(vert_nor, offset, nodeC.pos), generic.depth), nodeC.color[param.vtx_skip], 0);
+        return rst;
     }
 };
-
 
 struct circle_fill_draw : instr_resolver
 {
     primitive_generic generic;
 
     float2 pos;
-    uint32_t segments;
+    float segments_inv;
     float initial_angle;
 
     uint32_t cap1;
@@ -510,43 +416,30 @@ struct circle_fill_draw : instr_resolver
     range radius;
 
     float2 uv00, uv11;
-
     float4 inner, outer;
-    
+
     [ForceInline]
     private float angle_at(uint index) {
-        return fma(float(index) / float(segments), float.getPi() * 2, initial_angle);
+        return fma(float(index) * segments_inv, float.getPi() * 2, initial_angle);
     }
 
     [ForceInline]
-    private Vertex draw_ring(
-        resolve_param param,
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, 
-    ) {
+    private resolve_result draw_ring(resolve_param param) {
         let i = param.vtx_skip / 2;
         let angle = angle_at(i);
         let direction = get_dir_vec2(angle);
         let r = radius[param.vtx_skip];
 
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
-
-        return Vertex(float3(fma(direction, r, pos), generic.depth), bool(param.vtx_skip & 1u) ? outer : inner, 0);
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.vtx = Vertex(float3(fma(direction, r, pos), generic.depth), bool(param.vtx_skip & 1u) ? outer : inner, 0);
+        return rst;
     }
 
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
+    resolve_result push_vertex(resolve_param param)
     {
-        return draw_ring(param, primits, indices);
-        
+        return draw_ring(param);
     }
 };
 
@@ -554,7 +447,7 @@ struct partial_circle_fill_draw : instr_resolver
 {
     primitive_generic generic;
     float2 pos;
-    uint32_t segments;
+    float segments_inv;
     uint32_t cap;
 
     float ratio_src;
@@ -567,15 +460,11 @@ struct partial_circle_fill_draw : instr_resolver
 
     [ForceInline]
     private float angle_at(uint index) {
-        return fma(float(index) / float(segments), ratio_ext, ratio_src) * float.getPi() * 2;
+        return fma(float(index) * segments_inv, ratio_ext, ratio_src) * float.getPi() * 2;
     }
 
     [ForceInline]
-    private Vertex draw_ring(
-        resolve_param param,
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, 
-    ) {
+    private resolve_result draw_ring(resolve_param param) {
         let i = param.vtx_skip / 2;
         let angle = angle_at(i);
         let direction = get_dir_vec2(angle);
@@ -583,39 +472,30 @@ struct partial_circle_fill_draw : instr_resolver
 
         let colorSrc = color_src[param.vtx_skip];
         let colorDst = color_dst[param.vtx_skip];
-        let color = lerp(colorSrc, colorDst, float(i) / float(segments));
+        let color = lerp(colorSrc, colorDst, float(i) * segments_inv);
 
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
-
-        return Vertex(float3(fma(direction, r, pos), generic.depth), color, 0);
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.vtx = Vertex(float3(fma(direction, r, pos), generic.depth), color, 0);
+        return rst;
     }
 
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
+    resolve_result push_vertex(resolve_param param)
     {
-        return draw_ring(param, primits, indices);
+        return draw_ring(param);
     }
 };
 
-struct constrained_curve : instr_resolver{
+struct constrained_curve : instr_resolver {
     primitive_generic generic;
 
     float4x2 constrain_vector;
-    // float4x2 constrain_vector_derivative;
-
     range margin;
     range stroke;
     range offset_on_normal;
 
-    uint32_t segments;
+    float segments_inv;
     uint32_t cap1;
 
     float2 uv00, uv11;
@@ -628,16 +508,11 @@ struct constrained_curve : instr_resolver{
     }
 
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices, )
+    resolve_result push_vertex(resolve_param param)
     {
         let i = param.vtx_skip / 2;
-        let scl = float(i) / float(segments);
-        let fac = fma(scl, 1 - margin.from - margin.to,  margin.from);
-
+        let scl = float(i) * segments_inv;
+        let fac = fma(scl, 1 - margin.from - margin.to, margin.from);
         let is_odd = param.vtx_skip & 1u;
 
         let colorSrc = color_src[param.vtx_skip];
@@ -646,25 +521,20 @@ struct constrained_curve : instr_resolver{
 
         let facVec = get_factor(fac);
         let velFacVec = float4(0, 1, 2 * fac, 3 * facVec[2]);
- 
+
         let pos = mul(facVec, constrain_vector);
-
         let normal = normalize(mul(velFacVec, constrain_vector)).rotate_rt_counter_clockwise();
-
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
-
         let s = lerp(stroke.from, stroke.to, scl);
         let off = lerp(offset_on_normal.from, offset_on_normal.to, scl);
 
-        return Vertex(float3(fma(normal, s * (bool(is_odd) ? -.5 : .5f) + off, pos), generic.depth), col, 0);
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.vtx = Vertex(float3(fma(normal, s * (bool(is_odd) ? -.5 : .5f) + off, pos), generic.depth), col, 0);
+        return rst;
     }
 }
 
-struct rectangle_ortho_outline : instr_resolver{
+struct rectangle_ortho_outline : instr_resolver {
     primitive_generic generic;
     float2[2] verts; // v00, v11
     float[4] strokes;
@@ -681,10 +551,7 @@ struct rectangle_ortho_outline : instr_resolver{
     }
 
     [ForceInline]
-    Vertex push_vertex(
-        resolve_param param,
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices)
+    resolve_result push_vertex(resolve_param param)
     {
         static const uint[5] idx = { 0, 1, 3, 2, 0 };
         let i = idx[param.vtx_skip / 2u];
@@ -692,27 +559,19 @@ struct rectangle_ortho_outline : instr_resolver{
         let sgn = sign_at(i);
         let off = select(bool(param.vtx_skip & 1), -.5, .5f) * strokes[i];
 
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
-
-        return Vertex(float3(fma(sgn, off, pos), generic.depth), vert_color[i], 0);
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.vtx = Vertex(float3(fma(sgn, off, pos), generic.depth), vert_color[i], 0);
+        return rst;
     }
 };
 
 [Flags]
-enum row_patch_flags  {
-    //(是否转置)
+enum row_patch_flags {
     transposed,
-    //(主轴坐标反转)
     flip_major_pos,
-    //(副轴坐标反转)
     flip_minor_pos,
-    //(主轴UV反转)
     flip_major_uv,
-    //(副轴UV反转)
     flip_minor_uv
 };
 
@@ -726,25 +585,20 @@ struct row_patch : instr_resolver {
     float[4] major_uv;
 
     quad_vert_color color;
-
     row_patch_flags flags;
     float depth_bias;
     float2 skew;
 
     [[ForceInline]]
     float2 access_pos_at(uint2 coord) {
-        // 无分支计算 XOR 遮罩：如果开启翻转，mask为3/1，否则为0
         let mask_x = select(bool(flags & row_patch_flags::flip_major_pos), 3u, 0u);
         let mask_y = select(bool(flags & row_patch_flags::flip_minor_pos), 1u, 0u);
 
-        // 坐标索引翻转 (核心 Trick)
         let fetch_coord = uint2(coord.x ^ mask_x, coord.y ^ mask_y);
-
         float2 base_pos = float2(major_pos[fetch_coord.x], minor_pos[fetch_coord.y]);
 
         base_pos.x += base_pos.y * skew.x;
         base_pos.y += base_pos.x * skew.y;
-
         return select(bool(flags & row_patch_flags::transposed), base_pos.yx, base_pos);
     }
 
@@ -760,84 +614,64 @@ struct row_patch : instr_resolver {
     }
 
     [[ForceInline]]
-    Vertex push_vertex(
-        resolve_param param,
-        OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits,
-        OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices
-    )
+    resolve_result push_vertex(resolve_param param)
     {
         let cur_coord = uint2(param.vtx_skip / 2u, param.vtx_skip & 1u);
-
         let position = access_pos_at(cur_coord);
         let uv = access_uv_at(cur_coord);
 
-        // // 颜色插值依然严格沿 Major 轴线性进行
         let mixMajor = (major_pos[cur_coord.x] - major_pos[0]) / (major_pos[3] - major_pos[0]);
-
         let colorMinor1 = select(bool(cur_coord.y), color.c01, color.c00);
         let colorMinor2 = select(bool(cur_coord.y), color.c11, color.c10);
         let c = lerp(colorMinor1, colorMinor2, mixMajor);
 
-        if (param.generates_primitive()) {
-            let idc_idx = param.get_primitive_index();
-            primits[idc_idx] = Primitive(generic, param);
-            indices[idc_idx] = param.getTrivialIndicies();
-        }
-
-        return Vertex(float3(position, generic.depth), c, uv);
+        resolve_result rst;
+        rst.pmt = Primitive(generic, param);
+        rst.vtx = Vertex(float3(position, generic.depth), c, uv);
+        return rst;
     }
 };
 
 static const uint instruction_align = 16;
 
 [ForceInline]
-Vertex push_vertex(
+resolve_result push_vertex(
     instruction_head head,
     const in ByteAddressBuffer instruction,
     uint location,
-    resolve_param param,
-    OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> primits: __ref,
-    OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices: __ref
+    resolve_param param
 ) {
     switch (head.type)
     {
     case instruction_type::triangle:
-        return instruction.LoadAligned<triangle_draw>((location), instruction_align).push_vertex(param, primits, indices);
-
+        return instruction.LoadAligned<triangle_draw>((location), instruction_align).push_vertex(param);
     case instruction_type::quad:
-        return instruction.Load<quad_draw>((location)).push_vertex(param, primits, indices);
-
+        return instruction.Load<quad_draw>((location)).push_vertex(param);
     case instruction_type::rectangle:
-        return instruction.LoadAligned<rectangle_draw>((location), instruction_align).push_vertex(param, primits, indices);
-
-    case instruction_type::line:
-        return instruction.LoadAligned<line>((location), instruction_align).push_vertex(param, primits, indices);
-
+        return instruction.LoadAligned<rectangle_draw>((location), instruction_align).push_vertex(param);
+    case instruction_type::line_frag:
+        return instruction.LoadAligned<line_frag>((location), instruction_align).push_vertex(param);
     case instruction_type::line_segments:
-        return instruction.LoadAligned<line_draw>((location), instruction_align).push_vertex(param, primits, indices, head, instruction, location + sizeof(line_draw));
-
+        return instruction.LoadAligned<line_draw>((location), instruction_align).push_vertex(param, head, instruction, location + sizeof(line_draw));
     case instruction_type::line_segments_closed:
-        return instruction.LoadAligned<line_draw>((location), instruction_align).push_vertex_closed(param, primits, indices, head, instruction, location + sizeof(line_draw));
-
+        return instruction.LoadAligned<line_draw>((location), instruction_align).push_vertex_closed(param, head, instruction, location + sizeof(line_draw));
     case instruction_type::circle:
-        return instruction.LoadAligned<circle_fill_draw>((location), instruction_align).push_vertex(param, primits, indices);
-
+        return instruction.LoadAligned<circle_fill_draw>((location), instruction_align).push_vertex(param);
     case instruction_type::partial_circle:
-        return instruction.LoadAligned<partial_circle_fill_draw>((location), instruction_align).push_vertex(param, primits, indices);
-
+        return instruction.LoadAligned<partial_circle_fill_draw>((location), instruction_align).push_vertex(param);
     case instruction_type::constrained_curve:
-        return instruction.LoadAligned<constrained_curve>((location), instruction_align).push_vertex(param, primits, indices);
-
+        return instruction.LoadAligned<constrained_curve>((location), instruction_align).push_vertex(param);
     case instruction_type::rect_ortho:
-        return instruction.LoadAligned<rectangle_ortho>((location), instruction_align).push_vertex(param, primits, indices);
-
+        return instruction.LoadAligned<rectangle_ortho>((location), instruction_align).push_vertex(param);
     case instruction_type::rect_ortho_outline:
-        return instruction.LoadAligned<rectangle_ortho_outline>((location), instruction_align).push_vertex(param, primits, indices);
-
+        return instruction.LoadAligned<rectangle_ortho_outline>((location), instruction_align).push_vertex(param);
     case instruction_type::row_patch:
-        return instruction.LoadAligned<row_patch>((location), instruction_align).push_vertex(param, primits, indices);
-                
-    default : return {};
+        return instruction.LoadAligned<row_patch>((location), instruction_align).push_vertex(param);
+
+    default:
+        resolve_result empty_rst;
+        empty_rst.vtx = Vertex();
+        return empty_rst;
     }
 }
 
@@ -853,12 +687,11 @@ public struct dispatch_config {
     uint[3] _cap;
 }
 
-// 2. 核心 16-Byte 打包结构
 public struct vertex_resolve_info {
-    uint packed_type_timeline; // [15:0]: instruction_type, [31:16]: relative_timeline_index
-    uint payload_offset;       // 绝对 Payload 偏移
-    uint packed_skips;         // [15:0]: vtx_skip, [31:16]: prm_skip
-    uint payload_size;         // 用于动态长度指令
+    uint packed_type_timeline;
+    uint payload_offset;
+    uint packed_skips;
+    uint payload_size;
 
     [ForceInline] instruction_type get_type() { return (instruction_type)(packed_type_timeline & 0xFFFF); }
     [ForceInline] uint get_relative_timeline() { return packed_type_timeline >> 16; }
@@ -866,7 +699,6 @@ public struct vertex_resolve_info {
     [ForceInline] uint get_prm_skip() { return packed_skips >> 16; }
 };
 
-// 3. 简化 Dispatch Info
 public struct mesh_dispatch_info_v3 {
     uint global_vertex_offset;
     uint primitives;
@@ -886,21 +718,17 @@ public uint resolve_instruction_v3<T, uint n>(
     const uint global_group_index,
     const uint threadId,
     const in mesh_instruction_data<n> data,
-
     in vertex_transformer<T, n> transformer,
-
-    
     OutputVertices<T, VERTEX_PER_MESH> verts: __ref,
     OutputPrimitives<Primitive, PRIMITIVES_PER_MESH> prims: __ref,
     OutputIndices<vector<uint, 3>, PRIMITIVES_PER_MESH> indices: __ref
 ) {
     let dispatchinfo = data.dispatch_info[global_group_index];
-    let global_vtx_base = global_group_index * VERTEX_PER_MESH;//mesh_subrange.global_vertex_offset;
+    let global_vtx_base = global_group_index * VERTEX_PER_MESH;
 
     [ForceUnroll]
     for (uint i = 0; i < VERTEX_PER_MESH / GROUP_COUNT; ++i) {
         let target_index = i * GROUP_COUNT + threadId;
-
         let info = data.resolve_infos[global_vtx_base + target_index];
         let type = info.get_type();
 
@@ -913,13 +741,21 @@ public uint resolve_instruction_v3<T, uint n>(
         dummy_head.type = type;
         dummy_head.size = info.payload_size;
 
-        var vtx = push_vertex(
-            dummy_head, data.instruction, info.payload_offset,
-            resolve_param(target_index, info.get_vtx_skip(), info.get_prm_skip()),
-            prims, indices
+        let param = resolve_param(target_index, info.get_vtx_skip(), info.get_prm_skip());
+
+        // 解析图元顶点和数据
+        let rst = push_vertex(
+            dummy_head, data.instruction, info.payload_offset, param
         );
 
-        verts[target_index] = transformer(vtx);
+        verts[target_index] = transformer(rst.vtx);
+
+        // 将显存写入逻辑移至 Switch 外层统一执行
+        if (param.generates_primitive()) {
+            let idc_idx = param.get_primitive_index();
+            prims[idc_idx] = rst.pmt;
+            indices[idc_idx] = param.getTrivialIndicies();
+        }
     }
 
     return dispatchinfo.primitives;

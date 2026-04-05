@@ -10,7 +10,8 @@
     "-g",
     "-fvk-use-gl-layout",
     "-fvk-use-entrypoint-name",
-    "-emit-spirv-directly"
+    "-emit-spirv-directly",
+    "-floating-point-mode", "fast"
   ],
 
   "shaders": [

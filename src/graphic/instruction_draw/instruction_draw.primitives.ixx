@@ -17,6 +17,30 @@ import std;
 
 namespace mo_yanxi::graphic::draw::instruction{
 
+export union reciprocal_float {
+	std::uint32_t original_value;
+	float reciprocal_value;
+
+	[[nodiscard]] constexpr reciprocal_float() noexcept : original_value() {}
+
+	// 构造时保留原始整数值，保证后续 get_original_as_uint32() 绝不丢失精度
+	template <std::integral T>
+	[[nodiscard]] constexpr reciprocal_float(const T val) noexcept
+		: original_value(static_cast<std::uint32_t>(val)){
+		assert(std::in_range<std::uint32_t>(val));
+	}
+
+	[[nodiscard]] constexpr std::uint32_t get_original_as_uint32() const noexcept {
+		return original_value;
+	}
+
+	// 在最终提交给 GPU 前调用，就地覆盖为浮点倒数
+	constexpr void apply_reciprocal() noexcept {
+		float val = original_value == 0 ? 0.0f : 1.0f / static_cast<float>(original_value);
+		reciprocal_value = val;
+	}
+};
+
 constexpr inline float CircleVertPrecision{12};
 
 template <typename ...Args>
@@ -255,7 +279,7 @@ export struct line_segments_closed : line_segments{
 export struct poly{
 	primitive_generic generic;
 	float2 pos;
-	std::uint32_t segments;
+	reciprocal_float segments;
 	float initial_angle;
 
 	//TODO native dashline support?
@@ -271,19 +295,19 @@ export struct poly{
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_vertex_count(
 		this const poly& instruction) noexcept{
-		return (instruction.segments + 1) * 2;
+		return (instruction.segments.get_original_as_uint32() + 1) * 2;
 	}
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(
 		this const poly& instruction) noexcept{
-		return instruction.segments * 2;
+		return instruction.segments.get_original_as_uint32() * 2;
 	}
 };
 
 export struct poly_partial{
 	primitive_generic generic;
 	float2 pos;
-	std::uint32_t segments;
+	reciprocal_float segments;
 	std::uint32_t _pad;
 
 	math::based_section<float> range;
@@ -299,12 +323,12 @@ export struct poly_partial{
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_vertex_count(
 		this const poly_partial& instruction) noexcept{
-		return (instruction.segments + 1) * 2;
+		return (instruction.segments.get_original_as_uint32() + 1) * 2;
 	}
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(
 		this const poly_partial& instruction) noexcept{
-		return instruction.segments * 2;
+		return instruction.segments.get_original_as_uint32() * 2;
 	}
 };
 
@@ -346,7 +370,7 @@ export struct parametric_curve{
 	 */
 	math::range offset;
 
-	std::uint32_t segments;
+	reciprocal_float segments;
 	std::uint32_t _pad;
 
 	float2 uv00, uv11;
@@ -354,12 +378,12 @@ export struct parametric_curve{
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_vertex_count(
 		this const parametric_curve& instruction) noexcept{
-		return instruction.segments * 2 + 2;
+		return instruction.segments.get_original_as_uint32() * 2 + 2;
 	}
 
 	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(
 		this const parametric_curve& instruction) noexcept{
-		return instruction.segments * 2;
+		return instruction.segments.get_original_as_uint32() * 2;
 	}
 };
 
