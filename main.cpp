@@ -82,13 +82,14 @@ void app_run(
 		ctx.window().poll_events();
 		timer.fetch_time();
 
-		gui::global::consume_current_input();
+
 		gui::global::event_queue.push_frame_split(timer.global_delta());
-		// gui::global::manager.update(timer.global_delta_tick());
+		gui::global::consume_current_input();
 		gui::global::manager.layout();
 
 
 		auto& current_focus = gui::global::manager.get_current_focus();
+		current_focus.get_output_communicate_async_task_queue(0).consume();
 		auto& r = current_focus.renderer();
 
 		trail.update(timer.global_delta_tick(), current_focus.get_cursor_pos(), 2);
@@ -641,19 +642,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	}
 #pragma endregion
 
-#pragma region InitUI
-
-	auto& ui_root = gui::global::manager;
-	auto& res = ui_root.add_scene_resources("main");
-	const auto scene_add_rst = ui_root.add_scene<gui::scene, gui::loose_group>("main", res, true, renderer.create_frontend());
-	scene_add_rst.scene.ui_main_thread_id = std::this_thread::get_id();
-	scene_add_rst.root_group.on_context_sync_bind();
-
-	scene_add_rst.scene.resize(
-		math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
-	auto ui_providers = gui::example::build_main_ui(ctx, scene_add_rst.scene, scene_add_rst.root_group);
-
-#pragma endregion
+	auto ui_providers = gui::example::build_main_ui(ctx, renderer.create_frontend());
 
 #pragma region SetupRenderGraph
 	compositor::manager manager{ctx.get_allocator()};
@@ -769,48 +758,75 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 #pragma region GuiBinding
 	{
+		auto& scene = gui::global::manager.get_current_focus();
 		auto& m = gui::global::manager.get_current_focus();
+
+		auto post_task = [&]<typename F>(F&& fn){
+			scene.get_output_communicate_async_task_queue(0).post(std::forward<F>(fn));
+		};
+
 		auto& bloom_scale = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_bloom.data](float val){
-				p.set_scale(val);
+			[&, &p = pass_bloom.data](float val){
+				post_task([&, val]{
+					p.set_scale(val);
+				});
 			}));
 		auto& bloom_src_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_bloom.data](float val){
-				p.set_strength_src(val);
+			[&, &p = pass_bloom.data](float val){
+				post_task([&, val]{
+					p.set_strength_src(val);
+				});
 			}));
 		auto& bloom_dst_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_bloom.data](float val){
-				p.set_strength_dst(val);
+			[&, &p = pass_bloom.data](float val){
+				post_task([&, val]{
+					p.set_strength_dst(val);
+				});
+
 			}));
 		auto& bloom_mix_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_bloom.data](float val){
-				p.set_mix_factor(val);
+			[&, &p = pass_bloom.data](float val){
+				post_task([&, val]{
+					p.set_mix_factor(val);
+				});
 			}));
 
 		auto& highlight_thres_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_filter_high_light.data](float val){
-				p.set_ubo_value(&high_light_filter_args::threshold, val);
+			[&, &p = pass_filter_high_light.data](float val){
+				post_task([&, val]{
+					p.set_ubo_value(&high_light_filter_args::threshold, val);
+				});
 			}));
 		auto& highlight_smooth_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_filter_high_light.data](float val){
-				p.set_ubo_value(&high_light_filter_args::smoothness, val);
+			[&, &p = pass_filter_high_light.data](float val){
+				post_task([&, val]{
+					p.set_ubo_value(&high_light_filter_args::smoothness, val);
+				});
 			}));
 
 		auto& tonemap_contrast = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_h2s.data](float val){
-				p.set_ubo_value(&tonemap_args::contrast, val);
+			[&, &p = pass_h2s.data](float val){
+				post_task([&, val]{
+					p.set_ubo_value(&tonemap_args::contrast, val);
+				});
 			}));
 		auto& tonemap_exposure = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_h2s.data](float val){
-				p.set_ubo_value(&tonemap_args::exposure, val);
+			[&, &p = pass_h2s.data](float val){
+				post_task([&, val]{
+					p.set_ubo_value(&tonemap_args::exposure, val);
+				});
 			}));
 		auto& tonemap_saturation = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_h2s.data](float val){
-				p.set_ubo_value(&tonemap_args::saturation, val);
+			[&, &p = pass_h2s.data](float val){
+				post_task([&, val]{
+					p.set_ubo_value(&tonemap_args::saturation, val);
+				});
 			}));
 		auto& tonemap_gamma = m.request_independent_react_node(react_flow::make_listener(
-			[&p = pass_h2s.data](float val){
-				p.set_ubo_value(&tonemap_args::gamma, val);
+			[&, &p = pass_h2s.data](float val){
+				post_task([&, val]{
+					p.set_ubo_value(&tonemap_args::gamma, val);
+				});
 			}));
 
 		bloom_scale.connect_predecessor(*ui_providers.shader_bloom_scale);
@@ -826,7 +842,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		tonemap_saturation.connect_predecessor(*ui_providers.tonemap_saturation);
 		tonemap_gamma.connect_predecessor(*ui_providers.tonemap_gamma);
 
-		ui_providers.apply();
+		ui_providers.apply(scene);
 	}
 
 #pragma endregion
@@ -852,7 +868,6 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		context.set_staging_image(
 			{
 				.image = pass_h2s.pass.get_used_resources().get_out(0).as_image().handle.image,
-				// .image = renderer.get_base().image,
 				.extent = event.size,
 				.clear = false,
 				.owner_queue_family = context.graphic_family(),
@@ -866,36 +881,6 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	});
 
 	ctx.record_post_command(true);
-
-
-	constexpr static auto test_text =
-		R"({s:*.5}Basic{size:64} Token {size:128}Test{//}
-{u}AVasdfdjknfhvbawhboozx{/}cgiuTeWaVoT.P.àáâã ä åx̂̃ñ
-{color:#FF0000}Red Text{/} and {font:gui}Font Change{/}
-
-Escapes Test:
-1. Backslash: \\ {_}(Should see single backslash){/}
-2. Braces {size:128}with{/} slash: \{ and \} (Should see literal { and })
-3. Braces with double: {{ and }} (Should see literal { and })
-
-Line Continuation Test:
-This is a very long line that \
-{font:gui}should be joined together{/} \
-without newlines.
-
-{feature:liga}0 ff {feature:-liga}1 ff {feature:liga} 2 ff{feature} 3 ff{feature} 4 ff
-
-O{ftr:liga}off file flaff{/} ff
-
-Edge Cases:
-1. Token without arg: {bold}Bold Text{/bold}
-2. {u}Unclosed brace{/}: { This is just text because no closing bracket
-3. Unknown escape: \z (Should show 'z')
-4. Colon in arg: {log:Time:12:00} (Name="log", Arg="Time:12:00")
-)";
-
-	typesetting::tokenized_text text{test_text};
-	typesetting::segmented_layout_manager seg{text};
 
 	app_run(ctx, renderer, manager, post_process_cmd);
 

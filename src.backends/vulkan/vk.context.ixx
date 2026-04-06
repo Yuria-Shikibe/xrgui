@@ -27,13 +27,12 @@ struct InFlightData{
 	semaphore fetch_semaphore{};
 };
 
+
 struct SwapChainFrameData{
 	VkImage image{};
-	command_buffer post_command{};
-
-	semaphore flush_semaphore{};
+	command_buffer post_command{}; 
+	semaphore flush_semaphore{}; 
 };
-
 
 /**
  * @return All Required Extensions
@@ -43,20 +42,18 @@ std::vector<const char*> get_required_extensions_glfw();
 std::vector<const char*> get_required_extensions();
 
 constexpr inline std::array device_extensions{
-	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-	// VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME,
-	VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+		VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
 
-	VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
-	VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
-	VK_KHR_MAINTENANCE_9_EXTENSION_NAME,
-	VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
+		VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
+		VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
+		VK_KHR_MAINTENANCE_9_EXTENSION_NAME,
+		VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
 
-	VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
-	VK_EXT_MESH_SHADER_EXTENSION_NAME,
-	VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
-};
-
+		VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
+		VK_EXT_MESH_SHADER_EXTENSION_NAME,
+		VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
+	};
 
 namespace RequiredFeatures{
 constexpr VkPhysicalDeviceMeshShaderFeaturesEXT MeshShaderFeatures{
@@ -83,7 +80,9 @@ constexpr VkPhysicalDeviceVulkan13Features PhysicalDeviceVulkan13Features{
 
 constexpr VkPhysicalDeviceShaderUntypedPointersFeaturesKHR UntypedPointer{
 		[]{
-			VkPhysicalDeviceShaderUntypedPointersFeaturesKHR features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR};
+			VkPhysicalDeviceShaderUntypedPointersFeaturesKHR features{
+					VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR
+				};
 
 			features.shaderUntypedPointers = true;
 
@@ -121,7 +120,6 @@ constexpr VkPhysicalDeviceVulkan11Features PhysicalDeviceVulkan11Features{
 		[]{
 			VkPhysicalDeviceVulkan11Features features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
 
-			features.storageBuffer16BitAccess = true;
 			features.storageBuffer16BitAccess = true;
 
 			return features;
@@ -174,7 +172,6 @@ const extension_chain extChain{
 		UntypedPointer,
 
 		PhysicalDeviceExtendedDynamicState3Features,
-		// PhysicalDeviceComputeShaderDerivativesFeaturesKHR,
 
 		DescriptorBufferFeatures,
 		DescriptorHeapFeatures,
@@ -182,7 +179,6 @@ const extension_chain extChain{
 		MeshShaderFeatures,
 	};
 }
-
 
 
 export
@@ -201,7 +197,6 @@ struct swap_chain_staging_image_data{
 	VkImageLayout src_layout{};
 	VkImageLayout dst_layout{VK_IMAGE_LAYOUT_UNDEFINED};
 };
-
 
 export
 class context{
@@ -263,7 +258,7 @@ public:
 		VkPipelineStageFlags signal_after = VK_PIPELINE_STAGE_2_NONE
 	) const{
 		cmd::submit_command(device.primary_graphics_queue(), commandBuffer, fence, toWait, wait_before, toSignal,
-			signal_after);
+		                    signal_after);
 	}
 
 	void wait_on_graphic() const{
@@ -384,7 +379,8 @@ public:
 	}
 
 	void register_post_resize(const std::string_view name,
-		std::move_only_function<void(context&, const window_instance::resize_event&) const>&& callback){
+	                          std::move_only_function<void(context&, const window_instance::resize_event&) const>&&
+	                          callback){
 		auto [itr, suc] = eventManager.try_emplace(name, std::move(callback));
 		if(suc){
 			itr->second.operator()(*this, window_instance::resize_event{get_extent()});
@@ -401,6 +397,7 @@ public:
 			};
 	}
 
+	
 	void record_post_command(bool no_fence_wait);
 
 private:
@@ -462,15 +459,14 @@ private:
 				.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			};
 
-
 		if(indices.graphic.index != indices.present.index){
 			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 			createInfo.queueFamilyIndexCount = 2;
 			createInfo.pQueueFamilyIndices = queueFamilyIndices.data();
 		} else{
 			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			createInfo.queueFamilyIndexCount = 0; // Optional
-			createInfo.pQueueFamilyIndices = nullptr; // Optional
+			createInfo.queueFamilyIndexCount = 0;
+			createInfo.pQueueFamilyIndices = nullptr; 
 		}
 
 		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
@@ -478,12 +474,17 @@ private:
 
 		//Set Window Alpha Blend Mode
 		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-
 		createInfo.presentMode = swap_chain_info::choose_swap_present_mode(swapChainSupport.presentModes);
 		createInfo.clipped = true;
 
 		if(auto rst = vkCreateSwapchainKHR(device, &createInfo, nullptr, swap_chain.as_data())){
 			throw vk_error(rst, "Failed to create swap chain!");
+		}
+
+		
+		if(last_swap_chain.handle){
+			vkDestroySwapchainKHR(device, last_swap_chain.handle, nullptr);
+			last_swap_chain.handle = nullptr;
 		}
 
 		swapChainImageFormat = surfaceFormat.format;
@@ -497,12 +498,14 @@ private:
 
 		for(const auto& [index, imageGroup] : swap_chain_frames | std::ranges::views::enumerate){
 			imageGroup.image = images[index];
-			imageGroup.flush_semaphore = semaphore{device};
+			imageGroup.flush_semaphore = semaphore{device}; 
+			
 		}
 	}
 
 	[[nodiscard]] VkExtent2D choose_swap_extent(const VkSurfaceCapabilitiesKHR& capabilities) const{
-		if(capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()){
+		
+		if(capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max()){
 			return capabilities.currentExtent;
 		}
 
@@ -521,7 +524,6 @@ private:
 			throw std::runtime_error("Failed to find GPUs with Vulkan support!");
 		}
 
-		// Use an ordered map to automatically sort candidates by increasing score
 		std::multimap<std::uint32_t, struct physical_device, std::greater<std::uint32_t>> candidates{};
 
 		for(const auto& device : devices){
@@ -529,7 +531,6 @@ private:
 			candidates.insert(std::make_pair(d.rate_device(), d));
 		}
 
-		// Check if the best candidate is suitable at all
 		for(const auto& [score, device] : candidates){
 			if(score && device.valid(surface, device_extensions)){
 				physical_device = device;
@@ -547,9 +548,10 @@ private:
 		physical_device.cache_properties(surface);
 
 		device = logical_device{
-			physical_device, physical_device.queues,
-			device_extensions,
-			RequiredFeatures::RequiredFeatures, RequiredFeatures::extChain};
+				physical_device, physical_device.queues,
+				device_extensions,
+				RequiredFeatures::RequiredFeatures, RequiredFeatures::extChain
+			};
 	}
 
 	void recreate(bool no_fence_wait);

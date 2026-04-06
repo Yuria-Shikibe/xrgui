@@ -15,7 +15,15 @@ import mo_yanxi.react_flow;
 
 namespace mo_yanxi::gui::example{
 
+struct example_scene : scene{
+	using scene::scene;
+	fx::scene_render_pass_config pass_config{};
 
+protected:
+	void draw_at(const elem& elem);
+
+	void draw_impl(rect clip) override;
+};
 
 struct ui_outputs{
 	react_flow::node* shader_bloom_scale;
@@ -31,20 +39,22 @@ struct ui_outputs{
 	react_flow::node* tonemap_gamma;
 	react_flow::node* tonemap_saturation;
 
-	void apply() const{
-		if(shader_bloom_scale)shader_bloom_scale->pull_and_push(false);
-		if(shader_bloom_src_factor)shader_bloom_src_factor->pull_and_push(false);
-		if(shader_bloom_dst_factor)shader_bloom_dst_factor->pull_and_push(false);
-		if(shader_bloom_mix_factor)shader_bloom_mix_factor->pull_and_push(false);
-		if(highlight_filter_threshold)highlight_filter_threshold->pull_and_push(false);
-		if(highlight_filter_smooth)highlight_filter_smooth->pull_and_push(false);
-		if(tonemap_exposure)tonemap_exposure->pull_and_push(false);
-		if(tonemap_contrast)tonemap_contrast->pull_and_push(false);
-		if(tonemap_gamma)tonemap_gamma->pull_and_push(false);
-		if(tonemap_saturation)tonemap_saturation->pull_and_push(false);
+	void apply(scene& scene) const{
+		scene.get_input_communicate_async_task_queue().post([this](gui::scene& s){
+			if(shader_bloom_scale)shader_bloom_scale->pull_and_push(false);
+			if(shader_bloom_src_factor)shader_bloom_src_factor->pull_and_push(false);
+			if(shader_bloom_dst_factor)shader_bloom_dst_factor->pull_and_push(false);
+			if(shader_bloom_mix_factor)shader_bloom_mix_factor->pull_and_push(false);
+			if(highlight_filter_threshold)highlight_filter_threshold->pull_and_push(false);
+			if(highlight_filter_smooth)highlight_filter_smooth->pull_and_push(false);
+			if(tonemap_exposure)tonemap_exposure->pull_and_push(false);
+			if(tonemap_contrast)tonemap_contrast->pull_and_push(false);
+			if(tonemap_gamma)tonemap_gamma->pull_and_push(false);
+			if(tonemap_saturation)tonemap_saturation->pull_and_push(false);
+		});
 	}
 };
 
 export
-ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root);
+ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend r);
 }

@@ -579,7 +579,6 @@ public:
 	/** 窗口缩放时重置附件与描述符绑定 */
 	void resize(VkExtent2D extent){
 		attachment_manager_.resize(extent);
-		// 更新状态追踪数组大小
 		record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
 			attachment_manager_.get_blit_attachments().size());
 
@@ -639,12 +638,11 @@ public:
 		return gui::renderer_frontend{
 				table, table_non_vertex, {
 					*this,
-					[](renderer& r, auto h, const std::byte* d) static{ return r.batch_host.push_instr(h, d);
-
+					[](renderer& r, auto h, const std::byte* d) static{
+						return r.batch_host.push_instr(h, d);
 					},
 					[](renderer& r, auto cfg, auto f, auto ecfg, auto p) static{
 						r.batch_host.push_state(cfg, f, ecfg, p);
-
 					},
 					[](renderer& r, auto head, std::span<const std::byte> payload, unsigned target_offset) static{
 

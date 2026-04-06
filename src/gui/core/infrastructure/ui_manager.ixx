@@ -60,13 +60,13 @@ public:
 
 private:
 	template <typename S, typename ...Args>
-	scene& add_scene(std::string_view name, bool focusIt, Args&& ...args){
+	S& add_scene(std::string_view name, bool focusIt, Args&& ...args){
 		std::pair<decltype(scenes)::iterator, bool> itr = scenes.try_emplace(name, std::make_unique<S>(std::forward<Args>(args)...));
 		if(focusIt){
 			focus = itr.first->second.get();
 		}
 
-		return *itr.first->second.get();
+		return static_cast<S&>(*itr.first->second.get());
 	}
 public:
 	[[nodiscard]] mr::raw_memory_pool& get_pool() noexcept{

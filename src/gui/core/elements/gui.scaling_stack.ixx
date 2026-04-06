@@ -34,11 +34,12 @@ namespace mo_yanxi::gui{
 			const auto bound = content_extent();
 			const auto src = adaptor.cell.region_scale.get_src() * bound;
 
-			auto size = adaptor.cell.clamp_size(adaptor.cell.region_scale.extent() * bound) * get_scaling();
+			// auto size = adaptor.cell.clamp_size(adaptor.cell.region_scale.extent() * bound) * get_scaling();
+			auto size = adaptor.cell.region_scale.extent() * bound * get_scaling();
 
 			auto region = math::frect{tags::from_extent, src, size};
 
-			region.src = align::transform_offset(adaptor.cell.align, bound, region);
+			region.src = align::transform_offset(adaptor.cell.region_align, bound, region);
 			adaptor.cell.allocated_region = region;
 
 			adaptor.apply(*this, {region.width(), region.height()});

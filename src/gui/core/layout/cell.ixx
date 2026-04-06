@@ -44,17 +44,20 @@ namespace mo_yanxi::gui::layout{
 	struct basic_cell{
 		rect allocated_region{};
 
-		align::pos align{align::pos::center};
-		math::section<vec2> extent_span{{}, math::vectors::constant2<float>::inf_positive_vec2};
+		/**
+		 * @brief Specific how element align within allocated_region when the element extent is smaller than allocated_region.
+		 */
+		align::pos unsaturate_cell_elem_align{align::pos::center};
+		// math::section<vec2> extent_span{{}, math::vectors::constant2<float>::inf_positive_vec2};
 		vec2 scaling{1.f, 1.f};
 		align::spacing margin{};
 
-		[[nodiscard]] constexpr vec2 clamp_size(vec2 sz) const noexcept{
-			return sz.clamp_xy(extent_span.from, extent_span.to);
-		}
+		// [[nodiscard]] constexpr vec2 clamp_size(vec2 sz) const noexcept{
+		// 	return sz.clamp_xy(extent_span.from, extent_span.to);
+		// }
 
 		constexpr vec2 get_relative_src(vec2 actual_extent) const noexcept{
-			return margin.top_lft() + allocated_region.get_src();// + align::get_offset_of(align, actual_extent, allocated_region);
+			return margin.top_lft() + align::get_offset_of(unsaturate_cell_elem_align, actual_extent, allocated_region);
 		}
 
 		void apply_to(
@@ -79,13 +82,13 @@ namespace mo_yanxi::gui::layout{
 		}
 
 		bool update_relative_src(elem& elem, math::vec2 parent_content_src) const{
-			const auto r1 = elem.set_rel_pos(get_relative_src(allocated_region.extent()));
+			const auto r1 = elem.set_rel_pos(get_relative_src(elem.extent()));
 			const auto r2 = elem.update_abs_src(parent_content_src);
 			return r1 || r2;
 		}
 
 		bool update_relative_src(elem& elem, math::vec2 parent_content_src, float lerp_alpha) const{
-			const auto r1 = elem.set_rel_pos(get_relative_src(allocated_region.extent()), lerp_alpha);
+			const auto r1 = elem.set_rel_pos(get_relative_src(elem.extent()), lerp_alpha);
 			const auto r2 = elem.update_abs_src(parent_content_src);
 			return r1 || r2;
 		}
@@ -95,6 +98,10 @@ namespace mo_yanxi::gui::layout{
 	export
 	struct scaled_cell : basic_cell{
 		rect region_scale{};
+		/**
+		 * @brief Specific align of region_scale.
+		 */
+		align::pos region_align{align::pos::center};
 	};
 
 	export
@@ -137,6 +144,11 @@ namespace mo_yanxi::gui::layout{
 	struct mastering_cell : basic_cell{
 		stated_extent stated_extent{};
 		align::spacing pad{};
+		/**
+		 * @brief Specific how cell align within table-head-extent when the cell extent is smaller than table-head-extent.
+		 * Specially, when set to none, the cell is forced to align with head extent.
+		 */
+		align::pos unsaturate_cell_align{align::pos::center};
 		bool end_line{};
 
 		/**

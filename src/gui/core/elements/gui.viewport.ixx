@@ -25,11 +25,18 @@ namespace mo_yanxi::gui{
 	public:
 		viewport(scene& scene, elem* parent)
 			: elem(scene, parent){
-			post_task([](elem& e){util::update_insert(e, update_channel::all);});
-
 			this->interactivity = interactivity_flag::enabled;
 			extend_focus_until_mouse_drop = true;
 			camera.speed_scale = 0;
+		}
+
+
+		void on_display_state_changed(bool is_shown) override{
+			if(is_shown){
+				post_task([](elem& e){util::update_insert(e, update_channel::all);});
+			}else{
+				post_task([](elem& e){util::update_erase(e, update_channel::all);});
+			}
 		}
 
 		bool update(const float delta_in_ticks) override{

@@ -6,6 +6,7 @@ export module celestial_display;
 
 import std;
 import mo_yanxi.math.vector2;
+import mo_yanxi.math;
 import mo_yanxi.graphic.color;
 import mo_yanxi.graphic.trail;
 
@@ -92,7 +93,7 @@ namespace celestial {
         }
 
         // 每次渲染帧调用
-        void update(float global_time) noexcept {
+        void update(double global_time) noexcept {
             const std::size_t count = constants_.size();
 
             for (std::size_t i = 0; i < count; ++i) {
@@ -106,8 +107,8 @@ namespace celestial {
                 } else {
                     float current_rev_angle = constant.initial_rev_phase + constant.rev_angular_velocity * global_time;
                     mo_yanxi::math::vec2 local_pos{
-                        constant.semi_major_axis * std::cos(current_rev_angle),
-                        constant.semi_minor_axis * std::sin(current_rev_angle)
+                        constant.semi_major_axis * mo_yanxi::math::cos(current_rev_angle),
+                        constant.semi_minor_axis * mo_yanxi::math::sin(current_rev_angle)
                     };
                     state.global_position = states_[constant.parent_index].global_position + local_pos;
                 }

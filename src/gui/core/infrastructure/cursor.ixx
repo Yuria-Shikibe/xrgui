@@ -46,8 +46,8 @@ inline ArrowGeometry calculate_rect_arrow(
 	vec2 extent,
 	cursor_arrow_direction dir,
 	float arrow_size = 8.0f,
-	float margin = 10.0f,
-	float thickness = 1.5f) noexcept{
+	float margin = 7.0f,
+	float thickness = 1.f) noexcept{
 	// 1. 获取方向向量
 	vec2 dir_v{0.0f, 0.0f};
 	switch(dir){
@@ -201,7 +201,7 @@ struct cursor_drawer{
 	const style::cursor* main;
 	const style::cursor* dcor[style::dcor_max_count];
 
-	void draw(scene_base& scene, vec2 cursor_size_) const;
+	rect draw(gui::scene& scene, vec2 cursor_size_) const;
 };
 
 struct cursor_collection{

@@ -64,20 +64,20 @@ function set_xrgui_deps()
     add_packages("simdutf", {public = true})
 
 
-    add_includedirs(join_path("./external/VulkanMemoryAllocator/include"), {public = true})
-    add_includedirs(join_path("./external/stb"), {public = true})
-    add_includedirs(join_path("./external/include"), {public = true})
-    add_includedirs(join_path("./external/plf_hive"), {public = true})
-    add_includedirs(join_path("./external/small_vector/source/include"), {public = true})
+    add_includedirs("./external/VulkanMemoryAllocator/include", {public = true})
+    add_includedirs("./external/stb", {public = true})
+    add_includedirs("./external/include", {public = true})
+    add_includedirs("./external/plf_hive", {public = true})
+    add_includedirs("./external/small_vector/source/include", {public = true})
 
     add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2", {public = true})
-    add_files(join_path("./external/allocator2d/include/mo_yanxi/allocator2d.ixx"), {public = true})
+    add_files("./external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
 
 
 
     add_defines("XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE", {public = true})
-    add_files(join_path("./src/**.cpp"))
-    add_files(join_path("./src/**.ixx"), {public = true})
+    add_files("./src/**.cpp")
+    add_files("./src/**.ixx", {public = true})
 
     add_links("shaderc_shared")
 end

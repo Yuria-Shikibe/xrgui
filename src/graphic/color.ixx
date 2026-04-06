@@ -701,7 +701,6 @@ export{
 	constexpr inline color MAROON{color::from_rgba8888(0xb03060ff)};
 
 	constexpr inline color ENERGY{color::from_rgba8888(0XF0C743FF)};
-	constexpr inline color AMMUNITION{color::from_rgba8888(0XF0A24BFF)};
 }
 
 namespace seq{

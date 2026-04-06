@@ -9,17 +9,7 @@ import mo_yanxi.gui.fx.fringe;
 namespace mo_yanxi::gui{
  constexpr inline float fringe_range = 2.f;
 
-void cursor_drawer::draw(scene_base& scene, vec2 cursor_size_) const{
-	scene.renderer().update_state(fx::pipeline_config{
-			.draw_targets = {0b1},
-			.pipeline_index = 1
-		});
-
-	scene.renderer().update_state(
-		{}, 1.f,
-		graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
-	);
-
+ rect cursor_drawer::draw(gui::scene& scene, vec2 cursor_size_) const{
 	rect region{};
 
 	if(main){
@@ -32,12 +22,7 @@ void cursor_drawer::draw(scene_base& scene, vec2 cursor_size_) const{
 		region.expand_by(reg);
 	}
 
-	scene.renderer().update_state(gui::fx::blit_config{
-		{
-			.src = region.src.as<int>(),
-			.extent = region.extent().as<int>()
-		},
-		{.pipeline_index = 1}});
+ 	return region;
 }
 
 namespace assets::builtin::cursor{
@@ -95,9 +80,9 @@ rect default_cursor_arrow::draw(gui::renderer_frontend& renderer, math::raw_frec
 
 	auto rst = style::calculate_rect_arrow(region.src, region.extent, direction);
 	fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
-	context.push(rst.p1, 3, graphic::colors::white);
-	context.push(rst.p2, 3, graphic::colors::white);
-	context.push(rst.p3, 3, graphic::colors::white);
+	context.push(rst.p1, 1.8f, graphic::colors::white);
+	context.push(rst.p2, 1.8f, graphic::colors::white);
+	context.push(rst.p3, 1.8f, graphic::colors::white);
 	context.add_cap();
 	context.add_fringe_cap(fringe_range, fringe_range);
 	context.dump_mid(renderer, line_segments{});
@@ -110,7 +95,7 @@ rect default_cursor_arrow::draw(gui::renderer_frontend& renderer, math::raw_frec
 rect default_cursor_drag::draw(gui::renderer_frontend& renderer, math::raw_frect region,
 	std::span<const elem* const> inbound_stack) const{
 	region.src -= region.extent * .5f;
-	region.expand({4, 4});
+	region.expand({-2.5, -2.5});
 
 	auto [ps, radius] = calculate_drag_icon(region.src, region.extent);
 	fx::circle circle{

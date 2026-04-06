@@ -207,6 +207,9 @@ struct vp : gui::viewport{
 
 	graphic::draw::instruction::draw_record_chunked_storage<mr::unvs_allocator<std::byte>> text_render_cache;
 
+	double update_speed = 1.;
+	double update_time{};
+
 	[[nodiscard]] vp(scene& scene, elem* parent)
 		: viewport(scene, parent){
 		camera.set_scale_range({.1f, 5.f});
@@ -266,11 +269,13 @@ struct vp : gui::viewport{
 
 	bool update(float delta_in_ticks) override{
 		if(viewport::update(delta_in_ticks)){
-			system.update(get_scene().get_current_time());
+			update_time += delta_in_ticks * update_speed;
+			if(update_speed > 0)system.update(update_time);
 			return true;
 		}
 		return false;
 	}
+
 
 	void draw_system() const{
 		const auto& states = system.get_states();
@@ -510,7 +515,12 @@ void make_styles(scene& scene){
 	{
 		using namespace style;
 		round_style templt{};
-		templt.edge.pal = pal::white.border;
+
+		static constexpr auto color_to_dark = [](graphic::color c){
+			return c.set_value(.12f).shift_saturation(-.05f);
+		};
+
+		templt.edge.pal = pal::white;
 		templt.edge = assets::builtin::default_round_square_boarder_thin;
 		templt.back.pal = pal::dark;
 		templt.back = assets::builtin::default_round_square_base;
@@ -523,6 +533,45 @@ void make_styles(scene& scene){
 			gst.edge.pal.set_cursor_ignored();
 			gst.back.pal.set_cursor_ignored();
 			default_family.set(family_variant::general_static, referenced_ptr<round_style>{std::in_place, gst});
+		}
+
+		{
+			auto gst = templt;
+			static constexpr auto baseColor = graphic::colors::aqua.create_lerp(graphic::colors::AQUA_SKY, .5f);
+			gst.edge.pal = make_theme_palette(baseColor);
+			gst.back.pal = make_theme_palette(color_to_dark(baseColor));
+			default_family.set(family_variant::accent, referenced_ptr<round_style>{std::in_place, gst});
+		}
+
+		{
+			auto gst = templt;
+			static constexpr auto baseColor = graphic::colors::red_dusted.create_lerp(graphic::colors::white, .1f);
+			gst.edge.pal = make_theme_palette(baseColor);
+			gst.back.pal = make_theme_palette(color_to_dark(baseColor));
+			default_family.set(family_variant::invalid, referenced_ptr<round_style>{std::in_place, gst});
+		}
+
+		{
+			auto gst = templt;
+			static constexpr auto baseColor = graphic::color::from_rgba8888(0XDBBB6AFF).create_lerp(graphic::colors::pale_yellow, .5f);
+			gst.edge.pal = make_theme_palette(baseColor);
+			gst.back.pal = make_theme_palette(color_to_dark(baseColor));
+			default_family.set(family_variant::warning, referenced_ptr<round_style>{std::in_place, gst});
+		}
+
+		{
+			auto gst = templt;
+			static constexpr auto baseColor = graphic::colors::pale_green;
+			gst.edge.pal = make_theme_palette(baseColor);
+			gst.back.pal = make_theme_palette(color_to_dark(baseColor));
+			default_family.set(family_variant::accepted, referenced_ptr<round_style>{std::in_place, gst});
+		}
+
+		{
+			auto gst = templt;
+			gst.base = gst.back;
+			gst.base.pal.mul_alpha(.6f).mul_rgb(2.f);
+			default_family.set(family_variant::solid, referenced_ptr<round_style>{std::in_place, gst});
 		}
 
 		{
@@ -547,7 +596,7 @@ void make_styles(scene& scene){
 	{
 		referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
 		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
-		round_scroll_bar_style->bar_palette = style::pal::white.border.copy().mul_rgb(.8f);
+		round_scroll_bar_style->bar_palette = style::pal::white.copy().mul_rgb(.8f);
 
 		sm.register_style<style::scroll_pane_bar_drawer>(std::move(round_scroll_bar_style));
 	}
@@ -567,7 +616,7 @@ void make_styles(scene& scene){
 		style::side_bar_style style{};
 		const auto region = assets::builtin::get_page()[assets::builtin::shape_id::side_bar].value_or({});
 		style.boarder.set(2);
-		style.bar.pal = style::pal::white.border;
+		style.bar.pal = style::pal::white;
 		style.bar = image_row_patch{region, region->uv.get_region(), 18, 18, 4};
 		style.back.pal = style::pal::dark;
 		style.back = assets::builtin::default_round_square_base;
@@ -602,7 +651,7 @@ void make_styles(scene& scene){
 		{
 			referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
 			round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
-			round_scroll_bar_style->bar_palette = style::pal::white.border.copy().mul_rgb(.8f);
+			round_scroll_bar_style->bar_palette = style::pal::white.copy().mul_rgb(.8f);
 			sm.register_style<style::scroll_pane_bar_drawer>(std::move(round_scroll_bar_style));
 
 		}
@@ -614,7 +663,100 @@ void make_styles(scene& scene){
 }
 
 
-ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_group& root){
+void example_scene::draw_at(const elem& elem){
+	auto c = get_region().intersection_with(elem.bound_abs());
+	const auto bound = c.round<int>();
+
+	auto& cfg = pass_config;
+
+	for(unsigned i = 0; i < cfg.size(); ++i){
+		renderer().update_state(cfg[i].begin_config);
+
+		renderer().update_state({},
+		                        fx::batch_draw_mode::def,
+		                        graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
+		);
+
+
+		elem.draw_layer(c, {i});
+
+		if(cfg[i].end_config)
+			renderer().update_state(fx::blit_config{
+					.blit_region = {bound.src, bound.extent()},
+					.pipe_info = cfg[i].end_config.value()
+				});
+	}
+
+
+	if(auto tail = cfg.get_tail_blit())
+		renderer().update_state(fx::blit_config{
+				.blit_region = {bound.src, bound.extent()},
+				.pipe_info = tail.value()
+			});
+}
+
+void example_scene::draw_impl(rect clip){
+	renderer().init_projection();
+
+
+	{
+		viewport_guard _{renderer(), get_region()};
+
+		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
+			if(elem.belowScene){
+				draw_at(*elem.element);
+			}
+		}
+
+		draw_at(root());
+
+		for (const auto & draw_sequence : overlay_manager_.get_draw_sequence()){
+			draw_at(*draw_sequence);
+
+		}
+
+		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
+			if(!elem.belowScene){
+				draw_at(*elem.element);
+			}
+		}
+	}
+
+	if(input_handler_.inputs_.is_cursor_inbound()){
+		renderer().update_state(fx::pipeline_config{
+			.draw_targets = {0b1},
+			.pipeline_index = 1
+		});
+
+		renderer().update_state(
+			{}, 1.f,
+			graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
+		);
+
+		auto region = current_cursor_drawers_.draw(static_cast<scene&>(*this), resources_->cursor_collection_manager.get_cursor_size());
+
+		renderer().update_state(gui::fx::blit_config{
+			{
+				.src = region.src.as<int>(),
+				.extent = region.extent().as<int>()
+			},
+			{.pipeline_index = 1}});
+	}
+}
+
+ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend renderer){
+	auto& ui_root = gui::global::manager;
+	auto& res = ui_root.add_scene_resources("main");
+	const auto scene_add_rst = ui_root.add_scene<example_scene, gui::loose_group>("main", res, true, std::move(renderer));
+	scene_add_rst.scene.ui_main_thread_id = std::this_thread::get_id();
+	scene_add_rst.root_group.on_context_sync_bind();
+
+	// scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
+	auto& scene = scene_add_rst.scene;
+	auto& root = scene_add_rst.root_group;
+
+	scene.drop_and_reset_communicate_async_task_queue_size(1);
+
 	make_styles(scene);
 	set_cursors(scene);
 
@@ -647,13 +789,62 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 
 
 	auto make_create_table = [&] -> std::vector<test_entry> {
-		using function_signature = void(scroll_pane&);
 		std::vector<test_entry> tests{
 				test_entry{
 					"csv", [](cpd::data_table& table){
 						table._debug_identity = 114;
 						table.get_item() = cpd::data_table_desc::from_csv(LR"(D:\projects\untitled\shader info.csv)");
 						table.notify_isolated_layout_changed();
+					}
+				},
+				test_entry{
+					"text input", [&](scroll_pane& pane){
+						pane.create([&](sequence& sequence){
+							sequence.template_cell.set_pad({4, 4});
+
+							auto slider = sequence.emplace_back<gui::slider1d_with_output>();
+							slider->set_smooth_scroll(true);
+							slider->set_smooth_jump(false);
+							slider->set_smooth_drag(true);
+							slider->bar_handle_extent = {40};
+							referenced_ptr<style::round_slider_drawer> drawer{std::in_place};
+							drawer->handle_shape = assets::builtin::default_round_square_base;
+							drawer->bar_shape = assets::builtin::default_round_square_base;
+							drawer->handle_palette = style::pal::white;
+							drawer->bar_palette = style::pal::pastel_gray.copy().mul_rgb(.7f);
+							drawer->bar_back_palette = style::pal::pastel_gray.copy().mul_rgb(.2f);
+							drawer->vert_margin = 5.f;
+
+
+							slider->drawer_ = std::move(drawer);
+							slider.cell().set_size(60);
+
+							auto& progNode = slider->get_provider();
+
+							sequence.create_back([&](progress_bar& prog){
+								prog.progress.set_state(progress_state::approach_smooth);
+								prog.progress.set_speed(.0001f);
+								auto& t = prog.request_receiver();
+								react_flow::connect_chain(progNode, t);
+							}).cell().set_size(60);
+
+							{
+								auto label = sequence.create_back([&](direct_label& l){
+								});
+								label.cell().set_pending();
+
+								auto& ln = label->request_react_node<direct_label_text_prov>();
+								auto& trans = label->request_embedded_react_node(react_flow::make_transformer(
+									[](std::u32string_view sv){
+										return typesetting::tokenized_text{sv};
+									}));
+
+								sequence.create_back([&](text_edit_prov& area){
+									area.set_on_changed_interval(30.f);
+									react_flow::connect_chain(area.get_provider(), trans, ln);
+								}).cell().set_pending();
+							}
+						});
 					}
 				},
 				test_entry{
@@ -927,13 +1118,31 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, scene& scene, loose_grou
 						pane.create([](table& table){
 							table.set_expand_policy(layout::expand_policy::prefer);
 							table.set_entire_align(align::pos::center);
-							for(int i = 0; i < 4; ++i){
+
+
+							style::family_variant family_variants[]{
+									style::family_variant::general,
+									style::family_variant::general_static,
+									style::family_variant::solid,
+									style::family_variant::base_only,
+									style::family_variant::edge_only,
+									style::family_variant::accent,
+									style::family_variant::accepted,
+									style::family_variant::warning,
+									style::family_variant::invalid,
+								};
+
+							for (auto family_variant : family_variants){
 								auto check_box = table.emplace_back<gui::check_box>(std::in_place);
 								check_box->icons[1].components.color = {graphic::colors::pale_green};
 								check_box.cell().set_size({60, 60});
+								check_box.cell().unsaturate_cell_align = align::pos::none;
 
 								auto receiver = table.emplace_back<label>();
 								receiver->set_fit();
+								receiver->set_style(receiver->get_style_manager().get_default<style::elem_style_drawer>(family_variant));
+								receiver->interactivity = interactivity_flag::enabled;
+
 								auto& listener = receiver->request_embedded_react_node(react_flow::make_listener(
 									[&e = receiver.elem()](bool i){
 										e.set_toggled(i);
@@ -1126,8 +1335,31 @@ Edge Cases:
 					}
 				},
 				test_entry{
-					"view port", [](vp& vp){
+					"view port", [](scaling_stack& stack){
+						auto vphld = stack.emplace_back<vp>();
+						vphld.cell().region_scale = {.0f, .0f, 1.f, 1.f};
+						auto hdl = stack.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Speed", 50.f);
+						hdl->get_slider().set_smooth_drag(true);
+						hdl->get_slider().set_progress(math::map(1.f, 0.f, 3.f, 0.f, 1.f));
+						hdl->set_expand_policy(layout::expand_policy::passive);
+						hdl->set_max_extent({std::numeric_limits<float>::infinity(), 140});
+						hdl->set_style(hdl->get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::solid));
 
+						hdl.cell().region_scale = {.0f, .0f, .5f, .5f};
+						hdl.cell().region_align = align::pos::bottom_left;
+						hdl.cell().unsaturate_cell_elem_align = align::pos::bottom_left;
+
+						auto& trans = hdl->add_relay_func([](float val){
+							return math::lerp(0.0f, 3.f, val);
+						});
+						hdl->add_formatter_func([](float val){
+							return std::format("{:.2f}", val);
+						});
+						auto& n = hdl->request_embedded_react_node(react_flow::make_listener([&vp = vphld.elem()](float val){
+							vp.update_speed = val;
+						}));
+						trans.connect_successor(n);
+						hdl->get_slider_provider().pull_and_push(false);
 					}
 				}
 			};
@@ -1158,7 +1390,7 @@ Edge Cases:
 	menu_hdl->set_expand_policy(layout::expand_policy::passive);
 	menu_hdl->set_head_size({layout::size_category::mastering, 100});
 	menu_hdl.cell().region_scale = {.0f, .0f, .8f, 1.f};
-	menu_hdl.cell().align = align::pos::left;
+	menu_hdl.cell().region_align = align::pos::left;
 
 	menu_hdl->get_head_template_cell().set_pending();
 	menu_hdl->get_head_template_cell().set_pad({4, 4});

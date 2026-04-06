@@ -394,8 +394,9 @@ void scene_base::resize(const math::frect region){
 
 void scene_base::update(double delta_in_tick){
 	assert(is_on_scene_thread(*this));
+	input_communicate_async_task_queue_.consume(static_cast<scene&>(*this));
 
-	react_flow_->update();
+	react_flow_.update();
 	async_task_queue_.process_done();
 	instant_task_queue_.consume();
 
@@ -413,6 +414,7 @@ void scene_base::update(double delta_in_tick){
 	debug__is_updating_elems_ = true;
 #endif
 	for (auto active_update_elem : active_update_elems_){
+		assert(active_update_elem.elem->is_synced_to_ui_thread());
 		active_update_elem.elem->update(delta_in_tick);
 	}
 #ifndef NDEBUG
@@ -426,70 +428,6 @@ void scene_base::update(double delta_in_tick){
 	current_frame_++;
 }
 
-void scene::draw_at(const elem& elem){
-	auto c = get_region().intersection_with(elem.bound_abs());
-	const auto bound = c.round<int>();
-
-	auto& cfg = pass_config;
-
-	for(unsigned i = 0; i < cfg.size(); ++i){
-		renderer().update_state(cfg[i].begin_config);
-
-		renderer().update_state({},
-		                        fx::batch_draw_mode::def, graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
-		);
-
-
-		elem.draw_layer(c, {i});
-
-		if(cfg[i].end_config)renderer().update_state(fx::blit_config{
-				.blit_region = {bound.src, bound.extent()},
-				.pipe_info = cfg[i].end_config.value()
-			});
-	}
-
-
-	if(auto tail = cfg.get_tail_blit())renderer().update_state(fx::blit_config{
-			.blit_region = {bound.src, bound.extent()},
-			.pipe_info = tail.value()
-		});
-}
-
-void scene::draw_impl(rect clip){
-	renderer().init_projection();
-
-
-	{
-		viewport_guard _{renderer(), get_region()};
-
-		auto draw_elem = [&](const elem& e, rect region){
-			draw_at(e);
-		};
-
-		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
-			if(elem.belowScene){
-				draw_elem(*elem.element, elem.element->bound_abs());
-			}
-		}
-
-		draw_elem(root(), clip);
-
-		for (const auto & draw_sequence : overlay_manager_.get_draw_sequence()){
-			draw_elem(*draw_sequence, draw_sequence->bound_abs());
-
-		}
-
-		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
-			if(!elem.belowScene){
-				draw_elem(*elem.element, elem.element->bound_abs());
-			}
-		}
-	}
-
-	if(input_handler_.inputs_.is_cursor_inbound()){
-		current_cursor_drawers_.draw(*this, resources_->cursor_collection_manager.get_cursor_size());
-	}
-}
 
 void scene_base::update_cursor_type(){
 	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(input_handler_.get_cursor_style());

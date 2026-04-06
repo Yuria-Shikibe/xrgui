@@ -15,10 +15,11 @@ namespace mo_yanxi::gui::style {
 export enum class family_variant : std::size_t {
     general,
     general_static,
+    solid,
     base_only,
     edge_only,
 
-    emphasize,
+    accent,
     accepted,
     warning,
     invalid,

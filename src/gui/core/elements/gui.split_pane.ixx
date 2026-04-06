@@ -1,6 +1,6 @@
-//
-// Created by Matrix on 2026/1/29.
-//
+module;
+
+#include <mo_yanxi/adapted_attributes.hpp>
 
 export module mo_yanxi.gui.elem.drag_split;
 
@@ -12,6 +12,10 @@ import std;
 import mo_yanxi.graphic.draw.instruction;
 
 namespace mo_yanxi::gui{
+
+enum struct drag_state{
+
+};
 
 export
 struct split_pane : head_body_no_invariant{

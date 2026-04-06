@@ -6,6 +6,7 @@ export module mo_yanxi.gui.style.palette;
 
 import std;
 import mo_yanxi.graphic.image_region;
+import mo_yanxi.math.interpolation;
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.graphic.color;
 export import align;
@@ -70,10 +71,11 @@ struct palette{
 
 	[[nodiscard]] graphic::color on_instance(const elem& element) const{
 		graphic::color color;
-		if(element.cursor_state().pressed){
+		auto& state = element.cursor_state();
+		if(state.pressed){
 			color = on_press;
-		} else if(element.cursor_state().focused){
-			color = on_focus;
+		} else if(state.time_focus > 0.f){
+			color = general.create_lerp(on_focus, state.get_factor_of(&cursor_states::time_focus) | math::interp::smooth);
 		} else{
 			color = general;
 		}
@@ -145,16 +147,16 @@ export
 		.general = theme_color,
 
 		// on_focus: 亮感大于 general，通过提升明度并微降饱和度，保持颜色通透不刺眼
-		.on_focus = theme_color.copy().shift_value(0.15f).shift_saturation(-0.05f),
+		.on_focus = theme_color.copy().shift_value(0.1f).shift_saturation(-0.02f),
 
 		// on_press: 亮感最高，进一步提升明度并适当降低饱和度模拟高光按压
-		.on_press = theme_color.copy().shift_value(0.25f).shift_saturation(-0.10f),
+		.on_press = theme_color.copy().shift_value(0.15f).shift_saturation(-0.065f),
 
 		// disable: 比 general 更灰且暗，大幅抽离饱和度并压低明度
 		.disable = theme_color.copy().shift_saturation(-0.60f).shift_value(-0.30f),
 
 		// toggled: 亮度介于 on_focus 和 on_press 之间
-		.toggled = theme_color.copy().shift_value(0.20f).shift_saturation(-0.08f),
+		.toggled = theme_color.copy().shift_value(0.13f).shift_saturation(-0.05f),
 
 		.disable_blend_mode = disable_mode,
 		.toggled_blend_mode = toggled_mode
@@ -182,6 +184,22 @@ struct component_palette{
 		};
 }
 [[nodiscard]] constexpr palette make_palette(
+	const std::uint32_t gen,
+	const std::uint32_t foc,
+	const std::uint32_t press,
+	const std::uint32_t dis) noexcept{
+	return palette{
+			.general = graphic::color::from_rgba8888(gen),
+			.on_focus = graphic::color::from_rgba8888(foc),
+			.on_press = graphic::color::from_rgba8888(press),
+			.disable = graphic::color::from_rgba8888(dis),
+			.toggled = graphic::color::from_rgba8888(press), // 默认触发状态同按下状态
+			.disable_blend_mode = color_blend_mode::replace,
+			.toggled_blend_mode = color_blend_mode::replace
+		};
+}
+
+[[nodiscard]] constexpr palette make_palette(
 	const graphic::color gen,
 	const graphic::color foc,
 	const graphic::color press,
@@ -197,67 +215,54 @@ struct component_palette{
 		};
 }
 
-// ==========================================
-// 莫兰迪 / 马卡龙色系预设定义
-// ==========================================
-
-constexpr graphic::color c = graphic::color::from_string("F2F4F7");
 
 export namespace pal{
-	inline constexpr palette dark = make_palette(
-		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .75f),
-		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .35f),
-		graphic::colors::dark_gray,
-		graphic::colors::dark_gray.create_lerp(graphic::colors::black, .95f));
+inline constexpr palette dark = make_palette(
+	graphic::colors::dark_gray.create_lerp(graphic::colors::black, .75f),
+	graphic::colors::dark_gray.create_lerp(graphic::colors::black, .4f),
+	graphic::colors::dark_gray.create_lerp(graphic::colors::black, .2f),
+	graphic::colors::dark_gray.create_lerp(graphic::colors::black, .95f));
 
-	inline constexpr component_palette white{
-		.background = make_palette("F2F4F7", "F9FAFB", "FFFFFF", "E4E7EC"),
-		.border = make_palette("D0D5DD", "E4E7EC", "F2F4F7", "98A2B3")
-	};
+inline constexpr palette white = make_palette(0XF2F4F7FF, 0XF9FAFBFF, 0XFFFFFFFF, 0XE4E7ECFF);
 
-	// 2. 豆沙绿 (清新不刺眼的微灰绿色)
-	inline constexpr component_palette green{
-			.background = make_palette("E3EAE5", "EDF2EF", "F6F9F7", "CED6D1"),
-			.border = make_palette("A7BBAE", "C2D1C8", "DDE5E0", "8C9A91")
-		};
+inline constexpr palette pastel_white = make_theme_palette(
+	graphic::color::from_rgba8888(0xFFFFFFFF)
+);
 
-	// 3. 灰雾蓝 (宁静的低保饱和度蓝)
-	inline constexpr component_palette blue{
-			.background = make_palette("8EA1F5", "ECF0F6", "F5F8FA", "CCD4DF"),
-			.border = make_palette("A5BCF5", "BCC9D9", "D6E0EC", "8997AB")
-		};
+// 2. 基础灰 (Light Gray)
+inline constexpr palette pastel_gray = make_theme_palette(
+	graphic::color::from_rgba8888(0xF0F0F0FF)
+);
 
-	// 4. 奶酪黄 (偏暖调的奶油色，不荧光)
-	inline constexpr component_palette yellow{
-			.background = make_palette("F5EFE1", "FAF6EE", "FDFBF8", "DFD8C9"),
-			.border = make_palette("D4C4A1", "E5D9BF", "F1EBD8", "B8AB8C")
-		};
+// 3. 基础蓝 (Light Blue)
+inline constexpr palette pastel_blue = make_theme_palette(
+	graphic::color::from_rgba8888(0xD8E4FFFF)
+);
 
-	// 5. 蜜桃橙 (带有粉调的低灰度橙色)
-	inline constexpr component_palette orange{
-			.background = make_palette("F4E6E0", "F9EFEA", "FDF8F5", "DECBC4"),
-			.border = make_palette("D5AEA2", "E5C8BF", "F0E0DB", "B8958B")
-		};
+// 4. 基础绿 (Light Green)
+inline constexpr palette pastel_green = make_theme_palette(
+	graphic::color::from_rgba8888(0xD4E8D4FF)
+);
 
-	// 6. 枯木粉红 (莫兰迪红，内敛柔和)
-	inline constexpr component_palette red{
-			.background = make_palette("F2E1E1", "F8EDED", "FDF7F7", "DAC4C4"),
-			.border = make_palette("D4A7A7", "E6C2C2", "F2DCDC", "B88D8D")
-		};
+// 5. 基础橙 (Light Orange)
+inline constexpr palette pastel_orange = make_theme_palette(
+	graphic::color::from_rgba8888(0xFFE6CCFF)
+);
 
-	// 7. 丁香紫 (带一点灰度的浅紫色)
-	inline constexpr component_palette purple{
-			.background = make_palette("EAE3ED", "F1EDF3", "F8F6F9", "D0C8D4"),
-			.border = make_palette("BCA7C4", "D1C2D8", "E5DBEB", "A08AAB")
-		};
+// 6. 基础黄 (Light Yellow)
+inline constexpr palette pastel_yellow = make_theme_palette(
+	graphic::color::from_rgba8888(0xFFF2CCFF)
+);
 
-	inline constexpr palette general_palette{
-			graphic::colors::light_gray,
-			graphic::colors::white,
-			graphic::colors::aqua,
-			graphic::colors::gray,
-			graphic::colors::white,
-		};
+// 7. 基础粉红 (Light Pink)
+inline constexpr palette pastel_pink = make_theme_palette(
+	graphic::color::from_rgba8888(0xF8CECCFF)
+);
+
+// 8. 基础紫 (Light Purple)
+inline constexpr palette pastel_purple = make_theme_palette(
+	graphic::color::from_rgba8888(0xE1D5E7FF)
+);
 }
 
 export
@@ -275,20 +280,5 @@ struct palette_with : public T{
 	}
 };
 
-//
-// struct round_style : style_drawer<elem>{
-// 	align::spacing boarder{default_boarder};
-// 	palette_with<graphic::image_nine_region> base{};
-// 	palette_with<graphic::image_nine_region> edge{};
-// 	palette_with<graphic::image_nine_region> back{};
-//
-// 	float disabledOpacity{.5f};
-//
-// 	void draw(const elem& element, math::frect region, float opacityScl) const override;
-//
-// 	[[nodiscard]] float content_opacity(const elem& element) const override;
-//
-// 	bool apply_to(elem& element) const override;
-// };
 }
 }

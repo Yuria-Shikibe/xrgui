@@ -57,11 +57,13 @@ export struct debug_elem_drawer final : elem_style_drawer{
 		return default_boarder;
 	}
 
-	void draw_layer_impl(const elem& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override;
 
 	void draw(const elem& element, rect region, float opacityScl) const;
 
 	void draw_background(const elem& element, math::frect region, float opacityScl) const;
+
+protected:
+	void draw_layer_impl(const elem& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override;
 };
 
 export struct empty_drawer final : elem_style_drawer{
@@ -87,7 +89,7 @@ export constexpr inline empty_drawer empty_style;
 
 export
 struct cursor_states{
-	float maximum_duration{60.};
+	float maximum_duration{16.};
 	/**
 	 * @brief in tick
 	 */
@@ -834,6 +836,22 @@ public:
 
 	[[nodiscard]] FORCE_INLINE inline vec2 extent() const noexcept{
 		return size_.get_size();
+	}
+
+	FORCE_INLINE inline bool set_max_extent(math::vec2 ext) noexcept{
+		if(size_.set_maximum_size(ext)){
+			this->resize(extent());
+			return true;
+		}
+		return false;
+	}
+
+	FORCE_INLINE inline bool set_min_extent(math::vec2 ext) noexcept{
+		if(size_.set_minimum_size(ext)){
+			this->resize(extent());
+			return true;
+		}
+		return false;
 	}
 
 	[[nodiscard]] FORCE_INLINE inline rect bound_abs() const noexcept{

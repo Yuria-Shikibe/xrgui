@@ -1,11 +1,7 @@
 module;
 
 #include <cassert>
-#define UI_MAIN_THREAD_ONLY
-
-#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-#include <plf_hive.h>
-#endif
+#define UI_MAIN_THREAD_ACCESS_ONLY
 
 export module mo_yanxi.gui.infrastructure:scene;
 
@@ -27,6 +23,7 @@ import mo_yanxi.heterogeneous;
 import mo_yanxi.circular_queue;
 
 export import mo_yanxi.gui.util;
+export import mo_yanxi.gui.util.task_queue;
 export import mo_yanxi.gui.style.manager;
 
 export import mo_yanxi.input_handle;
@@ -37,10 +34,8 @@ export import mo_yanxi.react_flow;
 
 import mo_yanxi.allocator_aware_unique_ptr;
 import mo_yanxi.flat_set;
-
-#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-import <plf_hive.h>;
-#endif
+import mo_yanxi.fixed_vector;
+import mo_yanxi.call_stream;
 
 namespace mo_yanxi::gui{
 
@@ -256,9 +251,6 @@ export struct ui_manager;
 
 export struct elem;
 
-export
-struct scene;
-struct scene_base;
 
 struct scene_resources{
 	friend scene_base;
@@ -270,8 +262,8 @@ private:
 public:
 	any_pool<false, mr::unvs_allocator<std::byte>> object_pool{};
 
-	style::style_manager style_manager{};
-	cursor_collection cursor_collection_manager{};
+	UI_MAIN_THREAD_ACCESS_ONLY style::style_manager style_manager{};
+	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
 
 	[[nodiscard]] scene_resources() = default;
 
@@ -394,66 +386,6 @@ struct input{
 
 	style::cursor_style get_cursor_style() const;
 };
-
-struct associated_async_sync_task_queue_base{
-protected:
-	struct task_entry{
-		void* e;
-		std::move_only_function<void(void*)> func;
-
-		void exec(){
-			func(e);
-		}
-	};
-
-	using container = mr::heap_vector<task_entry>;
-
-	ccur::mpsc_double_buffer<task_entry, container> async_tasks_{};
-
-public:
-	[[nodiscard]] explicit associated_async_sync_task_queue_base(const container::allocator_type& alloc)
-		: async_tasks_(alloc){
-	}
-
-	UI_MAIN_THREAD_ONLY void consume(){
-		if(auto ts = async_tasks_.fetch()){
-			for (auto&& t : *ts){
-				t.exec();
-			}
-		}
-	}
-};
-
-template <typename T>
-struct associated_async_sync_task_queue : associated_async_sync_task_queue_base{
-	using owner_type = T;
-
-	using associated_async_sync_task_queue_base::associated_async_sync_task_queue_base;
-
-	template <std::derived_from<owner_type> E, std::invocable<E&> Fn>
-	void post(E& e, Fn&& fn){
-		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](void* e) mutable {
-			std::invoke(f, *static_cast<E*>(e));
-		});
-	}
-
-	template <std::derived_from<owner_type> E, std::invocable<> Fn>
-	void post(E& e, Fn&& fn){
-		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](void* e) mutable {
-			std::invoke(f);
-		});
-	}
-
-	UI_MAIN_THREAD_ONLY void erase(const elem* e) noexcept {
-		async_tasks_.modify([&](container& c) noexcept {
-			std::erase_if(c, [&](const container::value_type& v) noexcept {
-				return v.e == e;
-			});
-		});
-	}
-
-};
-
 struct elem_async_sync_task_queue : associated_async_sync_task_queue<elem>{
 private:
 	mr::heap_vector<task_entry> unsync_pending_;
@@ -463,46 +395,16 @@ public:
 		: associated_async_sync_task_queue(alloc), unsync_pending_(alloc){
 	}
 
-	UI_MAIN_THREAD_ONLY void erase(const elem* e) noexcept {
+	UI_MAIN_THREAD_ACCESS_ONLY void erase(const elem* e) noexcept {
 		associated_async_sync_task_queue::erase(e);
 		std::erase_if(unsync_pending_, [&](const container::value_type& v) noexcept {
 			return v.e == e;
 		});
 	}
 
-	UI_MAIN_THREAD_ONLY void consume();
-	UI_MAIN_THREAD_ONLY void on_sync_relocate_consume();
+	UI_MAIN_THREAD_ACCESS_ONLY void consume();
+	UI_MAIN_THREAD_ACCESS_ONLY void on_sync_relocate_consume();
 };
-
-
-struct async_sync_task_queue{
-private:
-	using func = std::move_only_function<void()>;
-	using container = mr::heap_vector<func>;
-	ccur::mpsc_double_buffer<func, container> async_tasks_{};
-
-public:
-	[[nodiscard]] explicit async_sync_task_queue(const container::allocator_type& alloc)
-		: async_tasks_(alloc){
-	}
-
-	template <std::invocable<> Fn>
-	void post(Fn&& fn){
-		async_tasks_.emplace([f = std::forward<Fn>(fn)](){
-			std::invoke(f);
-		});
-	}
-
-	UI_MAIN_THREAD_ONLY void consume(){
-		if(auto ts = async_tasks_.fetch()){
-			for (auto&& t : *ts){
-				t();
-			}
-		}
-	}
-};
-
-
 
 struct async_async_task_queue{
 	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
@@ -541,7 +443,7 @@ private:
 	}
 
 public:
-	UI_MAIN_THREAD_ONLY void process_done(){
+	UI_MAIN_THREAD_ACCESS_ONLY void process_done(){
 		if(auto cont = element_async_tasks_done_.fetch()){
 			for(auto&& elem_async_task : *cont){
 				if(auto itr = element_async_task_alive_owners_.find(&elem_async_task->get_owner()); itr !=
@@ -555,7 +457,7 @@ public:
 		}
 	}
 
-	UI_MAIN_THREAD_ONLY void erase(const elem* owner){
+	UI_MAIN_THREAD_ACCESS_ONLY void erase(const elem* owner){
 		element_async_task_alive_owners_.erase(owner);
 	}
 
@@ -616,9 +518,9 @@ protected:
 	scene_submodule::input input_handler_{get_heap_allocator()};
 
 private:
-
 	double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap_allocator()}};
 
+#pragma region Updates
 	struct update_entry{
 		elem* elem;
 		update_channel channels;
@@ -636,14 +538,12 @@ private:
 #ifndef NDEBUG
 	bool debug__is_updating_elems_{false};
 #endif
-
+#pragma endregion
 
 protected:
-	allocator_aware_unique_ptr<react_flow::manager, mr::heap_allocator<react_flow::manager>> react_flow_{
-		mo_yanxi::make_allocate_aware_unique<react_flow::manager>(mr::heap_allocator<react_flow::manager>{get_heap_allocator()})
-	};
+	UI_MAIN_THREAD_ACCESS_ONLY react_flow::manager react_flow_{};
 
-	std::unordered_multimap<
+	UI_MAIN_THREAD_ACCESS_ONLY std::unordered_multimap<
 		const elem*, react_flow::node*,
 		std::hash<const elem*>, std::equal_to<const elem*>,
 		mr::heap_allocator<std::pair<const elem* const, react_flow::node*>>>
@@ -651,7 +551,11 @@ protected:
 
 private:
 
+	//TODO move it to resource?
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
+
+	fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_communicate_async_task_queues_{};
+	async_sync_task_queue<scene&> input_communicate_async_task_queue_{get_heap_allocator()};
 
 	unsigned long long current_frame_{};
 	double current_time_{};
@@ -679,6 +583,17 @@ public:
 			mr::heap_allocator<native_communicator>{get_heap()}, std::forward<Args>(args)...);
 	}
 
+	void drop_and_reset_communicate_async_task_queue_size(std::size_t total_channels){
+		output_communicate_async_task_queues_ = decltype(output_communicate_async_task_queues_){std::allocator_arg, get_heap_allocator(), total_channels};
+	}
+
+	auto& get_output_communicate_async_task_queue(std::size_t channel){
+		return output_communicate_async_task_queues_.at(channel);
+	}
+
+	auto& get_input_communicate_async_task_queue(){
+		return input_communicate_async_task_queue_;
+	}
 
 	[[nodiscard]] unsigned long long get_current_frame() const noexcept{
 		return current_frame_;
@@ -789,9 +704,9 @@ public:
 		input_handler_.last_inbound_click = elem;
 	}
 
-	[[nodiscard]] react_flow::manager& get_react_flow() const noexcept{
+	[[nodiscard]] react_flow::manager& get_react_flow() noexcept{
 		assert(is_on_scene_thread(*this));
-		return *react_flow_;
+		return react_flow_;
 	}
 
 protected:
@@ -799,7 +714,7 @@ protected:
 		assert(is_on_scene_thread(*this));
 		auto [begin, end] = elem_owned_nodes_.equal_range(elem);
 		for(auto cur = begin; cur != end; ++cur){
-			react_flow_->erase_node(*cur->second);
+			react_flow_.erase_node(*cur->second);
 		}
 		elem_owned_nodes_.erase(begin, end);
 	}
@@ -844,7 +759,7 @@ public:
 		if(!is_on_scene_thread(*this)){
 			throw std::runtime_error{"create node not on main ui thread"};
 		}
-		return react_flow_->add_node<T>( std::forward<Args>(args)...);
+		return react_flow_.add_node<T>( std::forward<Args>(args)...);
 	}
 
 	template <typename T>
@@ -852,14 +767,14 @@ public:
 		if(!is_on_scene_thread(*this)){
 			throw std::runtime_error{"create node not on main ui thread"};
 		}
-		return react_flow_->add_node( std::forward<T>(args));
+		return react_flow_.add_node( std::forward<T>(args));
 	}
 
 	bool erase_independent_react_node(react_flow::node& node) /*noexcept*/ {
 		if(!is_on_scene_thread(*this)){
 			throw std::runtime_error{"erase node not on main ui thread"};
 		}
-		return react_flow_->erase_node(node);
+		return react_flow_.erase_node(node);
 	}
 
 	template <typename T, std::derived_from<elem> E, typename ...Args>
@@ -867,7 +782,7 @@ public:
 		if(!is_on_scene_thread(*this)){
 			throw std::runtime_error{"create node not on main ui thread"};
 		}
-		T& ptr = react_flow_->add_node<T>(elem, std::forward<Args>(args)...);
+		T& ptr = react_flow_.add_node<T>(elem, std::forward<Args>(args)...);
 		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
 		return ptr;
 	}
@@ -877,7 +792,7 @@ public:
 		if(!is_on_scene_thread(*this)){
 			throw std::runtime_error{"create node not on main ui thread"};
 		}
-		T& ptr = react_flow_->add_node(std::forward<T>(args));
+		T& ptr = react_flow_.add_node(std::forward<T>(args));
 		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
 		return ptr;
 	}
@@ -982,14 +897,12 @@ public:
 	scene& operator=(scene&& other) noexcept = delete;
 
 protected:
-	virtual void draw_impl(rect clip);
+	virtual void draw_impl(rect clip) = 0;
 
 public:
 	virtual ~scene() = default;
 
-	fx::scene_render_pass_config pass_config{};
 
-	void draw_at(const elem& elem);
 
 	void draw(){
 		draw_impl(get_region());

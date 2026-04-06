@@ -267,6 +267,9 @@ void table_layout_context::place_cells(const std::span<cell_adaptor_type> cells,
 	const auto [extent_major, extent_minor] = get_extent_ptr(policy_);
 	const auto [major_target, minor_target] = get_vec_ptr<>(policy_);
 
+	const auto align_pos_major_mask = policy_ == layout::layout_policy::hori_major ? align::pos::mask_x : align::pos::mask_y;
+	const auto align_pos_minor_mask = policy_ == layout::layout_policy::hori_major ? align::pos::mask_y : align::pos::mask_x;
+
 	auto scaling = parent.get_scaling();
 	math::vec2 current_position{};
 
@@ -310,19 +313,23 @@ void table_layout_context::place_cells(const std::span<cell_adaptor_type> cells,
 			{
 				auto cell_actuall_size = cell_maximum_size;
 
+				const bool major_align_none = (elem.cell.unsaturate_cell_align & align_pos_major_mask) == align::pos{};
+				const bool minor_align_none = (elem.cell.unsaturate_cell_align & align_pos_minor_mask) == align::pos{};
+
+
 				if(elem.cell.saturate && row_len == 1 && !(elem.cell.stated_extent.*extent_major).mastering()){
 					cell_actuall_size.*major_target *= scaling.*major_target * std::clamp((elem.cell.stated_extent.*extent_major).value, 0.f, 1.f);
-				}else if((elem.cell.stated_extent.*extent_major).mastering() && elem.cell.align != align::pos::none){
+				}else if((elem.cell.stated_extent.*extent_major).mastering() && !major_align_none){
 					cell_actuall_size.*major_target = scaling.*major_target * (elem.cell.stated_extent.*extent_major).value;
 				}
 
-				if((elem.cell.stated_extent.*extent_minor).mastering() && elem.cell.align != align::pos::none){
+				if((elem.cell.stated_extent.*extent_minor).mastering() && !minor_align_none){
 					cell_actuall_size.*minor_target = scaling.*minor_target * (elem.cell.stated_extent.*extent_minor).value;
 				}
 
 				elem.cell.allocated_region.src =
 					current_position + src_off + region.get_src() +
-						align::get_offset_of(elem.cell.align, cell_actuall_size, rect{cell_maximum_size});
+						align::get_offset_of(elem.cell.unsaturate_cell_align, cell_actuall_size, rect{cell_maximum_size});
 				elem.cell.allocated_region.set_size(cell_actuall_size);
 				elem.apply(parent, ext);
 				if(!parent.is_pos_smooth())elem.cell.update_relative_src(*elem.element, parent.content_src_pos_abs());
