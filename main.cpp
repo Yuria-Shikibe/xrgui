@@ -27,7 +27,6 @@ import mo_yanxi.gui.elem.group;
 import mo_yanxi.gui.global;
 import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.renderer.frontend;
-import mo_yanxi.gui.examples;
 import mo_yanxi.gui.fx.config;
 import mo_yanxi.gui.fx.fringe;
 import mo_yanxi.gui.fx.instruction_extension;
@@ -51,6 +50,10 @@ import mo_yanxi.react_flow;
 import mo_yanxi.gui.markdown;
 import mo_yanxi.core.platform;
 
+import mo_yanxi.gui.examples;
+import mo_yanxi.gui.examples.main_loop;
+
+
 struct alignas(16) high_light_filter_args{
 	float threshold{1.3f};
 	float smoothness{.5f};
@@ -65,382 +68,33 @@ struct alignas(16) tonemap_args{
 };
 
 void app_run(
+	mo_yanxi::gui::example::main_loop& main_loop,
 	mo_yanxi::backend::vulkan::context& ctx,
 	mo_yanxi::backend::vulkan::renderer& renderer,
-	mo_yanxi::graphic::compositor::manager& manager,
 	mo_yanxi::vk::command_buffer& cmdBUf
 ){
 	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
-
-	graphic::uniformed_trail trail{60, .75f};
-	trail.shrink_interval *= 2.f;
+	auto& current_focus = main_loop.get_scene();;
 
 	while(!ctx.window().should_close()){
 		ctx.window().poll_events();
 		timer.fetch_time();
 
-
 		gui::global::event_queue.push_frame_split(timer.global_delta());
-		gui::global::consume_current_input();
-		gui::global::manager.layout();
-
-
-		auto& current_focus = gui::global::manager.get_current_focus();
+		main_loop.permit_burst();
 		current_focus.get_output_communicate_async_task_queue(0).consume();
-		auto& r = current_focus.renderer();
 
-		trail.update(timer.global_delta_tick(), current_focus.get_cursor_pos(), 2);
+		//Clear unused events currently
+		(void)main_loop.unhandled_events.fetch();
 
-		renderer.batch_host.begin_rendering();
-		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::ui_state(
-			r.get_region().extent(),
-			timer.global_time()
-		));
-		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::slide_line_config{});
-
-		r.init_projection();
-
-		r.update_state(gui::fx::pipeline_config{});
-		r.update_state(
-			{},
-			gui::fx::batch_draw_mode::def,
-			gui::make_state_tag(gui::fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
-		r.update_state(gui::fx::blend::pma::standard);
-		r.update_state(gui::fx::make_blend_write_mask(true), 0);
-		r.update_state(r.get_full_screen_scissor());
-		r.update_state(r.get_full_screen_viewport());
-
-		if(true){
-			using namespace graphic::draw::instruction;
-
-			{
-				// gui::fringe::poly_partial_with_cap(r, poly_partial{
-				// 		.pos = {600, 400},
-				// 		.segments = 64,
-				// 		.radius = {120, 130},
-				// 		.range = {0, .45f},
-				// 		.color = {
-				// 			graphic::colors::white, graphic::colors::white, graphic::colors::aqua, graphic::colors::aqua
-				// 		}
-				// 	});
-				//
-				//
-				// gui::fringe::poly_partial_with_cap(r, poly_partial{
-				// 		.pos = {800, 400},
-				// 		.segments = 64,
-				// 		.radius = {120, 130},
-				// 		.range = {0, -.45f},
-				// 		.color = {
-				// 			graphic::colors::white, graphic::colors::ACID, graphic::colors::aqua, graphic::colors::CRIMSON
-				// 		}
-				// 	});
-
-				// gui::fringe::curve_with_cap(r, {
-				// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 500}, {800, 300}, {900, 500}),
-				// 		.stroke = {12, 12},
-				// 		.segments = 32,
-				// 		.color = {graphic::colors::white}
-				// 	});
-
-				// auto gen = [](float cx, float cy, float a, float b) -> std::vector<math::vec2> {
-				// 	// 使用 8 个控制点来近似
-				// 	// 为了让三次 B 样条闭合，通常需要将前 3 个点重复添加到末尾
-				// 	std::vector<math::vec2> points = {};
-				// 	for (int i = 0; i < 12; ++i) {
-				// 		float angle = i * (360.0f / 12.0f) * (std::numbers::pi_v<float> / 180.0f);
-				//
-				// 		points.push_back({
-				// 			cx + a * std::cos(angle),
-				// 			cy + b * std::sin(angle)
-				// 		});
-				// 	}
-				// 	return points;
-				// };
-				//
-				// {
-				// 	auto verts = gen(800, 500, 400, 300);
-				// 	for(unsigned i = 0; i < verts.size(); ++i){
-				// 		gui::fringe::curve(r, {
-				// 			.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
-				// 			.stroke = {12, 12},
-				// 			.segments = 6,
-				// 			.color = {graphic::colors::white}
-				// 		}, 2);
-				// 	}
-				// }
-				// auto verts = gen(1200, 900, 300, 200);
-				// for(unsigned i = 0; i < verts.size(); ++i){
-				// 	gui::fringe::curve(r, {
-				// 		.param = curve_trait_mat::b_spline.apply_to(verts[i], verts[(i + 1) % verts.size()], verts[(i + 2) % verts.size()], verts[(i + 3) % verts.size()]),
-				// 		.stroke = {12, 12},
-				// 		.segments = 6,
-				// 		.color = {graphic::colors::white}
-				// 	}, 2);
-				// }
-				//
-				// gui::fringe::line_context line_ctx{r.get_mem_pool()};
-				// line_ctx.push({math::vec2{450, 600}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-				// line_ctx.push({math::vec2{400, 560}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-				// line_ctx.push({math::vec2{300, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-				//
-				// line_ctx.push({math::vec2{250, 450}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-				// line_ctx.push({math::vec2{1200, 500}, 12, 0, {graphic::colors::white, graphic::colors::white}});
-				//
-				// line_ctx.add_cap();
-				// line_ctx.add_fringe_cap(2, 2);
-				// line_ctx.dump_mid(r, line_segments{});
-				// line_ctx.dump_fringe_inner(r, line_segments{}, 1.75f);
-				// line_ctx.dump_fringe_outer(r, line_segments{}, 1.75f);
-
-				// line_ctx.dump_fringe_cap_src(r, line_segments{}, 3.f, 4.f);
-				// line_ctx.dump_fringe_cap_dst(r, line_segments{}, 12.f, 4.f);
-				// line_ctx.dump_fringe_inner(r, line_segments_closed{}, 2.f);
-				// line_ctx.dump_fringe_outer(r, line_segments_closed{}, 2.f);
-
-				// gui::fringe::curve(r, {
-				// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 400}, {800, 400}, {900, 500}),
-				// 	.margin = {0, 1.01f},
-				// 		.stroke = {4, 6},
-				// 		.segments = 1,
-				// 		.color = {graphic::colors::ACID.copy().mul_a(.5f)}
-				// 	});
-				// gui::fringe::curve(r, {
-				// 		.param = curve_trait_mat::bezier.apply_to({300, 300}, {400, 400}, {800, 400}, {900, 500}),
-				// 	.margin = {1.01f, 0},
-				// 		.stroke = {4, 6},
-				// 		.segments = 1,
-				// 		.color = {graphic::colors::ACID.copy().mul_a(.5f)}
-				// 	});
-
-
-				// r.push(poly_partial{
-				// 		// .generic = ,
-				// 		.pos = {400, 400},
-				// 		.segments = 64,
-				//
-				// 		.radius = {120, 130},
-				// 		.range = {0, .45f},
-				// 		.color = {
-				// 			graphic::colors::white, graphic::colors::white, graphic::colors::aqua, graphic::colors::aqua
-				// 		}
-				// 	});
-			}
-
-
-			constexpr float size = 80;
-			const auto X_count = math::ceil<int>(ctx.get_extent().width / size);
-			const auto Y_count = math::ceil<int>(ctx.get_extent().height / size);
-			math::rand rand{54767963};
-			for(int x = 0; x < X_count; ++x){
-				for(int y = 0; y < Y_count; ++y){
-					r.push(rect_aabb{
-							.generic = {
-								.mode = std::to_underlying(((x + y) % 3 == 0)
-									                           ? gui::fx::primitive_draw_mode::draw_slide_line
-									                           : gui::fx::primitive_draw_mode::none)
-							},
-							.v00 = {x * size, y * size},
-							.v11 = {x * size + size, y * size + size},
-							.vert_color = {
-								graphic::color{rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f), rand(.5f, 1.f)}
-							}
-						});
-				}
-			}
-
-			if(false){
-				{
-					gui::state_guard g{r, gui::fx::blend::multiply};
-					r.push(poly{
-							.pos = current_focus.get_cursor_pos().add_x(-150),
-							.segments = 16,
-							.radius = {0, 64},
-							.color = {graphic::colors::gray, graphic::colors::white}
-						});
-				}
-
-				{
-					gui::state_guard g{r, gui::fx::blend::pma::screen};
-					r.push(poly{
-							.pos = current_focus.get_cursor_pos().add_x(150),
-							.segments = 16,
-							.radius = {0, 64},
-							.color = {graphic::colors::gray, graphic::colors::white}
-						});
-				}
-
-				{
-					gui::state_guard g{r, gui::fx::blend::pma::additive};
-					r.push(poly{
-							.pos = current_focus.get_cursor_pos().add_y(150),
-							.segments = 16,
-							.radius = {0, 64},
-							.color = {graphic::colors::gray, graphic::colors::white}
-						});
-				}
-
-
-				{
-					gui::state_guard g{r, gui::fx::blend::pma::subtractive};
-					r.push(poly{
-							.pos = current_focus.get_cursor_pos().add_y(-150),
-							.segments = 16,
-							.radius = {0, 64},
-							.color = {graphic::colors::gray, graphic::colors::white}
-						});
-				}
-
-				r.push(poly{
-						.pos = current_focus.get_cursor_pos(),
-						.segments = 16,
-						.radius = {0, 64},
-						.color = {graphic::colors::gray, graphic::colors::white}
-					});
-			}
-
-			r.update_state(
-				{},
-				gui::fx::batch_draw_mode::msdf,
-				gui::make_state_tag(gui::fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
-
-			r << gui::fx::nine_patch_draw_vert_color{
-					.patch = &gui::assets::builtin::default_round_square_boarder,
-					.region = {200, 200, 600, 600},
-					.color = {
-						graphic::colors::white, graphic::colors::CYAN, graphic::colors::ROYAL, graphic::colors::GREEN
-					}
-				};
-
-
-			r.update_state(gui::fx::blit_config{
-					{
-						.src = {},
-						.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-					},
-					{.pipeline_index = 1, .inout_define_index = 0}
-				});
-
-
-			{
-				struct trail_node_data : graphic::trail::node_type{
-					float idx_scale;
-					graphic::color color;
-
-					[[nodiscard]] float get_width() const noexcept{
-						return idx_scale * scale;
-					}
-				};
-
-				trail.iterate(1.f,
-				              [last = trail.head_pos_or({})](
-				              const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable{
-					              using namespace graphic;
-					              math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
-
-					              const float factor_global = math::idx_to_factor(idx, total);
-					              const auto fac = factor_global | math::interp::pow2Out;
-					              const auto off = rand.range(1.f) * fac * math::curve(factor_global, .05f, .2f);
-					              const auto tan = (node.pos - last).rotate_rt_counter_clockwise() * off;
-
-					              last = node.pos;
-					              auto n = node;
-					              const auto color = math::lerp(colors::black, colors::aqua.to_light(2.5f),
-					                                            factor_global);
-					              return trail_node_data{
-							              n,
-							              factor_global | math::interp::pow2In | math::interp::interp_func{
-								              math::interp::spec::concave_curve_fixed{.1f}
-							              } | math::interp::reverse,
-							              color
-						              };
-				              }, [&](std::span<const trail_node_data, 4> sspn){
-					              using namespace graphic;
-					              using namespace graphic::draw;
-
-					              const auto appr = sspn[1].pos - sspn[2].pos;
-					              const auto apprLen = appr.length();
-					              const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 2U, 8U);
-
-					              r.push(parametric_curve{
-							              .param = curve_trait_mat::b_spline * (sspn | std::views::transform(
-								              &trail_node_data::pos)),
-							              .stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 10.f,
-							              .segments = seg,
-							              .color = {colors::aqua.to_light(2.5f)},
-						              });
-					              r.push(parametric_curve{
-							              .param = curve_trait_mat::b_spline * (sspn | std::views::transform(
-								              &trail_node_data::pos)),
-							              .stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 5.f,
-							              .segments = seg,
-							              .color = {colors::black},
-						              });
-				              });
-
-				trail.iterate(1.f,
-				              [last = trail.head_pos_or({})](
-				              const graphic::trail::node_type& node, const unsigned idx, const unsigned total) mutable{
-					              using namespace graphic;
-					              math::rand rand{std::bit_cast<std::uintptr_t>(&node)};
-
-					              float factor_global = math::idx_to_factor(idx, math::max(total, 8U));
-					              const auto fac = factor_global | math::interp::pow2Out;
-					              const auto off = rand.range(1.f) * fac * math::curve(factor_global, .05f, .5f);
-					              const auto tan = (node.pos - last).rotate_rt_counter_clockwise() * off;
-
-					              last = node.pos;
-					              auto n = node;
-					              n.pos += tan;
-					              const auto color = math::lerp(colors::aqua.to_light(2.5f),
-					                                            colors::pale_green.to_light(1.5f),
-					                                            factor_global);
-
-					              factor_global = math::curve(
-						              factor_global | math::interp::interp_func{
-							              math::interp::spec::concave_curve_fixed{.1f}
-						              } |
-						              math::interp::reverse, math::idx_to_factor(5U, math::max(total, 8U)), 1.f);
-
-					              return trail_node_data{n, factor_global, color};
-				              }, [&](std::span<const trail_node_data, 4> sspn){
-					              using namespace graphic;
-					              using namespace graphic::draw;
-
-					              const auto appr = sspn[1].pos - sspn[2].pos;
-					              const auto apprLen = appr.length();
-					              const auto seg = math::clamp(static_cast<unsigned>(apprLen / 16.f), 4U, 12U);
-
-					              r.push(parametric_curve{
-							              .param = curve_trait_mat::b_spline * (sspn | std::views::transform(
-								              &trail_node_data::pos)),
-							              .stroke = math::range{sspn[1].get_width(), sspn[2].get_width()} * 8.f,
-							              .segments = seg,
-							              .color = {sspn[1].color, sspn[1].color, sspn[2].color, sspn[2].color},
-						              });
-				              });
-			}
-
-			r.push(triangle{});
-			r.update_state(gui::fx::blit_config{
-					{
-						.src = {},
-						.extent = math::vector2{ctx.get_extent().width, ctx.get_extent().height}.as_signed()
-					},
-					{.pipeline_index = 1}
-				});
-		}
-
-		gui::global::manager.draw();
-		renderer.batch_host.end_rendering();
-		renderer.upload();
-		renderer.create_command();
-
+		main_loop.wait_term();
 		std::array<VkCommandBuffer, 2> buffers{renderer.get_valid_cmd_buf(), cmdBUf};
 		vk::cmd::submit_command(ctx.graphic_queue(), buffers, renderer.get_fence());
 		ctx.flush();
+		main_loop.reset_term();
 	}
 }
 
@@ -454,7 +108,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	gui::global::initialize();
 	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
 
+#pragma region InitRenderer
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
+	//renderer should belong to main loop actually
 	auto renderer = [&]() -> backend::vulkan::renderer{
 		vk::shader_module shader_draw_vert{ctx.get_device(), shader_spv_path / "ui.vert.spv"};
 		vk::shader_module shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.frag_basic.spv"};
@@ -598,6 +254,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 				}
 			};
 	}();
+#pragma endregion
 
 #pragma region LoadResource
 	image_atlas image_atlas{
@@ -641,8 +298,6 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		gui::assets::load_default_icons(image_atlas);
 	}
 #pragma endregion
-
-	auto ui_providers = gui::example::build_main_ui(ctx, renderer.create_frontend());
 
 #pragma region SetupRenderGraph
 	compositor::manager manager{ctx.get_allocator()};
@@ -756,75 +411,73 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 #pragma endregion
 
-#pragma region GuiBinding
-	{
-		auto& scene = gui::global::manager.get_current_focus();
-		auto& m = gui::global::manager.get_current_focus();
+	auto init_fn = [&](const gui::example::ui_outputs& ui_providers){
+		auto& scene = *ui_providers.scene_ptr;
 
-		auto post_task = [&]<typename F>(F&& fn){
+		static constexpr auto post_task = []<typename F>(gui::scene& scene, F&& fn){
 			scene.get_output_communicate_async_task_queue(0).post(std::forward<F>(fn));
 		};
 
-		auto& bloom_scale = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_bloom.data](float val){
-				post_task([&, val]{
+		auto& bloom_scale = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_bloom.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_scale(val);
 				});
 			}));
-		auto& bloom_src_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_bloom.data](float val){
-				post_task([&, val]{
+		auto& bloom_src_recv = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_bloom.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_strength_src(val);
 				});
 			}));
-		auto& bloom_dst_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_bloom.data](float val){
-				post_task([&, val]{
+		auto& bloom_dst_recv = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_bloom.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_strength_dst(val);
 				});
 
 			}));
-		auto& bloom_mix_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_bloom.data](float val){
-				post_task([&, val]{
+		auto& bloom_mix_recv = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_bloom.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_mix_factor(val);
 				});
 			}));
 
-		auto& highlight_thres_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_filter_high_light.data](float val){
-				post_task([&, val]{
+		auto& highlight_thres_recv = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_filter_high_light.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_ubo_value(&high_light_filter_args::threshold, val);
 				});
 			}));
-		auto& highlight_smooth_recv = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_filter_high_light.data](float val){
-				post_task([&, val]{
+		auto& highlight_smooth_recv = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_filter_high_light.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_ubo_value(&high_light_filter_args::smoothness, val);
 				});
 			}));
 
-		auto& tonemap_contrast = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_h2s.data](float val){
-				post_task([&, val]{
+		auto& tonemap_contrast = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_h2s.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_ubo_value(&tonemap_args::contrast, val);
 				});
 			}));
-		auto& tonemap_exposure = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_h2s.data](float val){
-				post_task([&, val]{
+		auto& tonemap_exposure = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_h2s.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_ubo_value(&tonemap_args::exposure, val);
 				});
 			}));
-		auto& tonemap_saturation = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_h2s.data](float val){
-				post_task([&, val]{
+		auto& tonemap_saturation = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_h2s.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_ubo_value(&tonemap_args::saturation, val);
 				});
 			}));
-		auto& tonemap_gamma = m.request_independent_react_node(react_flow::make_listener(
-			[&, &p = pass_h2s.data](float val){
-				post_task([&, val]{
+		auto& tonemap_gamma = scene.request_independent_react_node(react_flow::make_listener(
+			[=, &p = pass_h2s.data, &scene](float val){
+				post_task(scene, [&, val]{
 					p.set_ubo_value(&tonemap_args::gamma, val);
 				});
 			}));
@@ -843,16 +496,25 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		tonemap_gamma.connect_predecessor(*ui_providers.tonemap_gamma);
 
 		ui_providers.apply(scene);
-	}
+	};
 
-#pragma endregion
-
+	gui::example::main_loop main_loop{renderer, ctx, init_fn};
+	main_loop.permit_burst();
+	main_loop.wait_term();
 
 	auto post_process_cmd = ctx.get_compute_command_pool().obtain();
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
-		renderer.resize({event.size.width, event.size.height});
-		gui::global::manager.resize(
-			math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
+
+		{
+			main_loop.wait_until_idle();
+
+			renderer.resize({event.size.width, event.size.height});
+
+			auto& focus = main_loop.get_scene();
+			auto exec_thread = std::exchange(focus.ui_main_thread_id, std::this_thread::get_id());
+			focus.resize(math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
+			focus.ui_main_thread_id = exec_thread;
+		}
 
 		ui_input_base.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[0]};
 		ui_input_back.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[1]};
@@ -882,7 +544,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	ctx.record_post_command(true);
 
-	app_run(ctx, renderer, manager, post_process_cmd);
+	app_run(main_loop, ctx, renderer, post_process_cmd);
+
+	main_loop.join();
 
 	gui::assets::dispose_generated_shapes();
 	gui::global::terminate_assets_manager();

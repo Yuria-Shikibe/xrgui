@@ -25,7 +25,11 @@ protected:
 	void draw_impl(rect clip) override;
 };
 
+
+export
 struct ui_outputs{
+	scene* scene_ptr;
+
 	react_flow::node* shader_bloom_scale;
 	react_flow::node* shader_bloom_src_factor;
 	react_flow::node* shader_bloom_dst_factor;
@@ -40,7 +44,7 @@ struct ui_outputs{
 	react_flow::node* tonemap_saturation;
 
 	void apply(scene& scene) const{
-		scene.get_input_communicate_async_task_queue().post([this](gui::scene& s){
+		scene.get_input_communicate_async_task_queue().post([*this](gui::scene& s){
 			if(shader_bloom_scale)shader_bloom_scale->pull_and_push(false);
 			if(shader_bloom_src_factor)shader_bloom_src_factor->pull_and_push(false);
 			if(shader_bloom_dst_factor)shader_bloom_dst_factor->pull_and_push(false);
@@ -57,4 +61,7 @@ struct ui_outputs{
 
 export
 ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend r);
+
+export
+void clear_main_ui();
 }

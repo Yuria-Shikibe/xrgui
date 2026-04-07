@@ -37,33 +37,45 @@ struct ui_manager{
 
 private:
 	mr::raw_memory_pool pool_{};
+
+	mutable std::mutex resources_mutex_{};
 	string_hash_map<scene_resources> resources{};
+
+	mutable std::mutex scenes_mutex_{};
 	string_hash_map<std::unique_ptr<scene>> scenes{};
-	scene* focus{};
+
+	std::atomic<scene*> focus{nullptr};
 
 public:
 	scene_resources& add_scene_resources(std::string_view name){
+		std::lock_guard lock(resources_mutex_);
 		return resources.try_emplace(name, get_arena_id()).first->second;
 	}
 
 	scene* switch_scene_to(std::string_view name) noexcept{
-		if(auto scene = scenes.try_find(name)){
-			return std::exchange(focus, scene->get());
+		std::lock_guard lock(scenes_mutex_);
+		if(auto scene_itr = scenes.try_find(name)){
+			// 使用 acq_rel 序交换原子变量
+			return focus.exchange(scene_itr->get(), std::memory_order_acq_rel);
 		}
 		return nullptr;
 	}
 
 	[[nodiscard]] scene& get_current_focus() const noexcept{
-		assert(focus);
-		return *focus;
+		scene* current_focus = focus.load(std::memory_order_acquire);
+		assert(current_focus);
+		return *current_focus;
 	}
 
 private:
 	template <typename S, typename ...Args>
 	S& add_scene(std::string_view name, bool focusIt, Args&& ...args){
+		std::lock_guard lock(scenes_mutex_);
 		std::pair<decltype(scenes)::iterator, bool> itr = scenes.try_emplace(name, std::make_unique<S>(std::forward<Args>(args)...));
+
 		if(focusIt){
-			focus = itr.first->second.get();
+			focus.store(itr.first->second.get(), std::memory_order_release);
+			assert(focus != nullptr);
 		}
 
 		return static_cast<S&>(*itr.first->second.get());
@@ -77,14 +89,14 @@ public:
 		requires (std::constructible_from<T, scene&, elem*, Args&&...>)
 	scene_add_result<S, T> add_scene(
 		std::string_view name,
-		scene_resources& resources,
+		scene_resources& resources_ref,
 		bool focus_it,
 		renderer_frontend&& renderer_ui,
 		Args&&... args){
 		auto& scene_ = this->add_scene<S>(
 			name,
 			focus_it,
-			resources,
+			resources_ref,
 			std::move(renderer_ui), std::in_place_type<T>,
 			std::forward<Args>(args)...);
 
@@ -93,13 +105,11 @@ public:
 	}
 
 	bool erase_scene(std::string_view name) /*noexcept*/{
+		std::lock_guard lock(scenes_mutex_);
 		if(auto itr = scenes.find(name); itr != scenes.end()){
-			if(itr->second.get() == focus){
-				if(name == scene_names::main){
-					throw std::runtime_error{"erase main while focusing it"};
-				}
-				focus = scenes.at(scene_names::main).get();
-			}
+			scene* expected = itr->second.get();
+			// 使用 CAS 来确保只有当 focus 仍然指向当前将被删除的 scene 时才清空它
+			focus.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel, std::memory_order_acquire);
 
 			scenes.erase(itr);
 
@@ -108,54 +118,20 @@ public:
 		return false;
 	}
 
-	void draw() const{
-		if(focus) focus->draw();
-	}
-
-	void update(const double delta_in_ticks) const{
-		if(focus) focus->update(delta_in_ticks);
-	}
-
-	void layout() const{
-		if(focus) focus->layout();
-	}
-
-	void input_key(const input_handle::key_set k) const{
-		if(focus) focus->on_key_input(k);
-	}
-
-	void input_inbound(bool is_inbound) const{
-		if(focus) focus->input_handler_.input_inbound(is_inbound);
-	}
-
-	void input_mouse(const input_handle::key_set k) const{
-		if(focus) focus->on_mouse_input(k);
-	}
-
-	void input_scroll(const float x, const float y) const{
-		if(focus) focus->on_scroll({x, y});
-	}
-
-
-	void input_unicode(const char32_t val) const{
-		if(focus) focus->on_unicode_input(val);
-	}
-
-	void cursor_pos_update(const float x, const float y) const{
-		if(focus) focus->on_cursor_move({x, y});
-	}
-
-	void scroll_update(const float x, const float y) const{
-		if(focus) focus->on_scroll({x, y});
+	void erase_resource(std::string_view name) noexcept {
+		std::lock_guard lock(resources_mutex_);
+		resources.erase(name);
 	}
 
 	scene* get_scene(const std::string_view sceneName){
+		std::lock_guard lock(scenes_mutex_);
 		auto ptr = scenes.try_find(sceneName);
 		return ptr ? ptr->get() : nullptr;
 	}
 
 	template <typename T>
 	[[nodiscard]] T& root_of(const std::string_view sceneName){
+		std::lock_guard lock(scenes_mutex_);
 		if(const auto rst = scenes.try_find(sceneName)){
 			return (*rst)->root<T>();
 		}
@@ -164,59 +140,20 @@ public:
 		throw std::invalid_argument{"In-exist Scene Name"};
 	}
 
-	void resize(const math::frect region, const std::string_view name = scene_names::main){
-		if(const auto rst = scenes.try_find(name)){
-			(*rst)->resize(region);
-		}
-	}
-
-	void resize_all(const math::frect region){
-		for(auto& rst : scenes | std::views::values){
-			rst->resize(region);
-		}
-	}
-
 	[[nodiscard]] bool is_scroll_idle() const noexcept{
-		return !focus || focus->input_handler_.focus_scroll == nullptr;
+		scene* current_focus = focus.load(std::memory_order_acquire);
+		return !current_focus || current_focus->input_handler_.focus_scroll == nullptr;
 	}
 
 	[[nodiscard]] bool is_focus_idle() const noexcept{
-		return !focus || focus->input_handler_.focus_cursor == nullptr;
+		scene* current_focus = focus.load(std::memory_order_acquire);
+		return !current_focus || current_focus->input_handler_.focus_cursor == nullptr;
 	}
 
 	[[nodiscard]] mr::arena_id_t get_arena_id() const{
 		return pool_.get_arena_id();
 	}
 
-	void consume(std::span<const input_handle::input_event_variant> events) const {
-		using namespace input_handle;
-		auto& f = get_current_focus();
-		for(const auto& ev : events){
-			switch(ev.type){
-			case input_event_type::input_key:
-				f.on_key_input(ev.input_key);
-				break;
-			case input_event_type::input_mouse:
-				f.on_mouse_input(ev.input_key);
-				break;
-			case input_event_type::input_scroll:
-				f.on_scroll(ev.cursor);
-				break;
-			case input_event_type::input_u32:
-				f.on_unicode_input(ev.input_char);
-				break;
-			case input_event_type::cursor_inbound:
-				f.on_inbound_changed(ev.is_inbound);
-				break;
-			case input_event_type::cursor_move:
-				f.on_cursor_move(ev.cursor);
-				break;
-			case input_event_type::frame_split:
-				f.update(std::chrono::duration_cast<std::chrono::duration<double, std::ratio<1, 60>>>(ev.frame_delta_time).count());
-				break;
-			}
-		}
-	}
 };
 
 }

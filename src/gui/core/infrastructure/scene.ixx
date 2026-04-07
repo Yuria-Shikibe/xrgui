@@ -304,11 +304,16 @@ public:
 };
 
 enum struct input_key_result{
-	none,
+	intercepted,
+	fall_through,
 	esc_required
 };
 
 struct input{
+	struct cursor_update_result{
+		events::op_afterwards op;
+		style::cursor_style style;
+	};
 	std::array<mouse_state, std::to_underlying(input_handle::mouse::Count)> mouse_states_{};
 	input_handle::input_manager<scene&> inputs_{};
 	double_buffer<mr::heap_vector<elem*>> inbounds_{};
@@ -375,12 +380,14 @@ struct input{
 	void swap_focus(elem* newFocus);
 
 	input_key_result on_key_input(input_handle::key_set key);
-	void on_unicode_input(char32_t val) const;
-	void on_scroll(math::vec2 scroll) const;
-	void update_inbounds();
-	void update_mouse_state(input_handle::key_set k);
 
-	style::cursor_style update_cursor(overlay_manager& overlays, tooltip::tooltip_manager& tooltips, elem& scene_root);
+	events::op_afterwards on_unicode_input(char32_t val) const;
+	events::op_afterwards on_scroll(math::vec2 scroll) const;
+	events::op_afterwards on_mouse_input(input_handle::key_set k);
+
+	void update_inbounds();
+
+	cursor_update_result update_cursor(overlay_manager& overlays, tooltip::tooltip_manager& tooltips, elem& scene_root);
 
 	style::cursor_style get_cursor_style(math::vec2 cursor_local_pos) const;
 
@@ -809,32 +816,44 @@ private:
 public:
 	void update_cursor_type();
 
-private:
 	void update(double delta_in_tick);
 
-
-	void on_cursor_move(math::vec2 pos){
+	events::op_afterwards on_cursor_move(math::vec2 pos){
 		assert(is_on_scene_thread(*this));
 		input_handler_.inputs_.cursor_move_inform(pos);
-		input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
-		update_cursor_type();
+		auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
+		current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
+		return op;
 	}
 
-	void on_mouse_input(const input_handle::key_set key){
+	events::op_afterwards on_mouse_input(const input_handle::key_set key){
 		assert(is_on_scene_thread(*this));
 		input_handler_.inputs_.inform(key);
-		input_handler_.update_mouse_state(key);
+		auto rst = input_handler_.on_mouse_input(key);
 		update_cursor_type();
+		return rst;
 	}
 
-	void on_unicode_input(char32_t val) const{
+	events::op_afterwards on_unicode_input(char32_t val) const{
 		assert(is_on_scene_thread(*this));
-		input_handler_.on_unicode_input(val);
+		return input_handler_.on_unicode_input(val);
 	}
 
-	void on_scroll(const math::vec2 scroll) const{
+	events::op_afterwards on_scroll(const math::vec2 scroll) const{
 		assert(is_on_scene_thread(*this));
-		input_handler_.on_scroll(scroll);
+		return input_handler_.on_scroll(scroll);
+	}
+
+	events::op_afterwards on_key_input(input_handle::key_set key){
+		assert(is_on_scene_thread(*this));
+		switch(input_handler_.on_key_input(key)){
+		case scene_submodule::input_key_result::intercepted :
+			return events::op_afterwards::intercepted;
+		case scene_submodule::input_key_result::esc_required :
+			return on_esc();
+		default :
+			return events::op_afterwards::fall_through;
+		}
 	}
 
 	void on_inbound_changed(bool inbounded){
@@ -842,27 +861,17 @@ private:
 		input_handler_.input_inbound(inbounded);
 	}
 
-	void on_key_input(input_handle::key_set key){
-		assert(is_on_scene_thread(*this));
-		switch(input_handler_.on_key_input(key)){
-		case scene_submodule::input_key_result::none : break;
-		case scene_submodule::input_key_result::esc_required : on_esc();
-			break;
-		default : break;
-		}
-	}
-
-public:
 	events::op_afterwards on_esc();
 
 	void request_cursor_update() noexcept{
 		input_handler_.request_cursor_update_ = true;
 	}
 
+	void layout();
+
 private:
 #pragma endregion
 
-	void layout();
 
 	void add_isolated_layout_update(elem* element){
 		assert(is_on_scene_thread(*this));

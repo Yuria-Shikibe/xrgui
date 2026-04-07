@@ -140,6 +140,7 @@ protected:
 		file_selector& get_file_selector() const noexcept;
 		[[nodiscard]] file_entry(scene& scene, elem* parent, file_selector& selector, file_selector::path&& entry_path);
 		events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override;
+		bool set_toggled(bool isToggled) override;
 	};
 
 	sequence* menu{};

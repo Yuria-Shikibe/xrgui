@@ -29,7 +29,8 @@ namespace mo_yanxi::gui::cpd{
 		}
 
 		void set_style_side_bar(elem& e){
-			set_elem_style_(e, "side_bar_left");
+			set_elem_style_(e, style::family_variant::base_only);
+			// set_elem_style_(e, "side_bar_left");
 		}
 
 		void set_style_edge_only(elem& e){
@@ -402,9 +403,6 @@ namespace mo_yanxi::gui::cpd{
 		}
 	};
 
-	// ==========================================
-	// file_entry 实现
-	// ==========================================
 	file_selector& file_selector::file_entry::get_file_selector() const noexcept{
 		return *selector;
 	}
@@ -456,9 +454,13 @@ namespace mo_yanxi::gui::cpd{
 		return events::op_afterwards::intercepted;
 	}
 
-	// ==========================================
-	// file_selector 逻辑实现
-	// ==========================================
+	bool file_selector::file_entry::set_toggled(bool isToggled){
+		if(head_body::set_toggled(isToggled)){
+			// set_elem_style_(*this, isToggled ? style::family_variant::accepted : style::family_variant::base_only);
+			return true;
+		}
+		return false;
+	}
 
 	void file_selector::set_botton_enable_(icon_button_type& which, bool enabled){
 		which.set_disabled(!enabled);
@@ -637,7 +639,6 @@ namespace mo_yanxi::gui::cpd{
 		return false;
 	}
 
-	// 抽取出来的选项清除封装
 	void file_selector::clear_selected_ui_state(){
 		for(auto* src : selected.sources){
 			if(src) src->set_toggled(false);
@@ -740,10 +741,6 @@ namespace mo_yanxi::gui::cpd{
 			}
 		}
 	}
-
-	// ==========================================
-	// file_selector 初始化与 UI 构造逻辑
-	// ==========================================
 
 	file_selector::file_selector(scene& scene, elem* parent) : head_body(
 		scene, parent, layout::layout_policy::hori_major){

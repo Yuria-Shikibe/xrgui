@@ -117,7 +117,7 @@ namespace mo_yanxi::gui{
 	}
 
 	events::op_afterwards scroll_adaptor_base::on_drag(const events::drag e){
-		if(util::contains(e.src, get_viewport_extent())){
+		if(util::contains(e.src, content_extent().fdim(get_bar_extent()))){
 			return events::op_afterwards::fall_through;
 		}
 		activity_timer_ = 0.0f;

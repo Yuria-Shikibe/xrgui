@@ -71,24 +71,25 @@ input_key_result input::on_key_input(input_handle::key_set key){
 	}else{
 		if(focus_key){
 			if(focus_key->on_key_input(key) == events::op_afterwards::intercepted){
-				return input_key_result::none;
+				return input_key_result::intercepted;
 			}
 		}
 
 		for (auto value : inbounds_.get_cur() | std::views::reverse){
 			if(value->on_key_input(key) == events::op_afterwards::intercepted){
-				return input_key_result::none;
+				return input_key_result::intercepted;
 			}
 		}
 	}
 
-	return input_key_result::none;
+	return input_key_result::fall_through;
 }
 
-void input::on_unicode_input(char32_t val) const{
+events::op_afterwards input::on_unicode_input(char32_t val) const{
 	if(focus_key){
-		focus_key->on_unicode_input(val);
+		return focus_key->on_unicode_input(val);
 	}
+	return events::op_afterwards::fall_through;
 }
 
 void input::switch_key_focus(elem* element){
@@ -98,37 +99,27 @@ void input::switch_key_focus(elem* element){
 	if(focus_key)focus_key->on_focus_key_changed(true);
 }
 
-void input::on_scroll(math::vec2 scroll) const{
+events::op_afterwards input::on_scroll(math::vec2 scroll) const{
 	events::scroll e{scroll, inputs_.main_binds.get_mode()};
 	//TODO provide cursor position?
 
-	auto rng = get_inbounds();
 	if(focus_scroll){
 		auto rst = focus_scroll->on_scroll(e, {});
-		if(rst == events::op_afterwards::intercepted)return;
+		if(rst == events::op_afterwards::intercepted)return events::op_afterwards::intercepted;
+	}
 
-		if(const auto itr = std::ranges::find(rng, focus_cursor); itr == rng.end()){
-			auto cur = std::reverse_iterator{itr};
-			while(cur != rng.rend()){
-				std::span aboves{cur.base(), rng.end()};
-				if((*cur)->on_scroll(e, aboves) != events::op_afterwards::intercepted){
-					++cur;
-				}else{
-					break;
-				}
-			}
-		}
-	}else{
-		auto cur = rng.rbegin();
-		while(cur != rng.rend()){
-			std::span aboves{cur.base(), rng.end()};
-			if((*cur)->on_scroll(e, aboves) != events::op_afterwards::intercepted){
-				++cur;
-			}else{
-				break;
-			}
+	auto rng = get_inbounds();
+	auto cur = rng.rbegin();
+	while(cur != rng.rend()){
+		std::span aboves{cur.base(), rng.end()};
+		if((*cur)->on_scroll(e, aboves) != events::op_afterwards::intercepted){
+			++cur;
+		}else{
+			return events::op_afterwards::intercepted;
 		}
 	}
+
+	return events::op_afterwards::fall_through;
 }
 
 void input::update_inbounds(){
@@ -201,10 +192,11 @@ void input::swap_focus(elem* newFocus){
 	}
 }
 
-void input::update_mouse_state(input_handle::key_set k){
+events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 	using namespace input_handle;
 	auto [c, a, m] = k;
 
+	auto result = events::op_afterwards::fall_through;
 	if(focus_cursor){
 		const std::span rng = inbounds_.get_cur();
 		const auto pos = util::transform_scene2local(rng, inputs_.cursor_pos());
@@ -217,6 +209,7 @@ void input::update_mouse_state(input_handle::key_set k){
 				e.pos = util::transform_current2parent(**cur, e.pos);
 				++cur;
 			}else{
+				result = events::op_afterwards::intercepted;
 				if(a == act::press){
 					if(last_inbound_click)last_inbound_click->on_last_clicked_changed(false);
 					last_inbound_click = *cur;
@@ -231,7 +224,6 @@ void input::update_mouse_state(input_handle::key_set k){
 			if(last_inbound_click)last_inbound_click->on_last_clicked_changed(false);
 			last_inbound_click = nullptr;
 		}
-
 
 		END:
 		(void)0;
@@ -248,9 +240,12 @@ void input::update_mouse_state(input_handle::key_set k){
 			request_cursor_update();
 		}
 	}
+
+	return result;
 }
 
-style::cursor_style input::update_cursor(overlay_manager& overlays, tooltip::tooltip_manager& tooltips, elem& scene_root){
+input::cursor_update_result input::update_cursor(overlay_manager& overlays, tooltip::tooltip_manager& tooltips,
+                                                 elem& scene_root){
 	request_cursor_update_ = false;
 
 	if(!(focus_cursor && is_mouse_pressed() && focus_cursor->is_focus_extended_by_mouse())){
@@ -286,7 +281,7 @@ style::cursor_style input::update_cursor(overlay_manager& overlays, tooltip::too
 		update_inbounds();
 	}
 
-	if(!focus_cursor) return style::cursor_style{style::cursor_type::regular};
+	if(!focus_cursor) return {events::op_afterwards::fall_through, style::cursor_style{style::cursor_type::regular}};
 
 
 	const auto rng = get_inbounds();
@@ -314,10 +309,10 @@ style::cursor_style input::update_cursor(overlay_manager& overlays, tooltip::too
 		}
 	}
 
-	focus_cursor->on_cursor_moved(
+	const auto rst = focus_cursor->on_cursor_moved(
 		events::cursor_move{.src = inputs_.last_cursor_pos() + cursor_transform_delta, .dst = cursor_transformed});
 
-	return get_cursor_style(cursor_transformed);
+	return {rst, get_cursor_style(cursor_transformed)};
 }
 
 style::cursor_style input::get_cursor_style(math::vec2 cursor_local_pos) const{
@@ -404,7 +399,7 @@ void scene_base::update(double delta_in_tick){
 	overlay_manager_.update(delta_in_tick);
 
 	if(input_handler_.request_cursor_update_){
-		auto style = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
+		auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
 		current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
 	}
 

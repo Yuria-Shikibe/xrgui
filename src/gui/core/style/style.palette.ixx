@@ -69,6 +69,19 @@ struct palette{
 		return *this;
 	}
 
+	constexpr palette& lerp(const palette& rhs, float factor) noexcept{
+		general.lerp(rhs.general, factor);
+		on_focus.lerp(rhs.on_focus, factor);
+		on_press.lerp(rhs.on_press, factor);
+		disable.lerp(rhs.disable, factor);
+		toggled.lerp(rhs.toggled, factor);
+		return *this;
+	}
+
+	constexpr friend palette lerp(const palette& lhs, const palette& rhs, float factor) noexcept{
+		return lhs.copy().lerp(rhs, factor);
+	}
+
 	[[nodiscard]] graphic::color on_instance(const elem& element) const{
 		graphic::color color;
 		auto& state = element.cursor_state();

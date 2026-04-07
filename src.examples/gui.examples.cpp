@@ -520,7 +520,7 @@ void make_styles(scene& scene){
 			return c.set_value(.12f).shift_saturation(-.05f);
 		};
 
-		templt.edge.pal = pal::white;
+		templt.edge.pal = math::lerp(pal::white, pal::dark, .5f);
 		templt.edge = assets::builtin::default_round_square_boarder_thin;
 		templt.back.pal = pal::dark;
 		templt.back = assets::builtin::default_round_square_base;
@@ -748,7 +748,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 	auto& ui_root = gui::global::manager;
 	auto& res = ui_root.add_scene_resources("main");
 	const auto scene_add_rst = ui_root.add_scene<example_scene, gui::loose_group>("main", res, true, std::move(renderer));
-	scene_add_rst.scene.ui_main_thread_id = std::this_thread::get_id();
 	scene_add_rst.root_group.on_context_sync_bind();
 
 	// scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
@@ -785,7 +784,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 	e->set_fill_parent({true, true});
 	auto& mroot = static_cast<scaling_stack&>(root.insert(0, std::move(e)));
 
-	ui_outputs result{};
+	ui_outputs result{&scene};
 
 
 	auto make_create_table = [&] -> std::vector<test_entry> {
@@ -1033,6 +1032,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								c.emplace_head<elem>();
 								c.set_head_size(50);
 								c.create_body([](table& e){
+									e.interactivity = interactivity_flag::enabled;
 									e.set_tooltip_state(
 										{
 											.layout_info = tooltip::align_meta{
@@ -1118,7 +1118,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						pane.create([](table& table){
 							table.set_expand_policy(layout::expand_policy::prefer);
 							table.set_entire_align(align::pos::center);
-
+							table.template_cell.pad.set(4);
 
 							style::family_variant family_variants[]{
 									style::family_variant::general,
@@ -1169,7 +1169,8 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 									seq.set_layout_policy(layout::layout_policy::vert_major);
 									seq.template_cell.set_size(120).set_pad({2, 2});
 									auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
-										i.set_style();
+										i.set_style(i.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
+										i.interactivity = interactivity_flag::enabled;
 									}, gui::assets::builtin::shape_id::more);
 									cell.set_size({layout::size_category::scaling});
 
@@ -1177,6 +1178,8 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 										seq.create_back([&](label& l){
 											l.set_text(std::format("{}", i));
 											l.set_fit();
+											l.set_style(l.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
+											l.interactivity = interactivity_flag::enabled;
 										});
 									}
 									seq.set_split_index(2);
@@ -1400,7 +1403,7 @@ Edge Cases:
 			elem_ptr{
 				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
 					label.sync_run([](elem& el){
-						el.set_style(el.get_style_manager().get_slice<style::elem_style_drawer>()->get_or_default("side_bar_top"));
+						el.set_style(el.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
 					});
 					label.set_fit_type(label_fit_type::scl);
 					label.set_text(std::format("[{}]-{}", idx, creator.name));
@@ -1414,6 +1417,12 @@ Edge Cases:
 	}
 
 	return result;
+}
+
+void clear_main_ui(){
+	auto& ui_root = gui::global::manager;
+	ui_root.erase_scene("main");
+	ui_root.erase_resource("main");
 }
 }
 
