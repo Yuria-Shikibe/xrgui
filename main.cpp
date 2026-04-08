@@ -79,6 +79,7 @@ void app_run(
 
 	auto& current_focus = main_loop.get_scene();;
 
+	main_loop.wait_term_and_reset();
 	while(!ctx.window().should_close()){
 		ctx.window().poll_events();
 		timer.fetch_time();
@@ -411,6 +412,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 #pragma endregion
 
+#pragma region GuiBindingFn
 	auto init_fn = [&](const gui::example::ui_outputs& ui_providers){
 		auto& scene = *ui_providers.scene_ptr;
 
@@ -497,6 +499,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 		ui_providers.apply(scene);
 	};
+#pragma endregion
 
 	gui::example::main_loop main_loop{renderer, ctx, init_fn};
 	main_loop.permit_burst();

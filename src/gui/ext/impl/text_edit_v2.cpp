@@ -523,8 +523,7 @@ void text_edit::draw_selection_and_caret() const{
 
 		const graphic::color selection_color = (is_failed()
 			                                        ? graphic::colors::red_dusted
-			                                        : graphic::colors::gray.create_lerp(graphic::colors::ROYAL, .3f)).
-		                                       copy().mul_a(0.65f);
+			                                        : graphic::colors::light_gray.create_lerp(graphic::colors::aqua, .3f)).copy().mul_a(0.65f);
 		const graphic::color caret_color = (is_failed() ? graphic::colors::red_dusted : graphic::colors::white).copy().
 			mul_a(get_draw_opacity());
 

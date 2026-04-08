@@ -322,19 +322,7 @@ public:
 
 		vk::resource_descriptor_heap& target_descriptor_heap,
 		std::uint32_t target_descriptor_heap_section
-	)
-		:
-		working_queue_{working_queue},
-		async_allocator_(vk::allocator(context, VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT)),
-		command_pool_(context.device, graphic_family_index, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT),
-		region_fence_(context.device, true),
-		allocation_fence_(context.device, false),
-		target_descriptor_heap_(&target_descriptor_heap),
-		target_descriptor_heap_section_(target_descriptor_heap_section),
-		working_thread([](std::stop_token stop_token, async_image_loader& self){
-			work_func(std::move(stop_token), self);
-		}, std::ref(*this)){
-	}
+	);
 
 	std::uint32_t add_image_to_heap(VkImageViewCreateInfo create_info, VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) const{
 		return target_descriptor_heap_->push_back_images(target_descriptor_heap_section_, std::span(&create_info, 1), image_layout, type);

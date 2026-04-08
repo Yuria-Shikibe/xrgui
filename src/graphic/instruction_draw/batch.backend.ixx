@@ -199,26 +199,32 @@ struct instruction_resolve_info{
 		std::uint32_t current_global_payload_base = 0;
 		constexpr std::uint32_t VERTEX_PER_MESH_LIMIT = 64;
 
-		const std::uint32_t num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().
-			size());
+		const std::uint32_t num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().size());
 
-		auto& cpu_timelines = timelines;
-		auto& cpu_resolve_infos = thread_resolve_info;
-		auto& cpu_dispatch_infos = group_dispatch_info;
-		cpu_timelines.clear();
-		cpu_resolve_infos.clear();
-		cpu_dispatch_infos.clear();
+		// 1. 预先计算需要的总容量，避免动态扩容
+		std::size_t total_dispatch_count = 0;
+		for(const auto& group : submit_group_subrange){
+			total_dispatch_count += group.get_dispatch_infos().size();
+		}
 
-		// 【新增】用于缓存未提交的 timeline 状态和脏标记
+		timelines.clear();
+		// 使用 reserve 为不可严格预估大小的容器预分配内存
+		group_dispatch_info.clear();
+		group_dispatch_info.reserve(total_dispatch_count);
+
+		// 2. 直接 resize 拍平的顶点映射缓冲，避免所有的 push_back 边界检查
+		thread_resolve_info.resize(total_dispatch_count * VERTEX_PER_MESH_LIMIT, {});
+		std::size_t thread_write_idx = 0; // 记录当前写入的全局索引
+
 		std::vector<std::uint32_t> current_timeline_state;
 		bool timeline_dirty = false;
 
 		if(num_timeline_slots > 0){
-			cpu_timelines.resize(num_timeline_slots, 0);
+			timelines.resize(num_timeline_slots, 0);
 			current_timeline_state.resize(num_timeline_slots, 0); // 初始化当前状态
 		}
 
-		// 【优化】通过脏标记记录更新，合并连续的 timeline 变化
+		// 通过脏标记记录更新，合并连续的 timeline 变化
 		auto mark_timeline_dirty = [&](std::uint32_t slot_idx){
 			current_timeline_state[slot_idx]++;
 			timeline_dirty = true;
@@ -227,22 +233,20 @@ struct instruction_resolve_info{
 		for(const auto& group : submit_group_subrange){
 			const auto dispatches = group.get_dispatch_infos();
 			const auto heads = group.get_instruction_heads();
-
 			for(std::size_t i = 0; i < dispatches.size(); ++i){
 				const auto& dispatch_info = dispatches[i];
 
 				mesh_dispatch_info_v3 v3_info{};
 				v3_info.global_vertex_offset = current_global_vertex_base;
 				v3_info.primitives = dispatch_info.primitive_count;
-
 				if(num_timeline_slots > 0){
-					v3_info.base_timeline_index = static_cast<std::uint32_t>(cpu_timelines.size()) / num_timeline_slots
-						- 1;
+					v3_info.base_timeline_index = static_cast<std::uint32_t>(timelines.size()) / num_timeline_slots - 1;
 				} else{
 					v3_info.base_timeline_index = 0;
 				}
 
-				cpu_dispatch_infos.push_back(v3_info);
+				// 这里由于使用了 reserve，push_back 也非常快，且数量是 total_dispatch_count，压力不大
+				group_dispatch_info.push_back(v3_info);
 
 				const std::uint32_t patch_til_index = dispatch_info.vertex_offset ? 2 : 0;
 
@@ -256,14 +260,15 @@ struct instruction_resolve_info{
 				for(std::uint32_t target_index = 0; target_index < VERTEX_PER_MESH_LIMIT; ++target_index){
 					std::uint32_t thread_vtx_skip = target_index + dispatch_info.vertex_offset;
 
-					vertex_resolve_info resolve_res{};
+					// 直接通过索引获取当前内存的引用，就地修改，避免构造和拷贝开销
+					vertex_resolve_info& resolve_res = thread_resolve_info[thread_write_idx++];
+
 					resolve_res.packed_type_timeline = 0;
 					resolve_res.payload_offset = 0;
 					resolve_res.packed_skips = 0xFFFF0000;
 					resolve_res.payload_size = 0;
 
 					bool is_found = false;
-
 					while(idx_to_head < heads.size()){
 						if(skipped_primitives >= static_cast<std::int32_t>(dispatch_info.primitive_count)){
 							break;
@@ -283,7 +288,6 @@ struct instruction_resolve_info{
 
 						const std::uint32_t head_vtx_count = head.payload.draw.vertex_count;
 						const std::uint32_t local_skip = thread_vtx_skip - skipped_vertices;
-
 						if(local_skip < head_vtx_count){
 							is_found = true;
 							break;
@@ -307,26 +311,22 @@ struct instruction_resolve_info{
 						// 【新增】如果 timeline 已脏，说明之前有缓存的 uniform_update 变更。
 						// 由于当前遇到实际需要发射的顶点了，正式合并并提交状态。
 						if(timeline_dirty) {
-							cpu_timelines.insert(cpu_timelines.end(), current_timeline_state.begin(), current_timeline_state.end());
+							timelines.insert(timelines.end(), current_timeline_state.begin(), current_timeline_state.end());
 							relative_timeline++;
 							timeline_dirty = false;
 						}
 
-						resolve_res.packed_type_timeline = static_cast<std::uint32_t>(head.type) | (relative_timeline <<
-							16);
+						resolve_res.packed_type_timeline = static_cast<std::uint32_t>(head.type) | (relative_timeline << 16);
 						resolve_res.payload_offset = ptr_to_payload;
 						resolve_res.packed_skips = (local_skip & 0xFFFF) | (idc_idx << 16);
 						resolve_res.payload_size = head.payload_size;
 					}
-
-					cpu_resolve_infos.push_back(resolve_res);
 				}
 
 				// --- 扫尾阶段：专属边界，只为拦截剩余的 uniform_update ---
 				const std::uint32_t sweep_end_idx = (i + 1 < dispatches.size())
 					                                    ? dispatches[i + 1].instruction_head_index
 					                                    : static_cast<std::uint32_t>(heads.size());
-
 				while(idx_to_head < sweep_end_idx){
 					const auto& head = heads[idx_to_head];
 					if(head.type == instr_type::uniform_update){

@@ -435,6 +435,10 @@ public:
 		}){
 	}
 
+	[[nodiscard]] std::jthread& get_element_async_task_thread() noexcept{
+		return element_async_task_thread_;
+	}
+
 private:
 	void elem_async_tasks_process(std::stop_token stop_token){
 		while(!stop_token.stop_requested()){
@@ -576,11 +580,7 @@ protected:
 
 	[[nodiscard]] scene_base() = default;
 
-	explicit(false) scene_base(
-		scene_resources& resources,
-		renderer_frontend&& renderer) :
-		resources_(&resources), renderer_(std::move(renderer)){
-	}
+	explicit(false) scene_base(scene_resources& resources, renderer_frontend&& renderer);
 
 public:
 	template <std::derived_from<native_communicator> Ty, typename ...Args>

@@ -103,7 +103,7 @@ struct image_cursor : style::cursor{
 		std::span<const elem* const> inbound_stack) const override{
 		region.src -= region.extent * .5f;
 
-		region.expand({mo_yanxi::graphic::msdf::sdf_image_boarder + 4, mo_yanxi::graphic::msdf::sdf_image_boarder + 4});
+		region.expand({mo_yanxi::graphic::msdf::sdf_image_boarder, mo_yanxi::graphic::msdf::sdf_image_boarder});
 		state_guard g{renderer, gui::fx::batch_draw_mode::msdf};
 		renderer << graphic::draw::instruction::rect_aabb{
 				.generic = {icon_region->view},
@@ -221,8 +221,8 @@ struct vp : gui::viewport{
 				float angle = i * (360.0f / 12.0f) * (std::numbers::pi_v<float> / 180.0f);
 
 				points.push_back({
-						cx + a * std::cos(angle),
-						cy + b * std::sin(angle)
+						cx + a * math::cos(angle),
+						cy + b * math::sin(angle)
 					});
 			}
 			return points;
@@ -520,7 +520,7 @@ void make_styles(scene& scene){
 			return c.set_value(.12f).shift_saturation(-.05f);
 		};
 
-		templt.edge.pal = math::lerp(pal::white, pal::dark, .5f);
+		templt.edge.pal = math::lerp(pal::white, pal::dark, .155f);
 		templt.edge = assets::builtin::default_round_square_boarder_thin;
 		templt.back.pal = pal::dark;
 		templt.back = assets::builtin::default_round_square_base;
@@ -604,12 +604,28 @@ void make_styles(scene& scene){
 	{
 		referenced_ptr<style::thin_slider_drawer> round_scroll_bar_style{std::in_place};
 
-		constexpr auto pal = style::make_theme_palette(graphic::colors::ROYAL);
+		constexpr auto pal = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .5f));
 		round_scroll_bar_style->handle_palette = pal;
 		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
 		round_scroll_bar_style->bar_palette = pal;
 
 		sm.register_style<style::slider1d_drawer>(std::move(round_scroll_bar_style));
+	}
+
+	{
+		constexpr auto pal = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .5f));
+
+		referenced_ptr<style::round_slider_drawer> drawer{std::in_place};
+		drawer->handle_shape = assets::builtin::default_round_square_base;
+		drawer->bar_shape = assets::builtin::default_round_square_base;
+
+		drawer->handle_palette = pal;
+		drawer->bar_palette = pal.copy().mul_rgb(.8f);
+		drawer->bar_back_palette = pal.copy().mul_rgb(.5f);
+
+		drawer->vert_margin = 5.f;
+
+		sm.register_style<style::slider1d_drawer>(std::move(drawer));
 	}
 
 	{
@@ -853,6 +869,8 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 				test_entry{
 					"sliders", [&](scroll_adaptor<sequence>& pane){
 						sequence& s = pane.get_elem();
+						pane.set_style();
+
 						util::post_elem_async_task(s, [](gui::sequence& seq){
 							return elem_async_yield_task{
 									seq,
@@ -873,11 +891,12 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 
 						s.set_expand_policy(layout::expand_policy::prefer);
 						s.template_cell.set_pending();
-						s.template_cell.pad = {4, 4};
+						s.template_cell.pad = {16, 4};
 						s.set_has_smooth_pos_animation(false);
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "Bloom Sample Scale", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(.25f);
 
@@ -893,6 +912,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "BloomSrcFactor", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(.5f);
 
@@ -911,6 +931,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "BloomDstFactor", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(.5f);
 
@@ -926,6 +947,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "BloomMixFactor", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(.5f);
 							result.shader_bloom_mix_factor = &hdl.elem().get_slider_provider();
@@ -938,6 +960,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "HighlightThres", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(.25f);
 							auto& trans = hdl->add_relay_func([](float val){
@@ -952,6 +975,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "HighlightSmooth", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(.5f);
 							hdl->add_formatter_func([](float val){
@@ -967,6 +991,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "Contrast", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(1.f);
 							hdl->add_formatter_func([](float val){
@@ -977,6 +1002,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "Exposure", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(.5f);
 							auto& trans = hdl->add_relay_func([](float val){
@@ -990,6 +1016,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "Saturation", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(1.f);
 							hdl->add_formatter_func([](float val){
@@ -1000,6 +1027,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						{
 							auto hdl = s.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major,
 							                                             "Gamma", 50.f);
+							hdl->set_style();
 							hdl->get_slider().set_smooth_drag(true);
 							hdl->get_slider().set_progress(math::map(1.2f, 0.5f, 3.f, 0.f, 1.f));
 							auto& trans = hdl->add_relay_func([](float val){
@@ -1381,13 +1409,13 @@ Edge Cases:
 		l.set_style();
 		l.text_entire_align = align::pos::center;
 		l.set_tokenized_text(typesetting::tokenized_text{
-			U"{f:code}"
+			U"{i}{f:code}"
 			U"{#8999F9}{+#223344}X{//}"
-			U"{#DB827D}{b}r{//}"
-			U"{#69D897aa}g{/}"
+			U"{#F0969D}{b}r{//}"
+			U"{#9DE6D1aa}g{/}"
 			U"{u}u{/}"
-			U"{i}i{/}"
-			U"{s:*.4} {/}{w:r}{s:*.9}{b}Test"
+			U"i{/i}"
+			U"{s:*.4} {/}{w:r}{s:*.9}Test"
 		});
 	});
 	menu_hdl->set_expand_policy(layout::expand_policy::passive);

@@ -5,6 +5,7 @@ module;
 module mo_yanxi.gui.infrastructure;
 
 import std;
+import mo_yanxi.platform.thread;
 
 namespace mo_yanxi::gui{
 
@@ -364,6 +365,17 @@ style::style_manager scene_resources::init_style_manager_() const{
 }
 
 
+scene_base::scene_base(scene_resources& resources, renderer_frontend&& renderer):
+	resources_(&resources), renderer_(std::move(renderer)){
+	platform::set_thread_attributes(react_flow_.get_async_working_thread().native_handle(), {
+		.name = "xrgui react flow",
+		.priority = platform::thread_priority::normal
+	});
+	platform::set_thread_attributes(async_task_queue_.get_element_async_task_thread().native_handle(), {
+		.name = "xrgui ui async task",
+		.priority = platform::thread_priority::normal
+	});
+}
 
 void scene_base::drop_(const elem* target) noexcept{
 	drop_elem_nodes(target);

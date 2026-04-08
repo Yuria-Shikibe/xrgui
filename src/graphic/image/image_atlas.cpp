@@ -7,6 +7,7 @@ module;
 module mo_yanxi.graphic.image_atlas;
 
 import mo_yanxi.vk.cmd;
+import mo_yanxi.platform.thread;
 
 namespace mo_yanxi::graphic{
 	void async_image_loader::load(allocated_image_load_description&& desc){
@@ -115,5 +116,24 @@ namespace mo_yanxi::graphic{
 		desc.done_ptr->notify_one();
 		desc.done_ptr->wait(std::addressof(texture), std::memory_order_relaxed);
 
+	}
+
+	async_image_loader::async_image_loader(const vk::context_info& context, std::uint32_t graphic_family_index,
+		VkQueue working_queue, vk::resource_descriptor_heap& target_descriptor_heap,
+		std::uint32_t target_descriptor_heap_section):
+		working_queue_{working_queue},
+		async_allocator_(vk::allocator(context, VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT)),
+		command_pool_(context.device, graphic_family_index, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT),
+		region_fence_(context.device, true),
+		allocation_fence_(context.device, false),
+		target_descriptor_heap_(&target_descriptor_heap),
+		target_descriptor_heap_section_(target_descriptor_heap_section),
+		working_thread([](std::stop_token stop_token, async_image_loader& self){
+			work_func(std::move(stop_token), self);
+		}, std::ref(*this)){
+		platform::set_thread_attributes(working_thread, {
+			.name = "xrgui image loader thread",
+			.priority = platform::thread_priority::high
+		});
 	}
 }

@@ -29,7 +29,7 @@ private:
 
 public:
 
-	named_slider(scene& scene, elem* parent, layout::layout_policy layout_policy, std::string_view text, const float bar_size)
+	named_slider(scene& scene, elem* parent, layout::layout_policy layout_policy, std::string_view text, const float bar_size, const float bar_handle_size)
 		: head_body(scene, parent, layout_policy){
 
 		create_head([&](label& l){
@@ -42,14 +42,15 @@ public:
 			s.template_cell.region_scale = {0, 0, 1, 1};
 
 			s.create_back([&](slider1d_with_output& slider){
-				slider.bar_handle_extent[0] = bar_size;
+				slider.bar_handle_extent[0] = bar_handle_size;
 				slider.set_style();
 				slider.set_vertical(layout_policy);
 			});
 
 			s.create_back([&](label& value){
+				value.set_self_boarder({.left = 4});
 				value.set_style();
-				value.set_fit();
+				value.set_fit_type(label_fit_type::scl);
 				value.text_entire_align = align::pos::center_left;
 				value.set_opacity(.5f);
 				value.set_text("Test");
@@ -69,6 +70,10 @@ public:
 
 	named_slider(scene& scene, elem* parent)
 		: named_slider(scene, parent, layout::layout_policy::hori_major, "Slider", 60){
+	}
+
+	named_slider(scene& scene, elem* parent, layout::layout_policy layout_policy, std::string_view text, const float bar_size)
+		: named_slider(scene, parent, layout_policy, text, bar_size, bar_size * .5f){
 	}
 
 

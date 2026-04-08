@@ -25,6 +25,26 @@ namespace mo_yanxi::graphic{
 export
 struct hsv{
 	float h, s, v;
+
+	constexpr friend hsv lerp(const hsv& a, const hsv& b, float t) noexcept {
+		float new_s = a.s + t * (b.s - a.s);
+		float new_v = a.v + t * (b.v - a.v);
+
+		float delta_h = b.h - a.h;
+
+		if (delta_h > 0.5f) {
+			delta_h -= 1.0f;
+		}
+		else if (delta_h < -0.5f) {
+			delta_h += 1.0f;
+		}
+
+		float new_h = a.h + t * delta_h;
+
+		new_h = new_h - static_cast<int>(new_h);
+
+		return {new_h, new_s, new_v};
+	}
 };
 
 export
