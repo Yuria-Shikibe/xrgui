@@ -520,10 +520,17 @@ private:
 public:
 	std::thread::id ui_main_thread_id{std::this_thread::get_id()};
 
+private:
+	unsigned long long current_frame_{};
+	double current_time_{};
+
+protected:
+	elem* scene_root_{};
+	bool is_any_element_display_state_changed_{};
+
 protected:
 
 	scene_submodule::elem_async_sync_task_queue instant_task_queue_{get_heap_allocator()};
-
 	scene_submodule::action_queue action_queue_{get_heap_allocator()};
 	scene_submodule::async_async_task_queue async_task_queue_{get_heap_allocator()};
 	scene_submodule::input input_handler_{get_heap_allocator()};
@@ -568,15 +575,11 @@ private:
 	fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_communicate_async_task_queues_{};
 	async_sync_task_queue<scene&> input_communicate_async_task_queue_{get_heap_allocator()};
 
-	unsigned long long current_frame_{};
-	double current_time_{};
-
 protected:
 	tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
 	overlay_manager overlay_manager_{get_heap_allocator()};
 
 	cursor_drawer current_cursor_drawers_{};
-	elem* scene_root_{};
 
 	[[nodiscard]] scene_base() = default;
 
@@ -669,6 +672,16 @@ public:
 	[[nodiscard]] scene_resources& resources() const noexcept{
 		assert(resources_ != nullptr);
 		return *resources_;
+	}
+
+	void notify_display_state_changed() noexcept{
+		assert(is_on_scene_thread(*this));
+		is_any_element_display_state_changed_ = true;
+	}
+
+	bool check_display_state_changed() noexcept{
+		assert(is_on_scene_thread(*this));
+		return std::exchange(is_any_element_display_state_changed_, false);
 	}
 
 

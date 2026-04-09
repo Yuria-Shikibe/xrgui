@@ -139,7 +139,13 @@ style::elem_style_ptr elem::get_elem_default_style_() const{
 
 elem::elem(scene& scene, elem* parent) noexcept:
 	scene_(std::addressof(scene)),
-	parent_(parent){
+	parent_(parent),
+	is_at_display_stage_(parent ? parent->decide_is_children_displayable_on_add(*this) : true)
+{
+	if(is_at_display_stage() && is_on_scene_thread(scene)){
+		scene.notify_display_state_changed();
+	}
+
 	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
 	sync_run([](elem& elem){
 		elem.set_style(elem.get_elem_default_style_());
@@ -200,7 +206,13 @@ bool elem::update(float delta_in_ticks){
 
 void elem::clear_scene_references() noexcept{
 	assert(scene_ != nullptr);
-	scene_->drop_(this);
+	if(is_on_scene_thread(get_scene())){
+		scene_->drop_(this);
+		if(is_at_display_stage()){
+			scene_->notify_display_state_changed();
+		}
+	}
+
 }
 
 void elem::notify_layout_changed(propagate_mask propagation){

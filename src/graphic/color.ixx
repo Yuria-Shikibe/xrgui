@@ -41,7 +41,7 @@ struct hsv{
 
 		float new_h = a.h + t * delta_h;
 
-		new_h = new_h - static_cast<int>(new_h);
+		new_h = new_h - math::floor(new_h);
 
 		return {new_h, new_s, new_v};
 	}

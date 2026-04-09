@@ -712,6 +712,9 @@ void example_scene::draw_at(const elem& elem){
 }
 
 void example_scene::draw_impl(rect clip){
+	if(check_display_state_changed()){
+		std::println(std::cerr, "display state changed");
+	}
 	renderer().init_projection();
 
 

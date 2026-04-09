@@ -268,7 +268,7 @@ public:
 
 					graphic::hsv yBHsv{math::lerp(xTHsv, xBHsv, yProg)};
 
-					graphic::hsv hsv{yBHsv.h + rand(.05f), yBHsv.s + rand(.071f), yBHsv.v + rand(.051f)};
+					graphic::hsv hsv{math::clamp(yBHsv.h + rand(.05f)), yBHsv.s + rand(.071f), yBHsv.v + rand(.051f)};
 					r.push(rect_aabb{
 							.generic = {
 								.mode = std::to_underlying(rand.chance(.15f)

@@ -30,10 +30,22 @@ import :flags;
 
 export import :elem_ptr;
 import mo_yanxi.transparent_span;
+import mo_yanxi.function_call_stack;
 
 
 namespace mo_yanxi::gui{
 export constexpr inline boarder default_boarder{8, 8, 8, 8};
+
+export
+struct draw_call_param{
+	const void* current_subject;
+	math::frect region_or_clipspace;
+	float opacityScl;
+	fx::layer_param layer_param;
+};
+
+export
+using call_stack_type = function_call_stack<draw_call_param>;
 
 namespace style{
 
@@ -185,7 +197,7 @@ private:
 	math::vec2 absolute_pos_{};
 
 	std::atomic_bool context_synchronized_{is_on_scene_thread(get_scene())};
-
+	bool is_at_display_stage_{false};
 
 public:
 	bool is_synced_to_ui_thread() const noexcept{
@@ -224,6 +236,7 @@ public:
 
 	// draw_flag draw_flag{};
 
+	//TODO expire it, all element should directly register constantly active to scene, instead of rely on tree update
 	update_flags update_flag{};
 
 
@@ -346,9 +359,22 @@ public:
 #pragma region Event
 
 	virtual void on_display_state_changed(bool is_shown){
+		if(util::try_modify(is_at_display_stage_, is_shown) && is_on_scene_thread(get_scene())){
+			get_scene().notify_display_state_changed();
+		}
+
 		for (auto child : children()){
 			child->on_display_state_changed(is_shown);
 		}
+	}
+
+	virtual bool decide_is_children_displayable_on_add(elem& elem){
+		//TODO spec for menu/overflow seq/collapser or such container that hide children initially
+		return is_at_display_stage();
+	}
+
+	[[nodiscard]] bool is_at_display_stage() const noexcept{
+		return is_at_display_stage_;
 	}
 
 	virtual void on_inbound_changed(bool is_inbounded, bool changed){
@@ -407,6 +433,7 @@ public:
 
 #pragma region Draw
 public:
+
 	// 	void propagate_draw_requirement_since_self(bool required){
 	// 		auto last = this;
 	// 		auto cur = parent();
@@ -1331,6 +1358,7 @@ export
 void sync_elem_tree(elem& e){
 	e.on_context_sync_bind();
 	e.get_scene().notify_instant_queue_consume();
+	e.get_scene().notify_display_state_changed();
 }
 
 }
