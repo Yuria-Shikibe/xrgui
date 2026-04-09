@@ -66,7 +66,6 @@ public:
 			val = sync_state_.load(std::memory_order_acquire);
 		}
 		sync_state_.store(state_idle, std::memory_order_release);
-		sync_state_.notify_one();
 	}
 
 	void reset_done() noexcept {
@@ -110,7 +109,7 @@ private:
 	graphic::uniformed_trail trail{60, .75f};
 
 	std::jthread exec_thread;
-	scene* target_scene;
+	scene* target_scene{};
 
 public:
 	[[nodiscard]] main_loop(backend::vulkan::renderer& renderer_ptr, backend::vulkan::context& ctx_ptr,
@@ -121,7 +120,7 @@ public:
 			  [](std::stop_token stoptoken, main_loop& self, std::thread::id owner_thread_id) {
 				  self.init();
 				  while(true){
-					  if(self.sync_main_loop(stoptoken, owner_thread_id)){
+					  if(self.sync_main_loop(stoptoken)){
 						  break;
 					  }
 				  }
@@ -466,7 +465,7 @@ public:
 		renderer.create_command();
 	}
 
-	bool sync_main_loop(const std::stop_token& stoptoken, std::thread::id owner_thread_id) {
+	bool sync_main_loop(const std::stop_token& stoptoken) {
 		return term([&, this] {
 			if(stoptoken.stop_requested()) {
 				clear_main_ui();

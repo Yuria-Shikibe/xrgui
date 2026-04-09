@@ -363,28 +363,40 @@ struct rich_text_token_argument{
 
 		switch(s2i(name)){
 		case s2i("off") : return args.empty() ? tokens{revert_offset{}} : parse_set_offset(args);
+		case s2i("/off") : return tokens{revert_offset{}};
 
 		case s2i("s") :[[fallthrough]];
 		case s2i("sz") :[[fallthrough]];
 		case s2i("size") : return args.empty() ? tokens{revert_size{}} : parse_set_size(args);
+		case s2i("/s") :[[fallthrough]];
+		case s2i("/sz") :[[fallthrough]];
+		case s2i("/size") : return tokens{revert_size{}};
 
 		case s2i("f") :[[fallthrough]];
 		case s2i("font") : return parse_set_font(table, has_arg, args);
+		case s2i("/f") :[[fallthrough]];
+		case s2i("/font") : return tokens{revert_font{}};
 
 		case s2i("c") :[[fallthrough]];
 		case s2i("#") :[[fallthrough]];
 		case s2i("color") : return args.empty() ? tokens{revert_color{}} : parse_set_color(table, args);
+		case s2i("/c") :[[fallthrough]];
+		case s2i("/#") :[[fallthrough]];
+		case s2i("/color") : return tokens{revert_color{}};
 
-		case s2i("ftr") :[[fallthrough]];
-		case s2i("feature") : return args.empty() ? tokens{revert_feature{}} : parse_set_feature(args);
+		case s2i("ftr") : return args.empty() ? tokens{revert_feature{}} : parse_set_feature(args);
+		case s2i("/ftr") : return tokens{revert_feature{}};
 
 		case s2i("wrap") :[[fallthrough]];
 		case s2i("w") : return parse_wrap_frame(args);
+		case s2i("/wrap") :[[fallthrough]];
 		case s2i("/w") : return set_wrap_frame{};
 
 		case s2i("^") : return set_script{script_type::sups};
 		case s2i("_") : return set_script{script_type::subs};
 		case s2i("-") : return set_script{script_type::ends};
+		case s2i("/^") :[[fallthrough]];
+		case s2i("/_") : return set_script{script_type::ends}; // 统一脚本标识的结束符
 
 		case s2i("u") : return set_underline{true};
 		case s2i("/u") :return set_underline{false};

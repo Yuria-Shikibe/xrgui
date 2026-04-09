@@ -401,25 +401,32 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 		unsigned count;
 		const auto original_size = tokens_.size();
 
-		if(const auto [ptr, ec] = std::from_chars(name.data() + 1, name.data() + name.size(), count); ec == std::errc
-			{}){
+		if(const auto [ptr, ec] = std::from_chars(name.data() + 1, name.data() + name.size(), count); ec == std::errc{}){
 			for(std::size_t i = 0; i < count; ++i){
-				const std::size_t src_index = original_size - 1 - i;
-				tokens_.emplace_back(tokens_[src_index].make_revert(), pos);
-			}
-			break;
-		} else{
-			if(name.back() == '/'){
-				const auto limit = std::min(name.size(), original_size);
-
-				for(std::size_t i = 0; i < limit; ++i){
-					if(name[i] != '/') break;
+				if (original_size > i) {
 					const std::size_t src_index = original_size - 1 - i;
 					tokens_.emplace_back(tokens_[src_index].make_revert(), pos);
 				}
-				break;
 			}
+			return;
+		} else if(name.back() == '/' && name.find_first_not_of('/') == std::string_view::npos){
+			std::size_t target_count = name.size();
+			std::size_t added_count = 0;
+
+			for (std::size_t i = 0; i < original_size && added_count < target_count; ++i) {
+				const std::size_t src_index = original_size - 1 - i;
+
+				auto t = tokens_[src_index].make_revert();
+
+				if (!std::holds_alternative<std::monostate>(t)) {
+					tokens_.emplace_back(std::move(t), pos);
+					++added_count;
+				}
+			}
+			return;
 		}
+
+		[[fallthrough]];
 	}
 
 	default : tokens_.emplace_back(rich_text_token_argument{table, name, has_arg, args}, pos);
