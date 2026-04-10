@@ -425,6 +425,11 @@ protected:
 	}
 
 public:
+
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+		push_draw_func_to_stack_recorder(call_stack_builder);
+	}
+
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 	void layout_elem() override;
 	bool update(float delta_in_ticks) override;

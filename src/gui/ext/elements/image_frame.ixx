@@ -84,6 +84,10 @@ public:
 		// return current_frame_index_;
 	}
 
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+		push_draw_func_to_stack_recorder(call_stack_builder);
+	}
+
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		elem::draw_layer(clipSpace, param);
 		if(param == 0){
@@ -212,6 +216,10 @@ public:
 
 	void set_drawable(T icon) noexcept{
 		drawable_ = std::move(icon);
+	}
+
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+		push_draw_func_to_stack_recorder<image_frame_single>(call_stack_builder);
 	}
 
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{

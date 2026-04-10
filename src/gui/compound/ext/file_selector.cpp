@@ -118,7 +118,9 @@ namespace mo_yanxi::gui::cpd{
 		}
 
 	public:
-		void on_display_state_changed(bool is_shown) override{
+		void on_display_state_changed(bool is_shown, bool is_scene_notified) override{
+			elem::on_display_state_changed(is_shown, is_scene_notified);
+
 			if(!is_shown){
 				drop_tooltip();
 				invisible = true;
@@ -147,6 +149,10 @@ namespace mo_yanxi::gui::cpd{
 				post_task([](elem& e){util::update_insert(e, update_channel::draw);});
 			}
 			return events::op_afterwards::intercepted;
+		}
+
+		void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+			push_draw_func_to_stack_recorder(call_stack_builder);
 		}
 
 		void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
@@ -961,5 +967,6 @@ namespace mo_yanxi::gui::cpd{
 			s = get_current_directory().u32string();
 			return true;
 		});
+		get_scene().notify_display_state_changed(get_channel());
 	}
 }

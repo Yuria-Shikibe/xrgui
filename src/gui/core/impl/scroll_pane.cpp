@@ -96,6 +96,13 @@ namespace mo_yanxi::gui{
 		if(drawer) drawer->draw_layer(*this, content_bound_abs(), bar_opacity_ * get_draw_opacity(), param);
 	}
 
+	void scroll_adaptor_base::record_draw_scroll_bar(draw_call_stack_recorder& call_stack_builder) const{
+		if(!drawer)return;
+		record_drawer_draw_context(call_stack_builder, [](const scroll_adaptor_base& e, draw_call_stack_recorder& s){
+			e.drawer->record_draw_layer(s);
+		});
+	}
+
 	referenced_ptr<const style::scroll_pane_bar_drawer> scroll_adaptor_base::init_drawer_(){
 		return post_sync_assign(*this, &scroll_adaptor_base::drawer, [](scroll_adaptor_base& b){
 			return b.get_style_manager().get_default<style::scroll_pane_bar_drawer>();

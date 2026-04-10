@@ -243,8 +243,12 @@ public:
 		return region_;
 	}
 
-	auto& top_viewport(this auto& self) noexcept{
-		return self.viewports_.back();
+	layer_viewport& top_viewport() noexcept{
+		return viewports_.back();
+	}
+
+	const layer_viewport& top_viewport() const noexcept{
+		return viewports_.back();
 	}
 
 	// byte_pool<mr::aligned_heap_allocator<std::byte, 32>>& get_mem_pool() noexcept{

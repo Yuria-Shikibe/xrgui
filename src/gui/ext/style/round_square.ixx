@@ -233,7 +233,7 @@ struct basic_elem_style_drawer : elem_style_drawer{
 
 	using elem_style_drawer::elem_style_drawer;
 
-[[nodiscard]] gui::boarder get_boarder() const noexcept override{
+	[[nodiscard]] gui::boarder get_boarder() const noexcept override{
 		return boarder;
 	}
 
@@ -261,6 +261,9 @@ struct round_style_base_only : basic_elem_style_drawer{
 
 	}
 
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		this->push_draw_func_to_stack_recorder(call_stack_builder);
+	}
 protected:
 	void draw_base(const elem& element, math::frect region, float opacityScl) const{
 		auto color_base = base.pal.on_instance(element).mul_a(opacityScl);
@@ -302,9 +305,13 @@ struct round_style : round_style_base_only{
 
 	using round_style_base_only::round_style_base_only;
 
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		this->push_draw_func_to_stack_recorder(call_stack_builder);
+	}
+
 protected:
 	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
-		fx::layer_param layer_param) const override{
+	                     fx::layer_param layer_param) const override{
 		if(layer_param == 0){
 			if(base.image_view || edge.image_view){
 				element.renderer().update_state(fx::batch_draw_mode::msdf);
@@ -343,6 +350,9 @@ struct round_style_edge_only : basic_elem_style_drawer{
 
 	}
 
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		this->push_draw_func_to_stack_recorder(call_stack_builder);
+	}
 protected:
 	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
 		fx::layer_param layer_param) const override{
@@ -372,6 +382,10 @@ struct side_bar_style : round_style_base_only{
 
 
 	using round_style_base_only::round_style_base_only;
+
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		this->push_draw_func_to_stack_recorder(call_stack_builder);
+	}
 
 	constexpr float get_bar_stroke() const noexcept{
 		switch(pos){

@@ -20,7 +20,6 @@ void direct_label_text_prov::on_update(react_flow::data_carrier<typesetting::tok
 
 void direct_label::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const {
     elem::draw_layer(clipSpace, param);
-    draw_style(param);
     if (param == 0) draw_text();
 }
 

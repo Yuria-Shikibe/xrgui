@@ -8,10 +8,45 @@ import mo_yanxi.math.rect_ortho;
 import mo_yanxi.graphic.color;
 export import mo_yanxi.referenced_ptr;
 export import mo_yanxi.gui.fx.config;
+export import mo_yanxi.function_call_stack;
 
 import std;
 
 namespace mo_yanxi::gui{
+
+
+export
+struct draw_call_param{
+	/**
+	 * @brief used for style drawer, when set to nullptr, style drawer should skip draw (this is used to impl draw clip)
+	 */
+	const void* current_subject;
+
+	/**
+	 * @brief used as clip space for elements, draw region for style drawers
+	 */
+	math::frect draw_bound;
+
+	/**
+	 * @brief context opacity, currently only for style drawers, should also apply to elements in the future
+	 */
+	float opacity_scl;
+	fx::layer_param layer_param;
+
+	constexpr bool is_draw_allowed() const noexcept{
+		return current_subject != nullptr && !draw_bound.is_roughly_zero_area(0.01f);
+	}
+
+	constexpr operator bool() const noexcept{
+		return is_draw_allowed();
+	}
+};
+
+export
+using draw_call_stack = function_call_stack<draw_call_param>;
+
+export
+using draw_call_stack_recorder = draw_call_stack::function_call_stack_builder;
 
 export
 struct style_config{
@@ -91,6 +126,24 @@ public:
 	 */
 	virtual bool apply_to(T& element) const{
 		return false;
+	}
+
+	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const {
+		call_stack_builder.push_call_noop(*this, [] FORCE_INLINE (const style_drawer& s, const draw_call_param& p, draw_call_stack& stack){
+			if(p.current_subject)s.draw_layer(*static_cast<const T*>(p.current_subject), p.draw_bound, p.opacity_scl, p.layer_param);
+		});
+	}
+
+
+protected:
+	template <typename S>
+	FORCE_INLINE void push_draw_func_to_stack_recorder(this const S& self, draw_call_stack_recorder& call_stack_builder){
+		call_stack_builder.push_call_noop(self, [] FORCE_INLINE (const S& s, const draw_call_param& p, draw_call_stack& stack){
+			if(p.current_subject){
+				ATTR_FORCEINLINE_SENTENCE
+				s.S::draw_layer(*static_cast<const T*>(p.current_subject), p.draw_bound, p.opacity_scl, p.layer_param);
+			}
+		});
 	}
 
 protected:

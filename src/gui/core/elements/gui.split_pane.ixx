@@ -162,19 +162,51 @@ public:
 		return events::op_afterwards::intercepted;
 	}
 
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+		head_body::record_draw_layer(call_stack_builder);
+
+		call_stack_builder.push_call_noop(
+			*this, [](const split_pane& s, const draw_call_param& p, draw_call_stack&) static{
+				const rect bound = s.bound_abs();
+				bool enable_split_draw = p.draw_bound.overlap_exclusive(bound) && (s.seperator_position_.is_dirty() || s
+					.drag_progress_ > 0.0f);
+				if(!enable_split_draw) return;
+				const auto [major_p, minor_p] = layout::get_vec_ptr(s.get_layout_policy());
+				auto src = s.content_src_pos_abs();
+
+				math::vec2 off{};
+				math::vec2 ext{};
+				off.*minor_p = s.seperator_position_.temp * s.content_extent().*minor_p;
+				ext.*major_p = s.content_extent().*major_p;
+
+				src += off;
+				bool any = s.head().style || s.body().style;
+
+				if(!any){
+					s.renderer().push(graphic::draw::instruction::line{
+							.src = src,
+							.dst = src + ext,
+							.color = {graphic::colors::white, graphic::colors::white},
+							.stroke = 4,
+						});
+				}
+
+				ext.*minor_p -= s.get_pad() / 2.f;
+				if(s.head().style)
+					s.head().style->draw_layer(s.head(), {tags::from_vertex, s.content_src_pos_abs(), src + ext},
+					                           s.drag_progress_ * 4.f, p.layer_param);
+				src.*minor_p += s.get_pad() / 2.f;
+				if(s.body().style)
+					s.body().style->draw_layer(s.body(), {
+						                           tags::from_vertex, s.content_src_pos_abs() + s.content_extent(),
+						                           src
+					                           }, s.drag_progress_ * 4.f, p.layer_param);
+			});
+	}
+
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		head_body::draw_layer(clipSpace, param);
-		if(param == 0){
-			auto region = get_seperator_region_element_local();
-			auto cursorlocal = util::transform_scene2local(*this, get_scene().get_cursor_pos()) - content_src_offset();
-			auto color = region.contains_loose(cursorlocal) ? graphic::colors::pale_green : graphic::colors::YELLOW;
-			region.move(content_src_pos_abs());
-			// get_scene().renderer().push(graphic::draw::instruction::rect_aabb{
-			// 	.v00 = region.vert_00(),
-			// 	.v11 = region.vert_11(),
-			// 	.vert_color = {color.copy_set_a(.5)}
-			// });
-		}
+
 
 		// 保证在淡出动画（drag_progress_ > 0）时也能画出辅助线，而不仅仅是 dirty 的时候
 		if(seperator_position_.is_dirty() || drag_progress_ > 0.0f){

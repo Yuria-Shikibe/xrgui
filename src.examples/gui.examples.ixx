@@ -18,9 +18,13 @@ namespace mo_yanxi::gui::example{
 struct example_scene : scene{
 	using scene::scene;
 	fx::scene_render_pass_config pass_config{};
+	draw_call_stack call_stack_regular_;
+	std::vector<draw_call_stack> call_stack_tooltip_;
+	std::vector<draw_call_stack> call_stack_overlay_;
 
 protected:
 	void draw_at(const elem& elem);
+	void draw_at(math::frect clipspace, draw_call_stack& elem);
 
 	void draw_impl(rect clip) override;
 };

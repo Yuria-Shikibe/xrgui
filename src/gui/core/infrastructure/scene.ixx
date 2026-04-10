@@ -1,6 +1,7 @@
 module;
 
 #include <cassert>
+#include <mo_yanxi/enum_operator_gen.hpp>
 #define UI_MAIN_THREAD_ACCESS_ONLY
 
 export module mo_yanxi.gui.infrastructure:scene;
@@ -38,6 +39,17 @@ import mo_yanxi.fixed_vector;
 import mo_yanxi.call_stream;
 
 namespace mo_yanxi::gui{
+
+export enum struct elem_tree_channel : std::uint8_t{
+	deduced = 0,
+	regular = 0b001,
+	tooltip = 0b010,
+	overlay = 0b100,
+	all = regular | tooltip | overlay,
+};
+
+BITMASK_OPS(export, elem_tree_channel);
+
 
 namespace fx{
 export
@@ -526,7 +538,7 @@ private:
 
 protected:
 	elem* scene_root_{};
-	bool is_any_element_display_state_changed_{};
+	elem_tree_channel display_state_changed_channel_{};
 
 protected:
 
@@ -674,14 +686,18 @@ public:
 		return *resources_;
 	}
 
-	void notify_display_state_changed() noexcept{
+	void notify_display_state_changed(elem_tree_channel channel) noexcept{
 		assert(is_on_scene_thread(*this));
-		is_any_element_display_state_changed_ = true;
+		if(channel == elem_tree_channel::deduced){
+			display_state_changed_channel_ = elem_tree_channel::all;
+		}else{
+			display_state_changed_channel_ |= channel;
+		}
 	}
 
-	bool check_display_state_changed() noexcept{
+	elem_tree_channel check_display_state_changed() noexcept{
 		assert(is_on_scene_thread(*this));
-		return std::exchange(is_any_element_display_state_changed_, false);
+		return std::exchange(display_state_changed_channel_, elem_tree_channel{});
 	}
 
 

@@ -143,7 +143,7 @@ elem::elem(scene& scene, elem* parent) noexcept:
 	is_at_display_stage_(parent ? parent->decide_is_children_displayable_on_add(*this) : true)
 {
 	if(is_at_display_stage() && is_on_scene_thread(scene)){
-		scene.notify_display_state_changed();
+		scene.notify_display_state_changed(get_channel());
 	}
 
 	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
@@ -188,7 +188,9 @@ void elem::drop_tooltip() const{
 
 void elem::set_style() noexcept{
 	sync_run([](elem& elem){
+		if(elem.style == nullptr)return;
 		elem.style = nullptr;
+		elem.get_scene().notify_display_state_changed(elem.get_channel());
 		if(util::try_modify(elem.style_boarder_cache_, {})){
 			elem.notify_isolated_layout_changed();
 		}
@@ -209,7 +211,7 @@ void elem::clear_scene_references() noexcept{
 	if(is_on_scene_thread(get_scene())){
 		scene_->drop_(this);
 		if(is_at_display_stage()){
-			scene_->notify_display_state_changed();
+			scene_->notify_display_state_changed(get_channel());
 		}
 	}
 

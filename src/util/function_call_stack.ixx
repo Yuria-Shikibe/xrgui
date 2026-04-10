@@ -26,21 +26,19 @@ enum stack_op_t{
 	stack_noop,
 	stack_enter,
 	stack_leave,
+	stack_replace,
 };
 
 static constexpr std::uint32_t invalid_guard_pos = ~0U;
 
-export
-template <typename StackArg, typename Allocator = std::allocator<std::byte>>
-struct function_call_stack_builder;
 
 export
 template <typename StackArg, typename Allocator = std::allocator<std::byte>>
 struct function_call_stack{
-	friend struct function_call_stack_builder<StackArg, Allocator>;
-
 	using stack_argument_t = StackArg;
 	using allocator_type = Allocator;
+
+	static constexpr bool is_stack_argument_bool_evaluatable = std::constructible_from<bool, stack_argument_t>;
 
 	static_assert(std::is_same_v<typename std::allocator_traits<allocator_type>::value_type, std::byte>,
 	              "Allocator's value_type must be std::byte to prevent accidental template bloat.");
@@ -104,20 +102,68 @@ public:
 		try{
 			for(auto&& call : calls){
 				switch(call.stack_op){
-				case stack_noop : call.fn(call.host, param_stack_pointer->stack_arg, *this);
+				case stack_noop : if(call.fn != nullptr){
+						if constexpr(is_stack_argument_bool_evaluatable){
+							if(param_stack_pointer->stack_arg) call.
+								fn(call.host, param_stack_pointer->stack_arg, *this);
+						} else{
+							call.fn(call.host, param_stack_pointer->stack_arg, *this);
+						}
+					}
 					break;
 				case stack_enter :{
-					auto rst = call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
+					auto rst = [&] -> stack_argument_t{
+						if constexpr(is_stack_argument_bool_evaluatable){
+							if(param_stack_pointer->stack_arg){
+								return call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
+							} else{
+								return param_stack_pointer->stack_arg;
+							}
+						} else{
+							return call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
+						}
+					}();
+
 					++param_stack_pointer;
 					*param_stack_pointer = rst;
 					param_stack_pointer->guard_stack_pos = current_guard_head_pos;
 					break;
 				}
 				case stack_leave :{
-					call.fn(call.host, param_stack_pointer->stack_arg, *this);
+					if constexpr(is_stack_argument_bool_evaluatable){
+						if(param_stack_pointer->stack_arg && call.fn) call.fn(
+							call.host, param_stack_pointer->stack_arg, *this);
+					} else{
+						if(call.fn) call.fn(call.host, param_stack_pointer->stack_arg, *this);
+					}
 					--param_stack_pointer;
 					std::uint32_t target_guard_pos = param_stack_pointer->guard_stack_pos;
 					guard_on_exit(target_guard_pos);
+					break;
+				}
+				case stack_replace :{
+					// 1. 释放当前层级的 Guard 资源（模拟 leave 的清理行为）
+					std::uint32_t target_guard_pos = param_stack_pointer->guard_stack_pos;
+					guard_on_exit(target_guard_pos);
+
+					// 2. 指针退回上一级，作为父级参数的输入
+					--param_stack_pointer;
+					auto rst = [&] -> stack_argument_t{
+						if constexpr(is_stack_argument_bool_evaluatable){
+							if(param_stack_pointer->stack_arg){
+								return call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
+							} else{
+								return param_stack_pointer->stack_arg;
+							}
+						} else{
+							return call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
+						}
+					}();
+
+					// 3. 指针恢复至当前层级，就地覆写并重置 Guard 游标位置
+					++param_stack_pointer;
+					*param_stack_pointer = rst;
+					param_stack_pointer->guard_stack_pos = current_guard_head_pos;
 					break;
 				}
 				default : std::unreachable();
@@ -208,104 +254,167 @@ private:
 			guards.clear();
 		}
 	}
-};
-
-template <typename StackArg, typename Allocator>
-struct function_call_stack_builder{
-	using stack_argument_t = StackArg;
-	using allocator_type = Allocator;
-	using stack_type = function_call_stack<stack_argument_t, allocator_type>;
-	stack_type& stack;
-
-private:
-	std::uint32_t current_build_depth{};
-	std::uint32_t max_build_depth{};
 
 public:
-	[[nodiscard]] explicit function_call_stack_builder(stack_type& stack_ref)
-		: stack(stack_ref){
-		begin_push();
-	}
+	struct function_call_stack_builder{
+		using stack_type = function_call_stack;
+		stack_type& stack;
 
-	~function_call_stack_builder(){
-		end_push();
-	}
+	private:
+		std::uint32_t current_build_depth{};
+		std::uint32_t max_build_depth{};
 
-	void begin_push() noexcept{
-		stack.calls.clear();
-		stack.arguments.clear();
-	}
-
-	void push_call(typename stack_type::call_unit call_unit){
-		switch(call_unit.stack_op){
-		case stack_noop :
-			assert(current_build_depth != 0);
-			break;
-		case stack_enter : current_build_depth++;
-			if(current_build_depth > max_build_depth){
-				max_build_depth = current_build_depth;
-			}
-			break;
-		case stack_leave :
-			assert(current_build_depth != 0);
-			current_build_depth--;
-			break;
-		default : std::unreachable();
+	public:
+		[[nodiscard]] explicit function_call_stack_builder(stack_type& stack_ref)
+			: stack(stack_ref){
+			begin_push();
 		}
-		stack.calls.push_back(call_unit);
-	}
 
-	void end_push(){
-		stack.arguments.resize(max_build_depth + 1);
-	}
+		~function_call_stack_builder(){
+			end_push();
+		}
 
-	template <typename T, typename Fn>
-		requires std::is_invocable_r_v<stack_argument_t, Fn, T&, const stack_argument_t&, stack_type&>
-	void push_call_enter(T& host, Fn /*fn*/){
-		this->push_call({
-				.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
-				.stack_op = stack_enter,
-				.fn_with_ret = +[](host_ptr_t h, const stack_argument_t& p, stack_type& q) static -> stack_argument_t{
-					if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
-						return Fn::operator()(*static_cast<T*>(h), p, q);
-					} else{
-						static_assert(std::is_default_constructible_v<Fn>, "Fn must be a default-constructible stateless functor");
-						return std::invoke_r<stack_argument_t>(Fn{}, *static_cast<T*>(h), p, q);
+		[[nodiscard]] const stack_type& get_stack() const noexcept{
+			return stack;
+		}
+
+		[[nodiscard]] stack_type& get_stack() noexcept{
+			return stack;
+		}
+
+		void begin_push() noexcept{
+			stack.calls.clear();
+			stack.arguments.clear();
+		}
+
+		void push_call(call_unit call_unit){
+			// 自动窥孔优化：合并无作用的 leave 与接下来的 enter 为 replace
+			if(call_unit.stack_op == stack_enter && !stack.calls.empty()){
+				auto& last_call = stack.calls.back();
+				if(last_call.stack_op == stack_leave && last_call.fn == nullptr){
+					// 将上一个 leave 节点就地覆写为 replace
+					last_call.stack_op = stack_replace;
+					last_call.host = call_unit.host;
+					last_call.fn_with_ret = call_unit.fn_with_ret;
+
+					// 修正深度：之前的 leave 导致 current_build_depth 减了 1。
+					// 转变为同级 replace 后，需要将这 1 补回来。
+					current_build_depth++;
+					if(current_build_depth > max_build_depth){
+						max_build_depth = current_build_depth;
 					}
+					return;
 				}
-			});
-	}
+			}
 
-	template <typename T, std::invocable<T&, const stack_argument_t&, stack_type&> Fn>
-	void push_call_leave(T& host, Fn /*fn*/){
-		this->push_call({
-				.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
-				.stack_op = stack_leave,
-				.fn = +[](host_ptr_t h, const stack_argument_t& p, stack_type& q) static{
-					if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
-						Fn::operator()(*static_cast<T*>(h), p, q);
-					} else{
-						static_assert(std::is_default_constructible_v<Fn>, "Fn must be a default-constructible stateless functor");
-						std::invoke(Fn{}, *static_cast<T*>(h), p, q);
-					}
+			switch(call_unit.stack_op){
+			case stack_noop :
+				// assert(current_build_depth != 0);
+				break;
+			case stack_enter : current_build_depth++;
+				if(current_build_depth > max_build_depth){
+					max_build_depth = current_build_depth;
 				}
-			});
-	}
+				break;
+			case stack_leave :
+				assert(current_build_depth != 0);
+				current_build_depth--;
+				break;
+			case stack_replace :
+				assert(current_build_depth != 0);
+				break;
+			default : std::unreachable();
+			}
+			stack.calls.push_back(call_unit);
+		}
 
-	template <typename T, std::invocable<T&, const stack_argument_t&, stack_type&> Fn>
-	void push_call_noop(T& host, Fn /*fn*/){
-		this->push_call({
-				.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
-				.stack_op = stack_noop,
-				.fn = +[](host_ptr_t h, const stack_argument_t& p, stack_type& q) static{
-					if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
-						Fn::operator()(*static_cast<T*>(h), p, q);
-					} else{
-						static_assert(std::is_default_constructible_v<Fn>, "Fn must be a default-constructible stateless functor");
-						std::invoke(Fn{}, *static_cast<T*>(h), p, q);
+		void end_push(){
+			stack.arguments.resize(max_build_depth + 1);
+		}
+
+		template <typename T, typename Fn>
+			requires std::is_invocable_r_v<stack_argument_t, Fn, T&, const stack_argument_t&, stack_type&>
+		void push_call_enter(T& host, Fn /*fn*/){
+			this->push_call({
+					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
+					.stack_op = stack_enter,
+					.fn_with_ret = +[](host_ptr_t h, const stack_argument_t& p,
+					                   stack_type& q) static -> stack_argument_t{
+						if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
+							return Fn::operator()(*static_cast<T*>(h), p, q);
+						} else{
+							static_assert(std::is_default_constructible_v<Fn>,
+							              "Fn must be a default-constructible stateless functor");
+							return std::invoke_r<stack_argument_t>(Fn{}, *static_cast<T*>(h), p, q);
+						}
 					}
-				}
-			});
-	}
+				});
+		}
+
+		template <typename T, std::invocable<T&, const stack_argument_t&, stack_type&> Fn>
+		void push_call_leave(T& host, Fn /*fn*/){
+			this->push_call({
+					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
+					.stack_op = stack_leave,
+					.fn = +[](host_ptr_t h, const stack_argument_t& p, stack_type& q) static{
+						if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
+							Fn::operator()(*static_cast<T*>(h), p, q);
+						} else{
+							static_assert(std::is_default_constructible_v<Fn>,
+							              "Fn must be a default-constructible stateless functor");
+							std::invoke(Fn{}, *static_cast<T*>(h), p, q);
+						}
+					}
+				});
+		}
+
+		void push_call_leave(){
+			this->push_call({
+					.host = nullptr,
+					.stack_op = stack_leave,
+					.fn = nullptr
+				});
+		}
+
+		template <typename T, typename Fn>
+			requires std::is_invocable_r_v<stack_argument_t, Fn, T&, const stack_argument_t&, stack_type&>
+		void push_call_replace(T& host, Fn /*fn*/){
+			this->push_call({
+					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
+					.stack_op = stack_replace,
+					.fn_with_ret = +[](host_ptr_t h, const stack_argument_t& p,
+					                   stack_type& q) static -> stack_argument_t{
+						if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
+							return Fn::operator()(*static_cast<T*>(h), p, q);
+						} else{
+							static_assert(std::is_default_constructible_v<Fn>,
+							              "Fn must be a default-constructible stateless functor");
+							return std::invoke_r<stack_argument_t>(Fn{}, *static_cast<T*>(h), p, q);
+						}
+					}
+				});
+		}
+
+		template <typename T, std::invocable<T&, const stack_argument_t&, stack_type&> Fn>
+		void push_call_noop(T& host, Fn /*fn*/){
+			this->push_call({
+					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
+					.stack_op = stack_noop,
+					.fn = +[](host_ptr_t h, const stack_argument_t& p, stack_type& q) static{
+						if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
+							Fn::operator()(*static_cast<T*>(h), p, q);
+						} else{
+							static_assert(std::is_default_constructible_v<Fn>,
+							              "Fn must be a default-constructible stateless functor");
+							std::invoke(Fn{}, *static_cast<T*>(h), p, q);
+						}
+					}
+				});
+		}
+	};
 };
+
+export
+template <typename StackArg, typename Allocator = std::allocator<std::byte>>
+using function_call_stack_builder = function_call_stack<StackArg, Allocator>::function_call_stack_builder;
 }

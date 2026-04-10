@@ -458,6 +458,10 @@ struct vp : gui::viewport{
 			};
 	}
 
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+		push_draw_func_to_stack_recorder(call_stack_builder);
+	}
+
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		viewport::draw_layer(clipSpace, param);
 
@@ -711,10 +715,69 @@ void example_scene::draw_at(const elem& elem){
 			});
 }
 
-void example_scene::draw_impl(rect clip){
-	if(check_display_state_changed()){
-		std::println(std::cerr, "display state changed");
+void example_scene::draw_at(math::frect clipspace, draw_call_stack& call_stack){
+	auto c = get_region().intersection_with(clipspace);
+	const auto bound = c.round<int>();
+
+	auto& cfg = pass_config;
+
+	for(unsigned i = 0; i < cfg.size(); ++i){
+		renderer().update_state(cfg[i].begin_config);
+
+		renderer().update_state({},
+								fx::batch_draw_mode::def,
+								graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
+		);
+
+		call_stack.each({
+			.current_subject = this,
+			.draw_bound = c,
+			.opacity_scl = 1,
+			.layer_param = {i}
+		});
+
+		if(cfg[i].end_config)
+			renderer().update_state(fx::blit_config{
+					.blit_region = {bound.src, bound.extent()},
+					.pipe_info = cfg[i].end_config.value()
+				});
 	}
+
+
+	if(auto tail = cfg.get_tail_blit())
+		renderer().update_state(fx::blit_config{
+				.blit_region = {bound.src, bound.extent()},
+				.pipe_info = tail.value()
+			});
+}
+
+void example_scene::draw_impl(rect clip){
+	if(auto flags = check_display_state_changed(); flags != elem_tree_channel{}){
+		if((flags & elem_tree_channel::regular) != elem_tree_channel{}){
+			draw_call_stack_recorder rec{call_stack_regular_};
+			root().record_draw_layer(rec);
+		}
+
+		if((flags & elem_tree_channel::tooltip) != elem_tree_channel{}){
+			auto seq = tooltip_manager_.get_draw_sequence();
+			call_stack_tooltip_.resize(seq.size());
+			for (auto&& [idx, elem] : seq | std::views::enumerate){
+				draw_call_stack_recorder rec{call_stack_tooltip_[idx]};
+				root().record_draw_layer(rec);
+			}
+		}
+
+		if((flags & elem_tree_channel::overlay) != elem_tree_channel{}){
+			auto seq = overlay_manager_.get_draw_sequence();
+			call_stack_overlay_.resize(seq.size());
+			for (auto&& [idx, elem] : seq | std::views::enumerate){
+				draw_call_stack_recorder rec{call_stack_overlay_[idx]};
+				root().record_draw_layer(rec);
+			}
+		}
+
+	}
+
 	renderer().init_projection();
 
 
@@ -727,7 +790,7 @@ void example_scene::draw_impl(rect clip){
 			}
 		}
 
-		draw_at(root());
+		draw_at(root().bound_abs(), call_stack_regular_);
 
 		for (const auto & draw_sequence : overlay_manager_.get_draw_sequence()){
 			draw_at(*draw_sequence);

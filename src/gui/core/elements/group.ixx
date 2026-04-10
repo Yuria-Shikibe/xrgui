@@ -173,6 +173,25 @@ public:
 		layout_children();
 	}
 
+	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder){
+		elem::record_draw_layer(call_stack_builder);
+
+		call_stack_builder.push_call_enter(*this, [](const basic_group& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
+			return {
+				.current_subject = &s,
+				.draw_bound = s.content_bound_abs().intersection_with(p.draw_bound),
+				.opacity_scl = s.get_draw_opacity(),
+				.layer_param = p.layer_param
+			};
+		});
+
+		for(const auto& element : children()){
+			element->record_draw_layer(call_stack_builder);
+		}
+
+		call_stack_builder.push_call_leave();
+	}
+
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		elem::draw_layer(clipSpace, param);
 		const auto space = content_bound_abs().intersection_with(clipSpace);

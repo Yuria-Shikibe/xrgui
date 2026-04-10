@@ -42,7 +42,7 @@ protected:
 		auto it = std::ranges::find(exposed_children_, target);
 		if (it != exposed_children_.end()) {
 			// 1. 发送移出通知
-			target->on_display_state_changed(false);
+			target->on_display_state_changed(false, false);
 
 			// 2. 同步清理 exposed_children_ 和 exposed_cells_，避免下次 layout_elem 前出现悬垂访问
 			std::size_t idx = std::distance(exposed_children_.begin(), it);
@@ -88,7 +88,7 @@ public:
 		if (overflow_elem_) {
 			for (auto& p : exposed_children_) {
 				if (p == overflow_elem_.get()) {
-					p->on_display_state_changed(false);
+					p->on_display_state_changed(false, false);
 					p = nullptr; // 置空，防止在下次 layout_elem 时重复发送或访问非法内存
 				}
 			}
@@ -168,7 +168,7 @@ public:
 
 			// 元素全空，旧的曝光元素全部移出
 			for (auto* e : old_exposed_children_) {
-				e->on_display_state_changed(false);
+				e->on_display_state_changed(false, false);
 			}
 			// [重要] 别忘了清空缓存，防止持有悬垂指针
 			old_exposed_children_.clear();
@@ -195,13 +195,13 @@ public:
 		// 1. 寻找被移出的元素 (在 old_exposed_children_ 中，但不在 exposed_children_ 中)
 		for (auto* e : old_exposed_children_) {
 			if (std::ranges::find(exposed_children_, e) == exposed_children_.end()) {
-				e->on_display_state_changed(false);
+				e->on_display_state_changed(false, false);
 			}
 		}
 		// 2. 寻找被移入的元素 (在 exposed_children_ 中，但不在 old_exposed_children_ 中)
 		for (auto* e : exposed_children_) {
 			if (std::ranges::find(old_exposed_children_, e) == old_exposed_children_.end()) {
-				e->on_display_state_changed(true);
+				e->on_display_state_changed(true, false);
 			}
 		}
 
@@ -266,18 +266,16 @@ public:
 	}
 
 	void clear() noexcept override {
-		for (auto* e : exposed_children_) {
-			if (e) e->on_display_state_changed(false);
-		}
-
 		sequence::clear();
 		exposed_cells_.clear();
 		exposed_children_.clear();
 		notify_isolated_layout_changed();
 	}
 
-protected:
-	// 重写绘制流程，在超出时预留 Scissor
+	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder){
+		push_draw_func_to_stack_recorder(call_stack_builder);
+	}
+
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override {
 		elem::draw_layer(clipSpace, param);
 		const auto space = content_bound_abs().intersection_with(clipSpace);
@@ -295,6 +293,9 @@ protected:
 			renderer().notify_viewport_changed();
 		}
 	}
+
+protected:
+	// 重写绘制流程，在超出时预留 Scissor
 
 protected:
 	struct overflow_layout_info {

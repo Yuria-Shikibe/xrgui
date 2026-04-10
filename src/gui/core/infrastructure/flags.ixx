@@ -39,7 +39,7 @@ enum class update_channel : unsigned{
 
 	value_approach = 1 << 4,
 
-	all = ~0
+	all = ~0U
 };
 
 BITMASK_OPS(export, update_channel)

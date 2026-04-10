@@ -51,6 +51,11 @@ public:
 
 		i.draw(elem::renderer(), {off, drawext}, color.mul_a(elem::get_draw_opacity()));
 	}
+
+
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+		this->push_draw_func_to_stack_recorder(call_stack_builder);
+	}
 };
 
 export

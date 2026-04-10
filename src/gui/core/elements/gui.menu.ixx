@@ -134,10 +134,10 @@ public:
 		// 如果发生了实质性的替换，更新显示状态
 		if(old_item != new_item){
 			if(old_item){
-				old_item->on_display_state_changed(false);
+				old_item->on_display_state_changed(false, false);
 			}
 			if(new_item){
-				new_item->on_display_state_changed(true);
+				new_item->on_display_state_changed(true, false);
 			}
 		}
 

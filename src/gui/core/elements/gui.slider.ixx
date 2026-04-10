@@ -105,9 +105,14 @@ protected:
         update_approach_state();
     }
 
+
     virtual void on_changed() {}
 
 public:
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+		static_cast<Derived&>(*this).push_draw_func_to_stack_recorder(call_stack_builder);
+	}
+
     void on_inbound_changed(bool is_inbounded, bool changed) override {
         elem::on_inbound_changed(is_inbounded, changed);
         set_focused_scroll(is_inbounded);

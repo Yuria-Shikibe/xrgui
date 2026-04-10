@@ -36,18 +36,9 @@ import mo_yanxi.function_call_stack;
 namespace mo_yanxi::gui{
 export constexpr inline boarder default_boarder{8, 8, 8, 8};
 
-export
-struct draw_call_param{
-	const void* current_subject;
-	math::frect region_or_clipspace;
-	float opacityScl;
-	fx::layer_param layer_param;
-};
-
-export
-using call_stack_type = function_call_stack<draw_call_param>;
 
 namespace style{
+
 
 export struct elem_style_drawer : style_drawer<elem>{
 	using style_drawer::style_drawer;
@@ -198,6 +189,7 @@ private:
 
 	std::atomic_bool context_synchronized_{is_on_scene_thread(get_scene())};
 	bool is_at_display_stage_{false};
+	elem_tree_channel element_channel_{};
 
 public:
 	bool is_synced_to_ui_thread() const noexcept{
@@ -358,13 +350,14 @@ public:
 
 #pragma region Event
 
-	virtual void on_display_state_changed(bool is_shown){
-		if(util::try_modify(is_at_display_stage_, is_shown) && is_on_scene_thread(get_scene())){
-			get_scene().notify_display_state_changed();
+	virtual void on_display_state_changed(bool is_shown, bool is_scene_notified){
+		if(util::try_modify(is_at_display_stage_, is_shown) && !is_scene_notified && is_on_scene_thread(get_scene())){
+			get_scene().notify_display_state_changed(get_channel());
+			is_scene_notified = true;
 		}
 
 		for (auto child : children()){
-			child->on_display_state_changed(is_shown);
+			child->on_display_state_changed(is_shown, is_scene_notified);
 		}
 	}
 
@@ -434,55 +427,26 @@ public:
 #pragma region Draw
 public:
 
-	// 	void propagate_draw_requirement_since_self(bool required){
-	// 		auto last = this;
-	// 		auto cur = parent();
-	// 		requirement_set_result cur_rst{true, required};
-	// 		while(cur){
-	// 			if((cur_rst = cur->draw_flag.set_children_draw_required(cur_rst.is_required()))){
-	// 				last = cur;
-	// 				cur = cur->parent();
-	// 			}else{
-	// 				break;
-	// 			}
-	// 		}
-	// 	}
-	//
-	// public:
-	// 	void set_draw_required(draw_flag::flag_type val, draw_flag::flag_type mask) noexcept{
-	// 		if(const auto rst = draw_flag.set_self_draw_required(val, mask)){
-	// 			propagate_draw_requirement_since_self(rst.is_required());
-	// 		}
-	// 	}
-
-	// void try_draw(const rect clipSpace) const{
-	// 	if(invisible) return;
-	// 	//TODO fix this
-	// 	if(!clipSpace.overlap_inclusive(bound_abs())) return;
-	// 	draw(clipSpace);
-	// }
-	//
-	// void try_draw_background(const rect clipSpace) const{
-	// 	if(invisible) return;
-	// 	if(!clipSpace.overlap_inclusive(bound_abs())) return;
-	// 	draw_background(clipSpace);
-	// }
-
-	// void draw(const rect clipSpace) const{
-	// 	draw_content_impl(clipSpace);
-	// }
-	//
-	// void draw_background(const rect clipSpace) const{
-	// 	draw_background_impl(clipSpace);
-	// }
-
 	void set_style(const style::elem_style_drawer& style) noexcept{
+		if(this->style.get() == std::addressof(style)){
+			return;
+		}
+
 		this->style = std::addressof(style);
-		style_boarder_cache_ = style.get_boarder();
+		get_scene().notify_display_state_changed(get_channel());
+		if(util::try_modify(style_boarder_cache_, style.get_boarder())){
+			notify_isolated_layout_changed();
+		}
+
 	}
 
 	void set_style(referenced_ptr<const style::elem_style_drawer> style) noexcept{
+		if(this->style == style){
+			return;
+		}
+
 		this->style = std::move(style);
+		get_scene().notify_display_state_changed(get_channel());
 		if(util::try_modify(style_boarder_cache_, style->get_boarder())){
 			notify_isolated_layout_changed();
 		}
@@ -491,7 +455,6 @@ public:
 	void set_style() noexcept;
 
 	virtual void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const;
-
 
 	FORCE_INLINE void try_draw_layer(const rect clipSpace, fx::layer_param_pass_t param){
 		if(invisible) return;
@@ -503,21 +466,49 @@ public:
 	}
 
 protected:
+	template <typename S>
+	void push_draw_func_to_stack_recorder(this const S& self, draw_call_stack_recorder& call_stack_builder){
+		call_stack_builder.push_call_noop(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static {
+			if(s.invisible) return;
+			if(!p.draw_bound.overlap_inclusive(s.bound_abs())) return;
+			s.S::draw_layer(p.draw_bound, p.layer_param);
+		});
+	}
+
+protected:
+	template <typename S, std::invocable<const S&, draw_call_stack_recorder&> Fn>
+	void record_drawer_draw_context(this const S& self, draw_call_stack_recorder& call_stack_builder, Fn&& fn){
+		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
+			const rect bound = s.bound_abs();
+				return {
+					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
+					.draw_bound = bound,
+					.opacity_scl = s.get_draw_opacity(),
+					.layer_param = p.layer_param
+				};
+			});
+
+		std::invoke(std::forward<Fn>(fn), self, call_stack_builder);
+
+		call_stack_builder.push_call_leave();
+	}
+
+public:
+	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder){
+		if(style){
+			record_drawer_draw_context(call_stack_builder, [](const elem& e, draw_call_stack_recorder& s){
+				e.style->record_draw_layer(s);
+			});
+		}
+	}
+
+protected:
 	virtual void on_opacity_changed(float previous){
 	}
 
 	FORCE_INLINE void draw_style(fx::layer_param param) const{
 		if(style)style->draw_layer(*this, bound_abs(), get_draw_opacity(), param);
 	}
-	// void draw_style_background() const;
-
-	// virtual void draw_background_impl(const rect clipSpace) const{
-	// 	draw_style_background();
-	// }
-	//
-	// virtual void draw_content_impl(const rect clipSpace) const{
-	// 	draw_style();
-	// }
 
 public:
 
@@ -727,6 +718,15 @@ public:
 #pragma endregion
 
 #pragma region State
+	elem_tree_channel get_channel() const noexcept{
+		auto p = parent();
+		auto channel = element_channel_;
+		while(channel == elem_tree_channel::deduced && p){
+			channel = p->get_channel();
+			p = p->parent();
+		}
+		return channel;
+	}
 
 	[[nodiscard]] bool is_focused_scroll() const noexcept;
 	[[nodiscard]] bool is_focused_key() const noexcept;
@@ -1358,7 +1358,7 @@ export
 void sync_elem_tree(elem& e){
 	e.on_context_sync_bind();
 	e.get_scene().notify_instant_queue_consume();
-	e.get_scene().notify_display_state_changed();
+	e.get_scene().notify_display_state_changed(e.get_channel());
 }
 
 }

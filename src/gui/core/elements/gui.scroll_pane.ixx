@@ -275,6 +275,7 @@ public:
 
 protected:
 	void draw_scroll_bar(fx::layer_param_pass_t param) const;
+	void record_draw_scroll_bar(draw_call_stack_recorder& call_stack_builder) const;
 };
 
 export
@@ -382,6 +383,61 @@ public:
 			return adaptor_children();
 		}else{
 			return {};
+		}
+
+	}
+
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+		if constexpr(adaptor_interface_trait::has_draw_layer){
+			this->push_draw_func_to_stack_recorder(call_stack_builder);
+		} else if constexpr(is_elem_child){
+			elem::record_draw_layer(call_stack_builder);
+
+			call_stack_builder.push_call_enter(
+				*this, [](const scroll_adaptor& s, const draw_call_param& p,
+				          draw_call_stack&) static -> draw_call_param{
+					auto& r = s.get_scene().renderer();
+
+					const bool activeHori = s.is_hori_scroll_active();
+					const bool activeVert = s.is_vert_scroll_active();
+
+					if(activeHori || activeVert){
+						s.renderer().push_scissor({s.get_viewport()});
+						s.renderer().top_viewport().push_local_transform(math::mat3{}.idt().set_translation(-s.scroll_.temp));
+						s.renderer().notify_viewport_changed();
+
+						return {
+								.current_subject = &s,
+								.draw_bound = p.draw_bound.copy().move(s.scroll_.temp),
+								.opacity_scl = 1,
+								.layer_param = p.layer_param
+							};
+					} else{
+						return {
+								.current_subject = &s,
+								.draw_bound = p.draw_bound,
+								.opacity_scl = 1,
+								.layer_param = p.layer_param
+							};
+					}
+				});
+
+			get_elem().record_draw_layer(call_stack_builder);
+
+			call_stack_builder.push_call_leave(
+				*this, [](const scroll_adaptor& s, const draw_call_param& p, draw_call_stack&) static{
+
+					const bool activeHori = s.is_hori_scroll_active();
+					const bool activeVert = s.is_vert_scroll_active();
+
+					if(activeHori || activeVert){
+						s.renderer().top_viewport().pop_local_transform();
+						s.renderer().pop_scissor();
+						s.renderer().notify_viewport_changed();
+					}
+				});
+
+			record_draw_scroll_bar(call_stack_builder);
 		}
 
 	}

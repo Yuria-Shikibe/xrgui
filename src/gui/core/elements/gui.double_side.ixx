@@ -74,6 +74,10 @@ public:
 		return elem_span{get_active_elem_ptr(), elem_ptr::cvt_mptr};
 	}
 
+	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder){
+		this->push_draw_func_to_stack_recorder(call_stack_builder);
+	}
+
 	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
 		elem::draw_layer(clipSpace, param);
 		get_active_elem_ptr()->try_draw_layer(clipSpace, param);
@@ -139,10 +143,10 @@ public:
 		}
 
 		if(current_active_index_ != index){
-			get_active_elem_ptr()->on_display_state_changed(false);
+			get_active_elem_ptr()->on_display_state_changed(false, false);
 			current_active_index_ = index;
 			auto& cur = *get_active_elem_ptr();
-			cur.on_display_state_changed(true);
+			cur.on_display_state_changed(true, false);
 			cur.restriction_extent = clip_boarder_from(restriction_extent, boarder_extent());
 			cur.update_abs_src(content_src_pos_abs());
 			cur.resize(content_extent());

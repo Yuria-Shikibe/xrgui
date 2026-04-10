@@ -164,6 +164,67 @@ public:
 		return true;
 	}
 
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+		elem::record_draw_layer(call_stack_builder);
+
+		call_stack_builder.push_call_enter(
+			*this, [](const elem& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
+				const auto space = s.content_bound_abs().intersection_with(p.draw_bound);
+				return {
+						.current_subject = &s,
+						.draw_bound = space,
+						.opacity_scl = s.get_draw_opacity(),
+						.layer_param = p.layer_param
+					};
+			});
+
+		items[0]->record_draw_layer(call_stack_builder);
+
+		{
+			call_stack_builder.push_call_enter(
+				*this, [](const collapser& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
+					const auto space = s.content_bound_abs().intersection_with(p.draw_bound);
+
+					bool allow_next_layer = false;
+					switch(s.state_){
+					case collapser_state::un_expand : break;
+					case collapser_state::expanding :[[fallthrough]];
+					case collapser_state::exiting_expand :{
+						allow_next_layer = true;
+						auto& r = s.renderer();
+						r.push_scissor({s.get_expand_region()});
+						r.notify_viewport_changed();
+						break;
+					}
+					case collapser_state::expanded :
+						allow_next_layer = true;
+						break;
+					default : std::unreachable();
+					}
+
+				   return {
+						   .current_subject = allow_next_layer ? &s : nullptr,
+						   .draw_bound = space,
+						   .opacity_scl = s.get_draw_opacity(),
+						   .layer_param = p.layer_param
+					   };
+			   });
+			items[1]->record_draw_layer(call_stack_builder);
+
+			call_stack_builder.push_call_leave(*this, [](const collapser& s, const draw_call_param& p, draw_call_stack&){
+				if(s.state_ == collapser_state::exiting_expand || s.state_ == collapser_state::expanding){
+					auto& r = s.renderer();
+					r.pop_scissor();
+					r.notify_viewport_changed();
+				}
+			});
+		}
+
+		call_stack_builder.push_call_leave();
+	}
+
+	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
+
 protected:
 	void set_item_size(bool isContent, layout::stated_size size) override{
 		if(size.type == layout::size_category::passive){
@@ -175,7 +236,6 @@ protected:
 
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override;
 
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 
 	void set_children_src() const final{
 		auto [_, minor] = layout::get_vec_ptr(layout_policy_);
