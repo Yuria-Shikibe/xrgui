@@ -226,11 +226,6 @@ public:
 	bool sleep{};
 	bool is_transparent_in_inbound_filter{};
 
-	// draw_flag draw_flag{};
-
-	//TODO expire it, all element should directly register constantly active to scene, instead of rely on tree update
-	update_flags update_flag{};
-
 
 private:
 	//TODO direct access
@@ -523,38 +518,7 @@ public:
 		return actions.update_action(delta_in_ticks, *this);
 	}
 
-protected:
-	void propagate_update_requirement_since_self(bool required){
-		auto last = this;
-		auto cur = parent();
-		requirement_set_result cur_rst{true, required};
-		while(cur){
-			if((cur_rst = cur->update_flag.set_child_mark_update_changed(last, cur_rst.is_required()))){
-				last = cur;
-				cur = cur->parent();
-			}else{
-				break;
-			}
-		}
-	}
-
-	void clear_children_update_required(elem* children_of_self) noexcept{
-		if(children_of_self->update_flag.is_update_required()){
-			if(const auto rst = update_flag.set_child_mark_update_changed(children_of_self, false)){
-				propagate_update_requirement_since_self(rst.is_required());
-			}
-		}
-	}
 public:
-	[[deprecated]] void set_update_required(update_channel channel, update_channel mask = update_channel{~0U}) noexcept{
-		if(const auto rst = update_flag.set_self_update_required(channel, mask)){
-			propagate_update_requirement_since_self(rst.is_required());
-		}
-	}
-
-	[[deprecated]] void set_update_disabled(update_channel channel) noexcept{
-		set_update_required({}, channel);
-	}
 
 	void clear_scene_references() noexcept;
 	void clear_scene_references_recursively() noexcept{

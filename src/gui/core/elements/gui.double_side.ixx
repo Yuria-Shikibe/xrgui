@@ -88,15 +88,6 @@ public:
 		get_active_elem_ptr()->try_layout();
 	}
 
-	bool update(float delta_in_ticks) override{
-		if(elem::update(delta_in_ticks)){
-			auto& cur = *get_active_elem_ptr();
-			if(!cur.update_flag.is_update_required()) return true;
-			cur.update(delta_in_ticks);
-			return true;
-		}
-		return false;
-	}
 
 	bool update_abs_src(math::vec2 parent_content_src) noexcept override{
 		if(elem::update_abs_src(parent_content_src)){

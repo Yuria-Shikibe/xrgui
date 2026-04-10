@@ -134,16 +134,6 @@ public:
 		}
 	}
 
-	bool update(float delta_in_ticks) override{
-		if(!elem::update(delta_in_ticks))return false;
-
-		if(!update_flag.is_children_update_required())return true;
-
-		for(auto& item : items){
-			if(item->update_flag.is_update_required())item->update(delta_in_ticks);
-		}
-		return true;
-	}
 
 	rect get_seperator_region_element_local() const noexcept{
 		const auto [major, minor] = layout::get_vec_ptr(get_layout_policy());
@@ -164,9 +154,6 @@ protected:
 	template <std::derived_from<elem> E, typename... Args>
 		requires (std::constructible_from<E, scene&, elem*, Args...>)
 	E& emplace(bool as_body, Args&&... args){
-		if(items[as_body]){
-			clear_children_update_required(items[as_body].get());
-		}
 		items[as_body] = elem_ptr{get_scene(), this, std::in_place_type<E>, std::forward<Args>(args)...};
 		notify_isolated_layout_changed();
 		return static_cast<E&>(*items[as_body]);
@@ -178,9 +165,6 @@ protected:
 		Fn&& init,
 		Args&&... args
 	){
-		if(items[as_body]){
-			clear_children_update_required(items[as_body].get());
-		}
 		items[as_body] = elem_ptr{get_scene(), this, std::forward<Fn>(init), std::forward<Args>(args)...};
 		notify_isolated_layout_changed();
 		return static_cast<elem_init_func_create_t<Fn>&>(*items[as_body]);
@@ -210,9 +194,6 @@ protected:
 
 	template <typename E = elem>
 	auto& set_elem(bool as_body, elem_ptr&& item){
-		if(items[as_body]){
-			clear_children_update_required(items[as_body].get());
-		}
 		items[as_body] = std::move(item);
 		notify_isolated_layout_changed();
 		return static_cast<E&>(*items[as_body]);

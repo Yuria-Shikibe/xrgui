@@ -463,9 +463,6 @@ public:
 
 	template <elem_init_func Fn, typename... Args>
 	auto& create(Fn&& init, Args&&... args) requires(is_elem_ptr){
-		if(this->item_){
-			elem::clear_children_update_required(this->item_.get());
-		}
 		this->item_ = elem_ptr{
 				get_scene(), this, [&, this](elem_init_func_create_t<Fn>& e){
 					this->deduced_set_child_fill_parent(e);
@@ -480,9 +477,6 @@ public:
 
 	template <std::derived_from<elem> E, typename... Args>
 	E& emplace(Args&&... args) requires(is_elem_ptr){
-		if(this->item_){
-			elem::clear_children_update_required(this->item_.get());
-		}
 		this->item_ = elem_ptr{get_scene(), this, std::in_place_type<E>, std::forward<Args>(args)...};
 		scroll_adaptor::deduced_set_child_fill_parent(*this->item_);
 		update_children_abs_src();
@@ -681,12 +675,6 @@ protected:
 		if constexpr (adaptor_interface_trait::has_update){
 			item_adaptor.update(item_, delta_in_ticks);
 		}else{
-			if constexpr(is_elem_child){
-				auto& e = get_elem();
-				if(e.update_flag.is_update_required()){
-					e.update(delta_in_ticks);
-				}
-			}
 		}
 	}
 

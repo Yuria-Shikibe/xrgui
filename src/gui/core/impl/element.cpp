@@ -96,15 +96,13 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 		});
 	}
 
-	if(element.update_flag.is_self_update_required()){
-		element.renderer().push(poly_partial{
-			.pos = region.vert_00() ,
-			.segments = 4,
-			.range = {static_cast<float>(element.get_scene().get_current_time() / 60.f), 1},
-			.radius = {3, 5},
-			.color = {colors::aqua}
-		});
-	}
+	// element.renderer().push(poly_partial{
+	// 		.pos = region.vert_00() ,
+	// 		.segments = 4,
+	// 		.range = {static_cast<float>(element.get_scene().get_current_time() / 60.f), 1},
+	// 		.radius = {3, 5},
+	// 		.color = {colors::aqua}
+	// 	});
 
 	region.scl_size(.25f, .25f);
 

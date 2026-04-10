@@ -20,17 +20,6 @@ protected:
 	mr::heap_vector<elem_ptr> expired_{get_heap_allocator<elem_ptr>()};
 	mr::heap_vector<elem_ptr> children_{get_heap_allocator<elem_ptr>()};
 
-	void update_children(const float delta_in_ticks) const{
-		auto count = update_flag.get_children_update_count();
-		if(!count)return;
-
-		for(const auto& element : children_){
-			if(!element->update_flag.is_update_required())continue;
-			element->update(delta_in_ticks);
-			if(--count == 0)return;
-		}
-	}
-
 	void layout_children() const{
 		for(const auto& element : children_){
 			element->try_layout();
@@ -60,9 +49,6 @@ public:
 	virtual void clear(){
 		expired_.clear();
 		children_.clear();
-		if(auto rst = update_flag.clear_children_update_requirement()){
-			propagate_update_requirement_since_self(rst.is_required());
-		}
 
 		notify_layout_changed_on_element_change();
 	}
@@ -71,7 +57,6 @@ public:
 		assert(where < children().size());
 
 		const auto itr = children_.begin() + where;
-		clear_children_update_required(itr->get());
 		expired_.push_back(std::move(*itr));
 		children_.erase(itr);
 
@@ -82,7 +67,6 @@ public:
 		assert(where < children().size());
 
 		const auto itr = children_.begin() + where;
-		clear_children_update_required(itr->get());
 		children_.erase(itr);
 
 		notify_layout_changed_on_element_change();
@@ -160,10 +144,7 @@ public:
 	bool update(const float delta_in_ticks) override{
 		expired_.clear();
 
-		if(!elem::update(delta_in_ticks))return false;
-		update_children(delta_in_ticks);
-
-		return true;
+		return elem::update(delta_in_ticks);
 	}
 
 

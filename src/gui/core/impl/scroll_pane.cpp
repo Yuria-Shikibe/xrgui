@@ -29,7 +29,7 @@ namespace mo_yanxi::gui{
 	bool scroll_adaptor_base::update(const float delta_in_ticks){
 		if(!elem::update(delta_in_ticks)) return false;
 
-		if(overlay_scroll_bars_ && update_flag.is_self_update_required(update_channel::draw)){
+		if(overlay_scroll_bars_){
 			bool active = false;
 
 			if(scroll_velocity_.length2() > 0.1f){

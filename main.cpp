@@ -71,7 +71,7 @@ void app_run(
 	mo_yanxi::gui::example::main_loop& main_loop,
 	mo_yanxi::backend::vulkan::context& ctx,
 	mo_yanxi::backend::vulkan::renderer& renderer,
-	mo_yanxi::vk::command_buffer& cmdBUf
+	mo_yanxi::vk::command_buffer& cmd_buf
 ){
 	using namespace mo_yanxi;
 
@@ -92,7 +92,7 @@ void app_run(
 		(void)main_loop.unhandled_events.fetch();
 
 		main_loop.wait_term();
-		std::array<VkCommandBuffer, 2> buffers{renderer.get_valid_cmd_buf(), cmdBUf};
+		std::array<VkCommandBuffer, 2> buffers{renderer.get_valid_cmd_buf(), cmd_buf};
 		vk::cmd::submit_command(ctx.graphic_queue(), buffers, renderer.get_fence());
 		ctx.flush();
 		main_loop.reset_term();
