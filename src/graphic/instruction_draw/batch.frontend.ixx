@@ -413,13 +413,15 @@ public:
 			return;
 		}
 
-		// constexpr std::uint32_t PERFORMANCE_DISPATCH_THRESHOLD = 64; // 建议根据实际 Profile 调整
-		//
-		// if (current_group->get_dispatch_infos().size() >= PERFORMANCE_DISPATCH_THRESHOLD) {
-		// 	// 强制插入一个空的 state_transition 来切分 Draw Call
-		// 	// 这会触发 advance_current_group() 并清理 tracker [cite: 211, 218]
-		// 	force_break_and_insert(state_transition_config{});
-		// }
+		if constexpr (false){
+			constexpr std::uint32_t PERFORMANCE_DISPATCH_THRESHOLD = 64; // 建议根据实际 Profile 调整
+
+			if (current_group->get_dispatch_infos().size() >= PERFORMANCE_DISPATCH_THRESHOLD) {
+				// 强制插入一个空的 state_transition 来切分 Draw Call
+				// 这会触发 advance_current_group() 并清理 tracker [cite: 211, 218]
+				force_break_and_insert(state_transition_config{});
+			}
+		}
 
 		// --- Check for State Changes (Lazy Evaluation) ---
 		{
@@ -462,6 +464,90 @@ public:
 		}
 
 		try_push_(instr_head, instr);
+	}
+
+	void push_instr_batch(std::span<const instruction_head> heads, const std::byte* payload) {
+		if (heads.empty()) return;
+
+		assert(current_group);
+
+		// 1. 批处理入口仅刷新一次状态
+		{
+			state_transition_config diff_config;
+			if (tracker_.flush(diff_config)) {
+				force_break_and_insert(std::move(diff_config));
+			}
+		}
+
+		const std::byte* cur_payload = payload;
+		const std::size_t count = heads.size();
+		std::size_t idx = 0;
+		bool need_collapse_check = true;
+
+		// 2. 状态机模式的主循环
+		while (idx < count) {
+			// 阶段 A: Uniform 坍缩与状态打断（仅在切换到绘制指令前执行）
+			if (need_collapse_check && heads[idx].type != instr_type::uniform_update) {
+				// 检查 Sustained Data
+				for (auto&& [i, vertex_data_entry] : data_group_sustained_info_.entries | std::views::enumerate) {
+					if (vertex_data_entry.collapse()) {
+						const instruction_head collapse_head{
+							.type = instr_type::uniform_update,
+							.payload = {.marching_data = {static_cast<std::uint32_t>(i)}}
+						};
+						try_push_(collapse_head);
+					}
+				}
+
+				// 检查 Volatile Data
+				state_transition* breakpoint{};
+				for (auto&& [i, vertex_data_entry] : data_group_volatile_info_.entries | std::views::enumerate) {
+					if (vertex_data_entry.collapse()) {
+						if (!breakpoint) {
+							current_group->finalize();
+							advance_current_group();
+							const auto cur_idx = static_cast<unsigned>(get_current_submit_group_index());
+							breakpoint = &submit_transitions_.emplace_back(cur_idx);
+						}
+						breakpoint->uniform_buffer_marching_indices.push_back(static_cast<std::uint32_t>(i));
+					}
+				}
+				need_collapse_check = false;
+			}
+
+			// 阶段 B: 热点路径 (Hot Path) - 纯绘制指令流
+			while (idx < count && heads[idx].type != instr_type::uniform_update) {
+				const auto& head = heads[idx];
+
+				// Debug 校验保留，但 Release 模式下完全零开销
+				check_size(head.payload_size);
+				assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
+
+				try_push_(head, cur_payload);
+				cur_payload += head.payload_size;
+				++idx;
+			}
+
+			// 阶段 C: 集中处理 Uniform 更新指令流
+			while (idx < count && heads[idx].type == instr_type::uniform_update) {
+				const auto& head = heads[idx];
+				check_size(head.payload_size);
+
+				const auto ubo_payload = std::span{cur_payload, head.payload_size};
+				const auto targetIndex = head.payload.ubo.index;
+
+				if (head.payload.ubo.group_index) {
+					data_group_volatile_info_.push(targetIndex, ubo_payload);
+				} else {
+					data_group_sustained_info_.push(targetIndex, ubo_payload);
+				}
+
+				// 标记发生过更新，下一次进入阶段 A 时需要执行坍缩
+				need_collapse_check = true;
+				cur_payload += head.payload_size;
+				++idx;
+			}
+		}
 	}
 
 	std::size_t get_current_submit_group_index() const noexcept{

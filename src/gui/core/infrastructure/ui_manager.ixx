@@ -86,7 +86,9 @@ public:
 	}
 
 	template <std::derived_from<scene> S = scene, std::derived_from<elem> T, typename... Args>
-		requires (std::constructible_from<T, scene&, elem*, Args&&...>)
+		requires (
+			std::constructible_from<T, scene&, elem*, Args&&...> &&
+			std::constructible_from<S, scene_resources&, renderer_frontend&&, std::in_place_type_t<T>, Args&&...>)
 	scene_add_result<S, T> add_scene(
 		std::string_view name,
 		scene_resources& resources_ref,

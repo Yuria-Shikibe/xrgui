@@ -71,6 +71,7 @@ function set_xrgui_deps()
     add_includedirs("./external/small_vector/source/include", {public = true})
 
     add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2", {public = true})
+    add_defines("MO_YANXI_DATA_FLOW_DISABLE_THREAD_CHECK", {public = true})
     add_files("./external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
 
 

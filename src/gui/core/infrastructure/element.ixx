@@ -36,6 +36,8 @@ import mo_yanxi.function_call_stack;
 namespace mo_yanxi::gui{
 export constexpr inline boarder default_boarder{8, 8, 8, 8};
 
+export
+struct overlay_manager;
 
 namespace style{
 
@@ -175,6 +177,8 @@ export struct elem : tooltip::spawner_general<elem>{
 	friend elem_ptr;
 	friend scene;
 	friend scene_base;
+	friend tooltip::tooltip_manager;
+	friend overlay_manager;
 	friend scene_submodule::input;
 
 private:
@@ -192,9 +196,9 @@ private:
 	elem_tree_channel element_channel_{};
 
 public:
-	bool is_synced_to_ui_thread() const noexcept{
-		return context_synchronized_.load(std::memory_order::acquire);
-	}
+	// bool is_synced_to_ui_thread() const noexcept{
+	// 	return context_synchronized_.load(std::memory_order::acquire);
+	// }
 	style::elem_style_ptr style{};
 
 private:
@@ -226,17 +230,13 @@ public:
 	bool sleep{};
 	bool is_transparent_in_inbound_filter{};
 
-
-private:
-	//TODO direct access
-	// bool has_scene_direct_access{};
-
 public:
 	layout_state layout_state{};
 	interactivity_flag interactivity{};
 
 
 private:
+	//TODO apply this with draw call param
 	float context_opacity_{1.f};
 	float inherent_opacity_{1.f};
 	altitude_t layer_altitude_{};
@@ -449,28 +449,31 @@ public:
 
 	void set_style() noexcept;
 
-	virtual void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const;
-
-	FORCE_INLINE void try_draw_layer(const rect clipSpace, fx::layer_param_pass_t param){
-		if(invisible) return;
-		if(!clipSpace.overlap_inclusive(bound_abs())) return;
-		// if(param.layer_index == 0)draw_flag.update_debug_count();
-		// set_draw_required(0, 1 << param.layer_index);
-		draw_layer(clipSpace, param);
-		// draw_flag.clear();
-	}
-
-protected:
-	template <typename S>
-	void push_draw_func_to_stack_recorder(this const S& self, draw_call_stack_recorder& call_stack_builder){
-		call_stack_builder.push_call_noop(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static {
-			if(s.invisible) return;
-			if(!p.draw_bound.overlap_inclusive(s.bound_abs())) return;
-			s.S::draw_layer(p.draw_bound, p.layer_param);
-		});
-	}
+	// virtual void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
+	// 	draw_style(param);
+	// }
+	//
+	// FORCE_INLINE void try_draw_layer(const rect clipSpace, fx::layer_param_pass_t param){
+	// 	if(invisible) return;
+	// 	if(!clipSpace.overlap_inclusive(bound_abs())) return;
+	// 	// if(param.layer_index == 0)draw_flag.update_debug_count();
+	// 	// set_draw_required(0, 1 << param.layer_index);
+	// 	draw_layer(clipSpace, param);
+	// 	// draw_flag.clear();
+	// }
 
 protected:
+	// template <typename S>
+	// void push_draw_func_to_stack_recorder(this const S& self, draw_call_stack_recorder& call_stack_builder){
+	// 	call_stack_builder.push_call_noop(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static {
+	// 		if(s.invisible) return;
+	// 		if(!p.draw_bound.overlap_inclusive(s.bound_abs())) return;
+	// 		s.S::draw_layer(p.draw_bound, p.layer_param);
+	// 	});
+	// }
+
+protected:
+	//TODO make it a free function
 	template <typename S, std::invocable<const S&, draw_call_stack_recorder&> Fn>
 	void record_drawer_draw_context(this const S& self, draw_call_stack_recorder& call_stack_builder, Fn&& fn){
 		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
@@ -489,7 +492,7 @@ protected:
 	}
 
 public:
-	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder){
+	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const{
 		if(style){
 			record_drawer_draw_context(call_stack_builder, [](const elem& e, draw_call_stack_recorder& s){
 				e.style->record_draw_layer(s);
@@ -1068,6 +1071,12 @@ private:
 
 
 namespace util{
+export
+FORCE_INLINE constexpr bool is_draw_param_valid(const elem& s, const draw_call_param& p) noexcept {
+	if(s.invisible) return false;
+	if(!p.draw_bound.overlap_inclusive(s.bound_abs())) return false;
+	return true;
+}
 
 export
 [[nodiscard]] math::vec2 select_prefer_extent(bool is_prefer, math::vec2 current, std::optional<math::vec2> preferred){
@@ -1321,7 +1330,6 @@ void update_erase(const elem& e, update_channel channel){
 export
 void sync_elem_tree(elem& e){
 	e.on_context_sync_bind();
-	e.get_scene().notify_instant_queue_consume();
 	e.get_scene().notify_display_state_changed(e.get_channel());
 }
 

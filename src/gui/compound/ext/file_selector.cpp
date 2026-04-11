@@ -151,30 +151,29 @@ namespace mo_yanxi::gui::cpd{
 			return events::op_afterwards::intercepted;
 		}
 
-		void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
-			push_draw_func_to_stack_recorder(call_stack_builder);
-		}
+		void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+			elem::record_draw_layer(call_stack_builder);
+			call_stack_builder.push_call_noop(*this, [](const arrow_button& s, const draw_call_param& p) static {
+				if(!p.layer_param.is_top())return;
+				if(!util::is_draw_param_valid(s, p))return;
 
-		void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
-			elem::draw_layer(clipSpace, param);
-
-			if(param.is_top()){
-				auto arrow = fx::compound::generate_centered_arrow(content_extent().fdim({4, 4}), 1.5f, 12);
+				auto arrow = fx::compound::generate_centered_arrow(s.content_extent().fdim({4, 4}), 1.5f, 12);
 				fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
-				float prog = progress_ | math::interp::smoother;
+				float prog = s.progress_ | math::interp::smoother;
 				auto [cos, sin] = math::cos_sin(prog * math::pi_half);
 				for(auto vertex : arrow.vertices){
-					context.push(vertex.rotate(cos, sin) + content_bound_abs().get_center(), arrow.thick,
-					             graphic::colors::white.copy_set_a(get_draw_opacity()));
+					context.push(vertex.rotate(cos, sin) + s.content_bound_abs().get_center(), arrow.thick,
+								 graphic::colors::white.copy_set_a(s.get_draw_opacity()));
 				}
 
 				context.add_cap();
 				context.add_fringe_cap();
-				context.dump_mid(renderer(), graphic::draw::instruction::line_segments{});
-				context.dump_fringe_inner(renderer(), graphic::draw::instruction::line_segments{});
-				context.dump_fringe_outer(renderer(), graphic::draw::instruction::line_segments{});
-			}
+				context.dump_mid(s.renderer(), graphic::draw::instruction::line_segments{});
+				context.dump_fringe_inner(s.renderer(), graphic::draw::instruction::line_segments{});
+				context.dump_fringe_outer(s.renderer(), graphic::draw::instruction::line_segments{});
+			});
 		}
+
 	};
 
 	struct trace_entry : gui::head_body{

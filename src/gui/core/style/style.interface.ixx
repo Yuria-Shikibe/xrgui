@@ -159,4 +159,14 @@ protected:
 export
 template <typename T>
 using style_ptr = referenced_ptr<const style_drawer<T>>;
+
+namespace style{
+
+export
+template <std::derived_from<style_drawer_base> T>
+void record_draw_layer(const T& drawer, draw_call_stack_recorder& call_stack_builder){
+	drawer.record_draw_layer(call_stack_builder);
+}
+
+}
 }

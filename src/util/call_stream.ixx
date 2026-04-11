@@ -325,6 +325,56 @@ public:
 		ip_ = 0;
 	}
 
+	void merge(call_stream&& other) {
+		if (this == &other || other.empty()) return;
+
+		if (this->empty()) {
+			*this = std::move(other);
+			return;
+		}
+
+		ensure_header_alignment();
+
+		const std::size_t base_offset = buffer_.size();
+		const std::size_t other_size = other.buffer_.size();
+
+		if (!std::in_range<std::uint32_t>(base_offset + other_size)) {
+			throw std::bad_alloc();
+		}
+
+		auto* dest = buffer_.allocate_uninitialized(other_size, get_relocate_cb());
+
+		std::memcpy(dest, other.buffer_.data(), other_size);
+		std::uint32_t curr = other.last_res_offset_;
+
+		while (curr != ~0U) {
+			auto* old_header = std::launder(reinterpret_cast<instr_header*>(other.buffer_.data() + curr));
+			auto* new_header = std::launder(reinterpret_cast<instr_header*>(dest + curr));
+
+			auto handler = *std::launder(reinterpret_cast<resource_handle_fn*>(other.buffer_.data() + curr + sizeof(instr_header)));
+
+			handler(*this, other.buffer_.data() + curr, dest + curr);
+
+			std::uint32_t next = old_header->prev_res_offset;
+
+			if (next != ~0U) {
+				new_header->prev_res_offset = static_cast<std::uint32_t>(base_offset + next);
+			} else {
+				new_header->prev_res_offset = last_res_offset_;
+			}
+
+			curr = next;
+		}
+
+		if (other.last_res_offset_ != ~0U) {
+			last_res_offset_ = static_cast<std::uint32_t>(base_offset + other.last_res_offset_);
+		}
+
+		other.last_res_offset_ = ~0U;
+		other.buffer_.clear();
+		other.ip_ = 0;
+	}
+
 	template <typename Fn, typename... Args>
 	void push_back(const cmd_call<Fn, Args...>& call);
 

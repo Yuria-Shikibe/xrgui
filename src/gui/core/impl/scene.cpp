@@ -14,26 +14,12 @@ namespace scene_submodule{
 void action_queue::update(float delta_in_tick) noexcept{
 	if(auto cont = pendings.fetch()){
 		for (auto value : *cont){
-			if(value->is_synced_to_ui_thread()){
-				active.insert(value);
-			}else{
-				async_pending.insert(value);
-			}
+			active.insert(value);
 		}
 	}
 
 	active.modify_and_erase([&](elem* p){
 		return p->update_action(delta_in_tick);
-	});
-}
-
-void action_queue::try_dump_async(){
-	async_pending.modify_and_erase([&](elem* p){
-		if(p->is_synced_to_ui_thread()){
-			active.insert(p);
-			return true;
-		}
-		return false;
 	});
 }
 
@@ -43,7 +29,6 @@ void action_queue::erase(const elem* target){
 			using std::erase;
 			erase(cont, const_cast<elem*>(target));
 		});
-		async_pending.erase(const_cast<elem*>(target));
 		active.erase(const_cast<elem*>(target));
 	}else if(target->has_consuming_action()){
 		active.erase(const_cast<elem*>(target));
@@ -333,28 +318,6 @@ style::cursor_style input::get_cursor_style() const{
 	return focus_cursor->get_cursor_type(cursor_transformed);
 }
 
-void elem_async_sync_task_queue::consume(){
-	if(auto ts = async_tasks_.fetch()){
-		for (auto&& t : *ts){
-			if(static_cast<elem*>(t.e)->is_synced_to_ui_thread()){
-				t.exec();
-			}else{
-				unsync_pending_.push_back(std::move(t));
-			}
-		}
-	}
-}
-
-void elem_async_sync_task_queue::on_sync_relocate_consume(){
-	modifiable_erase_if(unsync_pending_, [](task_entry& t){
-		if(static_cast<elem*>(t.e)->is_synced_to_ui_thread()){
-				t.exec();
-			return true;
-		}else{
-			return false;
-		}
-	});
-}
 }
 
 style::style_manager scene_resources::init_style_manager_() const{
@@ -365,14 +328,9 @@ style::style_manager scene_resources::init_style_manager_() const{
 }
 
 
-scene_base::scene_base(scene_resources& resources, renderer_frontend&& renderer):
-	resources_(&resources), renderer_(std::move(renderer)){
+scene_base::scene_base(scene_resources& resources, renderer_frontend&& renderer): scene_shared_resources(resources), renderer_(std::move(renderer)){
 	platform::set_thread_attributes(react_flow_.get_async_working_thread().native_handle(), {
 		.name = "xrgui react flow",
-		.priority = platform::thread_priority::normal
-	});
-	platform::set_thread_attributes(async_task_queue_.get_element_async_task_thread().native_handle(), {
-		.name = "xrgui ui async task",
 		.priority = platform::thread_priority::normal
 	});
 }
@@ -386,8 +344,9 @@ void scene_base::drop_(const elem* target) noexcept{
 
 	instant_task_queue_.erase(target);
 	active_update_elems_.erase({const_cast<elem*>(target)});
+	active_update_elems_state_changes.erase({const_cast<elem*>(target)});
 
-	async_task_queue_.erase(target);
+	if(async_task_queue_)async_task_queue_->erase(target);
 	action_queue_.erase(target);
 
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
@@ -407,7 +366,7 @@ void scene_base::update(double delta_in_tick){
 	input_communicate_async_task_queue_.consume(static_cast<scene&>(*this));
 
 	react_flow_.update();
-	async_task_queue_.process_done();
+	if(async_task_queue_)async_task_queue_->process_done();
 	instant_task_queue_.consume();
 
 	tooltip_manager_.update(delta_in_tick, get_cursor_pos(), input_handler_.is_mouse_pressed());
@@ -420,16 +379,10 @@ void scene_base::update(double delta_in_tick){
 
 	root().update(delta_in_tick);
 
-#ifndef NDEBUG
-	debug__is_updating_elems_ = true;
-#endif
+	apply_update_state_changes();
 	for (auto active_update_elem : active_update_elems_){
-		assert(active_update_elem.elem->is_synced_to_ui_thread());
 		active_update_elem.elem->update(delta_in_tick);
 	}
-#ifndef NDEBUG
-	debug__is_updating_elems_ = false;
-#endif
 
 	input_handler_.update_elem_cursor_state(delta_in_tick, tooltip_manager_);
 	action_queue_.update(delta_in_tick);
@@ -481,5 +434,22 @@ void scene_base::layout(){
 	}
 }
 
+void scene_base::enable_elem_async_task_post(bool enable){
+	if(enable == (async_task_queue_ != nullptr)){
+		if(enable){
+			async_task_queue_ = std::make_unique<decltype(async_task_queue_)::element_type>(get_heap_allocator());
+			platform::set_thread_attributes(async_task_queue_->get_element_async_task_thread().native_handle(), {
+				.name = "xrgui ui async task",
+				.priority = platform::thread_priority::normal
+			});
+		}else{
+			async_task_queue_ = nullptr;
+		}
+	}
+}
+
+void scene::init_root() const{
+	scene_root_->element_channel_ = elem_tree_channel::regular;
+}
 
 }

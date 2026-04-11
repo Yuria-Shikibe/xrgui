@@ -23,6 +23,7 @@ import mo_yanxi.byte_pool;
 import mo_yanxi.math.rect_ortho;
 import mo_yanxi.math.vector2;
 import mo_yanxi.math.matrix3;
+import mo_yanxi.math;
 
 import mo_yanxi.meta_programming;
 import std;
@@ -312,14 +313,20 @@ public:
 		using namespace graphic::draw;
 		const auto instr_size = instruction::get_payload_size<Instr, Args...>(args...);
 
-		alignas(16) alignas(Instr) alignas(Args...) std::byte buffer_[sizeof(Instr) + (sizeof(Args) + ... + 32)];
+		alignas(16) alignas(Instr) alignas(Args...) std::byte buffer_[sizeof(Instr) + (math::align_up(sizeof(Args), 16) + ... + 32)];
 		std::byte* pbuffer;
-		if(instr_size > sizeof(buffer_)) [[unlikely]] {
-			if(instr_size > cache_instr_buffer_inner_usage_.size()) cache_instr_buffer_inner_usage_.resize(instr_size);
-			pbuffer = cache_instr_buffer_inner_usage_.data();
-		} else{
+		if constexpr ((std::is_trivially_copyable_v<Args> && ...) && (... && !std::ranges::input_range<Args>)){
+			assert(instr_size <= sizeof(buffer_));
 			pbuffer = buffer_;
+		}else{
+			if(instr_size > sizeof(buffer_)) [[unlikely]] {
+				if(instr_size > cache_instr_buffer_inner_usage_.size()) cache_instr_buffer_inner_usage_.resize(instr_size);
+				pbuffer = cache_instr_buffer_inner_usage_.data();
+			} else{
+				pbuffer = buffer_;
+			}
 		}
+
 
 		const auto head = instruction::place_instruction_at(pbuffer, instr, args...);
 		batch_backend_interface_.push(head, pbuffer);
@@ -398,15 +405,8 @@ public:
 		this->update_state({}, mode, make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
 	}
 
-
-	bool push(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
-		auto cur = payload;
-		for(const auto& head : heads){
-			batch_backend_interface_.push(head, cur);
-			cur += head.payload_size;
-		}
-
-		return true;
+	void push(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
+		batch_backend_interface_.push(heads, payload);
 	}
 
 	template <graphic::draw::instruction::known_instruction T>

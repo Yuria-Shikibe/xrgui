@@ -272,28 +272,37 @@ public:
 		notify_isolated_layout_changed();
 	}
 
-	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder){
-		push_draw_func_to_stack_recorder(call_stack_builder);
-	}
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		elem::record_draw_layer(call_stack_builder);
 
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override {
-		elem::draw_layer(clipSpace, param);
-		const auto space = content_bound_abs().intersection_with(clipSpace);
+		call_stack_builder.push_call_enter(*this, [](const overflow_sequence& s, const draw_call_param& p) static -> draw_call_param{
+			const auto space = s.content_bound_abs().intersection_with(p.draw_bound);
 
-		if (requires_scissor_) {
-			renderer().push_scissor({content_bound_abs()});
-			renderer().notify_viewport_changed();
+			if (s.requires_scissor_) {
+				s.renderer().push_scissor({s.content_bound_abs()});
+				s.renderer().notify_viewport_changed();
+			}
+
+			return {
+				.current_subject = &s,
+				.draw_bound = s.content_bound_abs().intersection_with(p.draw_bound),
+				.opacity_scl = s.get_draw_opacity(),
+				.layer_param = p.layer_param
+			};
+		});
+
+		for(auto element : exposed_children_){
+			element->record_draw_layer(call_stack_builder);
 		}
 
-		// 这里调用 base_group 的逻辑，它会自动调用被我们重写过的 children() 方法，因此只会绘制被暴露的元素
-		draw_children(space, param);
+		call_stack_builder.push_call_leave(*this, [](const overflow_sequence& s, const draw_call_param& p) static {
 
-		if (requires_scissor_) {
-			renderer().pop_scissor();
-			renderer().notify_viewport_changed();
-		}
+			if (s.requires_scissor_) {
+				s.renderer().pop_scissor();
+				s.renderer().notify_viewport_changed();
+			}
+		});
 	}
-
 protected:
 	// 重写绘制流程，在超出时预留 Scissor
 

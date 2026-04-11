@@ -207,11 +207,13 @@ protected:
 };
 
 struct progress_bar : elem{
+private:
+	referenced_ptr<const style::progress_drawer> drawer{style::get_global_default_progress_drawer()};
+
 protected:
 	progress_bar_terminal* notifier_{};
 
 public:
-	referenced_ptr<const style::progress_drawer> drawer{style::get_global_default_progress_drawer()};
 	/**
 	 * @brief Directly access to progress does not maintains the invariant of update.
 	 */
@@ -232,6 +234,16 @@ public:
 	}
 
 public:
+	[[nodiscard]] const style::progress_drawer* get_drawer() const noexcept{
+		return drawer.get();
+	}
+
+	void set_drawer(referenced_ptr<const style::progress_drawer>&& drawer){
+		if(util::try_modify(this->drawer, std::move(drawer))){
+			get_scene().notify_display_state_changed(get_channel());
+		}
+	}
+
 	void set_progress_target(bar_progress::value_type value){
 		if(progress.set_target(value)){
 			this->post_task([](elem& e){util::update_insert(e, update_channel::value_approach);});
@@ -244,15 +256,11 @@ public:
 		}
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
-		push_draw_func_to_stack_recorder(call_stack_builder);
-	}
-
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
-		draw_style(param);
-		if(drawer){
-			drawer->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
-		}
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		elem::record_draw_layer(call_stack_builder);
+		if(drawer)record_drawer_draw_context(call_stack_builder, [](const progress_bar& s, draw_call_stack_recorder& r){
+			s.drawer->record_draw_layer(r);
+		});
 	}
 
 	bool update(float delta_in_ticks) override{

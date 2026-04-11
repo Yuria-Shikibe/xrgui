@@ -3,6 +3,8 @@ module;
 #include <cassert>
 #include <mo_yanxi/enum_operator_gen.hpp>
 #define UI_MAIN_THREAD_ACCESS_ONLY
+#define UI_TRANSIENT
+#define UI_MERGE_ON_JOIN
 
 export module mo_yanxi.gui.infrastructure:scene;
 
@@ -50,79 +52,6 @@ export enum struct elem_tree_channel : std::uint8_t{
 
 BITMASK_OPS(export, elem_tree_channel);
 
-
-namespace fx{
-export
-struct layer_config{
-	pipeline_config begin_config;
-	std::optional<blit_pipeline_config> end_config;
-
-	//TODO pre/post draw function?
-};
-
-/**
- * @brief Note that the render pass has nothing to do with VkRenderPass,
- * it's only an abstraction name for layer pass draw.
- */
-export
-struct scene_render_pass_config{
-
-	using value_type = layer_config;
-
-private:
-	std::array<value_type, draw_pass_max_capacity> masks{};
-
-	std::optional<blit_pipeline_config> tail_blit{};
-
-	unsigned pass_count{};
-
-public:
-	constexpr scene_render_pass_config() = default;
-
-	constexpr scene_render_pass_config(std::initializer_list<value_type> masks, std::optional<blit_pipeline_config> tail_blit) : tail_blit(tail_blit), pass_count(masks.size()){
-		std::ranges::copy(masks, this->masks.begin());
-	}
-
-	inline constexpr const value_type& operator[](unsigned idx) const noexcept{
-		assert(idx < draw_pass_max_capacity);
-		return masks[idx];
-	}
-
-	inline constexpr unsigned size() const noexcept{
-		return pass_count;
-	}
-
-	inline constexpr void resize(unsigned sz){
-		if(sz >= masks.max_size()){
-			throw std::bad_array_new_length();
-		}
-
-		pass_count = sz;
-	}
-
-	inline constexpr void push_back(const value_type& mask){
-		if(pass_count >= masks.max_size()){
-			throw std::bad_array_new_length();
-		}
-
-		masks[pass_count] = mask;
-		pass_count++;
-	}
-
-	inline constexpr auto begin(this auto& self) noexcept{
-		return self.masks.begin();
-	}
-
-	inline constexpr auto end(this auto& self) noexcept{
-		return self.masks.begin() + self.size();
-	}
-
-	std::optional<blit_pipeline_config> get_tail_blit() const noexcept{
-		return tail_blit;
-	}
-};
-
-}
 
 /**
  * @brief Principally, holes are not allowed, but this cause the destruction must begin from tail(highest), which cause some performance issue.
@@ -191,6 +120,10 @@ public:
 		return std::forward_like<S>(self.buf_[self.cur]);
 	}
 
+	void clear() noexcept{
+		buf_[0].clear();
+		buf_[1].clear();
+	}
 
 	template <typename S>
 	constexpr auto&& get_bak(this S&& self) noexcept{
@@ -260,10 +193,9 @@ struct mouse_state{
 };
 
 export struct ui_manager;
-
 export struct elem;
 
-
+export
 struct scene_resources{
 	friend scene_base;
 	friend scene;
@@ -271,11 +203,18 @@ private:
 	mr::heap heap{};
 	style::style_manager init_style_manager_() const;
 
+	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 public:
 	any_pool<false, mr::unvs_allocator<std::byte>> object_pool{};
 
 	UI_MAIN_THREAD_ACCESS_ONLY style::style_manager style_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
+
+	template <std::derived_from<native_communicator> Ty, typename ...Args>
+	void set_native_communicator(Args&& ...args){
+		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
+			mr::heap_allocator<native_communicator>{heap.get()}, std::forward<Args>(args)...);
+	}
 
 	[[nodiscard]] scene_resources() = default;
 
@@ -294,14 +233,11 @@ namespace scene_submodule{
 struct action_queue{
 private:
 	ccur::mpsc_double_buffer<elem*, mr::heap_vector<elem*>> pendings{};
-	linear_flat_set<mr::heap_vector<elem*>> async_pending{};
 	linear_flat_set<mr::heap_vector<elem*>> active{};
 
 public:
 	[[nodiscard]] action_queue(const mr::heap_allocator<elem*>& alloc) :
-		pendings{alloc}
-		, async_pending{alloc}
-		, active{alloc}{
+		pendings{alloc}, active{alloc}{
 	}
 
 	void push(elem* e){
@@ -310,9 +246,17 @@ public:
 
 	void update(float delta_in_tick) noexcept;
 
-	void try_dump_async();
-
 	void erase(const elem* e);
+
+	void merge(action_queue&& other){
+		pendings.merge(std::move(other).pendings);
+		active.merge(std::move(other).active);
+	}
+
+	void clear() noexcept{
+		pendings.clear();
+		active.clear();
+	}
 };
 
 enum struct input_key_result{
@@ -405,25 +349,6 @@ struct input{
 
 	style::cursor_style get_cursor_style() const;
 };
-struct elem_async_sync_task_queue : associated_async_sync_task_queue<elem>{
-private:
-	mr::heap_vector<task_entry> unsync_pending_;
-
-public:
-	[[nodiscard]] explicit elem_async_sync_task_queue(const container::allocator_type& alloc)
-		: associated_async_sync_task_queue(alloc), unsync_pending_(alloc){
-	}
-
-	UI_MAIN_THREAD_ACCESS_ONLY void erase(const elem* e) noexcept {
-		associated_async_sync_task_queue::erase(e);
-		std::erase_if(unsync_pending_, [&](const container::value_type& v) noexcept {
-			return v.e == e;
-		});
-	}
-
-	UI_MAIN_THREAD_ACCESS_ONLY void consume();
-	UI_MAIN_THREAD_ACCESS_ONLY void on_sync_relocate_consume();
-};
 
 struct async_async_task_queue{
 	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
@@ -506,14 +431,34 @@ public:
 
 }
 
+struct scene_shared_resources{
+protected:
+	scene_resources* resources_{};
+	UI_MAIN_THREAD_ACCESS_ONLY rect region_{};
+
+public:
+	[[nodiscard]] scene_shared_resources() = default;
+
+	[[nodiscard]] explicit scene_shared_resources(scene_resources& resources)
+		: resources_(&resources){
+	}
+
+	[[nodiscard]] rect get_region() const noexcept{
+		return region_;
+	}
+
+	[[nodiscard]] vec2 get_extent() const noexcept{
+		return region_.extent();
+	}
 
 
-struct scene_base{
+};
+
+struct scene_base : scene_shared_resources{
 	friend elem;
 	friend ui_manager;
 
 protected:
-	scene_resources* resources_;
 
 	[[nodiscard]] mr::heap_handle get_heap() const noexcept{
 		return resources_->heap.get();
@@ -526,34 +471,41 @@ public:
 	}
 
 private:
-	renderer_frontend renderer_{};
-	rect region_{};
+	UI_MAIN_THREAD_ACCESS_ONLY UI_TRANSIENT renderer_frontend renderer_{};
 
 public:
 	std::thread::id ui_main_thread_id{std::this_thread::get_id()};
 
 private:
-	unsigned long long current_frame_{};
-	double current_time_{};
+	UI_TRANSIENT unsigned long long current_frame_{};
+	UI_TRANSIENT double current_time_{};
 
 protected:
-	elem* scene_root_{};
-	elem_tree_channel display_state_changed_channel_{};
+	UI_TRANSIENT elem_tree_channel display_state_changed_channel_{};
 
 protected:
 
-	scene_submodule::elem_async_sync_task_queue instant_task_queue_{get_heap_allocator()};
-	scene_submodule::action_queue action_queue_{get_heap_allocator()};
-	scene_submodule::async_async_task_queue async_task_queue_{get_heap_allocator()};
-	scene_submodule::input input_handler_{get_heap_allocator()};
+	UI_MERGE_ON_JOIN associated_async_sync_task_queue<elem> instant_task_queue_{get_heap_allocator()};
+	UI_MERGE_ON_JOIN scene_submodule::action_queue action_queue_{get_heap_allocator()};
+
+	//TODO use unique ptr
+	std::unique_ptr<scene_submodule::async_async_task_queue> async_task_queue_{};
+	UI_TRANSIENT scene_submodule::input input_handler_{get_heap_allocator()};
 
 private:
-	double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap_allocator()}};
+	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap_allocator()}};
 
 #pragma region Updates
+
 	struct update_entry{
+		enum{
+			add,
+			erase,
+			pending
+		};
 		elem* elem;
-		update_channel channels;
+		update_channel added_channels;
+		update_channel erase_channels;
 
 		constexpr auto operator<=>(const update_entry& o) const noexcept{
 			return elem <=> o.elem;
@@ -563,46 +515,52 @@ private:
 			return elem == o.elem;
 		}
 	};
+	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY linear_flat_set<mr::heap_vector<update_entry>> active_update_elems_{get_heap_allocator()};
+	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY linear_flat_set<mr::heap_vector<update_entry>> active_update_elems_state_changes{get_heap_allocator()};
 
-	linear_flat_set<mr::heap_vector<update_entry>> active_update_elems_{get_heap_allocator()};
-#ifndef NDEBUG
-	bool debug__is_updating_elems_{false};
-#endif
 #pragma endregion
 
 protected:
-	UI_MAIN_THREAD_ACCESS_ONLY react_flow::manager react_flow_{};
+	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY react_flow::manager react_flow_{};
 
-	UI_MAIN_THREAD_ACCESS_ONLY std::unordered_multimap<
+	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY std::unordered_multimap<
 		const elem*, react_flow::node*,
 		std::hash<const elem*>, std::equal_to<const elem*>,
 		mr::heap_allocator<std::pair<const elem* const, react_flow::node*>>>
 	elem_owned_nodes_{};
 
 private:
-
-	//TODO move it to resource?
-	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
-
 	fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_communicate_async_task_queues_{};
 	async_sync_task_queue<scene&> input_communicate_async_task_queue_{get_heap_allocator()};
 
 protected:
-	tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
-	overlay_manager overlay_manager_{get_heap_allocator()};
-
-	cursor_drawer current_cursor_drawers_{};
+	UI_TRANSIENT tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
+	UI_TRANSIENT overlay_manager overlay_manager_{get_heap_allocator()};
+	UI_TRANSIENT cursor_drawer current_cursor_drawers_{};
+	elem* scene_root_{};
 
 	[[nodiscard]] scene_base() = default;
 
 	explicit(false) scene_base(scene_resources& resources, renderer_frontend&& renderer);
 
 public:
-	template <std::derived_from<native_communicator> Ty, typename ...Args>
-	void set_native_communicator(Args&& ...args){
-		assert(is_on_scene_thread(*this));
-		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
-			mr::heap_allocator<native_communicator>{get_heap()}, std::forward<Args>(args)...);
+
+	[[nodiscard]] explicit scene_base(const scene_shared_resources& resources)
+		: scene_shared_resources(resources){
+	}
+
+	template <std::derived_from<elem> T = elem, bool unchecked = false>
+	T& root(){
+		assert(scene_root_ != nullptr);
+		if constexpr (std::same_as<T, elem> || unchecked){
+			return static_cast<T&>(*scene_root_);
+		}else{
+			return dynamic_cast<T&>(*scene_root_);
+		}
+	}
+
+	std::size_t get_output_communicate_async_task_queues_size() const noexcept{
+		return output_communicate_async_task_queues_.size();
 	}
 
 	void drop_and_reset_communicate_async_task_queue_size(std::size_t total_channels){
@@ -640,40 +598,55 @@ public:
 		instant_task_queue_.post(e, std::forward<Fn>(fn));
 	}
 
-	void notify_instant_queue_consume(){
-		instant_task_queue_.on_sync_relocate_consume();
-	}
-
 #pragma endregion
 
 #pragma region IndependentUpdate
 
 	void insert_update(elem& p, update_channel channel){
-		assert(!debug__is_updating_elems_ && "insert during update causes iterators invalid");
 		assert(is_on_scene_thread(*this));
-		if(auto itr = active_update_elems_.find({&p}); itr != active_update_elems_.end()){
-			itr->channels |= channel;
+		auto& set = active_update_elems_state_changes;
+		if(auto itr = set.find({&p}); itr != set.end()){
+			itr->added_channels |= channel;
 		}else{
-			active_update_elems_.insert({&p, channel});
+			set.insert({.elem = &p, .added_channels = channel});
 		}
 
 	}
 
 	void erase_update(const elem* p, update_channel channel) noexcept {
-		assert(!debug__is_updating_elems_ && "erase during update causes iterators invalid");
 		assert(is_on_scene_thread(*this));
-		if(auto itr = active_update_elems_.find({const_cast<elem*>(p)}); itr != active_update_elems_.end()){
-			if((itr->channels -= channel) == update_channel::none){
-				active_update_elems_.erase(itr);
+		auto& set = active_update_elems_state_changes;
+
+		if(auto itr = set.find({const_cast<elem*>(p)}); itr != set.end()){
+			itr->erase_channels |= channel;
+		}else{
+			set.insert({.elem = const_cast<elem*>(p), .erase_channels = channel});
+		}
+	}
+
+	void apply_update_state_changes() noexcept {
+		assert(is_on_scene_thread(*this));
+
+		for (auto && change : active_update_elems_state_changes){
+			if(auto itr = active_update_elems_.find(change); itr != active_update_elems_.end()){
+				itr->added_channels |= change.added_channels;
+				if((itr->added_channels -= change.erase_channels) == update_channel::none){
+					active_update_elems_.erase(itr);
+				}
+			}else{
+				if(auto c = change.added_channels - change.erase_channels; c != update_channel::none){
+					active_update_elems_.insert({.elem = change.elem, .added_channels = c});
+				}
 			}
 		}
+		active_update_elems_state_changes.clear();
 	}
 
 #pragma endregion
 
 	[[nodiscard]] native_communicator* get_communicator() const noexcept{
 		assert(is_on_scene_thread(*this));
-		return communicator_.get();
+		return resources_->communicator_.get();
 	}
 
 	[[nodiscard]] renderer_frontend& renderer() noexcept{
@@ -703,16 +676,6 @@ public:
 
 	[[nodiscard]] auto* get_memory_resource() const noexcept {
 		return get_heap();
-	}
-
-	[[nodiscard]] rect get_region() const noexcept{
-		assert(is_on_scene_thread(*this));
-		return region_;
-	}
-
-	[[nodiscard]] vec2 get_extent() const noexcept{
-		assert(is_on_scene_thread(*this));
-		return region_.extent();
 	}
 
 	[[nodiscard]] vec2 get_cursor_pos() const noexcept{
@@ -763,23 +726,16 @@ protected:
 public:
 	template <std::derived_from<elem> E, std::invocable<E&> Prov>
 	void post_elem_async_task(E& e, Prov&& prov){
-		async_task_queue_.post(e, std::forward<Prov>(prov));
-	}
-
-#pragma endregion
-
-
-	template <std::derived_from<elem> T = elem, bool unchecked = false>
-	T& root(){
-		assert(is_on_scene_thread(*this));
-		assert(scene_root_ != nullptr);
-		if constexpr (std::same_as<T, elem> || unchecked){
-			return static_cast<T&>(*scene_root_);
+		if(async_task_queue_){
+			async_task_queue_->post(e, std::forward<Prov>(prov));
 		}else{
-			return dynamic_cast<T&>(*scene_root_);
+			std::derived_from<basic_elem_async_task> auto task = std::invoke(std::forward<Prov>(prov), e);
+			task.process();
+			task.on_done();
 		}
 	}
 
+#pragma endregion
 
 	void resize(const math::frect region);
 
@@ -839,7 +795,6 @@ private:
 		action_queue_.push(e);
 	}
 
-
 #pragma region Events
 
 public:
@@ -898,15 +853,41 @@ public:
 
 	void layout();
 
+	void enable_elem_async_task_post(bool enable);
+
 private:
 #pragma endregion
-
 
 	void add_isolated_layout_update(elem* element){
 		assert(is_on_scene_thread(*this));
 		independent_layouts_.get_bak().insert(element);
 	}
 
+protected:
+	void merge(scene_base&& target){
+		//TODO ensure target has no child to avoid resource leaking
+		{
+			target.independent_layouts_.swap();
+			independent_layouts_.get_bak().merge(target.independent_layouts_.get_cur());
+			target.independent_layouts_.clear();
+		}
+
+		{
+			target.apply_update_state_changes();
+			active_update_elems_.merge(std::move(target.active_update_elems_));
+			target.active_update_elems_.clear();
+		}
+
+		{
+			react_flow_.merge(std::exchange(target.react_flow_, {}));
+			elem_owned_nodes_.merge(std::move(target.elem_owned_nodes_));
+		}
+
+		action_queue_.merge(std::move(target.action_queue_));
+		target.action_queue_.clear();
+		instant_task_queue_.merge(std::move(target.instant_task_queue_));
+		target.instant_task_queue_.clear();
+	}
 };
 
 export
@@ -914,20 +895,22 @@ struct scene : scene_base{
 	friend elem;
 	friend ui_manager;
 
-private:
-	elem_ptr root_{};
+protected:
+
+	void init_root() const;
 
 public:
+	using scene_base::scene_base;
+
+
+
 	template <std::derived_from<elem> T, typename ...Args>
 	[[nodiscard]] explicit(false) scene(
 		scene_resources& resources,
 		renderer_frontend&& renderer,
 		std::in_place_type_t<T>,
 		Args&& ...args
-		) : scene_base(resources, std::move(renderer)), root_(static_cast<scene&>(*this), nullptr, std::in_place_type<T>, std::forward<Args>(args)...){
-		input_handler_.inputs_.main_binds.set_context(std::ref(*this));
-		scene_root_ = root_.get();
-	}
+		) = delete;
 
 	scene(const scene& other) = delete;
 	scene(scene&& other) noexcept = delete;
@@ -935,12 +918,22 @@ public:
 	scene& operator=(scene&& other) noexcept = delete;
 
 protected:
-	virtual void draw_impl(rect clip) = 0;
+	virtual void draw_impl(rect clip){
+		throw std::runtime_error{"Draw is not impl"};
+	}
 
 public:
+	virtual std::unique_ptr<scene> fork(){
+		auto rst = std::make_unique<scene>(static_cast<scene_shared_resources>(*this));
+		rst->drop_and_reset_communicate_async_task_queue_size(get_output_communicate_async_task_queues_size());
+		return rst;
+	}
+
+	virtual void join(scene&& scene){
+
+	}
+
 	virtual ~scene() = default;
-
-
 
 	void draw(){
 		draw_impl(get_region());

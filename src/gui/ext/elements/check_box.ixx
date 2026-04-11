@@ -33,28 +33,29 @@ public:
 		: dispersed_value_selector<elem, MaxSize>(scene, parent){
 	}
 
-	void draw_layer(const math::frect clipSpace, fx::layer_param_pass_t param) const override{
-		elem::draw_layer(clipSpace, param);
-		if(!param.is_top())return;
 
-		auto idx = this->get_current_value();
-		const icon_type& i = icons[idx];
-		graphic::color color = mul_color[idx];
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		elem::record_draw_layer(call_stack_builder);
+		call_stack_builder.push_call_noop(*this, [](const select_box& s, const draw_call_param& param){
+			if(!param.layer_param.is_top()) return;
+			if(!util::is_draw_param_valid(s, param))return;
 
-		auto bound = elem::content_bound_abs();
-		auto drawext = bound.extent();
-		auto off = bound.src;
-		if(auto ext = i.get_preferred_extent()){
-			drawext = align::embed_to(align::scale::fit, ext, drawext);
-			off = align::get_offset_of(align::pos::center, drawext, bound);
-		}
+			auto& elem_s = static_cast<const elem&>(s);
 
-		i.draw(elem::renderer(), {off, drawext}, color.mul_a(elem::get_draw_opacity()));
-	}
+			auto idx = s.get_current_value();
+			const icon_type& i = s.icons[idx];
+			graphic::color color = s.mul_color[idx];
 
+			auto bound = elem_s.content_bound_abs();
+			auto drawext = bound.extent();
+			auto off = bound.src;
+			if(auto ext = i.get_preferred_extent()){
+				drawext = align::embed_to(align::scale::fit, ext, drawext);
+				off = align::get_offset_of(align::pos::center, drawext, bound);
+			}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
-		this->push_draw_func_to_stack_recorder(call_stack_builder);
+			i.draw(elem_s.renderer(), {off, drawext}, color.mul_a(elem_s.get_draw_opacity()));
+		});
 	}
 };
 

@@ -84,16 +84,15 @@ public:
 		// return current_frame_index_;
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
-		push_draw_func_to_stack_recorder(call_stack_builder);
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		elem::record_draw_layer(call_stack_builder);
+		call_stack_builder.push_call_noop(*this, [](const image_frame& s, const draw_call_param& param){
+			if(param.layer_param == 0){
+				s.draw_content_impl();
+			}
+		});
 	}
 
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
-		elem::draw_layer(clipSpace, param);
-		if(param == 0){
-			draw_content_impl();
-		}
-	}
 
 protected:
 	void try_swap_image(const std::size_t ldx, const std::size_t rdx){
@@ -218,22 +217,19 @@ public:
 		drawable_ = std::move(icon);
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
-		push_draw_func_to_stack_recorder<image_frame_single>(call_stack_builder);
-	}
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		elem::record_draw_layer(call_stack_builder);
+		call_stack_builder.push_call_noop(*this, [](const image_frame_single& s, const draw_call_param& param){
+			if(param.layer_param.is_top()){
+				auto sz = gui::get_expected_size(s.drawable_, s.style, s.content_extent());
+				auto off = align::get_offset_of(s.style.align, sz, s.content_bound_abs());
 
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
-		draw_style(param);
-		if(param == 0){
-			auto sz = gui::get_expected_size(drawable_, style, content_extent());
-			auto off = align::get_offset_of(style.align, sz, content_bound_abs());
-
-			//TODO support stylized color
-			auto col = auto{scale_color}.mul_a(get_draw_opacity());
-			drawable_.draw(get_scene().renderer(), math::raw_frect{off, sz}, col);
-		}
+				//TODO support stylized color
+				auto col = auto{s.scale_color}.mul_a(s.get_draw_opacity());
+				s.drawable_.draw(s.get_scene().renderer(), math::raw_frect{off, sz}, col);
+			}
+		});
 	}
-protected:
 };
 
 export

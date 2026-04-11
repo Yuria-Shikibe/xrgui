@@ -162,7 +162,7 @@ public:
 		return events::op_afterwards::intercepted;
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
 		head_body::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_noop(
@@ -204,44 +204,6 @@ public:
 			});
 	}
 
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
-		head_body::draw_layer(clipSpace, param);
-
-
-		// 保证在淡出动画（drag_progress_ > 0）时也能画出辅助线，而不仅仅是 dirty 的时候
-		if(seperator_position_.is_dirty() || drag_progress_ > 0.0f){
-			const auto [major_p, minor_p] = layout::get_vec_ptr(get_layout_policy());
-			auto src = content_src_pos_abs();
-
-			math::vec2 off{};
-			math::vec2 ext{};
-			off.*minor_p = seperator_position_.temp * content_extent().*minor_p;
-			ext.*major_p = content_extent().*major_p;
-
-			src += off;
-			bool any = head().style || body().style;
-
-			if(!any){
-				get_scene().renderer().push(graphic::draw::instruction::line{
-						.src = src,
-						.dst = src + ext,
-						.color = {graphic::colors::white, graphic::colors::white},
-						.stroke = 4,
-					});
-			}
-
-			ext.*minor_p -= get_pad() / 2.f;
-			if(head().style)
-				head().style->draw_layer(head(), {tags::from_vertex, content_src_pos_abs(), src + ext},
-				                         drag_progress_ * 4.f, param);
-			src.*minor_p += get_pad() / 2.f;
-			if(body().style)
-				body().style->draw_layer(body(), {
-					                         tags::from_vertex, content_src_pos_abs() + content_extent(),
-					                         src
-				                         }, drag_progress_ * 4.f, param);
-		}
-	}
 
 	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
 		const auto region = get_seperator_region_element_local();

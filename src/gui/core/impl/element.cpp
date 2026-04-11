@@ -195,10 +195,6 @@ void elem::set_style() noexcept{
 	});
 }
 
-void elem::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
-	draw_style(param);
-}
-
 bool elem::update(float delta_in_ticks){
 	if(sleep)return false;
 	return true;

@@ -6,6 +6,7 @@ module;
 export module mo_yanxi.function_call_stack;
 
 import std;
+import mo_yanxi.function_manipulate;
 
 namespace mo_yanxi{
 template <typename T, typename... Args>
@@ -335,6 +336,7 @@ public:
 		template <typename T, typename Fn>
 			requires std::is_invocable_r_v<stack_argument_t, Fn, T&, const stack_argument_t&, stack_type&>
 		void push_call_enter(T& host, Fn /*fn*/){
+			static_assert(std::is_empty_v<Fn>);
 			this->push_call({
 					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
 					.stack_op = stack_enter,
@@ -353,6 +355,7 @@ public:
 
 		template <typename T, std::invocable<T&, const stack_argument_t&, stack_type&> Fn>
 		void push_call_leave(T& host, Fn /*fn*/){
+			static_assert(std::is_empty_v<Fn>);
 			this->push_call({
 					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
 					.stack_op = stack_leave,
@@ -366,6 +369,64 @@ public:
 						}
 					}
 				});
+		}
+
+		template <typename T, typename Fn>
+			requires std::is_invocable_r_v<stack_argument_t, Fn, T&, const stack_argument_t&, stack_type&>
+		void push_call_replace(T& host, Fn /*fn*/){
+			static_assert(std::is_empty_v<Fn>);
+			this->push_call({
+					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
+					.stack_op = stack_replace,
+					.fn_with_ret = +[](host_ptr_t h, const stack_argument_t& p,
+									   stack_type& q) static -> stack_argument_t{
+						if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
+							return Fn::operator()(*static_cast<T*>(h), p, q);
+						} else{
+							static_assert(std::is_default_constructible_v<Fn>,
+										  "Fn must be a default-constructible stateless functor");
+							return std::invoke_r<stack_argument_t>(Fn{}, *static_cast<T*>(h), p, q);
+						}
+					}
+				});
+		}
+
+		template <typename T, std::invocable<T&, const stack_argument_t&, stack_type&> Fn>
+		void push_call_noop(T& host, Fn /*fn*/){
+			static_assert(std::is_empty_v<Fn>);
+			this->push_call({
+					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
+					.stack_op = stack_noop,
+					.fn = +[](host_ptr_t h, const stack_argument_t& p, stack_type& q) static{
+						if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
+							Fn::operator()(*static_cast<T*>(h), p, q);
+						} else{
+							static_assert(std::is_default_constructible_v<Fn>,
+										  "Fn must be a default-constructible stateless functor");
+							std::invoke(Fn{}, *static_cast<T*>(h), p, q);
+						}
+					}
+				});
+		}
+
+		template <typename T, typename Fn>
+		void push_call_enter(T& host, Fn /*fn*/){
+			this->push_call_enter(host, mo_yanxi::make_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
+		}
+
+		template <typename T, typename Fn>
+		void push_call_leave(T& host, Fn /*fn*/){
+			this->push_call_leave(host, mo_yanxi::make_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
+		}
+
+		template <typename T, typename Fn>
+		void push_call_replace(T& host, Fn /*fn*/){
+			this->push_call_replace(host, mo_yanxi::make_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
+		}
+
+		template <typename T, typename Fn>
+		void push_call_noop(T& host, Fn /*fn*/){
+			this->push_call_noop(host, mo_yanxi::make_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
 		}
 
 		void push_call_leave(){
@@ -376,41 +437,6 @@ public:
 				});
 		}
 
-		template <typename T, typename Fn>
-			requires std::is_invocable_r_v<stack_argument_t, Fn, T&, const stack_argument_t&, stack_type&>
-		void push_call_replace(T& host, Fn /*fn*/){
-			this->push_call({
-					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
-					.stack_op = stack_replace,
-					.fn_with_ret = +[](host_ptr_t h, const stack_argument_t& p,
-					                   stack_type& q) static -> stack_argument_t{
-						if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
-							return Fn::operator()(*static_cast<T*>(h), p, q);
-						} else{
-							static_assert(std::is_default_constructible_v<Fn>,
-							              "Fn must be a default-constructible stateless functor");
-							return std::invoke_r<stack_argument_t>(Fn{}, *static_cast<T*>(h), p, q);
-						}
-					}
-				});
-		}
-
-		template <typename T, std::invocable<T&, const stack_argument_t&, stack_type&> Fn>
-		void push_call_noop(T& host, Fn /*fn*/){
-			this->push_call({
-					.host = const_cast<host_ptr_t>(static_cast<const volatile void*>(std::addressof(host))),
-					.stack_op = stack_noop,
-					.fn = +[](host_ptr_t h, const stack_argument_t& p, stack_type& q) static{
-						if constexpr(has_static_call_operator<Fn, T&, const stack_argument_t&, stack_type&>){
-							Fn::operator()(*static_cast<T*>(h), p, q);
-						} else{
-							static_assert(std::is_default_constructible_v<Fn>,
-							              "Fn must be a default-constructible stateless functor");
-							std::invoke(Fn{}, *static_cast<T*>(h), p, q);
-						}
-					}
-				});
-		}
 	};
 };
 

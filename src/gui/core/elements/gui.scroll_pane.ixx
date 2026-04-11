@@ -387,79 +387,64 @@ public:
 
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		elem::record_draw_layer(call_stack_builder);
+
+		call_stack_builder.push_call_enter(
+			*this, [](const scroll_adaptor& s, const draw_call_param& p,
+					  draw_call_stack&) static -> draw_call_param{
+				auto& r = s.get_scene().renderer();
+
+				const bool activeHori = s.is_hori_scroll_active();
+				const bool activeVert = s.is_vert_scroll_active();
+
+				if(activeHori || activeVert){
+					s.renderer().push_scissor({s.get_viewport()});
+					s.renderer().top_viewport().push_local_transform(math::mat3{}.idt().set_translation(-s.scroll_.temp));
+					s.renderer().notify_viewport_changed();
+
+					return {
+							.current_subject = &s,
+							.draw_bound = p.draw_bound.copy().move(s.scroll_.temp),
+							.opacity_scl = 1,
+							.layer_param = p.layer_param
+						};
+				} else{
+					return {
+							.current_subject = &s,
+							.draw_bound = p.draw_bound,
+							.opacity_scl = 1,
+							.layer_param = p.layer_param
+						};
+				}
+			});
+
+		//TODO when has_draw_layer is specified , the draw call should be inlined...?
 		if constexpr(adaptor_interface_trait::has_draw_layer){
-			this->push_draw_func_to_stack_recorder(call_stack_builder);
+			call_stack_builder.push_call_noop(*this, [](const scroll_adaptor& s, const draw_call_param& p){
+				s.adaptor_draw_layer(p.draw_bound, p.layer_param);
+			});
 		} else if constexpr(is_elem_child){
-			elem::record_draw_layer(call_stack_builder);
-
-			call_stack_builder.push_call_enter(
-				*this, [](const scroll_adaptor& s, const draw_call_param& p,
-				          draw_call_stack&) static -> draw_call_param{
-					auto& r = s.get_scene().renderer();
-
-					const bool activeHori = s.is_hori_scroll_active();
-					const bool activeVert = s.is_vert_scroll_active();
-
-					if(activeHori || activeVert){
-						s.renderer().push_scissor({s.get_viewport()});
-						s.renderer().top_viewport().push_local_transform(math::mat3{}.idt().set_translation(-s.scroll_.temp));
-						s.renderer().notify_viewport_changed();
-
-						return {
-								.current_subject = &s,
-								.draw_bound = p.draw_bound.copy().move(s.scroll_.temp),
-								.opacity_scl = 1,
-								.layer_param = p.layer_param
-							};
-					} else{
-						return {
-								.current_subject = &s,
-								.draw_bound = p.draw_bound,
-								.opacity_scl = 1,
-								.layer_param = p.layer_param
-							};
-					}
-				});
-
 			get_elem().record_draw_layer(call_stack_builder);
-
-			call_stack_builder.push_call_leave(
-				*this, [](const scroll_adaptor& s, const draw_call_param& p, draw_call_stack&) static{
-
-					const bool activeHori = s.is_hori_scroll_active();
-					const bool activeVert = s.is_vert_scroll_active();
-
-					if(activeHori || activeVert){
-						s.renderer().top_viewport().pop_local_transform();
-						s.renderer().pop_scissor();
-						s.renderer().notify_viewport_changed();
-					}
-				});
-
-			record_draw_scroll_bar(call_stack_builder);
 		}
 
+
+		call_stack_builder.push_call_leave(
+			*this, [](const scroll_adaptor& s, const draw_call_param& p, draw_call_stack&) static{
+
+				const bool activeHori = s.is_hori_scroll_active();
+				const bool activeVert = s.is_vert_scroll_active();
+
+				if(activeHori || activeVert){
+					s.renderer().top_viewport().pop_local_transform();
+					s.renderer().pop_scissor();
+					s.renderer().notify_viewport_changed();
+				}
+			});
+
+		record_draw_scroll_bar(call_stack_builder);
 	}
 
-	void draw_layer(rect clipSpace, fx::layer_param_pass_t param) const override{
-		elem::draw_layer(clipSpace, param);
-
-		auto& r = get_scene().renderer();
-
-		const bool activeHori = is_hori_scroll_active();
-		const bool activeVert = is_vert_scroll_active();
-
-		if(activeHori || activeVert){
-			scissor_guard guard{r, {get_viewport()}};
-			transform_guard transform_guard{r, math::mat3{}.idt().set_translation(-scroll_.temp)};
-			adaptor_draw_layer(clipSpace.move(scroll_.temp), param);
-		} else{
-			adaptor_draw_layer(clipSpace, param);
-		}
-
-		draw_scroll_bar(param);
-	}
 
 	template <elem_init_func Fn, typename... Args>
 	auto& create(Fn&& init, Args&&... args) requires(is_elem_ptr){

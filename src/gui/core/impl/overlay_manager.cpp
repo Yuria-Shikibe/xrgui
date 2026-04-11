@@ -6,6 +6,8 @@ import mo_yanxi.utility;
 
 namespace mo_yanxi::gui{
 overlay_create_result<elem> overlay_manager::push_back(const overlay_layout& layout, elem_ptr&& elem_ptr, bool fade_in){
+	elem_ptr->element_channel_ = elem_tree_channel::overlay;
+
 	if(fade_in){
 		elem_ptr->update_context_opacity(0.f);
 		elem_ptr->push_action<action::alpha_action>(10, nullptr, 1.);

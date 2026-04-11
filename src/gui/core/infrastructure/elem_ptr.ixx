@@ -8,7 +8,7 @@ export import mo_yanxi.math.vector2;
 export import mo_yanxi.math.rect_ortho;
 
 import mo_yanxi.gui.alloc;
-import mo_yanxi.func_initialzer;
+import mo_yanxi.function_manipulate;
 import mo_yanxi.concepts;
 import mo_yanxi.transparent_span;
 import std;

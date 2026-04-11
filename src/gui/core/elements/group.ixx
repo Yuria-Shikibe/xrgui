@@ -26,12 +26,6 @@ protected:
 		}
 	}
 
-	void draw_children(const rect clipSpace, fx::layer_param_pass_t param) const{
-		for(const auto& element : children()){
-			element->try_draw_layer(clipSpace, param);
-		}
-	}
-
 	virtual void notify_layout_changed_on_element_change(){
 		notify_layout_changed(propagate_mask::upper | propagate_mask::force_upper);
 	}
@@ -154,7 +148,7 @@ public:
 		layout_children();
 	}
 
-	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder){
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_enter(*this, [](const basic_group& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
@@ -171,12 +165,6 @@ public:
 		}
 
 		call_stack_builder.push_call_leave();
-	}
-
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
-		elem::draw_layer(clipSpace, param);
-		const auto space = content_bound_abs().intersection_with(clipSpace);
-		draw_children(space, param);
 	}
 
 protected:

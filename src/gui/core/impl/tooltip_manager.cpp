@@ -71,6 +71,7 @@ tooltip_instance& tooltip_manager::append_tooltip(spawner& owner, elem_ptr&& ele
 	bool belowScene, bool fade_in){
 
 	auto& scene = owner.tooltip_get_scene();
+	elem->element_channel_ = elem_tree_channel::tooltip;
 	auto& val = actives_.emplace_back(std::move(elem), &owner);
 	val.update_layout(*this, scene.get_cursor_pos());
 	scene.request_cursor_update();

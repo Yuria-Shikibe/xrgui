@@ -159,7 +159,7 @@ struct csv_file_reader : head_body{
 				prog.draw_config.color = {graphic::colors::white, graphic::colors::white};
 
 				prog.set_self_boarder(gui::boarder{}.set(32));
-				prog.drawer = std::move(drawer);
+				prog.set_drawer(std::move(drawer));
 				prog.set_progress_state(progress_state::rough);
 			});
 
@@ -458,41 +458,39 @@ struct vp : gui::viewport{
 			};
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
-		push_draw_func_to_stack_recorder(call_stack_builder);
-	}
-
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
-		viewport::draw_layer(clipSpace, param);
-
-		if(param.is_top()){
-			viewport_begin();
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		viewport::record_draw_layer(call_stack_builder);
+		call_stack_builder.push_call_noop(*this, [](const vp& s, const draw_call_param& p){
+			if(!p.layer_param.is_top())return;
+			if(!util::is_draw_param_valid(s, p))return;
+			s.viewport_begin();
 
 			{
-				renderer().update_state(fx::pipeline_config{
+				s.renderer().update_state(fx::pipeline_config{
 					.draw_targets = {0b1},
 					.pipeline_index = 2
 				});
 
-				auto region = camera.get_viewport();
+				auto region = s.camera.get_viewport();
 
-				renderer() << graphic::draw::instruction::rect_aabb{
+				s.renderer() << graphic::draw::instruction::rect_aabb{
 					.v00 = region.vert_00(),
 					.v11 = region.vert_11(),
 					.vert_color = {graphic::colors::white}
 				};
-				renderer().update_state(fx::pipeline_config{
+				s.renderer().update_state(fx::pipeline_config{
 									.draw_targets = {0b1},
 									.pipeline_index = 0
 								});
 			}
 
-			draw_system();
+			s.draw_system();
 
 
-			viewport_end();
-		}
+			s.viewport_end();
+		});
 	}
+
 };
 
 void set_cursors(scene& scene){
@@ -682,39 +680,6 @@ void make_styles(scene& scene){
 
 }
 
-
-void example_scene::draw_at(const elem& elem){
-	auto c = get_region().intersection_with(elem.bound_abs());
-	const auto bound = c.round<int>();
-
-	auto& cfg = pass_config;
-
-	for(unsigned i = 0; i < cfg.size(); ++i){
-		renderer().update_state(cfg[i].begin_config);
-
-		renderer().update_state({},
-		                        fx::batch_draw_mode::def,
-		                        graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
-		);
-
-
-		elem.draw_layer(c, {i});
-
-		if(cfg[i].end_config)
-			renderer().update_state(fx::blit_config{
-					.blit_region = {bound.src, bound.extent()},
-					.pipe_info = cfg[i].end_config.value()
-				});
-	}
-
-
-	if(auto tail = cfg.get_tail_blit())
-		renderer().update_state(fx::blit_config{
-				.blit_region = {bound.src, bound.extent()},
-				.pipe_info = tail.value()
-			});
-}
-
 void example_scene::draw_at(math::frect clipspace, draw_call_stack& call_stack){
 	auto c = get_region().intersection_with(clipspace);
 	const auto bound = c.round<int>();
@@ -763,7 +728,7 @@ void example_scene::draw_impl(rect clip){
 			call_stack_tooltip_.resize(seq.size());
 			for (auto&& [idx, elem] : seq | std::views::enumerate){
 				draw_call_stack_recorder rec{call_stack_tooltip_[idx]};
-				root().record_draw_layer(rec);
+				elem.element->record_draw_layer(rec);
 			}
 		}
 
@@ -772,7 +737,7 @@ void example_scene::draw_impl(rect clip){
 			call_stack_overlay_.resize(seq.size());
 			for (auto&& [idx, elem] : seq | std::views::enumerate){
 				draw_call_stack_recorder rec{call_stack_overlay_[idx]};
-				root().record_draw_layer(rec);
+				elem->record_draw_layer(rec);
 			}
 		}
 
@@ -784,23 +749,20 @@ void example_scene::draw_impl(rect clip){
 	{
 		viewport_guard _{renderer(), get_region()};
 
-		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
-			if(elem.belowScene){
-				draw_at(*elem.element);
-			}
+		for (const auto & [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(), call_stack_tooltip_)){
+			if(!tooltip.belowScene)continue;
+			draw_at(tooltip.element->bound_abs(), stack);
 		}
 
 		draw_at(root().bound_abs(), call_stack_regular_);
 
-		for (const auto & draw_sequence : overlay_manager_.get_draw_sequence()){
-			draw_at(*draw_sequence);
-
+		for (const auto & [overlay, stack] : std::ranges::views::zip(overlay_manager_.get_draw_sequence(), call_stack_overlay_)){
+			draw_at(overlay->bound_abs(), stack);
 		}
 
-		for (auto&& elem : tooltip_manager_.get_draw_sequence()){
-			if(!elem.belowScene){
-				draw_at(*elem.element);
-			}
+		for (const auto & [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(), call_stack_tooltip_)){
+			if(tooltip.belowScene)continue;
+			draw_at(tooltip.element->bound_abs(), stack);
 		}
 	}
 
@@ -836,6 +798,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 	auto& scene = scene_add_rst.scene;
 	auto& root = scene_add_rst.root_group;
 
+	scene.enable_elem_async_task_post(true);
 	scene.drop_and_reset_communicate_async_task_queue_size(1);
 
 	make_styles(scene);
@@ -859,7 +822,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 			fx::blit_pipeline_config{}
 		};
 
-	scene.set_native_communicator<backend::glfw::communicator>(ctx.window().get_handle());
+	scene.resources().set_native_communicator<backend::glfw::communicator>(ctx.window().get_handle());
 	scene.get_communicator()->set_native_cursor_visibility(false);
 
 	auto e = scene.create<scaling_stack>();
@@ -897,7 +860,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 							drawer->vert_margin = 5.f;
 
 
-							slider->drawer_ = std::move(drawer);
+							slider->set_drawer(std::move(drawer));
 							slider.cell().set_size(60);
 
 							auto& progNode = slider->get_provider();

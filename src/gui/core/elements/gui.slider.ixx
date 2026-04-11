@@ -5,6 +5,7 @@ export import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.slider_logic;
 import mo_yanxi.snap_shot;
 import mo_yanxi.math;
+import mo_yanxi.gui.style.interface;
 import std;
 
 namespace mo_yanxi::gui {
@@ -108,9 +109,22 @@ protected:
 
     virtual void on_changed() {}
 
+private:
+	const auto* get_drawer() const noexcept{
+		return static_cast<const Derived&>(*this).get_drawer();
+	}
+
 public:
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
-		static_cast<Derived&>(*this).push_draw_func_to_stack_recorder(call_stack_builder);
+
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		elem::record_draw_layer(call_stack_builder);
+		if(get_drawer()){
+			static_cast<const Derived&>(*this).record_drawer_draw_context(
+				call_stack_builder,
+				[](const Derived& self, draw_call_stack_recorder& r){
+					style::record_draw_layer(*self.get_drawer(), r);
+				});
+		}
 	}
 
     void on_inbound_changed(bool is_inbounded, bool changed) override {
@@ -244,12 +258,22 @@ export struct slider1d : slider_base<1, slider1d> {
 private:
     bool is_vertical_{false};
 
-public:
-	referenced_ptr<const style::slider1d_drawer> drawer_{post_sync_assign(*this, &slider1d::drawer_, [](const slider1d& s){
+    referenced_ptr<const style::slider1d_drawer> drawer_{post_sync_assign(*this, &slider1d::drawer_, [](const slider1d& s){
 		return s.get_style_manager().get_default<style::slider1d_drawer>();
 	})};
 
+public:
     using slider_base<1, slider1d>::slider_base;
+
+	const style::slider1d_drawer* get_drawer() const noexcept{
+		return drawer_.get();
+	}
+
+    void set_drawer(referenced_ptr<const style::slider1d_drawer>&& drawer) {
+	    if(util::try_modify(drawer_, std::move(drawer))){
+		    get_scene().notify_display_state_changed(get_channel());
+	    }
+    }
 
     [[nodiscard]] bool is_vertical() const noexcept{
         return is_vertical_;
@@ -283,12 +307,6 @@ public:
         check_apply();
     }
 
-    void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override {
-        elem::draw_layer(clipSpace, param);
-        if (drawer_) drawer_->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
-    }
-
-
 	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override {
     	if(is_disabled()) return elem::get_cursor_type(cursor_pos_at_content_local);
     	if(cursor_state().pressed || (cursor_pos_at_content_local.axis_greater(vec2{}) && cursor_pos_at_content_local.axis_less(content_extent()))) {
@@ -306,12 +324,23 @@ public:
 // 2D 滑动条特化
 // ==========================================
 export struct slider2d : slider_base<2, slider2d> {
-public:
+private:
 	referenced_ptr<const style::slider2d_drawer> drawer_{post_sync_assign(*this, &slider2d::drawer_, [](const slider2d& s){
 		return s.get_style_manager().get_default<style::slider2d_drawer>();
 	})};
 
-    using slider_base<2, slider2d>::slider_base;
+public:
+	using slider_base<2, slider2d>::slider_base;
+
+	const style::slider2d_drawer* get_drawer() const noexcept{
+		return drawer_.get();
+	}
+
+	void set_drawer(referenced_ptr<const style::slider2d_drawer>&& drawer) {
+		if(util::try_modify(drawer_, std::move(drawer))){
+			get_scene().notify_display_state_changed(get_channel());
+		}
+	}
 
     [[nodiscard]] math::vec2 get_progress() const noexcept { return expand_to_vec2(bar.get_progress()); }
     [[nodiscard]] math::vec2 get_temp_progress() const noexcept { return expand_to_vec2(bar.get_temp_progress()); }
@@ -337,11 +366,6 @@ public:
     void clamp_progress(math::vec2 from, math::vec2 to) noexcept {
         bar.clamp({from.x, from.y}, {to.x, to.y});
         check_apply();
-    }
-
-    void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override {
-        elem::draw_layer(clipSpace, param);
-        if (drawer_) drawer_->draw_layer(*this, content_bound_abs(), get_draw_opacity(), param);
     }
 };
 

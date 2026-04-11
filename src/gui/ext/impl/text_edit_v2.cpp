@@ -230,49 +230,53 @@ std::optional<math::vec2> text_edit::pre_acquire_size_impl(layout::optional_mast
 		get_prefer_content_extent());
 }
 
-void text_edit::draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
-	draw_style(param);
-	if(param != 0) return;
-
-	if (is_scrollable_mode()) { // 修改这里
-		renderer().push_scissor({ content_bound_abs() });
-		renderer().notify_viewport_changed();
-	}
-
-	draw_selection_and_caret();
-
-	if(!render_cache_.has_drawable_text()) {
-		if (is_scrollable_mode()) {
-			renderer().pop_scissor();
-			renderer().notify_viewport_changed();
+void text_edit::record_draw_layer(draw_call_stack_recorder& call_stack_builder) const{
+	elem::record_draw_layer(call_stack_builder);
+	call_stack_builder.push_call_noop(*this, [](const text_edit& e, const draw_call_param& p){
+		if(!p.layer_param.is_top())return;
+		if(!util::is_draw_param_valid(e, p))return;
+		auto& r = e.renderer();
+		if (e.is_scrollable_mode()) { // 修改这里
+			r.push_scissor({ e.content_bound_abs() });
+			r.notify_viewport_changed();
 		}
-		return;
-	}
 
-	auto t_params = get_transform_params();
-	math::vec2 offset_abs = t_params.offset_local + content_src_pos_abs();
+		e.draw_selection_and_caret();
 
-	math::mat3 mat = math::mat3_idt;
-	mat.c1.x = t_params.scale.x;
-	mat.c2.y = t_params.scale.y;
-	mat.c3.x = offset_abs.x;
-	mat.c3.y = offset_abs.y;
+		if(!e.render_cache_.has_drawable_text()) {
+			if (e.is_scrollable_mode()) {
+				r.pop_scissor();
+				r.notify_viewport_changed();
+			}
+			return;
+		}
 
-	{
-		state_guard guard{
-			renderer(),
-			fx::batch_draw_mode::msdf
-		};
-		transform_guard _t{renderer(), mat};
+		auto t_params = e.get_transform_params();
+		math::vec2 offset_abs = t_params.offset_local + e.content_src_pos_abs();
 
-		render_cache_.push_to_renderer(renderer());
-	}
+		math::mat3 mat = math::mat3_idt;
+		mat.c1.x = t_params.scale.x;
+		mat.c2.y = t_params.scale.y;
+		mat.c3.x = offset_abs.x;
+		mat.c3.y = offset_abs.y;
 
-	if (is_scrollable_mode()) {
-		renderer().pop_scissor();
-		renderer().notify_viewport_changed();
-	}
+		{
+			state_guard guard{
+				r,
+				fx::batch_draw_mode::msdf
+			};
+			transform_guard _t{r, mat};
+
+			e.render_cache_.push_to_renderer(r);
+		}
+
+		if (e.is_scrollable_mode()) {
+			r.pop_scissor();
+			r.notify_viewport_changed();
+		}
+	});
 }
+
 
 // --------------------------------------------------------
 // --- 核心主动缓存逻辑 ---

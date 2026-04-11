@@ -235,17 +235,16 @@ public:
 		return false;
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 
-		call_stack_builder.push_call_noop(*this, [](const direct_label& s, const draw_call_param& p, draw_call_stack&) static {
-			if(s.invisible) return;
-			if(!p.draw_bound.overlap_inclusive(s.bound_abs())) return;
-			if (p.layer_param.is_top()) s.draw_text();
+		call_stack_builder.push_call_noop(*this, [](const direct_label& s, const draw_call_param& p) static {
+
+			if (!p.layer_param.is_top())return;
+			if (!util::is_draw_param_valid(s, p))return;
+				s.draw_text();
 		});
 	}
-
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override;
 
 protected:
 	void on_opacity_changed(float previous) override{

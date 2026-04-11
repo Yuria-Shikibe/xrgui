@@ -100,7 +100,7 @@ public:
 	}
 
 public:
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) override{
+	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 		call_stack_builder.push_call_enter(
 			*this, [](const elem& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
@@ -119,13 +119,6 @@ public:
 		call_stack_builder.push_call_leave();
 	}
 
-	void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const override{
-		draw_style(param);
-		const auto space = content_bound_abs().intersection_with(clipSpace);
-
-		items[0]->try_draw_layer(space, param);
-		items[1]->try_draw_layer(space, param);
-	}
 
 	void on_context_sync_bind() override{
 		elem::on_context_sync_bind();

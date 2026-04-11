@@ -38,6 +38,15 @@ public:
 			}
 		}
 	}
+
+	void clear(){
+		async_tasks_.clear();
+	}
+
+protected:
+	void merge(associated_async_sync_task_queue_base&& other){
+		async_tasks_.merge(std::move(other).async_tasks_);
+	}
 };
 
 export
@@ -68,6 +77,8 @@ struct associated_async_sync_task_queue : associated_async_sync_task_queue_base{
 			});
 		});
 	}
+
+	using associated_async_sync_task_queue::merge;
 
 };
 
@@ -101,7 +112,6 @@ public:
 };
 
 export
-
 struct call_stream_task_queue{
 private:
 	ccur::mpsc_double_buffer_heterogeneous<call_stream<mr::unvs_allocator<std::byte>>> async_tasks_{};

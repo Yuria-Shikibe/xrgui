@@ -638,14 +638,14 @@ public:
 		return gui::renderer_frontend{
 				table, table_non_vertex, {
 					*this,
-					[](renderer& r, auto h, const std::byte* d) static{
+					[](renderer& r, graphic::draw::instruction::instruction_head h, const std::byte* d) static{
 						return r.batch_host.push_instr(h, d);
+					},
+					[](renderer& r, std::span<const graphic::draw::instruction::instruction_head> h, const std::byte* d) static{
+						return r.batch_host.push_instr_batch(h, d);
 					},
 					[](renderer& r, auto cfg, auto f, auto ecfg, auto p) static{
 						r.batch_host.push_state(cfg, f, ecfg, p);
-					},
-					[](renderer& r, auto head, std::span<const std::byte> payload, unsigned target_offset) static{
-
 					}
 				}
 			};

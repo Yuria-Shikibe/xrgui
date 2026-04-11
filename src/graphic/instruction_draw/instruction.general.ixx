@@ -452,36 +452,38 @@ export
 struct batch_backend_interface{
 	using host_impl_ptr = void*;
 
-	using function_signature_buffer_acquire = void(host_impl_ptr, instruction_head, const std::byte* payload);
+	using function_signature_push = void(host_impl_ptr, instruction_head, const std::byte* payload);
 	using function_signature_update_state_entry = void(host_impl_ptr, state_push_config config, state_tag tag, std::span<const std::byte> payload, unsigned offset);
-	using function_signature_update_manager_ubo = void(host_impl_ptr, render_data_update_head head, std::span<const std::byte> payload, unsigned target_offset);
+	using function_signature_push_batch = void(host_impl_ptr, std::span<const instruction_head> heads, const std::byte* payload);
 
 private:
 	host_impl_ptr host;
-	std::add_pointer_t<function_signature_buffer_acquire> fptr_push;
+	std::add_pointer_t<function_signature_push> fptr_push;
+	std::add_pointer_t<function_signature_push_batch> fptr_push_batch;
 	std::add_pointer_t<function_signature_update_state_entry> state_handle;
-	std::add_pointer_t<function_signature_update_manager_ubo> update_manager_handle;
-
 
 public:
 	[[nodiscard]] constexpr batch_backend_interface() = default;
 
 	template <typename HostT,
-	std::invocable<HostT&, instruction_head, const std::byte*> AcqFn,
-	std::invocable<HostT&, state_push_config, state_tag, std::span<const std::byte>, unsigned> StateHandleFn,
-	std::invocable<HostT&, render_data_update_head, std::span<const std::byte>, unsigned> ManagerUpdateFn
+	std::invocable<HostT&, instruction_head, const std::byte*> PushFn,
+	std::invocable<HostT&, std::span<const instruction_head>, const std::byte*> BatchPushFn,
+	std::invocable<HostT&, state_push_config, state_tag, std::span<const std::byte>, unsigned> StateHandleFn
 	>
 	[[nodiscard]] constexpr batch_backend_interface(
 		HostT& host,
-		AcqFn,
-		StateHandleFn,
-		ManagerUpdateFn
+		PushFn,
+		BatchPushFn,
+		StateHandleFn
 	) noexcept : host(std::addressof(host)), fptr_push(+[](host_impl_ptr host, instruction_head head, const std::byte* instr){
-		return AcqFn::operator()(*static_cast<HostT*>(host), head, instr);
+		ATTR_FORCEINLINE_SENTENCE
+			return PushFn::operator()(*static_cast<HostT*>(host), head, instr);
+	}), fptr_push_batch(+[](host_impl_ptr host, std::span<const instruction_head> heads, const std::byte* payload) static {
+		ATTR_FORCEINLINE_SENTENCE
+			BatchPushFn::operator()(*static_cast<HostT*>(host), heads, payload);
 	}), state_handle(+[](host_impl_ptr host, state_push_config config, state_tag tag, std::span<const std::byte> payload, unsigned offset) static {
-		StateHandleFn::operator()(*static_cast<HostT*>(host), config, tag, payload, offset);
-	}), update_manager_handle(+[](host_impl_ptr host, render_data_update_head head, std::span<const std::byte> payload, unsigned target_offset) static {
-		ManagerUpdateFn::operator()(*static_cast<HostT*>(host), head, payload, target_offset);
+		ATTR_FORCEINLINE_SENTENCE
+			StateHandleFn::operator()(*static_cast<HostT*>(host), config, tag, payload, offset);
 	}){
 
 	}
@@ -502,15 +504,15 @@ public:
 	}
 
 
+	void push(std::span<const instruction_head> heads, const std::byte* instr) const {
+		CHECKED_ASSUME(fptr_push != nullptr);
+		fptr_push_batch(host, heads, instr);
+	}
+
+
 	void update_state(state_push_config config, state_tag tag, std::span<const std::byte> payload, unsigned offset = 0) const{
 		state_handle(host, config, tag, payload, offset);
 	}
-
-
-	void update_state(render_data_update_head head, std::span<const std::byte> payload, unsigned offset = 0) const{
-		update_manager_handle(host, head, payload, offset);
-	}
-
 };
 
 }
