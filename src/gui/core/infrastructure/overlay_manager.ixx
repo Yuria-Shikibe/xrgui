@@ -87,6 +87,13 @@ public:
 
 	overlay_create_result<elem> push_back(const overlay_layout& layout, elem_ptr&& elem_ptr, bool fade_in = true);
 
+	void clear() noexcept{
+		draw_sequence_.clear();
+		overlays_.clear();
+		overlay_fadings_.clear();
+		last_vp_ = {};
+	}
+
 	void pop_back() noexcept{
 		if(overlays_.empty()){
 			//TODO throw instead?

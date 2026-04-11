@@ -2,10 +2,15 @@ module;
 
 #include <cassert>
 #include <mo_yanxi/enum_operator_gen.hpp>
+#include <mo_yanxi/adapted_attributes.hpp>
 
 #define UI_MAIN_THREAD_ACCESS_ONLY
 #define UI_TRANSIENT
 #define UI_MERGE_ON_JOIN
+
+#ifndef NDEBUG
+#define SCENE_REFERENCE_COUNT_CHECK
+#endif
 
 export module mo_yanxi.gui.infrastructure:scene;
 
@@ -497,6 +502,47 @@ public:
 	std::thread::id ui_main_thread_id{std::this_thread::get_id()};
 
 private:
+#ifdef SCENE_REFERENCE_COUNT_CHECK
+	UI_TRANSIENT std::size_t element_on_this_scene_{};
+	struct check_on_destruction{
+		scene_base* scene_base{nullptr};
+		~check_on_destruction(){
+			assert(scene_base->element_on_this_scene_ == 0);
+		}
+	} check_on_destruction_{this};
+
+#endif
+
+	FORCE_INLINE inline void incr_ref_count_() noexcept{
+#ifdef SCENE_REFERENCE_COUNT_CHECK
+		++element_on_this_scene_;
+#endif
+	}
+
+	FORCE_INLINE inline void decr_ref_count_() noexcept{
+#ifdef SCENE_REFERENCE_COUNT_CHECK
+		// if(element_on_this_scene_  == 0){
+		// 	static unsigned overdecr = 0;
+		// 	++overdecr;
+		// 	std::println(std::cerr, "{}", overdecr);
+		// 	return;
+		// }
+		assert(element_on_this_scene_ != 0);
+		--element_on_this_scene_;
+#endif
+	}
+
+protected:
+
+	FORCE_INLINE inline void check_ref_count_zero_() noexcept{
+#ifdef SCENE_REFERENCE_COUNT_CHECK
+		assert(element_on_this_scene_ == 0);
+#endif
+
+	}
+
+public:
+
 	UI_TRANSIENT unsigned long long current_frame_{};
 	UI_TRANSIENT double current_time_{};
 
@@ -868,6 +914,10 @@ private:
 
 protected:
 	void merge(scene_base&& target){
+		target.tooltip_manager_.clear();
+		target.overlay_manager_.clear();
+
+
 		for (auto&& [lhs, rhs] : std::views::zip(output_communicate_async_task_queues_, target.output_communicate_async_task_queues_)){
 			lhs.merge(std::move(rhs));
 		}
@@ -954,6 +1004,8 @@ public:
 	virtual void join(scene&& scene){
 		get_input_communicate_async_task_queue().consume(scene);
 		merge(std::move(scene));
+		assert(scene.scene_root_ == nullptr && "target scene must drop all element ownership");
+		scene.check_ref_count_zero_();
 	}
 
 	virtual ~scene() = default;

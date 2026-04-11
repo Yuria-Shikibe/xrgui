@@ -140,9 +140,11 @@ elem::elem(scene& scene, elem* parent) noexcept:
 	parent_(parent),
 	is_at_display_stage_(parent ? parent->decide_is_children_displayable_on_add(*this) : true)
 {
-	if(is_at_display_stage() && is_on_scene_thread(scene)){
+	if(is_at_display_stage()){
 		scene.notify_display_state_changed(get_channel());
 	}
+
+	scene.incr_ref_count_();
 
 	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
 	sync_run([](elem& elem){
@@ -202,11 +204,11 @@ bool elem::update(float delta_in_ticks){
 
 void elem::clear_scene_references() noexcept{
 	assert(scene_ != nullptr);
-	if(is_on_scene_thread(get_scene())){
-		scene_->drop_(this);
-		if(is_at_display_stage()){
-			scene_->notify_display_state_changed(get_channel());
-		}
+	assert(is_on_scene_thread(get_scene()));
+
+	scene_->drop_(this);
+	if(is_at_display_stage()){
+		scene_->notify_display_state_changed(get_channel());
 	}
 
 }
@@ -321,7 +323,11 @@ void elem::relocate_scene(scene& target_scene) noexcept{
 }
 
 void elem::relocate_self_scene(scene& target_scene) noexcept{
+	assert(&target_scene != scene_);
+
+	scene_->decr_ref_count_();
 	scene_ = &target_scene;
+	scene_->incr_ref_count_();
 }
 
 events::op_afterwards util::thoroughly_esc(elem* where) noexcept{

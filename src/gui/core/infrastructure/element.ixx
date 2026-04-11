@@ -241,6 +241,7 @@ public:
 	unsigned _debug_identity{};
 
 	virtual ~elem(){
+		scene_->decr_ref_count_();
 		clear_scene_references();
 	}
 
@@ -342,7 +343,7 @@ public:
 #pragma region Event
 
 	virtual void on_display_state_changed(bool is_shown, bool is_scene_notified){
-		if(util::try_modify(is_at_display_stage_, is_shown) && !is_scene_notified && is_on_scene_thread(get_scene())){
+		if(util::try_modify(is_at_display_stage_, is_shown) && !is_scene_notified){
 			get_scene().notify_display_state_changed(get_channel());
 			is_scene_notified = true;
 		}
@@ -1261,8 +1262,9 @@ void update_erase(const elem& e, update_channel channel){
 
 export
 void sync_elem_tree(elem& to_join, scene& target_scene) noexcept{
-	target_scene.join(std::move(to_join.get_scene()));
+	auto& scene = to_join.get_scene();
 	to_join.relocate_scene(target_scene);
+	target_scene.join(std::move(scene));
 	to_join.get_scene().notify_display_state_changed(to_join.get_channel());
 }
 

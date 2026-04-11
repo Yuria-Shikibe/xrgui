@@ -52,8 +52,6 @@ public:
 		: head_body_no_invariant(scene, parent, layout_policy){
 		extend_focus_until_mouse_drop = true;
 		interactivity = interactivity_flag::enabled;
-		emplace_head<gui::elem>();
-		emplace_body<gui::elem>();
 		set_head_size({layout::size_category::passive, .5f});
 		set_body_size({layout::size_category::passive, .5f});
 	}
