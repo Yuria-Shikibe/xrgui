@@ -521,12 +521,6 @@ private:
 
 	FORCE_INLINE inline void decr_ref_count_() noexcept{
 #ifdef SCENE_REFERENCE_COUNT_CHECK
-		// if(element_on_this_scene_  == 0){
-		// 	static unsigned overdecr = 0;
-		// 	++overdecr;
-		// 	std::println(std::cerr, "{}", overdecr);
-		// 	return;
-		// }
 		assert(element_on_this_scene_ != 0);
 		--element_on_this_scene_;
 #endif
@@ -538,7 +532,6 @@ protected:
 #ifdef SCENE_REFERENCE_COUNT_CHECK
 		assert(element_on_this_scene_ == 0);
 #endif
-
 	}
 
 public:
@@ -549,12 +542,10 @@ public:
 protected:
 	UI_TRANSIENT elem_tree_channel display_state_changed_channel_{};
 
-protected:
 
 	UI_MERGE_ON_JOIN associated_async_sync_task_queue<elem> instant_task_queue_{get_heap_allocator()};
 	UI_MERGE_ON_JOIN scene_submodule::action_queue action_queue_{get_heap_allocator()};
 
-	//TODO use unique ptr
 	std::unique_ptr<scene_submodule::async_async_task_queue> async_task_queue_{};
 	UI_TRANSIENT scene_submodule::input input_handler_{get_heap_allocator()};
 

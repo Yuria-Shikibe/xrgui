@@ -143,6 +143,13 @@ public:
 
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
 		head_body_base::on_inbound_changed(is_inbounded, changed);
+		if(changed && !is_inbounded && !expandable()){
+			if(state_ == collapser_state::expanding || state_ == collapser_state::expanded){
+				util::update_insert(*this, update_channel::layout);
+				return;
+			}
+		}
+
 		if(expand_cond_ == collapser_expand_cond::inbound){
 			util::update_insert(*this, update_channel::layout);
 		}

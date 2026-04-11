@@ -17,22 +17,21 @@ import std;
 
 namespace mo_yanxi::gui{
 export
-struct scroll_adaptor_base;
+enum class scroll_sensitivity_mode : std::uint8_t {
+	absolute,
+	proportional
+};
 
 namespace style{
 export
 struct scroll_pane_bar_drawer;
-
-// export
-// extern referenced_ptr<const scroll_pane_bar_drawer> global_scroll_pane_bar_drawer;
 }
 
-
+export
 //TODO reduce protected fields
 struct scroll_adaptor_base : elem{
-	static constexpr float VelocitySensitivity = 0.95f;
-	static constexpr float VelocityDragSensitivity = 0.15f;
-	static constexpr float VelocityScale = 55.f;
+	static constexpr float ScrollVelocitySensitivity = 0.95f;
+	static constexpr float ScrollVelocityScale = 55.f;
 
 protected:
 	float scroll_bar_stroke_{20.0f};
@@ -49,16 +48,29 @@ protected:
 
 	float bar_opacity_{1.0f};
 	float activity_timer_{0.0f};
-	math::vec2 last_local_cursor_pos_{-10000.f, -10000.f};
+	math::vec2 last_local_cursor_pos_{};
 
 	bool overlay_scroll_bars_{false};
 	bool scroll_changed_in_update_{false};
 
-private:
-	referenced_ptr<const style::scroll_pane_bar_drawer> init_drawer_();
 
 public:
 	bool draw_track_if_locked{true};
+
+private:
+	enum class overlay_bar_state : std::uint8_t {
+		hidden,
+		fading_in,
+		active,
+		cooling_down,
+		fading_out
+	};
+	overlay_bar_state overlay_state_{overlay_bar_state::hidden};
+
+	referenced_ptr<const style::scroll_pane_bar_drawer> init_drawer_();
+
+
+public:
 	float fade_delay_ticks{60.0f * 1.5f};
 	float fade_duration_ticks{60.0f * 0.5f};
 
@@ -75,6 +87,11 @@ public:
 	void set_overlay_bar(bool enable){
 		if(util::try_modify(overlay_scroll_bars_, enable)){
 			notify_isolated_layout_changed();
+			if(enable){
+				bar_opacity_ = 0.f;
+			}else{
+				bar_opacity_ = 1.f;
+			}
 		}
 	}
 
@@ -94,8 +111,10 @@ public:
 
 #pragma region Event
 	events::op_afterwards on_cursor_moved(const events::cursor_move event) override{
-		last_local_cursor_pos_ = event.dst;
-		if(overlay_scroll_bars_ && is_cursor_pos_in_scroll_bar_region()){
+		last_local_cursor_pos_ = event.dst - content_src_offset();
+		if(overlay_scroll_bars_
+			&& (is_hori_scroll_enabled() || is_vert_scroll_enabled())
+			&& is_pos_in_bar_section(last_local_cursor_pos_)){
 			util::update_insert(*this, update_channel::draw);
 		}
 
@@ -116,16 +135,6 @@ public:
 #pragma endregion
 
 protected:
-	bool is_cursor_pos_in_scroll_bar_region() const noexcept{
-		if(cursor_state().inbound){
-			const auto check_pos = last_local_cursor_pos_ - scroll_.temp;
-			const auto vp = rect{
-					tags::unchecked, tags::from_extent, {}, get_viewport_extent().fdim(get_bar_extent())
-				};
-			return !vp.contains_loose(check_pos) && (is_hori_scroll_enabled() || is_vert_scroll_enabled());
-		}
-		return false;
-	}
 
 	[[nodiscard]] std::optional<layout::layout_policy> search_layout_policy_getter_impl() const noexcept final{
 		return get_layout_policy();
@@ -197,6 +206,13 @@ public:
 		if(is_hori_scroll_enabled()) rst.y = scroll_bar_stroke_;
 		if(is_vert_scroll_enabled()) rst.x = scroll_bar_stroke_;
 		return rst;
+	}
+
+	[[nodiscard]] bool is_pos_in_bar_section(math::vec2 content_local_pos) const noexcept{
+		auto max_ext = content_extent();
+		auto min_ext = max_ext.copy().fdim(get_bar_extent());
+
+		return (content_local_pos.x >= min_ext.x && content_local_pos.x <= max_ext.x) || (content_local_pos.y >= min_ext.y && content_local_pos.y <= max_ext.y);
 	}
 
 	[[nodiscard]] float bar_hori_length() const{

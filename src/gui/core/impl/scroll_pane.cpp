@@ -5,6 +5,7 @@ module;
 module mo_yanxi.gui.elem.scroll_pane;
 
 import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.math.interpolation;
 
 namespace mo_yanxi::gui{
 	// namespace style{
@@ -30,48 +31,87 @@ namespace mo_yanxi::gui{
 		if(!elem::update(delta_in_ticks)) return false;
 
 		if(overlay_scroll_bars_){
-			bool active = false;
+			bool is_interacting = false;
 
+			// 检查当前是否处于被触动/交互的状态
 			if(scroll_velocity_.length2() > 0.1f){
-				active = true;
+				is_interacting = true;
 			} else if(cursor_state().inbound){
-				const auto check_pos = last_local_cursor_pos_ - scroll_.temp;
-				const auto vp = rect{
-						tags::unchecked, tags::from_extent, {}, get_viewport_extent().fdim(get_bar_extent())
-					};
-				active = !vp.contains_loose(check_pos) && (is_hori_scroll_enabled() || is_vert_scroll_enabled());
+				is_interacting = is_pos_in_bar_section(last_local_cursor_pos_) && (is_hori_scroll_enabled() || is_vert_scroll_enabled());
 			}
 
-			if(active){
-				activity_timer_ = 0.0f;
-			} else{
-				activity_timer_ += delta_in_ticks;
+			bool keep_draw_update = true;
+
+			switch(overlay_state_) {
+				case overlay_bar_state::hidden:
+					if(is_interacting) {
+						overlay_state_ = overlay_bar_state::fading_in;
+					} else {
+						keep_draw_update = false; // 继续保持休眠
+					}
+					break;
+
+				case overlay_bar_state::fading_in:
+					bar_opacity_ = math::clamp(bar_opacity_ + delta_in_ticks / fade_duration_ticks, 0.0f, 1.0f);
+					if(bar_opacity_ >= 1.0f) {
+						overlay_state_ = is_interacting ? overlay_bar_state::active : overlay_bar_state::cooling_down;
+						activity_timer_ = 0.0f;
+					}
+					break;
+
+				case overlay_bar_state::active:
+					bar_opacity_ = 1.0f;
+					if(!is_interacting) {
+						// 鼠标移出或滚动停止，进入冷却计时
+						overlay_state_ = overlay_bar_state::cooling_down;
+						activity_timer_ = 0.0f;
+					} else {
+						// 正在被持续交互且已完全显形，无需每帧更新，交由按需唤醒
+						keep_draw_update = false;
+					}
+					break;
+
+				case overlay_bar_state::cooling_down:
+					bar_opacity_ = 1.0f;
+					if(is_interacting) {
+						overlay_state_ = overlay_bar_state::active;
+					} else {
+						activity_timer_ += delta_in_ticks;
+						if(activity_timer_ >= fade_delay_ticks) {
+							overlay_state_ = overlay_bar_state::fading_out;
+						}
+					}
+					break;
+
+				case overlay_bar_state::fading_out:
+					if(is_interacting) {
+						// 渐隐中途再次被交互，折返为渐显
+						overlay_state_ = overlay_bar_state::fading_in;
+					} else {
+						bar_opacity_ = math::clamp(bar_opacity_ - delta_in_ticks / fade_duration_ticks, 0.0f, 1.0f);
+						if(bar_opacity_ <= 0.0f) {
+							overlay_state_ = overlay_bar_state::hidden;
+							keep_draw_update = false; // 渐隐完成，进入休眠
+						}
+					}
+					break;
 			}
 
-			float target_opacity;
-			float expected_final_opacity;
-			if(activity_timer_ < fade_delay_ticks){
-				target_opacity = 1.0f;
-				expected_final_opacity = 1.f;
-			} else{
-				const float fade_progress = (activity_timer_ - fade_delay_ticks) / fade_duration_ticks;
-				target_opacity = 1.0f - math::clamp(fade_progress, 0.0f, 1.0f);
-				expected_final_opacity = 0.f;
-			}
-
-			math::approach_inplace(bar_opacity_, target_opacity, delta_in_ticks * 0.2f);
-			if(bar_opacity_ == expected_final_opacity && bar_opacity_ == 0.f){
+			// 按需移除绘制更新
+			if(!keep_draw_update) {
 				util::update_erase(*this, update_channel::draw);
 			}
-		} else{
+		} else {
+			// 非悬浮模式，保持常亮状态
 			bar_opacity_ = 1.0f;
 			activity_timer_ = 0.0f;
+			overlay_state_ = overlay_bar_state::active;
 		}
 
 		{
-			//scroll update
-			scroll_velocity_.lerp_inplace(scroll_target_velocity_, math::clamp(delta_in_ticks * VelocitySensitivity));
-			scroll_target_velocity_.lerp_inplace({}, math::clamp(delta_in_ticks * VelocitySensitivity));
+			// scroll physics update
+			scroll_velocity_.lerp_inplace(scroll_target_velocity_, math::clamp(delta_in_ticks * ScrollVelocitySensitivity));
+			scroll_target_velocity_.lerp_inplace({}, math::clamp(delta_in_ticks * ScrollVelocitySensitivity));
 
 			if(util::try_modify(
 				scroll_.base,
@@ -81,7 +121,7 @@ namespace mo_yanxi::gui{
 
 				scroll_changed_in_update_ = true;
 
-				activity_timer_ = 0.f;
+				// 注意这里我们将原有的 activity_timer_ = 0.f 移除，因为状态机已接管计时逻辑
 				util::update_insert(*this, update_channel::position);
 
 			} else{
@@ -99,9 +139,19 @@ namespace mo_yanxi::gui{
 
 	void scroll_adaptor_base::record_draw_scroll_bar(draw_call_stack_recorder& call_stack_builder) const{
 		if(!drawer)return;
-		record_drawer_draw_context(call_stack_builder, [](const scroll_adaptor_base& e, draw_call_stack_recorder& s){
-			e.drawer->record_draw_layer(s);
-		});
+		call_stack_builder.push_call_enter(*this, [](const scroll_adaptor_base& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
+			const rect bound = s.bound_abs();
+				return {
+					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
+					.draw_bound = bound,
+					.opacity_scl = s.get_draw_opacity() * math::interp::smooth(s.bar_opacity_),
+					.layer_param = p.layer_param
+				};
+			});
+
+		drawer->record_draw_layer(call_stack_builder );
+
+		call_stack_builder.push_call_leave();
 	}
 
 	referenced_ptr<const style::scroll_pane_bar_drawer> scroll_adaptor_base::init_drawer_(){
@@ -120,7 +170,7 @@ namespace mo_yanxi::gui{
 			cmp.swap_xy();
 		}
 		scroll_target_velocity_ = cmp * get_vel_clamp();
-		scroll_velocity_ = scroll_target_velocity_.scl(VelocityScale);
+		scroll_velocity_ = scroll_target_velocity_.scl(ScrollVelocityScale);
 		return {};
 	}
 

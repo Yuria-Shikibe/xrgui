@@ -470,11 +470,27 @@ protected:
 	// }
 
 protected:
-	//TODO make it a free function
 	template <typename S, std::invocable<const S&, draw_call_stack_recorder&> Fn>
 	void record_drawer_draw_context(this const S& self, draw_call_stack_recorder& call_stack_builder, Fn&& fn){
 		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
 			const rect bound = s.bound_abs();
+				return {
+					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
+					.draw_bound = bound,
+					.opacity_scl = s.get_draw_opacity(),
+					.layer_param = p.layer_param
+				};
+			});
+
+		std::invoke(std::forward<Fn>(fn), self, call_stack_builder);
+
+		call_stack_builder.push_call_leave();
+	}
+
+	template <typename S, std::invocable<const S&, draw_call_stack_recorder&> Fn>
+	void record_content_drawer_draw_context(this const S& self, draw_call_stack_recorder& call_stack_builder, Fn&& fn){
+		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
+			const rect bound = s.content_bound_abs();
 				return {
 					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
 					.draw_bound = bound,

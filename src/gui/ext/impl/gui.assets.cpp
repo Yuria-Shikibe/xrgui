@@ -1,7 +1,5 @@
 module;
 
-#include <magic_enum/magic_enum.hpp>
-
 #if defined(_MSC_VER)
 // MSVC 使用 __pragma 可以在宏内展开
 #define MY_PUSH_IGNORE_MODULE_INCLUDE_WARNING \

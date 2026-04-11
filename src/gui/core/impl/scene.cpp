@@ -49,90 +49,11 @@ void input::update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manag
 }
 
 
-input_key_result input::on_key_input(input_handle::key_set key){
-	inputs_.inform(key);
-
-	if(key.action == input_handle::act::press && key.key_code == std::to_underlying(input_handle::key::esc)){
-		return input_key_result::esc_required;
-	}else{
-		if(focus_key){
-			if(focus_key->on_key_input(key) == events::op_afterwards::intercepted){
-				return input_key_result::intercepted;
-			}
-		}
-
-		for (auto value : inbounds_.get_cur() | std::views::reverse){
-			if(value->on_key_input(key) == events::op_afterwards::intercepted){
-				return input_key_result::intercepted;
-			}
-		}
-	}
-
-	return input_key_result::fall_through;
-}
-
-events::op_afterwards input::on_unicode_input(char32_t val) const{
-	if(focus_key){
-		return focus_key->on_unicode_input(val);
-	}
-	return events::op_afterwards::fall_through;
-}
-
 void input::switch_key_focus(elem* element){
 	if(focus_key == element)return;
 	if(focus_key)focus_key->on_focus_key_changed(false);
 	focus_key = element;
 	if(focus_key)focus_key->on_focus_key_changed(true);
-}
-
-events::op_afterwards input::on_scroll(math::vec2 scroll) const{
-	events::scroll e{scroll, inputs_.main_binds.get_mode()};
-	//TODO provide cursor position?
-
-	if(focus_scroll){
-		auto rst = focus_scroll->on_scroll(e, {});
-		if(rst == events::op_afterwards::intercepted)return events::op_afterwards::intercepted;
-	}
-
-	auto rng = get_inbounds();
-	auto cur = rng.rbegin();
-	while(cur != rng.rend()){
-		std::span aboves{cur.base(), rng.end()};
-		if((*cur)->on_scroll(e, aboves) != events::op_afterwards::intercepted){
-			++cur;
-		}else{
-			return events::op_afterwards::intercepted;
-		}
-	}
-
-	return events::op_afterwards::fall_through;
-}
-
-void input::update_inbounds(){
-	auto& frontend = inbounds_.get_cur();
-	auto& backend = inbounds_.get_bak();
-
-	if(frontend.size() == backend.size() && (frontend.empty() || frontend.back() == backend.back()))return;
-
-	auto [i1, i2] = std::ranges::mismatch(frontend, backend);
-
-	for(const auto& element : std::ranges::subrange{i1, frontend.end()} | std::views::reverse){
-		element->on_inbound_changed(false, true);
-	}
-
-	auto itr = backend.begin();
-	for(; itr != i2; ++itr){
-		(*itr)->on_inbound_changed(true, false);
-	}
-
-	for(; itr != backend.end(); ++itr){
-		(*itr)->on_inbound_changed(true, true);
-		cursor_event_active_elems_.insert(*itr);
-	}
-
-	inbounds_.swap();
-
-	try_swap_focus();
 }
 
 void input::try_swap_focus(){
@@ -178,6 +99,58 @@ void input::swap_focus(elem* newFocus){
 	}
 }
 
+input_key_result input::on_key_input(input_handle::key_set key){
+	inputs_.inform(key);
+
+	if(key.action == input_handle::act::press && key.key_code == std::to_underlying(input_handle::key::esc)){
+		return input_key_result::esc_required;
+	}else{
+		if(focus_key){
+			if(focus_key->on_key_input(key) == events::op_afterwards::intercepted){
+				return input_key_result::intercepted;
+			}
+		}
+
+		for (auto value : inbounds_.get_cur() | std::views::reverse){
+			if(value->on_key_input(key) == events::op_afterwards::intercepted){
+				return input_key_result::intercepted;
+			}
+		}
+	}
+
+	return input_key_result::fall_through;
+}
+
+events::op_afterwards input::on_unicode_input(char32_t val) const{
+	if(focus_key){
+		return focus_key->on_unicode_input(val);
+	}
+	return events::op_afterwards::fall_through;
+}
+
+events::op_afterwards input::on_scroll(math::vec2 scroll) const{
+	events::scroll e{scroll, inputs_.main_binds.get_mode()};
+	//TODO provide cursor position?
+
+	if(focus_scroll){
+		auto rst = focus_scroll->on_scroll(e, {});
+		if(rst == events::op_afterwards::intercepted)return events::op_afterwards::intercepted;
+	}
+
+	auto rng = get_inbounds();
+	auto cur = rng.rbegin();
+	while(cur != rng.rend()){
+		std::span aboves{cur.base(), rng.end()};
+		if((*cur)->on_scroll(e, aboves) != events::op_afterwards::intercepted){
+			++cur;
+		}else{
+			return events::op_afterwards::intercepted;
+		}
+	}
+
+	return events::op_afterwards::fall_through;
+}
+
 events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 	using namespace input_handle;
 	auto [c, a, m] = k;
@@ -211,7 +184,7 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 			last_inbound_click = nullptr;
 		}
 
-		END:
+	END:
 		(void)0;
 	}
 
@@ -228,6 +201,33 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 	}
 
 	return result;
+}
+
+void input::update_inbounds(){
+	auto& frontend = inbounds_.get_cur();
+	auto& backend = inbounds_.get_bak();
+
+	if(frontend.size() == backend.size() && (frontend.empty() || frontend.back() == backend.back()))return;
+
+	auto [i1, i2] = std::ranges::mismatch(frontend, backend);
+
+	for(const auto& element : std::ranges::subrange{i1, frontend.end()} | std::views::reverse){
+		element->on_inbound_changed(false, true);
+	}
+
+	auto itr = backend.begin();
+	for(; itr != i2; ++itr){
+		(*itr)->on_inbound_changed(true, false);
+	}
+
+	for(; itr != backend.end(); ++itr){
+		(*itr)->on_inbound_changed(true, true);
+		cursor_event_active_elems_.insert(*itr);
+	}
+
+	inbounds_.swap();
+
+	try_swap_focus();
 }
 
 input::cursor_update_result input::update_cursor(overlay_manager& overlays, tooltip::tooltip_manager& tooltips,
@@ -333,10 +333,11 @@ style::style_manager scene_resources::init_style_manager_() const{
 
 
 scene_base::scene_base(scene_resources& resources, renderer_frontend&& renderer): scene_shared_resources(resources), renderer_(std::move(renderer)){
-	platform::set_thread_attributes(react_flow_.get_async_working_thread().native_handle(), {
-		.name = "xrgui react flow",
-		.priority = platform::thread_priority::normal
-	});
+	platform::set_thread_attributes(
+		react_flow_.get_async_working_thread().native_handle(), {
+			.name = "xrgui react flow",
+			.priority = platform::thread_priority::normal
+		});
 }
 
 void scene_base::drop_(const elem* target) noexcept{
@@ -364,6 +365,11 @@ void scene_base::resize(const math::frect region){
 		overlay_manager_.resize(region);
 	}
 }
+
+void scene_base::update_cursor_type(){
+	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(input_handler_.get_cursor_style());
+}
+
 
 void scene_base::update(double delta_in_tick){
 	assert(is_on_scene_thread(*this));
@@ -393,11 +399,6 @@ void scene_base::update(double delta_in_tick){
 
 	current_time_ += delta_in_tick;
 	current_frame_++;
-}
-
-
-void scene_base::update_cursor_type(){
-	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(input_handler_.get_cursor_style());
 }
 
 
@@ -448,9 +449,9 @@ void scene::enable_elem_async_task_post(bool enable){
 		if(enable){
 			async_task_queue_ = std::make_unique<decltype(async_task_queue_)::element_type>(get_heap_allocator(), fork());
 			platform::set_thread_attributes(async_task_queue_->get_element_async_task_thread().native_handle(), {
-				.name = "xrgui ui async task",
-				.priority = platform::thread_priority::normal
-			});
+				                                .name = "xrgui ui async task",
+				                                .priority = platform::thread_priority::normal
+			                                });
 		}else{
 			async_task_queue_ = nullptr;
 		}
