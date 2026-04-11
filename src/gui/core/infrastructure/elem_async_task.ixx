@@ -5,6 +5,9 @@ module;
 export module mo_yanxi.gui.infrastructure:elem_async_task;
 
 import std;
+import mo_yanxi.allocator_aware_unique_ptr;
+import mo_yanxi.concurrent.mpsc_queue;
+import mo_yanxi.heterogeneous;
 import :defines;
 import :elem_ptr;
 
@@ -40,9 +43,9 @@ public:
 		return *owner;
 	}
 
-	virtual void process() = 0;
+	virtual void process(scene& async_scene) = 0;
 
-	virtual void on_done() = 0;
+	virtual void on_done(scene& async_scene) = 0;
 };
 
 export
@@ -51,18 +54,18 @@ struct elem_async_task : basic_elem_async_task{
 	ADAPTED_NO_UNIQUE_ADDRESS ProcessFn process_fn_;
 	ADAPTED_NO_UNIQUE_ADDRESS DoneFn done_fn_;
 
-	template <std::invocable<E&> ProcessFnTy, std::invocable<E&> DoneFnTy>
+	template <std::invocable<E&, scene&> ProcessFnTy, std::invocable<E&, scene&> DoneFnTy>
 	[[nodiscard]] elem_async_task(E& owner, ProcessFnTy&& process_fn, DoneFnTy&& done_fn)
 		: basic_elem_async_task(owner),
 		  process_fn_(std::forward<ProcessFnTy>(process_fn)),
 		  done_fn_(std::forward<DoneFnTy>(done_fn)){
 	}
 
-	void process() override{
-		std::invoke(process_fn_, static_cast<E&>(get_owner()));
+	void process(scene& async_scene) override{
+		std::invoke(process_fn_, static_cast<E&>(get_owner()), async_scene);
 	}
-	void on_done() override{
-		std::invoke(done_fn_, static_cast<E&>(get_owner()));
+	void on_done(scene& async_scene) override{
+		std::invoke(done_fn_, static_cast<E&>(get_owner()), async_scene);
 	}
 };
 
@@ -73,32 +76,30 @@ elem_async_task(E&, ProcessFnTy, DoneFnTy) -> elem_async_task<E, std::decay_t<Pr
 export
 template <std::derived_from<elem> E, typename ProcessFn, typename DoneFn>
 struct elem_async_yield_task : basic_elem_async_task{
-	using yield_result_t = std::invoke_result_t<ProcessFn&, E&>;
+	using yield_result_t = std::invoke_result_t<ProcessFn&, E&, scene&>;
 	static_assert(std::is_move_assignable_v<yield_result_t>);
 
 	ADAPTED_NO_UNIQUE_ADDRESS ProcessFn process_fn_;
 	ADAPTED_NO_UNIQUE_ADDRESS DoneFn done_fn_;
 	ADAPTED_NO_UNIQUE_ADDRESS yield_result_t result_;
 
-	template <std::invocable<E&> ProcessFnTy, std::invocable<E&, std::invoke_result_t<ProcessFn&, E&>&&> DoneFnTy>
+	template <std::invocable<E&, scene&> ProcessFnTy, std::invocable<E&, scene&, yield_result_t&&> DoneFnTy>
 	[[nodiscard]] elem_async_yield_task(E& owner, ProcessFnTy&& process_fn, DoneFnTy&& done_fn)
 		: basic_elem_async_task(owner),
 		  process_fn_(std::forward<ProcessFnTy>(process_fn)),
 		  done_fn_(std::forward<DoneFnTy>(done_fn)){
 	}
 
-	void process() override{
-		result_ = std::invoke_r<yield_result_t>(process_fn_, static_cast<E&>(get_owner()));
+	void process(scene& async_scene) override{
+		result_ = std::invoke_r<yield_result_t>(process_fn_, static_cast<E&>(get_owner()), async_scene);
 	}
 
-	void on_done() override{
-		std::invoke(done_fn_, static_cast<E&>(get_owner()), std::move(result_));
+	void on_done(scene& async_scene) override{
+		std::invoke(done_fn_, static_cast<E&>(get_owner()), async_scene, std::move(result_));
 	}
 };
 
 template <std::derived_from<elem> E, typename ProcessFnTy, typename DoneFnTy>
 elem_async_yield_task(E&, ProcessFnTy, DoneFnTy) -> elem_async_yield_task<E, std::decay_t<ProcessFnTy>, std::decay_t<DoneFnTy>>;
-
-
 
 }

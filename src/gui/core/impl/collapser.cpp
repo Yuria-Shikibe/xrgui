@@ -22,7 +22,7 @@ void collapser::update_collapse(float delta) noexcept{
 			}
 		}else{
 			expand_reload_ = 0;
-			this->post_task([](const elem& e){util::update_erase(e, update_channel::layout);});
+			util::update_erase(*this, update_channel::layout);
 		}
 		break;
 	}
@@ -36,7 +36,7 @@ void collapser::update_collapse(float delta) noexcept{
 			state_ = collapser_state::expanded;
 			if(update_opacity_during_expand_)body().update_context_opacity(get_draw_opacity());
 			body().on_display_state_changed(true, false);
-			if(expandable())this->post_task([](const elem& e){util::update_erase(e, update_channel::layout);});
+			if(expandable())util::update_erase(*this, update_channel::layout);
 		}else if(update_opacity_during_expand_){
 			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
 		}
@@ -61,7 +61,8 @@ void collapser::update_collapse(float delta) noexcept{
 			}
 		}else{
 			expand_reload_ = 0;
-			this->post_task([](const elem& e){util::update_erase(e, update_channel::layout);});
+			util::update_erase(*this, update_channel::layout);
+
 		}
 		break;
 	}
@@ -74,7 +75,8 @@ void collapser::update_collapse(float delta) noexcept{
 			state_ = collapser_state::un_expand;
 			if(update_opacity_during_expand_)body().update_context_opacity(0);
 			body().on_display_state_changed(false, false);
-			this->post_task([](const elem& e){util::update_erase(e, update_channel::layout);});
+			util::update_erase(*this, update_channel::layout);
+
 		}else if(update_opacity_during_expand_){
 			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
 		}

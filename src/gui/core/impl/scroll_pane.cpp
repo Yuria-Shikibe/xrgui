@@ -61,7 +61,7 @@ namespace mo_yanxi::gui{
 
 			math::approach_inplace(bar_opacity_, target_opacity, delta_in_ticks * 0.2f);
 			if(bar_opacity_ == expected_final_opacity && bar_opacity_ == 0.f){
-				this->post_task([](const elem& e){util::update_erase(e, update_channel::draw);});
+				util::update_erase(*this, update_channel::draw);
 			}
 		} else{
 			bar_opacity_ = 1.0f;
@@ -82,10 +82,11 @@ namespace mo_yanxi::gui{
 				scroll_changed_in_update_ = true;
 
 				activity_timer_ = 0.f;
-				this->post_task([](elem& e){util::update_insert(e, update_channel::position);});
+				util::update_insert(*this, update_channel::position);
+
 			} else{
 				scroll_changed_in_update_ = false;
-				this->post_task([](elem& e){util::update_erase(e, update_channel::position);});
+				util::update_erase(*this, update_channel::position);
 			}
 		}
 
@@ -111,7 +112,7 @@ namespace mo_yanxi::gui{
 
 	events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std::span<elem* const> aboves){
 		activity_timer_ = 0.0f;
-		this->sync_run([](scroll_adaptor_base& e){util::update_insert(e, update_channel::position | (e.overlay_scroll_bars_ ? update_channel::draw : update_channel{}));});
+		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 
 		auto cmp = -e.delta;
 		if(input_handle::matched(e.mode, input_handle::mode::shift) || (is_hori_scroll_enabled() && !
@@ -128,7 +129,7 @@ namespace mo_yanxi::gui{
 			return events::op_afterwards::fall_through;
 		}
 		activity_timer_ = 0.0f;
-		this->sync_run([](scroll_adaptor_base& e){util::update_insert(e, update_channel::position | (e.overlay_scroll_bars_ ? update_channel::draw : update_channel{}));});
+		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 
 		scroll_target_velocity_ = scroll_velocity_ = {};
 		const auto trans = e.delta() * get_vel_clamp();

@@ -34,9 +34,9 @@ namespace mo_yanxi::gui{
 		void on_display_state_changed(bool is_shown, bool is_scene_notified) override{
 			elem::on_display_state_changed(is_shown, is_scene_notified);
 			if(is_shown){
-				post_task([](elem& e){util::update_insert(e, update_channel::all);});
+				util::update_insert(*this, update_channel::draw);
 			}else{
-				post_task([](elem& e){util::update_erase(e, update_channel::all);});
+				util::update_erase(*this, update_channel::draw);
 			}
 		}
 

@@ -237,10 +237,8 @@ void elem::notify_layout_changed(propagate_mask propagation){
 }
 
 void elem::notify_isolated_layout_changed(){
-	sync_run([](elem& elem){
-		elem.layout_state.notify_self_changed();
-		elem.get_scene().add_isolated_layout_update(&elem);
-	});
+	layout_state.notify_self_changed();
+	get_scene().add_isolated_layout_update(this);
 }
 
 bool elem::update_abs_src(math::vec2 parent_content_src) noexcept{
@@ -299,13 +297,6 @@ style::style_manager& elem::get_style_manager() const noexcept{
 	return scene_->resources().style_manager;
 }
 
-void elem::try_sync_context(){
-	if(std::this_thread::get_id() == scene_->ui_main_thread_id){
-		on_context_sync_bind();
-	}
-}
-
-
 void elem::update_altitude_(altitude_t height){
 	// if(layer_altitude_ == height)return;
 	// scene_->layer_altitude_record_.erase(layer_altitude_);
@@ -321,12 +312,16 @@ void elem::init_altitude_(altitude_t height){
 	// scene_->layer_altitude_record_.insert(layer_altitude_);
 }
 
-void elem::relocate_scene_(struct gui::scene* scene) noexcept{
+void elem::relocate_scene(scene& target_scene) noexcept{
 	for (auto && child : children()){
-		child->relocate_scene_(scene);
+		child->relocate_scene(target_scene);
 	}
 
-	scene_ = scene;
+	relocate_self_scene(target_scene);
+}
+
+void elem::relocate_self_scene(scene& target_scene) noexcept{
+	scene_ = &target_scene;
 }
 
 events::op_afterwards util::thoroughly_esc(elem* where) noexcept{

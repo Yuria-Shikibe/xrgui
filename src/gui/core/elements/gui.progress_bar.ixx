@@ -246,13 +246,13 @@ public:
 
 	void set_progress_target(bar_progress::value_type value){
 		if(progress.set_target(value)){
-			this->post_task([](elem& e){util::update_insert(e, update_channel::value_approach);});
+			util::update_insert(*this, update_channel::value_approach);
 		}
 	}
 
 	void set_progress_state(progress_state state){
 		if(progress.set_state(state)){
-			this->post_task([](elem& e){util::update_insert(e, update_channel::value_approach);});
+			util::update_insert(*this, update_channel::value_approach);
 		}
 	}
 
@@ -266,7 +266,7 @@ public:
 	bool update(float delta_in_ticks) override{
 		if(elem::update(delta_in_ticks)){
 			if(progress.update(delta_in_ticks)){
-				this->post_task([](elem& e){util::update_erase(e, update_channel::value_approach);});
+				util::update_erase(*this, update_channel::value_approach);
 			}
 			return true;
 		}

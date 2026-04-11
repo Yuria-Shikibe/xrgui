@@ -12,7 +12,7 @@ namespace mo_yanxi::gui{
 export
 template <std::size_t N>
 	requires (N > 0)
-struct double_side : elem{
+struct flipper : elem{
 	std::array<elem_ptr, N> candidates_{};
 	std::size_t current_active_index_{};
 
@@ -28,7 +28,7 @@ private:
 	}
 
 public:
-	[[nodiscard]] double_side(scene& scene, elem* parent)
+	[[nodiscard]] flipper(scene& scene, elem* parent)
 		: elem(scene, parent){
 	}
 
@@ -108,12 +108,6 @@ protected:
 	}
 
 public:
-	void on_context_sync_bind() override{
-		elem::on_context_sync_bind();
-		for (const elem_ptr& child : candidates_){
-			if(child)child->on_context_sync_bind();
-		}
-	}
 
 	[[nodiscard]] std::size_t get_current_active_index() const noexcept {
 		return current_active_index_;
@@ -140,7 +134,14 @@ public:
 			notify_isolated_layout_changed();
 		}
 	}
+	void relocate_scene(scene& target_scene) noexcept override{
+		relocate_self_scene(target_scene);
 
+		for (elem_ptr& child : candidates_){
+			child->relocate_scene(target_scene);
+		}
+
+	}
 protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
 		if(expand_policy_ == layout::expand_policy::passive) return std::nullopt;

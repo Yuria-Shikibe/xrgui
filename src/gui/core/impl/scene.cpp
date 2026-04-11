@@ -320,6 +320,10 @@ style::cursor_style input::get_cursor_style() const{
 
 }
 
+std::thread::id exchange_scene_thread(scene& s, std::thread::id id){
+	return std::exchange(s.ui_main_thread_id, id);
+}
+
 style::style_manager scene_resources::init_style_manager_() const{
 	style::style_manager manager{};
 	manager.reserve(64);
@@ -434,10 +438,15 @@ void scene_base::layout(){
 	}
 }
 
-void scene_base::enable_elem_async_task_post(bool enable){
-	if(enable == (async_task_queue_ != nullptr)){
+
+void scene::init_root() const{
+	scene_root_->element_channel_ = elem_tree_channel::regular;
+}
+
+void scene::enable_elem_async_task_post(bool enable){
+	if(enable != (async_task_queue_ != nullptr)){
 		if(enable){
-			async_task_queue_ = std::make_unique<decltype(async_task_queue_)::element_type>(get_heap_allocator());
+			async_task_queue_ = std::make_unique<decltype(async_task_queue_)::element_type>(get_heap_allocator(), fork());
 			platform::set_thread_attributes(async_task_queue_->get_element_async_task_thread().native_handle(), {
 				.name = "xrgui ui async task",
 				.priority = platform::thread_priority::normal
@@ -447,9 +456,4 @@ void scene_base::enable_elem_async_task_post(bool enable){
 		}
 	}
 }
-
-void scene::init_root() const{
-	scene_root_->element_channel_ = elem_tree_channel::regular;
-}
-
 }

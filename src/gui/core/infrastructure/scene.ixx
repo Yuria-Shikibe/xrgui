@@ -2,6 +2,7 @@ module;
 
 #include <cassert>
 #include <mo_yanxi/enum_operator_gen.hpp>
+
 #define UI_MAIN_THREAD_ACCESS_ONLY
 #define UI_TRANSIENT
 #define UI_MERGE_ON_JOIN
@@ -41,6 +42,7 @@ import mo_yanxi.fixed_vector;
 import mo_yanxi.call_stream;
 
 namespace mo_yanxi::gui{
+std::thread::id exchange_scene_thread(scene& s, std::thread::id id);
 
 export enum struct elem_tree_channel : std::uint8_t{
 	deduced = 0,
@@ -357,17 +359,21 @@ private:
 	ccur::mpsc_queue<elem_async_task_ptr, std::deque<
 			elem_async_task_ptr, mr::heap_allocator<elem_async_task_ptr>
 		>> element_async_tasks_pending_{};
-	ccur::mpsc_double_buffer<elem_async_task_ptr, mr::heap_vector<elem_async_task_ptr>> element_async_tasks_done_{};
+
+	std::atomic<basic_elem_async_task*> current_done_task_{};
 	mr::heap_umap<elem*, unsigned, transparent::ptr_hasher<elem>, transparent::ptr_equal_to<elem>> element_async_task_alive_owners_{};
+	std::unique_ptr<scene> forked_scene_{};
 	std::jthread element_async_task_thread_{};
 
 public:
-	[[nodiscard]] async_async_task_queue(const mr::heap_allocator<elem_async_task_ptr>& alloc)
+	[[nodiscard]] async_async_task_queue(const mr::heap_allocator<elem_async_task_ptr>& alloc,
+	                                     std::unique_ptr<scene>&& scene)
 		:
 		element_async_tasks_pending_(alloc),
-		element_async_tasks_done_(alloc),
 		element_async_task_alive_owners_(alloc),
+		forked_scene_((assert(scene != nullptr), std::move(scene))),
 		element_async_task_thread_([this](std::stop_token&& stop_token){
+			exchange_scene_thread(*forked_scene_, std::this_thread::get_id());
 			elem_async_tasks_process(std::move(stop_token));
 		}){
 	}
@@ -376,36 +382,51 @@ public:
 		return element_async_task_thread_;
 	}
 
+	~async_async_task_queue(){
+		element_async_task_thread_.request_stop();
+		element_async_tasks_pending_.notify();
+
+		current_done_task_.store(nullptr, std::memory_order_relaxed);
+		current_done_task_.notify_one();
+
+	}
+
 private:
 	void elem_async_tasks_process(std::stop_token stop_token){
 		while(!stop_token.stop_requested()){
 			auto task = element_async_tasks_pending_.consume([&] noexcept {
-				return stop_token.stop_possible();
+				return stop_token.stop_requested();
 			});
 
 			if(task){
-				(*task)->process();
-				element_async_tasks_done_.push(std::move(*task));
+				(*task)->process(*forked_scene_);
+				auto addr = std::to_address(*task);
+				current_done_task_.store(addr, std::memory_order_release);
+				if(stop_token.stop_requested())break;
+				current_done_task_.wait(addr, std::memory_order_relaxed);
 			}
 		}
 	}
 
 public:
-	UI_MAIN_THREAD_ACCESS_ONLY void process_done(){
-		if(auto cont = element_async_tasks_done_.fetch()){
-			for(auto&& elem_async_task : *cont){
-				if(auto itr = element_async_task_alive_owners_.find(&elem_async_task->get_owner()); itr !=
-					element_async_task_alive_owners_.end()){
-					elem_async_task->on_done();
-					if(--(itr->second) == 0){
-						element_async_task_alive_owners_.erase(itr);
-					}
+	void process_done(){
+		if(auto elem_async_task = current_done_task_.load(std::memory_order_acquire)){
+			auto thread = std::this_thread::get_id();
+			auto last = exchange_scene_thread(*forked_scene_, thread);
+			auto& alive_set = element_async_task_alive_owners_;
+			if(auto itr = alive_set.find(&elem_async_task->get_owner()); itr != alive_set.end()){
+				elem_async_task->on_done(*forked_scene_);
+				if(--(itr->second) == 0){
+					alive_set.erase(itr);
 				}
 			}
+			exchange_scene_thread(*forked_scene_, last);
+			current_done_task_.store(nullptr, std::memory_order_relaxed);
+			current_done_task_.notify_one();
 		}
 	}
 
-	UI_MAIN_THREAD_ACCESS_ONLY void erase(const elem* owner){
+	void erase(const elem* owner){
 		element_async_task_alive_owners_.erase(owner);
 	}
 
@@ -427,7 +448,6 @@ public:
 				element_async_task_alive_owners_.get_allocator(), crop{e, std::forward<Prov>(prov)}));
 	}
 };
-
 
 }
 
@@ -527,10 +547,10 @@ protected:
 		const elem*, react_flow::node*,
 		std::hash<const elem*>, std::equal_to<const elem*>,
 		mr::heap_allocator<std::pair<const elem* const, react_flow::node*>>>
-	elem_owned_nodes_{};
+	elem_owned_nodes_{get_heap_allocator()};
 
 private:
-	fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_communicate_async_task_queues_{};
+	UI_MERGE_ON_JOIN fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_communicate_async_task_queues_{};
 	async_sync_task_queue<scene&> input_communicate_async_task_queue_{get_heap_allocator()};
 
 protected:
@@ -720,23 +740,7 @@ protected:
 
 	void drop_(const elem* target) noexcept;
 
-
-#pragma region elem_async_task_mfunc
-
 public:
-	template <std::derived_from<elem> E, std::invocable<E&> Prov>
-	void post_elem_async_task(E& e, Prov&& prov){
-		if(async_task_queue_){
-			async_task_queue_->post(e, std::forward<Prov>(prov));
-		}else{
-			std::derived_from<basic_elem_async_task> auto task = std::invoke(std::forward<Prov>(prov), e);
-			task.process();
-			task.on_done();
-		}
-	}
-
-#pragma endregion
-
 	void resize(const math::frect region);
 
 	void close_overlay(const elem* overlay_elem){
@@ -746,6 +750,7 @@ public:
 #pragma region ReactFlow
 	//TODO make these API async safe
 
+public:
 	template <typename T, typename ...Args>
 	[[nodiscard]] T& request_independent_react_node(Args&& ...args){
 		if(!is_on_scene_thread(*this)){
@@ -853,8 +858,6 @@ public:
 
 	void layout();
 
-	void enable_elem_async_task_post(bool enable);
-
 private:
 #pragma endregion
 
@@ -865,6 +868,10 @@ private:
 
 protected:
 	void merge(scene_base&& target){
+		for (auto&& [lhs, rhs] : std::views::zip(output_communicate_async_task_queues_, target.output_communicate_async_task_queues_)){
+			lhs.merge(std::move(rhs));
+		}
+
 		//TODO ensure target has no child to avoid resource leaking
 		{
 			target.independent_layouts_.swap();
@@ -875,18 +882,18 @@ protected:
 		{
 			target.apply_update_state_changes();
 			active_update_elems_.merge(std::move(target.active_update_elems_));
-			target.active_update_elems_.clear();
 		}
 
 		{
-			react_flow_.merge(std::exchange(target.react_flow_, {}));
+			react_flow_.merge(std::move(target.react_flow_));
+			std::destroy_at(&target.react_flow_);
+			std::construct_at(&target.react_flow_);
 			elem_owned_nodes_.merge(std::move(target.elem_owned_nodes_));
+			target.elem_owned_nodes_.clear();
 		}
 
 		action_queue_.merge(std::move(target.action_queue_));
-		target.action_queue_.clear();
 		instant_task_queue_.merge(std::move(target.instant_task_queue_));
-		target.instant_task_queue_.clear();
 	}
 };
 
@@ -923,6 +930,21 @@ protected:
 	}
 
 public:
+
+	void enable_elem_async_task_post(bool enable);
+
+	template <std::derived_from<elem> E, std::invocable<E&> Prov>
+	void post_elem_async_task(E& e, Prov&& prov){
+		if(async_task_queue_){
+			async_task_queue_->post(e, std::forward<Prov>(prov));
+		}else{
+			std::derived_from<basic_elem_async_task> auto task = std::invoke(std::forward<Prov>(prov), e);
+			task.process(*this);
+			task.on_done(*this);
+		}
+	}
+
+
 	virtual std::unique_ptr<scene> fork(){
 		auto rst = std::make_unique<scene>(static_cast<scene_shared_resources>(*this));
 		rst->drop_and_reset_communicate_async_task_queue_size(get_output_communicate_async_task_queues_size());
@@ -930,7 +952,8 @@ public:
 	}
 
 	virtual void join(scene&& scene){
-
+		get_input_communicate_async_task_queue().consume(scene);
+		merge(std::move(scene));
 	}
 
 	virtual ~scene() = default;

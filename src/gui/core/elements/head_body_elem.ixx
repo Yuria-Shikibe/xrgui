@@ -119,15 +119,6 @@ public:
 		call_stack_builder.push_call_leave();
 	}
 
-
-	void on_context_sync_bind() override{
-		elem::on_context_sync_bind();
-		for (auto && child : items){
-			if(child)child->on_context_sync_bind();
-		}
-	}
-
-
 	rect get_seperator_region_element_local() const noexcept{
 		const auto [major, minor] = layout::get_vec_ptr(get_layout_policy());
 		auto head_extent = head().extent();

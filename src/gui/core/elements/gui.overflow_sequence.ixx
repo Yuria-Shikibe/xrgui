@@ -303,10 +303,7 @@ public:
 			}
 		});
 	}
-protected:
-	// 重写绘制流程，在超出时预留 Scissor
 
-protected:
 	struct overflow_layout_info {
 		bool is_overflowed{false};
 		bool requires_scissor{false};
@@ -315,6 +312,15 @@ protected:
 	};
 
 	// 统一的布局测量与截断算法
+	void relocate_scene(scene& target_scene) noexcept override{
+		relocate_self_scene(target_scene);
+
+		if(overflow_elem_)overflow_elem_->relocate_scene(target_scene);
+		for (auto && child : children_){
+			child->relocate_scene(target_scene);
+		}
+	}
+protected:
 	overflow_layout_info calculate_overflow_layout(
 		float major_size,
 		float minor_scaling,
@@ -464,7 +470,6 @@ protected:
 		return info;
 	}
 
-protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override {
 		switch(get_layout_policy()){
 		case layout::layout_policy::hori_major:

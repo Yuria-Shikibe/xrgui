@@ -96,7 +96,7 @@ public:
 	events::op_afterwards on_cursor_moved(const events::cursor_move event) override{
 		last_local_cursor_pos_ = event.dst;
 		if(overlay_scroll_bars_ && is_cursor_pos_in_scroll_bar_region()){
-			this->sync_run([](elem& e){util::update_insert(e, update_channel::draw);});
+			util::update_insert(*this, update_channel::draw);
 		}
 
 		return elem::on_cursor_moved(event);
@@ -140,7 +140,7 @@ public:
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
 		elem::on_inbound_changed(is_inbounded, changed);
 		set_focused_scroll(is_inbounded);
-		if(changed && overlay_scroll_bars_) this->sync_run([](elem& e){util::update_insert(e, update_channel::draw);});
+		if(changed && overlay_scroll_bars_) util::update_insert(*this, update_channel::draw);
 	}
 
 	void on_focus_changed(bool is_focused) override{
@@ -468,11 +468,6 @@ public:
 		notify_isolated_layout_changed();
 
 		return static_cast<E&>(*this->item_);
-	}
-
-	void on_context_sync_bind() override{
-		elem::on_context_sync_bind();
-		adaptor_on_context_sync_bind();
 	}
 
 	bool update(const float delta_in_ticks) override{

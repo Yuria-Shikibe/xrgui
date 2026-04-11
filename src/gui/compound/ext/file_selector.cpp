@@ -81,7 +81,7 @@ namespace mo_yanxi::gui::cpd{
 			constexpr float scl = .12f;
 			if(elem::update(delta_in_ticks)){
 				switch(s){
-				case closed : post_task([](const elem& e){util::update_erase(e, update_channel::draw);});
+				case closed : util::update_erase(*this, update_channel::draw);
 					progress_ = 0;
 					break;
 				case expanding : progress_ += delta_in_ticks * scl;
@@ -90,7 +90,7 @@ namespace mo_yanxi::gui::cpd{
 						s = expanded;
 					}
 					break;
-				case expanded : post_task([](const elem& e){util::update_erase(e, update_channel::draw);});
+				case expanded : util::update_erase(*this, update_channel::draw);
 					progress_ = 1;
 					break;
 				case closing : progress_ -= delta_in_ticks * scl;
@@ -112,7 +112,7 @@ namespace mo_yanxi::gui::cpd{
 			case closed : s = closed;
 				break;
 			default : s = closing;
-				post_task([](elem& e){util::update_insert(e, update_channel::draw);});
+				util::update_insert(*this, update_channel::draw);
 				break;
 			}
 		}
@@ -146,7 +146,7 @@ namespace mo_yanxi::gui::cpd{
 					drop_tooltip();
 					break;
 				}
-				post_task([](elem& e){util::update_insert(e, update_channel::draw);});
+				util::update_insert(*this, update_channel::draw);
 			}
 			return events::op_afterwards::intercepted;
 		}
@@ -274,11 +274,11 @@ namespace mo_yanxi::gui::cpd{
 			});
 	}
 
-	struct current_position_bar : double_side<2>{
+	struct current_position_bar : flipper<2>{
 		file_selector* selector;
 
 		[[nodiscard]] current_position_bar(scene& scene, elem* parent, file_selector& s)
-			: double_side<2>(scene, parent), selector(&s){
+			: flipper<2>(scene, parent), selector(&s){
 			interactivity = interactivity_flag::enabled;
 			set_expand_policy(layout::expand_policy::passive);
 			set_style_side_bar(*this);

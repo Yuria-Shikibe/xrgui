@@ -130,6 +130,10 @@ public:
 			ts->execute();
 		}
 	}
+
+	void merge(call_stream_task_queue&& other){
+		async_tasks_.merge(std::move(other).async_tasks_);
+	}
 };
 
 }

@@ -137,15 +137,15 @@ struct csv_file_reader : head_body{
 			carrier->get_scene().close_overlay(std::exchange(overlay, nullptr)->element.get());
 
 			util::post_elem_async_task(*carrier, [&](csv_file_reader& r){
-				return elem_async_yield_task{r, [&](csv_file_reader& r){
-					return elem_ptr{r.get_scene(), &r, [p = path](cpd::data_table& table){
+				return elem_async_yield_task{r, [&](csv_file_reader& r, scene& s){
+					return elem_ptr{s, &r, [p = path](cpd::data_table& table){
 						table.set_style();
 						table.get_item() = cpd::data_table_desc::from_csv(p, '|');
 						table.get_item().try_update_glyph_layouts();
 						table.notify_isolated_layout_changed();
 					}};
-				}, [](csv_file_reader& r, elem_ptr&& ptr){
-					util::sync_elem_tree(*ptr);
+				}, [](csv_file_reader& r, scene& s, elem_ptr&& ptr){
+					util::sync_elem_tree(*ptr, r.get_scene());
 					r.set_body_elem(std::move(ptr));
 				}};
 			});
@@ -792,7 +792,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 	auto& ui_root = gui::global::manager;
 	auto& res = ui_root.add_scene_resources("main");
 	const auto scene_add_rst = ui_root.add_scene<example_scene, gui::loose_group>("main", res, true, std::move(renderer));
-	scene_add_rst.root_group.on_context_sync_bind();
 
 	// scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
 	auto& scene = scene_add_rst.scene;
@@ -900,23 +899,23 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						sequence& s = pane.get_elem();
 						pane.set_style();
 
-						util::post_elem_async_task(s, [](gui::sequence& seq){
-							return elem_async_yield_task{
-									seq,
-									[](elem& e){
-										std::println(std::cerr, "Task Begin: current thread: {}",
-										             std::this_thread::get_id());
-										std::this_thread::sleep_for(std::chrono::milliseconds(500));
-										std::println(std::cerr, "Task End: current thread: {}",
-										             std::this_thread::get_id());
-										return 114;
-									},
-									[](elem& e, int val){
-										std::println(std::cerr, "Task Done: current thread: {} - {}",
-										             std::this_thread::get_id(), val);
-									}
-								};
-						});
+						// util::post_elem_async_task(s, [](gui::sequence& seq){
+						// 	return elem_async_yield_task{
+						// 			seq,
+						// 			[](elem& e){
+						// 				std::println(std::cerr, "Task Begin: current thread: {}",
+						// 				             std::this_thread::get_id());
+						// 				std::this_thread::sleep_for(std::chrono::milliseconds(500));
+						// 				std::println(std::cerr, "Task End: current thread: {}",
+						// 				             std::this_thread::get_id());
+						// 				return 114;
+						// 			},
+						// 			[](elem& e, int val){
+						// 				std::println(std::cerr, "Task Done: current thread: {} - {}",
+						// 				             std::this_thread::get_id(), val);
+						// 			}
+						// 		};
+						// });
 
 						s.set_expand_policy(layout::expand_policy::prefer);
 						s.template_cell.set_pending();

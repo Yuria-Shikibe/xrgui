@@ -122,21 +122,21 @@ public:
 			if((!aboves.empty() && aboves.front() == items[0].get())){
 				if(event.key.action == input_handle::act::release){
 					clicked_ = !clicked_;
-					this->post_task([](elem& e){util::update_insert(e, update_channel::layout);});
+					util::update_insert(*this, update_channel::layout);
 				}
 				return events::op_afterwards::intercepted;
 			} else if(head().contains(event.pos)){
 				cursor_states_.update_press(event.key);
 				if(event.key.action == input_handle::act::release){
 					clicked_ = !clicked_;
-					this->post_task([](elem& e){util::update_insert(e, update_channel::layout);});
+					util::update_insert(*this, update_channel::layout);
 				}
 				return events::op_afterwards::intercepted;
 			}
 
 			return events::op_afterwards::fall_through;
 		}else{
-			this->post_task([](elem& e){util::update_insert(e, update_channel::layout);});
+			util::update_insert(*this, update_channel::layout);
 			return elem::on_click(event, aboves);
 		}
 	}
@@ -144,14 +144,14 @@ public:
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
 		head_body_base::on_inbound_changed(is_inbounded, changed);
 		if(expand_cond_ == collapser_expand_cond::inbound){
-			this->post_task([](elem& e){util::update_insert(e, update_channel::layout);});
+			util::update_insert(*this, update_channel::layout);
 		}
 	}
 
 	void on_focus_changed(bool is_focused) override{
 		head_body_base::on_focus_changed(is_focused);
 		if(expand_cond_ == collapser_expand_cond::focus){
-			this->post_task([](elem& e){util::update_insert(e, update_channel::layout);});
+			util::update_insert(*this, update_channel::layout);
 		}
 	}
 

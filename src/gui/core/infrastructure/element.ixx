@@ -191,14 +191,10 @@ private:
 	math::vec2 relative_pos_{};
 	math::vec2 absolute_pos_{};
 
-	std::atomic_bool context_synchronized_{is_on_scene_thread(get_scene())};
 	bool is_at_display_stage_{false};
 	elem_tree_channel element_channel_{};
 
 public:
-	// bool is_synced_to_ui_thread() const noexcept{
-	// 	return context_synchronized_.load(std::memory_order::acquire);
-	// }
 	style::elem_style_ptr style{};
 
 private:
@@ -1039,17 +1035,11 @@ public:
 		return scene_->get_heap_allocator<T>();
 	}
 
-	/**
-	 *
-	 * @brief This function should only be called on the main UI thread.
-	 */
-	virtual void on_context_sync_bind(){
-		context_synchronized_.store(true, std::memory_order::memory_order_release);
-	}
-
-	void try_sync_context();
+	virtual void relocate_scene(scene& target_scene) noexcept;
 
 protected:
+	void relocate_self_scene(scene& target_scene) noexcept;
+
 	template <typename S, typename T, typename ...Args>
 	T& request_and_cache_node(this S& self, T* S::* cache, Args&& ...args){
 		if(self.*cache){
@@ -1066,7 +1056,6 @@ private:
 
 	void init_altitude_(altitude_t height);
 
-	void relocate_scene_(struct scene* scene) noexcept;
 };
 
 
@@ -1235,63 +1224,6 @@ export
 	return pos_in_local_space;
 }
 
-// export
-// [[nodiscard]] math::vec2 inline transform_from_root_to_current(const elem& where, math::vec2 inPos) noexcept{
-// 	return where.transform_to_content_space([&]{
-// 		if(auto p = where.parent()){
-// 			return transform_from_root_to_current(*p, inPos);
-// 		} else{
-// 			return inPos;
-// 		}
-// 	}());
-// }
-//
-// /**
-//  *
-//  * @param where target element
-//  * @param inPos position in scene space
-//  * @return position in target CONTENT space
-//  */
-// export
-// [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(const elem* where, math::vec2 inPos) noexcept{
-// 	if(!where) return inPos;
-// 	return where->transform_to_content_space(transform_from_root_to_current(where->parent(), inPos));
-// }
-//
-//
-// /**
-//  *
-//  * @param where target element
-//  * @param inPos position in scene space
-//  * @return position in target CONTENT space
-//  */
-// export
-// [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_root_to_current(std::span<const elem* const> range, math::vec2 inPos) noexcept{
-// 	for (auto elem : range){
-// 		assert(elem);
-// 		inPos = elem->transform_to_content_space(inPos);
-// 	}
-// 	return inPos;
-// }
-//
-// export
-// [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_current_to_root(const elem* where, math::vec2 pos_in_children) noexcept{
-// 	while(where){
-// 		pos_in_children = where->transform_from_content_space(pos_in_children);
-// 		where = where->parent();
-// 	}
-// 	return pos_in_children;
-// }
-//
-// export
-// [[nodiscard]] FORCE_INLINE inline math::vec2 transform_from_current_to_root(std::span<const elem* const> range, math::vec2 inPos) noexcept{
-// 	for (auto elem : range){
-// 		assert(elem);
-// 		inPos = elem->transform_from_content_space(inPos);
-// 	}
-// 	return inPos;
-// }
-
 events::op_afterwards thoroughly_esc(elem* where) noexcept;
 
 FORCE_INLINE inline events::op_afterwards thoroughly_esc(elem& where) noexcept{
@@ -1328,9 +1260,10 @@ void update_erase(const elem& e, update_channel channel){
 }
 
 export
-void sync_elem_tree(elem& e){
-	e.on_context_sync_bind();
-	e.get_scene().notify_display_state_changed(e.get_channel());
+void sync_elem_tree(elem& to_join, scene& target_scene) noexcept{
+	target_scene.join(std::move(to_join.get_scene()));
+	to_join.relocate_scene(target_scene);
+	to_join.get_scene().notify_display_state_changed(to_join.get_channel());
 }
 
 }

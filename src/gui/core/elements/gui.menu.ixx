@@ -149,12 +149,13 @@ public:
 		current_showing_ = index;
 	}
 
-	void on_context_sync_bind() override{
-		head_body::on_context_sync_bind();
+	void relocate_scene(scene& target_scene) noexcept override{
+		head_body::relocate_scene(target_scene);
 		for (auto && entry : entries){
-			entry->on_context_sync_bind();
+			entry->relocate_scene(target_scene);
 		}
 	}
+
 protected:
 	void on_layout_policy_changed(const layout::layout_policy layout_policy) override{
 		head_body::on_layout_policy_changed(layout_policy);

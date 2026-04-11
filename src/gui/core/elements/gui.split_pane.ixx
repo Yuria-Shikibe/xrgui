@@ -81,8 +81,7 @@ public:
 			if(drag_progress_ >= 1.0f){
 				drag_progress_ = 1.0f;
 				current_drag_state_ = drag_state::dragging;
-				// 进度达到 1.0 后，状态变为持续拖拽，停止触发 update 回调
-				this->post_task([](elem& e){ util::update_erase(e, update_channel::layout); });
+				util::update_erase(*this, update_channel::layout);
 			}
 			changed = true;
 		} else if(current_drag_state_ == drag_state::exiting){
@@ -90,8 +89,7 @@ public:
 			if(drag_progress_ <= 0.0f){
 				drag_progress_ = 0.0f;
 				current_drag_state_ = drag_state::idle;
-				// 完全退出拖拽后，注销 update 回调
-				this->post_task([](elem& e){ util::update_erase(e, update_channel::layout); });
+				util::update_erase(*this, update_channel::layout);
 			}
 			changed = true;
 		}
@@ -130,7 +128,7 @@ public:
 			// 当鼠标松开时，触发状态机进入退出状态，并重新注册 update 回调执行淡出动画
 			if(current_drag_state_ == drag_state::dragging || current_drag_state_ == drag_state::entering){
 				current_drag_state_ = drag_state::exiting;
-				this->post_task([](elem& e){ util::update_insert(e, update_channel::layout); });
+				util::update_insert(*this, update_channel::layout);
 			}
 
 			if(seperator_position_.is_dirty()){
@@ -154,7 +152,7 @@ public:
 
 			// 进入拖拽状态并注册 update
 			current_drag_state_ = drag_state::entering;
-			this->post_task([](elem& e){ util::update_insert(e, update_channel::layout); });
+			util::update_insert(*this, update_channel::layout);
 		}
 
 		// 一旦状态机进入 entering 或 dragging 状态后，后续移动将直接交由 move_seperator 处理，避免卡顿硬判断
