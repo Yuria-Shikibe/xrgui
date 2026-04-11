@@ -110,8 +110,9 @@ namespace mo_yanxi::gui{
 
 		{
 			// scroll physics update
-			scroll_velocity_.lerp_inplace(scroll_target_velocity_, math::clamp(delta_in_ticks * ScrollVelocitySensitivity));
-			scroll_target_velocity_.lerp_inplace({}, math::clamp(delta_in_ticks * ScrollVelocitySensitivity));
+			// 修改点：使用新增加的 scroll_velocity_sensitivity 实例变量替换宏/常量
+			scroll_velocity_.lerp_inplace(scroll_target_velocity_, math::clamp(delta_in_ticks * scroll_velocity_sensitivity));
+			scroll_target_velocity_.lerp_inplace({}, math::clamp(delta_in_ticks * scroll_velocity_sensitivity));
 
 			if(util::try_modify(
 				scroll_.base,
@@ -121,13 +122,15 @@ namespace mo_yanxi::gui{
 
 				scroll_changed_in_update_ = true;
 
-				// 注意这里我们将原有的 activity_timer_ = 0.f 移除，因为状态机已接管计时逻辑
+				// 修改点：物理滚动更新期间，持续缓存当前的滚动比例
+				saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
+
 				util::update_insert(*this, update_channel::position);
 
-			} else{
-				scroll_changed_in_update_ = false;
-				util::update_erase(*this, update_channel::position);
-			}
+				} else{
+					scroll_changed_in_update_ = false;
+					util::update_erase(*this, update_channel::position);
+				}
 		}
 
 		return true;
@@ -140,7 +143,7 @@ namespace mo_yanxi::gui{
 	void scroll_adaptor_base::record_draw_scroll_bar(draw_call_stack_recorder& call_stack_builder) const{
 		if(!drawer)return;
 		call_stack_builder.push_call_enter(*this, [](const scroll_adaptor_base& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
-			const rect bound = s.bound_abs();
+			const rect bound = s.content_bound_abs();
 				return {
 					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
 					.draw_bound = bound,
@@ -160,7 +163,7 @@ namespace mo_yanxi::gui{
 		});
 	}
 
-	events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std::span<elem* const> aboves){
+events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std::span<elem* const> aboves){
 		activity_timer_ = 0.0f;
 		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 
@@ -168,9 +171,24 @@ namespace mo_yanxi::gui{
 		if(input_handle::matched(e.mode, input_handle::mode::shift) || (is_hori_scroll_enabled() && !
 			is_vert_scroll_enabled())){
 			cmp.swap_xy();
+			}
+
+		// 修改点：根据配置的滚动模式动态决定速度倍率
+		math::vec2 velocity_scale{};
+		if (sensitivity_mode == scroll_pane_mode::absolute) {
+			velocity_scale = math::vec2{scroll_scale, scroll_scale};
+		} else {
+			// proportional：按照当前视口大小的比例进行滚动步进
+			velocity_scale = get_viewport_extent() * scroll_scale;
 		}
+
 		scroll_target_velocity_ = cmp * get_vel_clamp();
-		scroll_velocity_ = scroll_target_velocity_.scl(ScrollVelocityScale);
+		scroll_target_velocity_.x *= velocity_scale.x;
+		scroll_target_velocity_.y *= velocity_scale.y;
+
+		// 将原先硬编码的 .scl(ScrollVelocityScale) 替换为我们赋予目标的初始速度
+		scroll_velocity_ = scroll_target_velocity_;
+
 		return {};
 	}
 

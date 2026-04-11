@@ -45,9 +45,6 @@ private:
 		items[1] = std::move(default_content);
 	}
 
-	[[nodiscard]] sequence& get_button_sequence() const{
-		return elem_cast<button_panel_type, true>(*items[0]).get_elem();
-	}
 
 public:
 	template <typename... Args>
@@ -65,8 +62,12 @@ public:
 	: menu(scene, parent, layout::layout_policy::hori_major, std::in_place_type<elem>){
 	}
 
+	[[nodiscard]] button_panel_type& get_button_pane() const{
+		return elem_cast<button_panel_type, true>(*items[0]);
+	}
+
 	layout::partial_mastering_cell& get_head_template_cell() const noexcept{
-		return get_button_sequence().template_cell;
+		return get_button_pane().get_elem().template_cell;
 	}
 
 	menu_create_result<elem, elem> insert(std::size_t index, elem_ptr&& head, elem_ptr&& body){
@@ -74,7 +75,9 @@ public:
 		if(current_showing_ <= index){
 			++current_showing_;
 		}
-		auto hdl = get_button_sequence().insert_and_get(index, std::move(head));
+		head->interactivity = interactivity_flag::enabled;
+
+		auto hdl = get_button_pane().get_elem().insert_and_get(index, std::move(head));
 		auto& body_ref = *body;
 		entries.insert(entries.begin() + index, std::move(body));
 		return {std::move(hdl), body_ref};
@@ -118,7 +121,7 @@ public:
 		if(index == entries.size()){
 			std::swap(entries[current_showing_], items[1]);
 		} else{
-			get_button_sequence().children()[index]->set_toggled(true);
+			get_button_pane().get_elem().children()[index]->set_toggled(true);
 
 			if(current_showing_ == entries.size()){
 				std::swap(entries[index], items[1]);
@@ -144,7 +147,7 @@ public:
 		notify_layout_changed(propagate_mask::lower);
 		notify_isolated_layout_changed();
 		if(current_showing_ != entries.size()){
-			get_button_sequence().children()[current_showing_]->set_toggled(false);
+			get_button_pane().get_elem().children()[current_showing_]->set_toggled(false);
 		}
 		current_showing_ = index;
 	}
@@ -162,14 +165,14 @@ protected:
 
 		const auto trsp = layout::transpose_layout(layout_policy);
 		elem_cast<button_panel_type, true>(*items[0]).set_layout_policy(trsp);
-		get_button_sequence().set_layout_policy(trsp);
+		get_button_pane().get_elem().set_layout_policy(trsp);
 	}
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		if(aboves.size() < 3)return events::op_afterwards::fall_through;
 		//this -> scroll[0] -> sequence[1] -> actual button[2]
 		auto* elem = aboves[2];
-		auto& seq = get_button_sequence();
+		auto& seq = get_button_pane().get_elem();
 		auto idx = seq.find_index(elem);
 		if(idx == seq.children().size())return events::op_afterwards::fall_through;
 

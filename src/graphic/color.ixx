@@ -26,22 +26,82 @@ export
 struct hsv{
 	float h, s, v;
 
-	constexpr friend hsv lerp(const hsv& a, const hsv& b, float t) noexcept {
-		float new_s = a.s + t * (b.s - a.s);
-		float new_v = a.v + t * (b.v - a.v);
+	friend constexpr hsv lerp_cw(const hsv& a, const hsv& b, float t) noexcept {
+		float delta_h = b.h - a.h;
 
+		// 如果目标色相小于当前色相，说明正向走会跨越 1.0 边界
+		if (delta_h < 0.0f) {
+			delta_h += 1.0f;
+		}
+
+		return lerp_hsv_impl(a, b, t, delta_h);
+	}
+
+	friend constexpr hsv lerp_ccw(const hsv& a, const hsv& b, float t) noexcept {
+		float delta_h = b.h - a.h;
+
+		// 如果目标色相大于当前色相，说明逆向走会跨越 0.0 边界
+		if (delta_h > 0.0f) {
+			delta_h -= 1.0f;
+		}
+
+		return lerp_hsv_impl(a, b, t, delta_h);
+	}
+
+	friend constexpr hsv lerp_farest(const hsv& a, const hsv& b, float t) noexcept {
 		float delta_h = b.h - a.h;
 
 		if (delta_h > 0.5f) {
 			delta_h -= 1.0f;
-		}
-		else if (delta_h < -0.5f) {
+		} else if (delta_h < -0.5f) {
 			delta_h += 1.0f;
 		}
 
+		if (delta_h > 0.0f) {
+			delta_h -= 1.0f;
+		} else if (delta_h < 0.0f) {
+			delta_h += 1.0f;
+		} else {
+			delta_h = 1.0f;
+		}
+
+		return lerp_hsv_impl(a, b, t, delta_h);
+	}
+
+	// 最短路径插值（重构版）
+	friend constexpr hsv lerp_nearest(const hsv& a, const hsv& b, float t) noexcept {
+		float delta_h = b.h - a.h;
+
+		if (delta_h > 0.5f) {
+			delta_h -= 1.0f;
+		} else if (delta_h < -0.5f) {
+			delta_h += 1.0f;
+		}
+
+		return lerp_hsv_impl(a, b, t, delta_h);
+	}
+
+	friend constexpr hsv lerp(const hsv& a, const hsv& b, float t) noexcept {
+		return {
+			math::lerp(a.h, b.h, t),
+			math::lerp(a.s, b.s, t),
+			math::lerp(a.v, b.v, t),
+		};
+	}
+private:
+	static constexpr hsv lerp_hsv_impl(const hsv& a, const hsv& b, float t, float delta_h) noexcept {
+		float new_s = a.s + t * (b.s - a.s);
+		float new_v = a.v + t * (b.v - a.v);
+
 		float new_h = a.h + t * delta_h;
 
-		new_h = new_h - math::floor(new_h);
+		// 完美处理跨越边界的色相
+		while (new_h < 0.0f) {
+			new_h += 1.0f;
+		}
+		while (new_h >= 1.0f) {
+			new_h -= 1.0f;
+		}
 
 		return {new_h, new_s, new_v};
 	}

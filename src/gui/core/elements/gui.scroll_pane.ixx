@@ -17,7 +17,7 @@ import std;
 
 namespace mo_yanxi::gui{
 export
-enum class scroll_sensitivity_mode : std::uint8_t {
+enum class scroll_pane_mode : std::uint8_t {
 	absolute,
 	proportional
 };
@@ -30,8 +30,19 @@ struct scroll_pane_bar_drawer;
 export
 //TODO reduce protected fields
 struct scroll_adaptor_base : elem{
-	static constexpr float ScrollVelocitySensitivity = 0.95f;
-	static constexpr float ScrollVelocityScale = 55.f;
+public:
+	scroll_pane_mode sensitivity_mode{scroll_pane_mode::absolute};
+	float scroll_velocity_sensitivity{1.f};
+	float scroll_scale{55.0f};
+
+	void set_scroll_mode(scroll_pane_mode mode, float sensitivity){
+		sensitivity_mode = mode;
+		scroll_scale = sensitivity;
+	}
+
+	void set_scroll_mode(scroll_pane_mode mode){
+		set_scroll_mode(mode, mode == scroll_pane_mode::proportional ? .1f : 55.f);
+	}
 
 protected:
 	float scroll_bar_stroke_{20.0f};
@@ -40,6 +51,7 @@ protected:
 	math::vec2 scroll_target_velocity_{};
 	snap_shot<math::vec2> scroll_{};
 	math::vec2 item_extent_cache_{};
+	math::vec2 saved_scroll_ratio_{};
 
 	layout::layout_policy layout_policy_{layout::layout_policy::hori_major};
 	bool bar_caps_size{true};
@@ -126,6 +138,7 @@ public:
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		if(event.key.action == input_handle::act::release){
 			scroll_.apply();
+			saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
 		}
 
 		return elem::on_click(event, aboves);
@@ -194,7 +207,11 @@ public:
 	}
 
 	[[nodiscard]] math::nor_vec2 scroll_progress_at(const math::vec2 scroll_pos) const noexcept{
-		return scroll_pos / scrollable_extent();
+		const auto ext = scrollable_extent();
+		return {
+			ext.x > 0.01f ? (scroll_pos.x / ext.x) : 0.0f,
+			ext.y > 0.01f ? (scroll_pos.y / ext.y) : 0.0f
+		};
 	}
 
 	[[nodiscard]] math::vec2 item_extent() const noexcept{
@@ -500,7 +517,8 @@ public:
 	void layout_elem() override{
 		elem::layout_elem();
 		update_item_layout();
-		if(util::try_modify(scroll_.base, scroll_.base.copy().clamp_xy({}, scrollable_extent()))){
+
+		if(auto new_scroll_base = saved_scroll_ratio_ * scrollable_extent(); util::try_modify(scroll_.base, new_scroll_base.clamp_xy({}, scrollable_extent()))){
 			scroll_.resume();
 		}
 	}

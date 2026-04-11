@@ -385,17 +385,20 @@ void scene_base::update(double delta_in_tick){
 	if(input_handler_.request_cursor_update_){
 		auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
 		current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
+
+		apply_update_state_changes();
 	}
 
 	root().update(delta_in_tick);
 
-	apply_update_state_changes();
 	for (auto active_update_elem : active_update_elems_){
 		active_update_elem.elem->update(delta_in_tick);
 	}
 
 	input_handler_.update_elem_cursor_state(delta_in_tick, tooltip_manager_);
 	action_queue_.update(delta_in_tick);
+
+	apply_update_state_changes();
 
 	current_time_ += delta_in_tick;
 	current_frame_++;

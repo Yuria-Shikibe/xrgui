@@ -1085,10 +1085,12 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								c.set_update_opacity_during_expand(true);
 								c.set_expand_cond(collapser_expand_cond::inbound);
 
-								c.emplace_head<elem>();
+								c.emplace_head<elem>().set_style();
 								c.set_head_size(50);
 								c.create_body([](table& e){
+									e.set_style(e.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
 									e.interactivity = interactivity_flag::enabled;
+									e.template_cell.pad.set_vert(4);
 									e.set_tooltip_state(
 										{
 											.layout_info = tooltip::align_meta{
@@ -1140,7 +1142,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 									for(int k = 0; k < 5; ++k){
 										e.emplace_back<elem>().cell().set_size({250, 60});
 									}
-									// e.interactivity = gui::interactivity_flag::enabled;
 								});
 
 								c.set_head_body_transpose(i & 1);
@@ -1152,12 +1153,15 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 					"menu", [](menu& menu){
 						menu.set_expand_policy(layout::expand_policy::passive);
 						menu.set_head_size(90);
-						menu.get_head_template_cell().set_size(240).set_pad({4, 4});
+						menu.set_style();
+						menu.get_head_template_cell().set_pending().set_pad({4, 4});
 
 						for(int i = 0; i < 4; ++i){
 							auto hdl = menu.create_back(
-								[](elem& e){
-									e.interactivity = interactivity_flag::enabled;
+								[&](label& e){
+									e.set_fit_type(label_fit_type::scl);
+									e.set_style(e.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
+									e.set_text(std::format("chunk by {}", i));
 								}, [&](sequence& e){
 									e.set_has_smooth_pos_animation(true);
 									e.set_expand_policy(layout::expand_policy::passive);
@@ -1378,14 +1382,22 @@ Edge Cases:
 					}
 				},
 				test_entry{
-					"color picker", [](scroll_pane& pane){
-						pane.create(
-							[](table& table){
-								table.set_expand_policy(layout::expand_policy::prefer);
-								table.create_back([](cpd::rgb_picker& picker){
-								}).cell().set_size({600, 600});
-							});
-						pane.set_layout_policy(layout::layout_policy::none);
+					"color picker", [](table& table){
+						table.set_expand_policy(layout::expand_policy::prefer);
+						struct picker : cpd::rgb_picker{
+							using rgb_picker::rgb_picker;
+
+						protected:
+							void on_color_changed(graphic::color color) override{
+								auto ptr = get_style_manager().get_default<style::elem_style_drawer>();
+								if(auto p = dynamic_cast<style::round_style*>(ptr.get())){
+									p->edge.pal = style::make_theme_palette(color);
+								}
+							}
+
+						};
+						table.create_back([](picker& picker){
+						}).cell().set_size({600, 600});
 					}
 				},
 				test_entry{
@@ -1448,11 +1460,13 @@ Edge Cases:
 
 	menu_hdl->get_head_template_cell().set_pending();
 	menu_hdl->get_head_template_cell().set_pad({4, 4});
+	menu_hdl->get_button_pane().set_scroll_mode(scroll_pane_mode::proportional);
 
 	for(const auto& [idx, creator] : make_create_table() | std::views::enumerate){
 		menu_hdl->push_back(
 			elem_ptr{
 				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
+					label.set_self_boarder(boarder{}.set_vert(6));
 					label.sync_run([](elem& el){
 						el.set_style(el.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
 					});

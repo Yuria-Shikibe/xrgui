@@ -293,7 +293,7 @@ private:
 	slider1d* slider_HUE_{};
 	slider1d* slider_alpha_{};
 
-	graphic::color result_color_{1, 0, 0, 1};
+	graphic::color result_color_{1, 1, 1, 1};
 
 private:
 	graphic::color get_color_at_current_hue(math::vec2 sv) const noexcept{
@@ -365,12 +365,12 @@ public:
 
 protected:
 	virtual void on_color_changed(graphic::color color){
-		std::println(std::cerr, "{:a}", color);
+		// std::println(std::cerr, "{:a}", color);
 	}
 
 private:
 	void set_color_alpha(float a){
-		if(util::try_modify(result_color_.a, a)){
+		if(util::try_modify(result_color_.a, 1 - a)){
 			on_color_changed(result_color_);
 		}
 	}

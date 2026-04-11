@@ -205,7 +205,7 @@ public:
         float end_idx_f   = (clip_max_y - table_start_y) / row_step;
 
         // 向下取整获取起始行，向上取整获取结束行，并用 std::clamp / math::max 限制在合法区间内
-        visible_row_start = math::floor<std::size_t>(math::max(start_idx_f, 0.f));
+        visible_row_start = math::floor_to_integral<std::size_t>(math::max(start_idx_f, 0.f));
         visible_row_end   = math::ceil<std::size_t>(math::max(end_idx_f, 0.f));
 
         visible_row_start = math::min(visible_row_start, num_rows);
