@@ -96,8 +96,6 @@ target("xrgui.example")
 
     add_packages("glfw")
 
-    add_files("main.cpp")
-
     add_files("src.backends/universal/**.ixx", {public = true})
     add_files("src.backends/universal/**.cpp")
     add_files("src.backends/vulkan/**.ixx", {public = true})
@@ -106,10 +104,10 @@ target("xrgui.example")
     add_files("src.backends/vulkan_glfw/**.cpp")
     add_files("src.examples/**.ixx", {public = true})
     add_files("src.examples/**.cpp")
---
---     if is_mode("release") then
---         set_policy("build.optimization.lto", true)
---     end
+
+    if is_mode("release") then
+        set_policy("build.optimization.lto", true)
+    end
 
     if is_plat("windows") then
         add_syslinks("imm32")
