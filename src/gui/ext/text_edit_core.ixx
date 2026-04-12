@@ -215,7 +215,7 @@ public:
 		reset_preferred_cross_pos();
 	}
 
-	// --- 编辑操作 ---
+
 
 	bool insert_text(std::u32string& text_buffer_, std::u32string_view inserted_text){
 		if(inserted_text.empty()) return false;

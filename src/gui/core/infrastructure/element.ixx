@@ -446,28 +446,28 @@ public:
 
 	void set_style() noexcept;
 
-	// virtual void draw_layer(const rect clipSpace, fx::layer_param_pass_t param) const{
-	// 	draw_style(param);
-	// }
+
+
+
 	//
-	// FORCE_INLINE void try_draw_layer(const rect clipSpace, fx::layer_param_pass_t param){
-	// 	if(invisible) return;
-	// 	if(!clipSpace.overlap_inclusive(bound_abs())) return;
-	// 	// if(param.layer_index == 0)draw_flag.update_debug_count();
-	// 	// set_draw_required(0, 1 << param.layer_index);
-	// 	draw_layer(clipSpace, param);
-	// 	// draw_flag.clear();
-	// }
+
+
+
+
+
+
+
+
 
 protected:
-	// template <typename S>
-	// void push_draw_func_to_stack_recorder(this const S& self, draw_call_stack_recorder& call_stack_builder){
-	// 	call_stack_builder.push_call_noop(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static {
-	// 		if(s.invisible) return;
-	// 		if(!p.draw_bound.overlap_inclusive(s.bound_abs())) return;
-	// 		s.S::draw_layer(p.draw_bound, p.layer_param);
-	// 	});
-	// }
+
+
+
+
+
+
+
+
 
 protected:
 	template <typename S, std::invocable<const S&, draw_call_stack_recorder&> Fn>

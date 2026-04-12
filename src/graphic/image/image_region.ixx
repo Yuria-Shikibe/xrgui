@@ -244,7 +244,7 @@ struct combined_image_region{
 	}
 };
 
-// static_assert(std::is_trivial_v<combined_image_region<uniformed_uv>>);
+
 
 export using image_rect_region = combined_image_region<uniformed_rect_uv>;
 }

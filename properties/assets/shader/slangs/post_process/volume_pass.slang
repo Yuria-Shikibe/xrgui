@@ -50,7 +50,7 @@ struct shockwave : sdf {
     }
 
     vfx_result get_resample_vec(float2 world_pos, float current_time) {
-        // static const float thickness = 15;
+
         let toCenter = world_pos - pos;
         let dist = length(toCenter);
 
@@ -64,15 +64,15 @@ struct shockwave : sdf {
 
         let dst_to_wave = dist - curent_r;
         let scaled_dtw = dst_to_wave / stroke;
-        let factor = (1.0 - smoothstep(0.0, radius, dist)); // TODO make it 1 - pow2Out
+        let factor = (1.0 - smoothstep(0.0, radius, dist));
         let attenuation = exp(-scaled_dtw * scaled_dtw * fade_factor) * factor;
         let color_scl = (dst_to_wave > 0 ? attenuation : smoothstep(fin_pow, 1, dist / curent_r) * factor) * (1.f - fin_pow);
 
-        // 计算扭曲
+
         let direction = normalize(toCenter);
         var distortion = attenuation * intensity;
 
-        // 添加时间动画
+
         let timeEffect = sin(dst_to_wave * 15.0 - current_time) * time_effect_factor;
         distortion += timeEffect * intensity;
 
@@ -105,7 +105,7 @@ void main(
     uint3 dispatchThreadID: SV_DispatchThreadID
 ) {
     let pos = dispatchThreadID.xy;
-    // let hdrColor = input.Load(uint3(pos, 0));
+
 
     let imgSz = output.imageSize2D();
     let uniformed = pp::coord_to_uniform(pos, imgSz);
@@ -121,16 +121,16 @@ void main(
         maxAlpha += rst.blend_factor;
 
         resVec += rst.resample_offset * rst.blend_factor;
-        blendColor = pp::blend::pre_scaled_alpha_blend(rst.color, blendColor);// * rst.blend_factor;
+        blendColor = pp::blend::pre_scaled_alpha_blend(rst.color, blendColor);
     }
 
     if (maxAlpha > 0) {
         resVec /= maxAlpha;
-        // blendColor /= maxAlpha;
+
     }
 
     let uv = pp::uniform_to_normalize(mul(proj.view, mul(proj.proj, float3(resVec + world, 1))).xy);
     let rspColor = input.Sample(uv);
     output.Store(pos, pp::blend::pre_scaled_alpha_blend(blendColor, rspColor));
-    // output.Store(pos, pp::blend::alpha_blend(blendColor, rspColor));
+
 }

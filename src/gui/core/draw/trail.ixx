@@ -445,22 +445,22 @@ public:
 	}
 
 	void update(const float delta_tick, const vec_t pos, float scale = 1.0f, float min_sqr_dst = 1.0f) {
-		// 判断是否处于有效移动状态
+
 		bool is_moving = points.empty() || min_sqr_dst <= 0.0f || head().pos.dst2(pos) >= min_sqr_dst;
 
 		if (is_moving) {
-			// 移动时重置消散计时器，防止后续停止时发生时间跳跃
+
 			interval.clear(1);
 
 			if (!spacing || interval.update_and_get(0, spacing, delta_tick)) {
-				// 调用底层已做过校验的 push
+
 				push_unchecked(pos, scale);
 			}
 		} else {
-			// 停止时重置生成计时器，防止重新起步时瞬间堆积点
+
 			interval.clear(0);
 
-			// 运用 Strict = true 模式，由 timer 自动基于真实时间进行追帧循环
+
 			interval.update_and_run<true>(1, shrink_interval, delta_tick, [this]() noexcept {
 				if (!points.empty()) {
 					points.pop_back();

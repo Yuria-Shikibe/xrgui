@@ -16,21 +16,21 @@ unsigned GetSmoothCircleVertexCount(float radius, float percent, float max_error
 	return std::clamp(vertex_count, 3, 4096);
 }
 
-// int GetSmoothCircleVertexCountByArcLength(float radius, float circle_percent = 2.0f) {
-// 	// 基础校验：防止非法的半径或弧长参数导致除零或负数
-// 	if (radius <= 0.0f || circle_percent <= 0.0f) {
-// 		return 3;
-// 	}
+
+
+
+
+
 //
-// 	// 计算总周长
-// 	float circumference = 2.0f * math::pi * radius;
+
+
 //
-// 	// 计算所需顶点数并向上取整
-// 	int vertex_count = static_cast<int>(std::ceil(circumference / (circle_percent * radius)));
+
+
 //
-// 	// 限制范围：最少3个点（三角形），最大限制在4096个点以保障内存和渲染性能
-// 	return std::clamp(vertex_count, 3, 4096);
-// }
+
+
+
 
 struct SectorLayout {
 	float radius;
@@ -42,18 +42,18 @@ bool is_angle_inside(float alpha, float theta1, float delta_theta) {
     if (diff < 0.0) {
         diff += math::pi_2;
     }
-    // 加入 1e-9 的容差处理浮点数精度误差 (根据你之前的设定，这里用1e-5)
+
     return diff <= delta_theta + 1e-5;
 }
 
 SectorLayout calculateSectorFit(float w, float h, float a1, float a2) {
-    // 【新增核心逻辑】：处理负数跨度，将顺时针扫描等效转化为逆时针扫描
+
     if (a2 < 0.0f) {
-        a1 = a1 + a2; // 起点后退
-        a2 = -a2;     // 跨度取正
+        a1 = a1 + a2;
+        a2 = -a2;
     }
 
-    // 此时 a2 必然 >= 0，只需限制最大为 1.0 (一整圈)
+
     a2 = std::min(1.0f, a2);
 
     const auto theta1 = a1 * math::pi_2;
@@ -68,8 +68,8 @@ SectorLayout calculateSectorFit(float w, float h, float a1, float a2) {
     auto y_min = std::min({0.0f, sin1, sin2});
     auto y_max = std::max({0.0f, sin1, sin2});
 
-    // 步骤 2: 检查坐标轴极值点是否在扇形圆弧上
-    // 如果 a2 >= 1.0，直接是一个整圆
+
+
     if (a2 >= 1.0f) {
         x_min = -1.0f; x_max = 1.0f;
         y_min = -1.0f; y_max = 1.0f;
@@ -88,21 +88,21 @@ SectorLayout calculateSectorFit(float w, float h, float a1, float a2) {
         }
     }
 
-    // 计算单位包围盒的长宽
+
     const auto B_x = x_max - x_min;
     const auto B_y = y_max - y_min;
 
-    // 步骤 3: 计算允许的最大半径 R
+
     constexpr auto INF = std::numeric_limits<float>::infinity();
     auto R_x = (B_x > 0.0001f) ? (w / B_x) : INF;
     auto R_y = (B_y > 0.0001f) ? (h / B_y) : INF;
     auto R = std::min(R_x, R_y);
 
-    // 计算圆心将其放置在矩形内（这里取可用区间的正中点）
+
     auto x_c = w / 2.f - R * (x_min + x_max) / 2.f;
     auto y_c = h / 2.f - R * (y_min + y_max) / 2.f;
 
-    // 根据你的结构体定义，返回 vec2 格式的 center
+
     return {R, {x_c, y_c}};
 }
 

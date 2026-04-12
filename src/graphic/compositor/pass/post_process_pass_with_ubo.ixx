@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2026/3/5.
+
 //
 
 export module mo_yanxi.graphic.compositor.post_process_pass_with_ubo;
@@ -13,7 +13,7 @@ export
 template <typename ...Ts>
 struct post_process_pass_with_ubo : post_process_stage{
 	using value_type = std::tuple<Ts...>;
-	// static_assert(mo_yanxi::tuple_to_variant_t<value_type>
+
 	using post_process_stage::post_process_stage;
 
 private:

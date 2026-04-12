@@ -31,11 +31,11 @@ export
 
     export enum struct binding_return{
         none,
-        // break_continuous = 1 << 0,
+
         reset_press_duration = 1 << 0,
     };
 
-    // 原 key_binding<void> 现在作为独立的类型
+
     export
     struct any_key_binding : key_set{
         using function_ptr = void*;
@@ -80,7 +80,7 @@ export
 
         friend constexpr bool operator==(const key_binding& lhs, const key_binding& rhs) = default;
 
-        // 与 any_key_binding 的比较操作
+
         friend constexpr bool operator==(const key_binding& lhs, const any_key_binding& rhs){
             return any_key_binding(lhs) == rhs;
         }
@@ -89,13 +89,13 @@ export
             return lhs == any_key_binding(rhs);
         }
 
-        // 转换为擦除类型的操作
+
         explicit(false) operator any_key_binding() const noexcept{
             return {static_cast<key_set>(*this), reinterpret_cast<void*>(func)};
         }
     };
 
-    // 延迟实现 any_key_binding 的模板方法，确保 key_binding 定义可见
+
     template <typename ... ParamTy>
     any_key_binding::operator key_binding<ParamTy...>() const noexcept{
         return std::bit_cast<key_binding<ParamTy...>>(*this);
@@ -105,7 +105,7 @@ export
     binding_return any_key_binding::cast_and_exec(key_set actual, float press_dur, ParamTy... args) const{
         CHECKED_ASSUME(func != nullptr);
         CHECKED_ASSUME(actual.key_code == this->key_code);
-        // 这里转换回具体的函数指针类型进行调用
+
         return static_cast<typename key_binding<ParamTy...>::function_ptr>(func)(actual, press_dur, std::forward<ParamTy>(args)...);
     }
 
@@ -181,11 +181,11 @@ export
     export
     struct key_mapping_interface : protected referenced_object{
     public:
-        // 类型别名修改为新的独立类型
+
         using bind_type = any_key_binding;
 
         struct binding_state{
-            // gch::small_vector<bind_type, 3, std::pmr::polymorphic_allocator<bind_type>> bindings{};
+
             std::pmr::vector<bind_type> bindings{};
             float double_click_timer{};
             float press_duration{};
@@ -197,7 +197,7 @@ export
                 for (const auto & binding : bindings){
                     if(matched(action, binding.action) && matched(mode_bits, binding.mode_bits)){
                         const binding_return rst = [&, this]<std::size_t ...Idx>(std::index_sequence<Idx...>){
-                            // any_key_binding 的 cast_and_exec 调用
+
                             return binding.cast_and_exec<ParamTy ...>(key_set{binding.key_code, action, mode_bits}, press_duration, std::get<Idx>(context)...);
                         }(std::index_sequence_for<ParamTy...>{});
 
@@ -318,7 +318,7 @@ export
         }
 
     protected:
-        // 参数类型改为 any_key_binding
+
         bool add_raw(any_key_binding erased_binding){
             const auto idx = erased_binding.key_code;
             auto where = std::ranges::lower_bound(keys_, idx, {}, &key_index::key_code);
@@ -345,7 +345,7 @@ export
         virtual void trigger(bool inbound, math::vec2) = 0;
 
     public:
-        // 参数类型改为 any_key_binding
+
         bool erase_binding(any_key_binding erased_binding) noexcept{
             const auto idx = erased_binding.key_code;
             auto where = std::ranges::lower_bound(keys_, idx, {}, &key_index::key_code);

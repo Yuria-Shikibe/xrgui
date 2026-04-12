@@ -1,4 +1,4 @@
-// [require(spvDescriptorHeapEXT)]
+
 module ui_draw;
 
 import mesh_instruction_lib;
@@ -177,27 +177,27 @@ FragOut main_frag(
     let no_tex = bool(primit.texture_index == ~0U);
     float4 out_color_base;
 
-    // switch (global_draw_mode_type(0)) {
-    // case global_draw_mode_type::def:
-    //     let tex_color = (no_tex ? float4(1) : dbh_input_handles.get_image_at(primit.texture_index).Sample(sampler, vtx.uv)) * vtx.color;
-    //     out_color_base = tex_color;
-    //     break;
-    // case global_draw_mode_type::sdf:
-    //     var alpha = no_tex ? 1 : sdf::msdf(dbh_input_handles.get_image_at(primit.texture_index), sampler, vtx.uv);
-    //     out_color_base = float4(1, 1, 1, smoothstep(-0.015, 0.045, alpha)) * vtx.color;
-    //     break;
-    // default: break;
-    // }
 
-    // if (bool(primit.mode.value & draw_mode_type::slide_line)) {
-    //     float scl = slide_line::is_in_slide_line_smooth(vtx.position.xy, dbh_input_handles.get_slide_line_style(), dbh_input_handles.get_ui_state().time);
-    //     out_color_base.a *= scl;
-    // }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     FragOut out;
     out.out_base = float4(0.2f);
-    // out.out_base = out_color_base;
-    // out.out_base.rgb *= out.out_base.a;
+
+
     
     return out;
 }

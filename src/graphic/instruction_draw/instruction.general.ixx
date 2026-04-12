@@ -201,7 +201,7 @@ struct alignas(instr_required_align) generic_instruction_head{
 	dispatch_info_payload<DrawInfoTy> payload;
 };
 
-// --- Changed Section ---
+
 
 export
 enum struct state_push_type{
@@ -213,7 +213,7 @@ export
 struct state_push_config{
 	state_push_type type;
 };
-// -----------------------
+
 
 }
 
@@ -526,7 +526,7 @@ struct quad_group{
 
 	[[nodiscard]] FORCE_INLINE constexpr quad_group() = default;
 
-	// [[nodiscard]] FORCE_INLINE explicit(false) constexpr quad_group(const T& v) noexcept : v00(v), v10(v), v01(v), v11(v){}
+
 
 	template <typename Ty>
 		requires (std::constructible_from<T, const Ty&> && !std::convertible_to<const Ty&, quad_group> && !spec_of<Ty, quad_group>)

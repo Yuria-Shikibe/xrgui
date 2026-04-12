@@ -120,7 +120,7 @@ public:
     }
 
     constexpr transparent_span(T* first, size_type count) noexcept : data_(first), size_(count){
-       // 确保传入非零长度时指针有效
+
        assert(count == 0 || first != nullptr);
     }
 

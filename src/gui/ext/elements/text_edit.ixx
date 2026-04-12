@@ -138,15 +138,15 @@ protected:
 		const math::vec2 reg_ext = get_glyph_draw_extent();
 		math::vec2 c_scale = scale_;
 
-		// 修复 1：所有的自适应拉伸模式（fit, align_x, align_y）都必须更新渲染器的缩放矩阵
-		// 否则偏移量计算中的 `reg_ext / 2 - raw_ext / 2 * c_scale` 会产生错位，将排版推出边界
+
+
 		if((view_mode_ == text_edit_view_type::fit ||
 			view_mode_ == text_edit_view_type::align_x ||
 			view_mode_ == text_edit_view_type::align_y) && trans_ext.x > 0.f && trans_ext.y > 0.f){
 			c_scale *= (reg_ext / trans_ext);
 			}
 
-		// 修复 2：所有允许滚动的模式（is_scrollable_mode）都应该应用 scroll_offset_
+
 		math::vec2 current_scroll = is_scrollable_mode() ? scroll_offset_ : math::vec2{0.f, 0.f};
 
 		math::vec2 offset_abs = get_glyph_src_abs() + reg_ext * 0.5f - raw_ext * 0.5f * c_scale - current_scroll;
@@ -415,7 +415,7 @@ protected:
 		const auto sz = get_glyph_draw_extent();
 		const math::vec2 vp = content_extent();
 
-		if (is_scrollable_mode()) { // 替换原来的 dyn 特判
+		if (is_scrollable_mode()) {
 			math::vec2 align_offset = mo_yanxi::gui::align::get_offset_of(text_entire_align, sz, rect{vp});
 			return {sz.x <= vp.x ? align_offset.x : 0.f,
 					sz.y <= vp.y ? align_offset.y : 0.f};
@@ -442,7 +442,7 @@ public:
 		const math::vec2 sz = get_glyph_draw_extent();
 		const math::vec2 vp = content_extent();
 
-		// 同步修复：条件触发式的 max_scroll
+
 		const math::vec2 max_scroll = {
 			sz.x > vp.x ? std::max(0.f, sz.x + viewport_padding.x - vp.x) : 0.f,
 			sz.y > vp.y ? std::max(0.f, sz.y + viewport_padding.y - vp.y) : 0.f
@@ -483,13 +483,13 @@ public:
 	events::op_afterwards on_esc() override;
 
 	void update_ime_position() const{
-		// if (const auto cmt = get_scene().get_communicator()) {
-		//     float fallback = context_.get_config().get_default_font_size().y;
-		//     if (fallback < 1.0f) fallback = 16.0f;
-		//     auto region = get_caret_local_aabb();
-		//     region.move(util::transform_local2scene(*this, math::vec2{}));
-		//     cmt->set_ime_cursor_rect(region);
-		// }
+
+
+
+
+
+
+
 	}
 
 	void on_last_clicked_changed(bool isFocused) override{
@@ -567,4 +567,4 @@ public:
 	}
 
 };
-} // namespace mo_yanxi::gui
+}

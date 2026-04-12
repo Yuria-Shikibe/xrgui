@@ -245,15 +245,15 @@ using elem_extent = math::vector2<grid_capture_size>;
 constexpr math::based_section<unsigned> find_largest_non_overlapping_section_1d(
 	math::section<unsigned> self,
 	math::section<unsigned> obstacle) noexcept{
-	// 计算 self 在 obstacle 左侧和右侧分别能保留的长度
-	// 左侧长度：仅当 self 的起点在 obstacle 的起点之前才有效
+
+
 	const auto left_len = (obstacle.from > self.from) ? (obstacle.from - self.from) : 0;
 
-	// 右侧长度：仅当 self 的终点在 obstacle 的终点之后才有效
+
 	const auto right_len = (self.to > obstacle.to) ? (self.to - obstacle.to) : 0;
 
-	// 返回长度较大的那一部分所对应的区间
-	// 如果长度相等，优先保留左侧部分（即保持原始起点）
+
+
 	if(left_len >= right_len){
 		return {self.from, left_len};
 	} else{
@@ -344,7 +344,7 @@ void generate_layouts(
 				const bool y_overlaps = current_rect.get_src_y() < placed_rect.get_end_y() && current_rect.get_end_y() >
 					placed_rect.get_src_y();
 
-				// 优先处理 hide 策略
+
 				if((x_overlaps && elem_spec.x.fall == fallback_strategy::hide) ||
 					(y_overlaps && elem_spec.y.fall == fallback_strategy::hide)){
 					current_rect.set_size(0, 0);
@@ -352,7 +352,7 @@ void generate_layouts(
 					}
 
 				if(x_overlaps && !y_overlaps){
-					// 情况 1: 仅在 X 轴重叠 (纯水平碰撞)
+
 					auto [new_x, new_w] = find_largest_non_overlapping_section_1d(
 						{current_rect.get_src_x(), current_rect.get_end_x()},
 						{placed_rect.get_src_x(), placed_rect.get_end_x()}
@@ -360,7 +360,7 @@ void generate_layouts(
 					current_rect.src.x = new_x;
 					current_rect.set_width(new_w);
 				} else if(y_overlaps && !x_overlaps){
-					// 情况 2: 仅在 Y 轴重叠 (纯垂直碰撞)
+
 					auto [new_y, new_h] = find_largest_non_overlapping_section_1d(
 						{current_rect.get_src_y(), current_rect.get_end_y()},
 						{placed_rect.get_src_y(), placed_rect.get_end_y()}
@@ -368,7 +368,7 @@ void generate_layouts(
 					current_rect.src.y = new_y;
 					current_rect.set_height(new_h);
 				} else{
-					// 情况 3: 在两个轴上都重叠 (角部或包含式碰撞)
+
 					current_rect = math::rect::find_largest_non_edge_exclusive_intersecting_rect<true>(
 						current_rect, placed_rect);
 				}

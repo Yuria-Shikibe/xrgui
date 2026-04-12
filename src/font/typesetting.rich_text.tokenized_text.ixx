@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2026/3/14.
+
 //
 
 export module mo_yanxi.typesetting.rich_text:tokenized_text;

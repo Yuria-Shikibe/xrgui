@@ -80,35 +80,35 @@ void main()
     if (gl_LocalInvocationIndex == 0) {
         vec4 color = dbh_input_handles_0.dispatch_buffer_start_index_0 == 264 ? vec4(0, 1, 0, 0.25f) : vec4(1, 0, 0, 0.25f);
 
-        // 1. 获取并限制索引值，防止越界导致着色器崩溃
+
         uint config_idx = dbh_input_handles_0.dispatch_config_index_0 < 8 ? dbh_input_handles_0.dispatch_config_index_0 : 10;
 
-        // 2. 决定要画多少个三角形 (如果为 0，我们画 1 个灰色的，否则值为几就画几个)
+
         uint active_primitives = (config_idx == 0) ? 1 : config_idx;
         uint active_vertices = active_primitives * 3;
 
-        // 动态分配资源！这是 Mesh Shader 的核心优势
+
         SetMeshOutputsEXT(active_vertices, active_primitives);
 
-        // 获取对应的调试颜色
+
         vec4 current_color = color;
 
-        // 3. 循环生成小三角形排成一排
+
         for (uint i = 0; i < active_primitives; ++i) {
             uint v0 = i * 3 + 0;
             uint v1 = i * 3 + 1;
             uint v2 = i * 3 + 2;
 
-            // 让三角形沿 X 轴排列开，每个间隔 0.15 左右
-            float offset_x = -0.8 + float(i) * 0.18;
-            float scale = 0.1; // 缩小单个三角形的尺寸
 
-            // 写入顶点位置
+            float offset_x = -0.8 + float(i) * 0.18;
+            float scale = 0.1;
+
+
             gl_MeshVerticesEXT[v0].gl_Position = vec4(offset_x         ,-.8f + active_primitives * .2f +scale, 0.0, 1.0);
             gl_MeshVerticesEXT[v1].gl_Position = vec4(offset_x - scale, -.8f + active_primitives * .2f -scale, 0.0, 1.0);
             gl_MeshVerticesEXT[v2].gl_Position = vec4(offset_x + scale, -.8f + active_primitives * .2f -scale, 0.0, 1.0);
 
-            // 写入你自定义的颜色和 UV 输出
+
             verts_vtx_color_0[v0] = current_color;
             verts_vtx_color_0[v1] = current_color;
             verts_vtx_color_0[v2] = current_color;
@@ -117,12 +117,12 @@ void main()
             verts_vtx_uv_0[v1] = vec2(0.0, 0.0);
             verts_vtx_uv_0[v2] = vec2(0.0134277344, 0.0);
 
-            // 组装当前三角形的拓扑
+
             gl_PrimitiveTriangleIndicesEXT[i] = uvec3(v0, v1, v2);
 
-            // 记录 perprimitive 纹理索引
+
             prims_texture_index_0[i] = 0U;
-            //            prims_mode_value_0[i] = dbh_input_handles_0.dispatch_config_index_0;
+
             prims_mode_value_0[i] = _slang_resource_heap_11[dbh_input_handles_0.dispatch_buffer_start_index_0 + 5U]._data[dbh_input_handles_0.dispatch_config_index_0].group_offset_0;
         }
     }

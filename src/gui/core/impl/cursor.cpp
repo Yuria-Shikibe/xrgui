@@ -40,35 +40,35 @@ struct drag_icon_layout {
  * @return 包含 6 个点的 std::array 和 1 个 float 半径的结构体
  */
 constexpr drag_icon_layout calculate_drag_icon(const vec2& src, const vec2& extent) {
-	// 1. 计算矩形的中心点
+
 	vec2 center = src + extent * 0.5f;
 
-	// 2. 获取宽高中的较小值，以保证点阵等比缩放且不越界
+
 	float min_dim = math::min(extent.x, extent.y);
 
-	// 3. 设定圆点的半径 (例如：取较短边的 8%)
+
 	float radius = min_dim * 0.072f;
 
-	// 4. 设定点阵在 X 和 Y 方向上的间距 (例如：取较短边的 35%)
-	// 这样能够保证点阵本身是个规整的网格，而不会因为外层矩形被拉伸而变形
+
+
 	float spacing_x = min_dim * 0.4f;
 	float spacing_y = min_dim * 0.4f;
 
-	// 5. 计算左右两列的 X 坐标
+
 	float left_x = center.x - spacing_x * 0.5f;
 	float right_x = center.x + spacing_x * 0.5f;
 
-	// 6. 计算上、中、下三行的 Y 坐标
+
 	float top_y = center.y - spacing_y;
 	float mid_y = center.y;
 	float bottom_y = center.y + spacing_y;
 
-	// 7. 组装并返回 6 个点的数据
+
 	return drag_icon_layout{
 		std::array{
-			vec2{left_x, top_y},    vec2{right_x, top_y},    // 第一行
-			vec2{left_x, mid_y},    vec2{right_x, mid_y},    // 第二行
-			vec2{left_x, bottom_y}, vec2{right_x, bottom_y}  // 第三行
+			vec2{left_x, top_y},    vec2{right_x, top_y},
+			vec2{left_x, mid_y},    vec2{right_x, mid_y},
+			vec2{left_x, bottom_y}, vec2{right_x, bottom_y}
 		},
 		radius
 	};

@@ -48,14 +48,14 @@ protected:
 			break;
 		}
 		case 1 :{
-			// each_scroll_rect(element, region, [&](math::raw_frect bar_rect){
-			// 	element.renderer().push(graphic::draw::instruction::rect_aabb{
-			// 			.v00 = bar_rect.vert_00(),
-			// 			.v11 = bar_rect.vert_11(),
-			// 			.vert_color = graphic::colors::light_gray.copy_set_a(opacityScl)
-			// 		});
-			// });
-			// break;
+
+
+
+
+
+
+
+
 		}
 		default : break;
 		}
@@ -96,17 +96,17 @@ protected:
 	    using namespace graphic;
 	    using namespace graphic::draw::instruction;
 
-	    // 计算左侧进度条的矩形区域
+
 	    math::raw_frect filled_rect = region;
 
 	    if(element.is_vertical()){
-	    	// 垂直滑动条：宽度撑满，高度为从起点到滑块起点的距离减去边距
+
 	    	filled_rect.extent.y = math::fdim(pos1.y - region.src.y, bar_margin);
 	    	filled_rect.extent.x = math::fdim(filled_rect.extent.x, 2 * vert_margin);
 	    	filled_rect.src.x += vert_margin;
 	    } else{
 
-	    	// 水平滑动条：高度撑满，宽度为从起点到滑块起点的距离减去边距（使用 std::fdim 防止负数）
+
 	    	filled_rect.extent.x = math::fdim(pos1.x - region.src.x, bar_margin);
 	    	filled_rect.extent.y = math::fdim(filled_rect.extent.y, 2 * vert_margin);
 	    	filled_rect.src.y += vert_margin;
@@ -115,7 +115,7 @@ protected:
 	    auto color = handle_palette.on_instance(element).mul_a(opacityScl);
 	    auto bar_color = bar_palette.on_instance(element).mul_a(opacityScl);
 
-	    // 绘制已填充的进度条形状（即==========部分）
+
 	    if(filled_rect.extent.x > 0 && filled_rect.extent.y > 0){
 		    renderer << fx::nine_patch_draw<&image_nine_region::get_row_coords_axis_scaled>{
 				    .patch = &bar_shape,
@@ -124,14 +124,14 @@ protected:
 			    };
 	    }
 
-	    // 绘制滑块把手 (pos1)
+
 	    renderer << fx::nine_patch_draw<&image_nine_region::get_row_coords_scaled>{
 			    .patch = &handle_shape,
 			    .region = {pos1, extent},
 			    .color = color,
 		    };
 
-	    // 绘制临时滑块把手/拖拽阴影 (pos2)
+
 	    renderer << fx::nine_patch_draw<&image_nine_region::get_row_coords_scaled>{
 			    .patch = &handle_shape,
 			    .region = {pos2, extent},
@@ -148,7 +148,7 @@ struct thin_slider_drawer : slider1d_drawer{
     palette bar_palette;
     palette bar_back_palette;
 
-    // float bar_margin = 4.0f;
+
 	float bar_thick = 12.0f;
 
 protected:
@@ -174,7 +174,7 @@ protected:
 	    using namespace graphic;
 	    using namespace graphic::draw::instruction;
 
-	    // 计算左侧进度条的矩形区域
+
 	    math::raw_frect filled_rect{region.src, base_off};
 
 	    if(element.is_vertical()){
@@ -187,7 +187,7 @@ protected:
 
 		    filled_rect.extent.x = bar_thick * 2.f;
 	    } else{
-		    // 水平滑动条：高度撑满，宽度为从起点到滑块起点的距离减去边距（使用 std::fdim 防止负数）
+
 		    filled_rect.src.y += extent.y * .5f - bar_thick;
 		    curr_off.y = base_off.y = extent.y * .5f;
 
@@ -201,7 +201,7 @@ protected:
 	    auto color = handle_palette.on_instance(element).mul_a(opacityScl);
 	    auto bar_color = bar_palette.on_instance(element).mul_a(opacityScl);
 
-	    // 绘制已填充的进度条形状（即==========部分）
+
 	    if(filled_rect.extent.x > 0 && filled_rect.extent.y > 0){
 		    renderer << fx::row_patch_draw{
 				    .patch = &bar_shape,

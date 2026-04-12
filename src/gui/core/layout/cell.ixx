@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2025/3/13.
+
 //
 
 export module mo_yanxi.gui.layout.cell;
@@ -48,13 +48,13 @@ namespace mo_yanxi::gui::layout{
 		 * @brief Specific how element align within allocated_region when the element extent is smaller than allocated_region.
 		 */
 		align::pos unsaturate_cell_elem_align{align::pos::center};
-		// math::section<vec2> extent_span{{}, math::vectors::constant2<float>::inf_positive_vec2};
+
 		vec2 scaling{1.f, 1.f};
 		align::spacing margin{};
 
-		// [[nodiscard]] constexpr vec2 clamp_size(vec2 sz) const noexcept{
-		// 	return sz.clamp_xy(extent_span.from, extent_span.to);
-		// }
+
+
+
 
 		constexpr vec2 get_relative_src(vec2 actual_extent) const noexcept{
 			return margin.top_lft() + align::get_offset_of(unsaturate_cell_elem_align, actual_extent, allocated_region);

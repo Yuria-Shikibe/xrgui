@@ -30,7 +30,7 @@ namespace mo_yanxi::gui::cpd{
 
 		void set_style_side_bar(elem& e){
 			set_elem_style_(e, style::family_variant::base_only);
-			// set_elem_style_(e, "side_bar_left");
+
 		}
 
 		void set_style_edge_only(elem& e){
@@ -45,13 +45,13 @@ namespace mo_yanxi::gui::cpd{
 		inline void safe_iterate_directory(const std::filesystem::path& path, Func&& callback) {
 			std::error_code ec;
 			auto dir_it = std::filesystem::directory_iterator(path, ec);
-			if(ec) return; // 目录不可访问
+			if(ec) return;
 
 			try{
 				for(; dir_it != std::filesystem::directory_iterator{}; dir_it.increment(ec)) {
-					if(ec) continue; // 忽略无权限的子项
+					if(ec) continue;
 					if constexpr (std::predicate<Func, const std::filesystem::directory_entry&, std::error_code&>) {
-						// 如果回调返回 bool，并且为 false，则提前终止迭代
+
 						if(!callback(*dir_it, ec)) break;
 					} else {
 						callback(*dir_it, ec);
@@ -418,7 +418,7 @@ namespace mo_yanxi::gui::cpd{
 		interactivity = interactivity_flag::intercept;
 
 		std::error_code ec;
-		bool is_dir = std::filesystem::is_directory(path, ec); // 加入 error_code
+		bool is_dir = std::filesystem::is_directory(path, ec);
 		bool is_root = path == path.parent_path();
 
 		set_style_side_bar(*this);
@@ -461,7 +461,7 @@ namespace mo_yanxi::gui::cpd{
 
 	bool file_selector::file_entry::set_toggled(bool isToggled){
 		if(head_body::set_toggled(isToggled)){
-			// set_elem_style_(*this, isToggled ? style::family_variant::accepted : style::family_variant::base_only);
+
 			return true;
 		}
 		return false;
@@ -579,7 +579,7 @@ namespace mo_yanxi::gui::cpd{
 		const auto txt = edit_search_->get_text();
 		std::error_code ec;
 		bool is_dir = std::filesystem::is_directory(p, ec);
-		// 即便探测异常我们也回退判断，如果名字匹配且满足扩展名，尽量展示
+
 		return (txt.empty() || p.filename().u32string().contains(txt)) &&
 			(is_dir || is_suffix_met(p));
 	}

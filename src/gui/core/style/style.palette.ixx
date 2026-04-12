@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2024/10/7.
+
 //
 
 export module mo_yanxi.gui.style.palette;
@@ -156,19 +156,19 @@ export
 	const color_blend_mode toggled_mode = color_blend_mode::replace) noexcept {
 
 	return palette{
-		// general: 基础主题色
+
 		.general = theme_color,
 
-		// on_focus: 亮感大于 general，通过提升明度并微降饱和度，保持颜色通透不刺眼
+
 		.on_focus = theme_color.copy().shift_value(0.1f).shift_saturation(-0.02f),
 
-		// on_press: 亮感最高，进一步提升明度并适当降低饱和度模拟高光按压
+
 		.on_press = theme_color.copy().shift_value(0.15f).shift_saturation(-0.065f),
 
-		// disable: 比 general 更灰且暗，大幅抽离饱和度并压低明度
+
 		.disable = theme_color.copy().shift_saturation(-0.60f).shift_value(-0.30f),
 
-		// toggled: 亮度介于 on_focus 和 on_press 之间
+
 		.toggled = theme_color.copy().shift_value(0.13f).shift_saturation(-0.05f),
 
 		.disable_blend_mode = disable_mode,
@@ -191,7 +191,7 @@ struct component_palette{
 			.on_focus = graphic::color::from_string(foc),
 			.on_press = graphic::color::from_string(press),
 			.disable = graphic::color::from_string(dis),
-			.toggled = graphic::color::from_string(press), // 默认触发状态同按下状态
+			.toggled = graphic::color::from_string(press),
 			.disable_blend_mode = color_blend_mode::replace,
 			.toggled_blend_mode = color_blend_mode::replace
 		};
@@ -206,7 +206,7 @@ struct component_palette{
 			.on_focus = graphic::color::from_rgba8888(foc),
 			.on_press = graphic::color::from_rgba8888(press),
 			.disable = graphic::color::from_rgba8888(dis),
-			.toggled = graphic::color::from_rgba8888(press), // 默认触发状态同按下状态
+			.toggled = graphic::color::from_rgba8888(press),
 			.disable_blend_mode = color_blend_mode::replace,
 			.toggled_blend_mode = color_blend_mode::replace
 		};
@@ -222,7 +222,7 @@ struct component_palette{
 			.on_focus = foc,
 			.on_press = press,
 			.disable = dis,
-			.toggled = press, // 默认触发状态同按下状态
+			.toggled = press,
 			.disable_blend_mode = color_blend_mode::replace,
 			.toggled_blend_mode = color_blend_mode::replace
 		};
@@ -242,37 +242,37 @@ inline constexpr palette pastel_white = make_theme_palette(
 	graphic::color::from_rgba8888(0xFFFFFFFF)
 );
 
-// 2. 基础灰 (Light Gray)
+
 inline constexpr palette pastel_gray = make_theme_palette(
 	graphic::color::from_rgba8888(0xF0F0F0FF)
 );
 
-// 3. 基础蓝 (Light Blue)
+
 inline constexpr palette pastel_blue = make_theme_palette(
 	graphic::color::from_rgba8888(0xD8E4FFFF)
 );
 
-// 4. 基础绿 (Light Green)
+
 inline constexpr palette pastel_green = make_theme_palette(
 	graphic::color::from_rgba8888(0xD4E8D4FF)
 );
 
-// 5. 基础橙 (Light Orange)
+
 inline constexpr palette pastel_orange = make_theme_palette(
 	graphic::color::from_rgba8888(0xFFE6CCFF)
 );
 
-// 6. 基础黄 (Light Yellow)
+
 inline constexpr palette pastel_yellow = make_theme_palette(
 	graphic::color::from_rgba8888(0xFFF2CCFF)
 );
 
-// 7. 基础粉红 (Light Pink)
+
 inline constexpr palette pastel_pink = make_theme_palette(
 	graphic::color::from_rgba8888(0xF8CECCFF)
 );
 
-// 8. 基础紫 (Light Purple)
+
 inline constexpr palette pastel_purple = make_theme_palette(
 	graphic::color::from_rgba8888(0xE1D5E7FF)
 );

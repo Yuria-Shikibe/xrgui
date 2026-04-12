@@ -28,7 +28,7 @@ template <std::invocable<input_handle::input_event_variant> UnhandledFn>
 void consume(scene& f, std::span<const input_handle::input_event_variant> events, UnhandledFn&& fn) {
 	using namespace input_handle;
 	for(const auto& ev : events){
-		// 默认假设事件被拦截（比如内部的系统更新事件不向下游传递）
+
 		events::op_afterwards status = events::op_afterwards::intercepted;
 
 		switch(ev.type){
@@ -48,7 +48,7 @@ void consume(scene& f, std::span<const input_handle::input_event_variant> events
 			status = f.on_cursor_move(ev.cursor);
 			break;
 
-			// 下面这两个事件通常属于 UI 框架内部的驱动事件，无需传递给下游的相机/角色控制逻辑
+
 		case input_event_type::cursor_inbound:
 			f.on_inbound_changed(ev.is_inbound);
 			status = events::op_afterwards::intercepted;
@@ -59,7 +59,7 @@ void consume(scene& f, std::span<const input_handle::input_event_variant> events
 			break;
 		}
 
-		// 【核心逻辑】如果 UI 没有拦截该事件，则保存到下游缓冲区
+
 		if(status == events::op_afterwards::fall_through){
 			std::invoke(fn, ev);
 		}

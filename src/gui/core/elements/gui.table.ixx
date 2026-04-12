@@ -274,7 +274,7 @@ public:
 		set_edge_pad({pad, pad, pad, pad});
 	}
 
-	// ---------------- Override 增删查改维护拓扑缓存 ----------------
+
 	void clear() noexcept override {
 		grid_dirty_ = true;
 		universal_group::clear();

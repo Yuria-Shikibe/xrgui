@@ -10,10 +10,10 @@ bool text_edit::update(float delta_in_ticks){
 
 	check_paste_();
 
-	// 动态滚动平滑插值处理
+
 	if(is_scrollable_mode()) {
 		if(!scroll_offset_.equals(target_scroll_offset_)) {
-			// 使用简单的线性插值靠近目标
+
 			scroll_offset_ = scroll_offset_.copy().lerp_inplace(target_scroll_offset_, 1.1f - std::pow(0.01f, delta_in_ticks / 60.f));
 			if(scroll_offset_.within(target_scroll_offset_, 0.01f)) {
 				scroll_offset_ = target_scroll_offset_;
@@ -26,35 +26,35 @@ bool text_edit::update(float delta_in_ticks){
 			math::vec2 vp = content_extent();
 			math::vec2 overscroll{0.f, 0.f};
 
-			// 检查 X 轴越界 (左侧或右侧)
+
 			if(last_drag_dst_.x < 0.f) overscroll.x = last_drag_dst_.x;
 			else if(last_drag_dst_.x > vp.x) overscroll.x = last_drag_dst_.x - vp.x;
 
-			// 检查 Y 轴越界 (上方或下方)
+
 			if(last_drag_dst_.y < 0.f) overscroll.y = last_drag_dst_.y;
 			else if(last_drag_dst_.y > vp.y) overscroll.y = last_drag_dst_.y - vp.y;
 
-			// 如果存在越界
+
 			if(std::abs(overscroll.x) > 0.1f || std::abs(overscroll.y) > 0.1f){
-				// 将越界距离转换为滚动增量。这里的 0.3f 是灵敏度系数，可根据手感微调
+
 				static constexpr float sensitivity = 1.1f;
 				math::vec2 scroll_step = overscroll * (sensitivity * delta_in_ticks);
 				target_scroll_offset_ += scroll_step;
 				clamp_scroll_offset();
 
-				// 为了让视觉上更跟手，如果在拖拽自动滚动中，可以让当前偏移直接靠拢目标偏移
-				// 避免插值导致选区扩大看起来有延迟感
+
+
 				scroll_offset_ = scroll_offset_.copy().lerp_inplace(target_scroll_offset_, 0.5f);
 
-				// 【重点魔法】视口滚动后，文本相对鼠标发生了位移。
-				// 必须使用全新的变换矩阵，把依然停在屏幕外的物理鼠标坐标，映射到全新的文本逻辑坐标上！
+
+
 				auto new_t_params = get_transform_params();
 				math::vec2 new_raw_hit_pos = new_t_params.inverse_local(last_drag_dst_);
 
-				// 重新触发一次 drag 选区扩展
+
 				core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), new_raw_hit_pos, render_cache_.get_line_align(), true);
 
-				// 更新光标缓存以便渲染
+
 				update_caret_cache();
 			}
 		}
@@ -83,7 +83,7 @@ bool text_edit::update(float delta_in_ticks){
 
 	if(caret_cache_.last_cached_caret_ != core_.get_caret()){
 		update_caret_cache();
-		// 光标发生变化时，尝试滚动视口
+
 		scroll_to_caret();
 	}
 
@@ -109,7 +109,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
 	};
 
     if(is_scrollable_mode()) {
-        // dyn 模式下不受边界约束，XY无限排版（不自动换行）
+
     	if((change_mark_ & text_edit_change_type::max_extent) != text_edit_change_type::none){
     		if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
     		} else{
@@ -124,12 +124,12 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
     		change_mark_ = text_edit_change_type::none;
 
     		update_caret_cache();
-    		scroll_to_caret(); // 修改这里：排版和光标几何信息更新后，立即跟随光标
+    		scroll_to_caret();
 
     		return {process_result_ext(), true};
     	}
     } else if(view_mode_ == text_edit_view_type::fit){
-        // 原有 fit_ 逻辑...
+
         if((change_mark_ & text_edit_change_type::max_extent) != text_edit_change_type::none){
             if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2)){
             } else{
@@ -146,14 +146,14 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
             	change_mark_ = text_edit_change_type::none;
 
             	update_caret_cache();
-            	// scroll_to_caret();
+
 
             	return {process_result_ext(), true};
             }
             change_mark_ = text_edit_change_type::none;
         }
     } else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
-        // 原有 fix 逻辑...
+
         bool is_text_changed = (change_mark_ & text_edit_change_type::text) != text_edit_change_type::none;
         get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
         if(!glyph_layout_.is_exhausted && is_text_changed){
@@ -169,7 +169,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
         render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
         change_mark_ = text_edit_change_type::none;
         update_caret_cache();
-    	// scroll_to_caret();
+
         return {process_result_ext(), true};
     }
 
@@ -201,7 +201,7 @@ std::optional<math::vec2> text_edit::pre_acquire_size_impl(layout::optional_mast
 	}
 
 	if(view_mode_ == text_edit_view_type::align_x || view_mode_ == text_edit_view_type::align_y){
-		// 先使用无限大小排版获得文本的原生尺寸
+
 		const auto text_size = layout_text(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2);
 		math::vec2 raw_ext = text_size.required_extent;
 
@@ -218,7 +218,7 @@ std::optional<math::vec2> text_edit::pre_acquire_size_impl(layout::optional_mast
 				return math::vec2{target_x, raw_ext.y * ratio};
 			}
 		}
-		// 若对应边是 inf (pending) 则无法推导，直接走默认逻辑或返回 nullopt
+
 		return std::nullopt;
 	}
 
@@ -238,7 +238,7 @@ void text_edit::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 		if(!p.layer_param.is_top())return;
 		if(!util::is_draw_param_valid(e, p))return;
 		auto& r = e.renderer();
-		if (e.is_scrollable_mode()) { // 修改这里
+		if (e.is_scrollable_mode()) {
 			r.push_scissor({ e.content_bound_abs() });
 			r.notify_viewport_changed();
 		}
@@ -280,9 +280,9 @@ void text_edit::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 }
 
 
-// --------------------------------------------------------
-// --- 核心主动缓存逻辑 ---
-// --------------------------------------------------------
+
+
+
 void text_edit::update_caret_cache(){
 	auto caret = core_.get_caret();
 	caret_cache_.last_cached_caret_ = caret;
@@ -493,9 +493,9 @@ void text_edit::update_caret_cache(){
 	}
 }
 
-// --------------------------------------------------------
-// --- 使用轻量代数映射选区与游标 ---
-// --------------------------------------------------------
+
+
+
 void text_edit::draw_selection_and_caret() const{
 	if(!is_focused_key()) return;
 
@@ -537,10 +537,10 @@ void text_edit::draw_selection_and_caret() const{
 		math::vec2 base_abs = content_src_pos_abs();
 
 		for(std::size_t i = 0; i < caret_cache_.selection_rect_count_; ++i){
-			// 先映射到局部坐标
+
 			auto t_rect = t_params.forward_local(caret_cache_.selection_rects_[i]);
 			r.push(rect_aabb{
-					.v00 = t_rect.vert_00() + base_abs, // 再平移到绝对屏幕坐标
+					.v00 = t_rect.vert_00() + base_abs,
 					.v11 = t_rect.vert_11() + base_abs,
 					.vert_color = {selection_color}
 				});
@@ -589,8 +589,8 @@ void text_edit::clamp_scroll_offset() {
 
 	math::vec2 padding{ 16.0f, 16.0f };
 
-	// 修复 3：仅当 sz 严格大于 vp 时，才允许产生可滚动距离
-	// 防止排版能够被完整呈现时，padding 产生虚空滚动区间导致整体左移被 Scissor 裁剪
+
+
 	math::vec2 max_scroll = {
 		sz.x > vp.x ? std::max(0.f, sz.x + padding.x - vp.x) : 0.f,
 		sz.y > vp.y ? std::max(0.f, sz.y + padding.y - vp.y) : 0.f
@@ -601,7 +601,7 @@ void text_edit::clamp_scroll_offset() {
 void text_edit::scroll_to_caret() {
 	if (!is_scrollable_mode()) return;
 
-	// 获取未经过视口滚动偏移的局部坐标
+
 	auto t_params = get_transform_params();
 	math::frect caret_rect = caret_cache_.caret_rect_;
 	caret_rect.vert_00() *= t_params.scale;
@@ -613,14 +613,14 @@ void text_edit::scroll_to_caret() {
 
 	math::vec2 vp = content_extent();
 
-	// 检查 X 轴
+
 	if (caret_rect.get_end_x() > target_scroll_offset_.x + vp.x - viewport_padding.x) {
 		target_scroll_offset_.x = caret_rect.get_end_x() - vp.x + viewport_padding.x;
 	} else if (caret_rect.vert_00().x < target_scroll_offset_.x + viewport_padding.x) {
 		target_scroll_offset_.x = caret_rect.vert_00().x - viewport_padding.x;
 	}
 
-	// 检查 Y 轴
+
 	if (caret_rect.get_end_y() > target_scroll_offset_.y + vp.y - viewport_padding.y) {
 		target_scroll_offset_.y = caret_rect.get_end_y() - vp.y + viewport_padding.y;
 	} else if (caret_rect.vert_00().y < target_scroll_offset_.y + viewport_padding.y) {
@@ -631,7 +631,7 @@ void text_edit::scroll_to_caret() {
 }
 
 events::op_afterwards text_edit::on_scroll(const events::scroll event, std::span<elem* const> aboves) {
-	if (is_scrollable_mode()) { // 修改这里
+	if (is_scrollable_mode()) {
 		float scroll_sensitivity = 40.0f;
 		target_scroll_offset_ -= event.delta * scroll_sensitivity;
 		clamp_scroll_offset();
@@ -649,7 +649,7 @@ events::op_afterwards text_edit::on_drag(const events::drag event){
 	core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), raw_hit_pos, render_cache_.get_line_align(), true);
 	reset_blink();
 
-	// 拖拽时，光标可能被拖到屏幕外，触发自动滚动
+
 	scroll_to_caret();
 
 	return events::op_afterwards::intercepted;
@@ -878,4 +878,4 @@ void load_default_text_edit_v2_key_binding(text_edit_key_binding& bind){
 	add(key::enter, mode::ignore, make_bind<&text_edit::action_enter>());
 	add(key::tab, mode::none, make_bind<&text_edit::action_tab>());
 }
-} // namespace mo_yanxi::gui
+}

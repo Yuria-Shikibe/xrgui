@@ -234,7 +234,7 @@ private:
 	std::mutex region_queue_mutex{};
 	ccur::condition_variable_single region_queue_cond{};
 
-	// 替换掉原有的 std::vector<async_loader_task> region_queue{};
+
 	circular_queue<texture_allocation_request> alloc_queue{};
 	circular_queue<allocated_image_load_description> load_queue{};
 	std::atomic_bool loading_flag_{};
@@ -260,12 +260,12 @@ private:
 					return !self.alloc_queue.empty() || !self.load_queue.empty() || stop_token.stop_requested();
 				});
 
-				// 如果收到停止信号且所有队列均已清空，则退出线程
+
 				if (stop_token.stop_requested() && self.alloc_queue.empty() && self.load_queue.empty()) {
 					break;
 				}
 
-				// 【核心逻辑】始终优先从 alloc_queue 获取任务
+
 				if (!self.alloc_queue.empty()) {
 					std::ranges::swap(texture_alloc_queue, self.alloc_queue);
 				}
@@ -500,26 +500,26 @@ public:
 			sub_page* sub_page{};
 			if(task_post_lock_.exchange(nullptr, std::memory_order_relaxed)){
 				try{
-					// 1. 优先本地分配：如果这里抛出异常，后台线程完全不受影响
+
 					{
 						std::lock_guard _{subpage_mtx_};
 						sub_page = std::to_address(subpages_.emplace(page_size_));
 					}
 
-					// 2. 本地准备就绪后，再发送任务给后台进行跨线程协作
+
 					loader_->push(texture_allocation_request{
 							.extent = {page_size_.x, page_size_.y},
 							.clear_color_value = clear_color_,
 							.done_ptr = &ptr_to_texture_temp_
 						});
 
-					// 3. 阻塞等待后台 Vulkan 纹理分配完毕
+
 					ptr_to_texture_temp_.wait(nullptr, std::memory_order::relaxed);
 					sub_page->texture = std::move(*ptr_to_texture_temp_.load(std::memory_order::acquire));
 					ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
 					ptr_to_texture_temp_.notify_one();
 
-					// 4. 注册描述符堆 (此处也有抛出异常的可能)
+
 					sub_page->heap_target_index = loader_->add_image_to_heap(VkImageViewCreateInfo{
 							.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 							.image = sub_page->texture.get_image(),
@@ -535,18 +535,18 @@ public:
 							}
 						});
 
-					// 5. 成功完成所有步骤，归还领导者锁并唤醒跟随线程
+
 					task_post_lock_.store(&*subpages_.rbegin(), std::memory_order_release);
-					task_post_lock_.notify_all(); // 发送唤醒信号
+					task_post_lock_.notify_all();
 				} catch(...){
-					// 如果在跨线程期间任何一步出错，必须兜底解锁，防止后续业务永久瘫痪
+
 					task_post_lock_.store(&*subpages_.rbegin(), std::memory_order_release);
 					task_post_lock_.notify_all();
 					throw;
 				}
 			} else{
-				// 优化：跟随者线程不要做 compare_exchange 的高频死循环
-				// 使用原子的 wait 陷入系统睡眠，等待领导者完成分配并 notify_all
+
+
 				sub_page = task_post_lock_.load(std::memory_order_acquire);
 				while(sub_page == nullptr){
 					task_post_lock_.wait(nullptr, std::memory_order_relaxed);
@@ -569,7 +569,7 @@ public:
 
 		allocated_image_region* rst = nullptr;
 
-		// 1. 无锁/分段锁乐观读取：查找极其快速
+
 		named_image_regions.if_contains(name, [&](decltype(named_image_regions)::value_type& pair) {
 			rst = &pair.second;
 		});
@@ -648,9 +648,9 @@ public:
 		return self.at(localName);
 	}
 	//
-	// ~image_page(){
-	// 	drop();
-	// }
+
+
+
 
 	~image_page() = default;
 	
@@ -754,7 +754,7 @@ public:
 			return *page->find(localName);
 		}
 
-		// std::println(std::cerr, "TextureRegion Not Found: {}", name_category_local);
+
 		throw std::out_of_range("Undefined Region Name");
 	}
 

@@ -359,6 +359,6 @@ protected:
 
 export
 template <typename AdaptTy>
-// requires (std::derived_from<AdaptTy, cell_adaptor<typename AdaptTy::cell_type>>)
+
 using celled_group = universal_group<typename AdaptTy::cell_type, AdaptTy>;
 }

@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2026/3/7.
+
 //
 
 export module mo_yanxi.gui.style.manager;
@@ -32,7 +32,7 @@ export enum class direction_variant : std::size_t {
 export struct style_family {
     std::vector<referenced_ptr<style_drawer_base>> styles;
 
-    // 要求在创建时[0]必须有一个合法元素
+
     explicit style_family(referenced_ptr<style_drawer_base>&& default_val) {
         if (!default_val) {
             throw std::invalid_argument{"style family index [0] cannot be null"};
@@ -40,7 +40,7 @@ export struct style_family {
         styles.push_back(std::move(default_val));
     }
 
-    // 整数索引查找，下标不可用或者值为空，返回[0]
+
     [[nodiscard]] referenced_ptr<style_drawer_base> get(std::size_t index) const noexcept {
         if (index < styles.size() && styles[index]) {
             return styles[index];
@@ -106,7 +106,7 @@ struct style_manager_slice {
 private:
     style_collection* collection;
 
-    // 内部代理类：完美支持 slice["key"][variant] = value 的直觉语法
+
     template <typename KeyType>
     struct slice_proxy {
         style_collection* m_collection;
@@ -140,12 +140,12 @@ private:
             }
         };
 
-        // 读操作：隐式转换为 referenced_ptr<T> (退化请求 [0])
+
         [[nodiscard]] operator referenced_ptr<T>() const {
             return variant_proxy{this, 0};
         }
 
-        // 写操作：支持直接赋值 (退化赋值给 [0])
+
         slice_proxy& operator=(referenced_ptr<T> value) {
             variant_proxy{this, 0} = std::move(value);
             return *this;
@@ -170,7 +170,7 @@ public:
     [[nodiscard]] explicit(false) style_manager_slice(style_collection& coll)
         : collection(&coll) {}
 
-    // 默认样式访问接口（支持指定 variant）
+
     [[nodiscard]] referenced_ptr<T> default_style(std::size_t index = 0) const noexcept {
         return referenced_ptr<T>{static_cast<T*>(collection->get_default().get(index).get())};
     }

@@ -179,17 +179,17 @@ public:
     const auto num_rows = grid.extent(0);
     const auto num_cols = grid.extent(1);
 
-    // 计算表头的最大高度
+
     float head_max_height = 0.0f;
     for(const auto& entry : table_heads_){
        head_max_height = math::max(head_max_height, entry.glyph_layout.extent.y);
     }
 
-    // =========================================================================
-    // 核心优化 1：计算 O(1) 的垂直行剪枝区间 (Row Fast-Forwarding)
-    // 请根据您的 math::frect 实际成员变量替换获取 min_y 和 max_y 的方式
-    // 假设可以通过类似 clipspace.v00.y 和 clipspace.v11.y 获取边界
-    // =========================================================================
+
+
+
+
+
     const float clip_min_y = clipspace.vert_00().y;
     const float clip_max_y = clipspace.vert_11().y;
 
@@ -200,18 +200,18 @@ public:
     std::size_t visible_row_end = num_rows;
 
     if (num_rows > 0 && row_step > 0.0f) {
-        // 利用边界差值直接计算首尾可见行索引
+
         float start_idx_f = (clip_min_y - table_start_y) / row_step;
         float end_idx_f   = (clip_max_y - table_start_y) / row_step;
 
-        // 向下取整获取起始行，向上取整获取结束行，并用 std::clamp / math::max 限制在合法区间内
+
         visible_row_start = math::floor_to_integral<std::size_t>(math::max(start_idx_f, 0.f));
         visible_row_end   = math::ceil<std::size_t>(math::max(end_idx_f, 0.f));
 
         visible_row_start = math::min(visible_row_start, num_rows);
         visible_row_end   = math::min(visible_row_end, num_rows);
     }
-    // =========================================================================
+
 
     math::mat3 mat3{math::mat3_idt};
     math::vec2 current_offset{};
@@ -233,7 +233,7 @@ public:
           static constexpr graphic::color entry_even_row_color = graphic::colors::dark_gray.create_lerp(
              graphic::colors::ROYAL, .15f);
 
-          // 优化：仅遍历计算出的可见行范围
+
           current_offset = {0, table_start_y - draw_offset.y + visible_row_start * row_step};
           for(std::size_t row = visible_row_start; row < visible_row_end; ++row){
              auto off = draw_offset + current_offset;
@@ -254,7 +254,7 @@ public:
 
           static constexpr float side_stroke = 1.f;
 
-          // 返回 bool 告知是否发生了渲染，用于早期退出
+
           auto draw_col_line = [&](math::vec2 offset) -> bool {
              math::frect line_bounds{
                    tags::unchecked, tags::from_extent, offset - math::vec2{side_stroke, 0.0f}, math::vec2{side_stroke * 2, get_extent().y}
@@ -287,9 +287,9 @@ public:
              return true;
           };
 
-          // =========================================================================
-          // 核心优化 2：列分割线裁剪追踪 (Column Early-Out)
-          // =========================================================================
+
+
+
           bool col_line_seen = false;
           current_offset = {config_.pad.x * .5f};
           for(std::size_t col = 0uz; col < num_cols; ++col){
@@ -300,18 +300,18 @@ public:
              if (hit) {
                  col_line_seen = true;
              } else if (col_line_seen) {
-                 // 既然之前进入过裁剪空间，现在没碰到了，说明已经越过右边界，直接终止循环
+
                  break;
              }
 
              auto& head_entry = table_heads_[col];
              current_offset.x += head_entry.actual_size.temp + config_.pad.x;
           }
-          draw_col_line(draw_offset + math::vec2{get_extent().x}); // 补充最后一根线
+          draw_col_line(draw_offset + math::vec2{get_extent().x});
 
-          // =========================================================================
-          // 核心优化 3：重用可见行索引范围画行分割线
-          // =========================================================================
+
+
+
           draw_row_line(draw_offset);
           current_offset = {0, table_start_y - draw_offset.y + visible_row_start * row_step};
           for(std::size_t row = visible_row_start; row < visible_row_end; ++row){
@@ -342,7 +342,7 @@ public:
 
     auto draw_entry = [&](const entry& e, math::vec2 src_offset, math::vec2 cell_size, math::usize2 coord){
        if(e.empty()) return;
-       // 这里保留单体级的安全相交测试
+
        if(!math::frect{tags::from_extent, src_offset, cell_size}.overlap_exclusive(clipspace)) return;
 
        math::vec2 target_size;
@@ -389,15 +389,15 @@ public:
 
           current_offset += config_.pad * .5f;
 
-          // 如果需要画表头，我们仍然调用，内部依然会通过 overlap 测试进行裁剪
+
           draw_entry(head_entry, current_offset + draw_offset, {head_entry.actual_size.temp, head_max_height},
                      math::usize2(col));
 
-          // =========================================================================
-          // 核心优化 4：二维循环降维到局部——跳到当前列真正的起止可见行
-          // =========================================================================
+
+
+
           current_offset.y += head_max_height + config_.pad.y;
-          current_offset.y += visible_row_start * row_step; // Fast-forward 到开始绘制位置
+          current_offset.y += visible_row_start * row_step;
 
           for(std::size_t row = visible_row_start; row < visible_row_end; ++row){
              auto& grid_entry = grid[row, col];
@@ -410,7 +410,7 @@ public:
           renderer.pop_scissor();
        } else{
           if (col_cell_seen) {
-             // 说明已经画完了处于 clipspace 的所有列，目前进入到了右侧不可见区域，直接掐断整个列循环
+
              break;
           }
           current_offset.x += config_.pad.x * .5f;
@@ -431,28 +431,28 @@ public:
 
 		csv::parse_file(path, [&](csv::coord coord, std::string_view sv){
 			if(coord.row == 0){
-				// 第 0 行：生成表头并统计标准列数 (col_count)
+
 				col_count++;
 				auto& e = desc.table_heads_.emplace_back();
 				csv::unescape_csv_field(e.data, sv);
 				e.line_alignment = (typesetting::line_alignment::center);
 			} else{
-				// 数据行：如果当前列索引超出了表头列数，直接丢弃（处理多出的锯齿列）
+
 				if(coord.col >= col_count){
 					return;
 				}
 
-				// 计算当前解析的单元格在一维 table_entries_ 数组中理论上的起始索引
-				// 因为数据行是从 coord.row = 1 开始的，所以减去 1
+
+
 				unsigned expected_index = (coord.row - 1) * col_count + coord.col;
 
-				// 如果数组当前大小落后于理论索引，说明之前的行存在列数不足（短行）
-				// 我们需要用空的 entry 进行占位补齐
+
+
 				while(desc.table_entries_.size() < expected_index){
 					desc.table_entries_.emplace_back();
 				}
 
-				// 正常追加当前解析出的单元格
+
 				auto& e = desc.table_entries_.emplace_back();
 				csv::unescape_csv_field(e.data, sv);
 				e.line_alignment = (csv::is_numeric(e.data)
@@ -461,8 +461,8 @@ public:
 			}
 		}, delimiter);
 
-		// 收尾处理：如果整个文件的最后一行是短行，解析回调结束时它还没有被补齐。
-		// 这里确保最终的一维数组大小是 col_count 的整数倍。
+
+
 		if(col_count > 0){
 			while(desc.table_entries_.size() % col_count != 0){
 				desc.table_entries_.emplace_back();

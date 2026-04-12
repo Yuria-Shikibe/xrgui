@@ -40,7 +40,7 @@ namespace mo_yanxi::graphic {
         }
 
         void ReleaseInclude(shaderc_include_result *data) override {
-            delete static_cast<result_t *>(data); // NOLINT(*-pro-type-static-cast-downcast)
+            delete static_cast<result_t *>(data);
         }
     };
 
@@ -65,7 +65,7 @@ namespace mo_yanxi::graphic {
             options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_4);
             options.SetTargetSpirv(shaderc_spirv_version_1_6);
             options.SetOptimizationLevel(shaderc_optimization_level_performance);
-            // options.SetPreserveBindings(true);
+
             // options.SetWarningsAsErrors();
             if(language == shaderc_source_language_glsl)options.SetForcedVersionProfile(460, shaderc_profile_core);
 

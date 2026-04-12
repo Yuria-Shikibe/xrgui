@@ -13,7 +13,7 @@ private:
 
 public:
     using pos_t = std::u32string_view::size_type;
-    // 直接使用 span 的迭代器，它是天然的 contiguous_iterator
+
     using token_iterator = std::span<const tokenized_text::posed_token_argument>::iterator;
     using token_span = std::span<const tokenized_text::posed_token_argument>;
 

@@ -344,7 +344,7 @@ void scene_base::drop_(const elem* target) noexcept{
 	drop_elem_nodes(target);
 	input_handler_.drop_elem(target);
 
-	// overlay_manager_.truncate(target);
+
 	target->drop_tooltip();
 
 	instant_task_queue_.erase(target);
@@ -432,7 +432,7 @@ void scene_base::layout(){
 
 		count++;
 		if(count > 8){
-			// break;
+
 			throw std::runtime_error("Bad Layout: Iteration Too Many Times");
 		}
 	}

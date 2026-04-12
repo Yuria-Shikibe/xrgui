@@ -39,12 +39,12 @@ float get_dst_at(const float angle, const float2 T) {
     return len;
 }
 
-// [[ForceInline]]
-// public bool is_in_slide_line(const float2 T, const slide_line_style style, float time){
-//     const float len = get_dst_at(style.angle, T) * style.scale;
 
-//     return fmod(len + time, style.spacing) < style.stroke;// step(, stroke);
-// }
+
+
+
+
+
 
 [[ForceInline]]
 public float is_in_slide_line_smooth(const float2 T, const slide_line_style style, float time){

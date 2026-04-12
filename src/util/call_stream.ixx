@@ -53,7 +53,7 @@ using invoker_fn = invoke_fn_return_type(*)(std::byte* current_instr_base, const
 
 
 struct alignas(16) instr_header{
-	invoker_fn invoker; // 8 bytes
+	invoker_fn invoker;
 	std::uint32_t prev_res_offset; // 4 bytes
 	std::uint32_t flags_or_padding; // 4 bytes
 };

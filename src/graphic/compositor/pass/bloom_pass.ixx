@@ -30,7 +30,7 @@ struct bloom_defines {
 	std::uint32_t current_layer;
 	std::uint32_t up_scaling;
 	std::uint32_t total_layer;
-	std::uint32_t target_scale; // 新增字段，保持和 shader 的 PushConstant 对齐
+	std::uint32_t target_scale;
 };
 
 struct bloom_uniform_block{
@@ -122,7 +122,7 @@ private:
 
 		total_mip_level_ = std::min(max_mip_level_, get_real_mipmap_level(extent));
 
-		// 限制 target_scale 不能大于等于 total_mip_level_，以保证至少有一次上采样操作写入 up_sample_image
+
 		std::uint32_t target_scale = std::min(static_cast<std::uint32_t>(raw_scale),
 		                                      total_mip_level_ > 0 ? total_mip_level_ - 1 : 0u);
 		std::uint32_t total_passes = total_mip_level_ * 2 - target_scale;
@@ -145,7 +145,7 @@ private:
 		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources().get_in(1).resource);
 		const auto up_sample_image = std::get<image_entity>(pass.get_used_resources().get_out(0).resource);
 
-		// 从对应的 slot 需求中动态获取格式
+
 		const auto down_format = sockets().at_in<image_requirement>(1).get_format();
 		const auto up_format = sockets().at_out<image_requirement>(0).get_format();
 
@@ -160,7 +160,7 @@ private:
 					.flags = 0,
 					.image = down_sample_image.handle.image,
 					.viewType = VK_IMAGE_VIEW_TYPE_2D,
-					.format = down_format, // 使用动态推断的格式
+					.format = down_format,
 					.components = {},
 					.subresourceRange = VkImageSubresourceRange{
 						VK_IMAGE_ASPECT_COLOR_BIT, static_cast<std::uint32_t>(idx), 1, 0, 1
@@ -177,7 +177,7 @@ private:
 					.flags = 0,
 					.image = up_sample_image.handle.image,
 					.viewType = VK_IMAGE_VIEW_TYPE_2D,
-					.format = up_format, // 使用动态推断的格式
+					.format = up_format,
 					.components = {},
 					.subresourceRange = VkImageSubresourceRange{
 						VK_IMAGE_ASPECT_COLOR_BIT, static_cast<std::uint32_t>(idx), 1, 0, 1
@@ -198,7 +198,7 @@ private:
 			if(i < total_mip_level_){
 				mapper.set_storage_image(3, down_mipmap_image_views[i], VK_IMAGE_LAYOUT_GENERAL, i);
 			} else{
-				// 计算逻辑层级并与 target_scale 抵消，使得最后一趟的 conceptual_mip == target_scale 正好写入 up_mipmap 索引 0
+
 				std::uint32_t conceptual_mip = reverse_after(i, total_mip_level_);
 				mapper.set_storage_image(3, up_mipmap_image_views[conceptual_mip - target_scale],
 				                         VK_IMAGE_LAYOUT_GENERAL, i);
@@ -231,7 +231,7 @@ private:
 
 			if(i > 0){
 				if(i <= total_mip_level_){
-					// mipmap access barrier
+
 					cmd::memory_barrier(
 						buffer,
 						down_sample_image.handle.image,
@@ -264,7 +264,7 @@ private:
 				}
 			}
 
-			// 检查是否为最后一趟上采样，转换最终图像布局
+
 			if(i == total_passes - 1 && i >= total_mip_level_){
 				//Final, set output image layout to general
 				cmd::memory_barrier(
@@ -304,7 +304,7 @@ private:
 				.current_layer = reverse_after(layerIndex, total_mip_level_),
 				.up_scaling = layerIndex >= total_mip_level_,
 				.total_layer = total_mip_level_,
-				.target_scale = static_cast<std::uint32_t>(std::max(0, get_target_scale())), // 传入 target_scale
+				.target_scale = static_cast<std::uint32_t>(std::max(0, get_target_scale())),
 		};
 	}
 

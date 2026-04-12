@@ -112,7 +112,7 @@ export
 template <typename T>
 FORCE_INLINE CONST_FN constexpr T get_snapped_size(const T len) noexcept{
 	return 64;
-	// if(len == 0) return 0;
+
 	// if(len <= static_cast<T>(256)) return 64;
 	// return 128;
 }

@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2025/12/28.
+
 //
 
 export module mo_yanxi.graphic.draw.instruction.recorder;
@@ -55,7 +55,7 @@ public:
         return heads_;
     }
 
-    // [MODIFIED] 将返回类型从 const std::byte* 改为 std::span，以便后续拆分 chunk 时可以获取 size
+
     std::span<const std::byte> data() const noexcept {
         return data_;
     }
@@ -79,12 +79,12 @@ struct draw_record_chunked_storage {
 private:
     draw_record_storage<Alloc> storage_{};
 
-    // 只记录每个 chunk 的起始索引，内存占用减半
+
     std::vector<chunk_start_pos, typename std::allocator_traits<Alloc>::template rebind_alloc<chunk_start_pos>> chunks_{};
 
 public:
     [[nodiscard]] constexpr draw_record_chunked_storage() {
-        // 始终保留一个初始游标，代表第 0 个 chunk 的起点
+
         chunks_.push_back({0, 0});
     }
 
@@ -99,7 +99,7 @@ public:
     void clear() noexcept {
         storage_.clear();
         chunks_.clear();
-        // 清理后重新推入初始游标
+
         chunks_.push_back({0, 0});
     }
 
@@ -112,7 +112,7 @@ public:
         std::uint32_t head_total = static_cast<std::uint32_t>(storage_.heads().size());
         std::uint32_t byte_total = static_cast<std::uint32_t>(storage_.data().size());
 
-        // 只有当当前活跃 chunk 确实有写入新数据时，才记录新的分裂点作为下一 chunk 的起点
+
         if (allow_empty || head_total > chunks_.back().head_idx) {
             chunks_.push_back({head_total, byte_total});
         }
@@ -121,11 +121,11 @@ public:
     [[nodiscard]] instr_chunk operator[](std::size_t index) const {
         const auto& start_pos = chunks_[index];
 
-        // 默认使用当前 buffer 的末尾作为区间终点（适用于末尾的 chunk）
+
         std::uint32_t head_end = static_cast<std::uint32_t>(storage_.heads().size());
         std::uint32_t byte_end = static_cast<std::uint32_t>(storage_.data().size());
 
-        // 如果不是最后一个记录点，则使用下一 chunk 的起点作为当前 chunk 的终点
+
         if (index + 1 < chunks_.size()) {
             head_end = chunks_[index + 1].head_idx;
             byte_end = chunks_[index + 1].byte_idx;
@@ -139,15 +139,15 @@ public:
 
     [[nodiscard]] std::size_t chunk_count() const noexcept {
         std::uint32_t head_total = static_cast<std::uint32_t>(storage_.heads().size());
-        // 没有任何指令被 push
+
         if (head_total == 0) {
             return 0;
         }
-        // 如果最后一次 split() 之后还没有推入新指令，排除掉末尾那个空的活跃游标
+
         if (head_total == chunks_.back().head_idx) [[unlikely]] {
             return chunks_.size() - 1;
         }
-        // 正常返回包含了活跃末尾 chunk 的总数
+
         return chunks_.size();
     }
 

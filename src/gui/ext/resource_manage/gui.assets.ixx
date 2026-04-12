@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2025/11/25.
+
 //
 
 export module mo_yanxi.gui.assets;

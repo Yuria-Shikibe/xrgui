@@ -64,14 +64,14 @@ FORCE_INLINE CONST_FN [[nodiscard]] arrow_info generate_centered_arrow(
 {
 	static constexpr float INV_SQRT2 = math::sqrt2_inv;
 
-	// --- 步骤 1: 计算原始尺寸下的完整包围盒 ---
 
-	// 水平总宽度 = length的水平投影 + 尖端外扩 + 末端平角的水平投影
+
+
 	float req_w = (length + 1.5f * stroke) * INV_SQRT2;
-	// 垂直总高度 = 2 * (length的垂直投影 + 末端平角的垂直投影)
+
 	float req_h = (2.0f * length + stroke) * INV_SQRT2;
 
-	// --- 步骤 2: 自适应缩放 (与矩形尺寸对比) ---
+
 	float scale_x = extent.x / req_w;
 	float scale_y = extent.y / req_h;
 	float scale = std::min({1.0f, scale_x, scale_y});
@@ -80,16 +80,16 @@ FORCE_INLINE CONST_FN [[nodiscard]] arrow_info generate_centered_arrow(
 	float final_stroke = stroke * scale;
 
 	float tip_x = (final_length - 0.5f * final_stroke) * INV_SQRT2 * 0.5f;
-	float tip_y = 0.0f; // Y 轴天然对称，直接为 0
+	float tip_y = 0.0f;
 
-	// 计算两臂末端相对 Tip 的偏移
-	float arm_dx = -final_length * INV_SQRT2; // 向左延伸
-	float arm_dy = final_length * INV_SQRT2;  // 上下对称延伸
+
+	float arm_dx = -final_length * INV_SQRT2;
+	float arm_dy = final_length * INV_SQRT2;
 
 	std::array vertices = {
-		math::vec2{tip_x + arm_dx, tip_y - arm_dy}, // 顶部的点 (Top)
-		math::vec2{tip_x, tip_y},                   // 尖端节点 (Tip, 朝右)
-		math::vec2{tip_x + arm_dx, tip_y + arm_dy}  // 底部的点 (Bottom)
+		math::vec2{tip_x + arm_dx, tip_y - arm_dy},
+		math::vec2{tip_x, tip_y},
+		math::vec2{tip_x + arm_dx, tip_y + arm_dy}
 	};
 
 	return arrow_info{vertices, final_stroke};

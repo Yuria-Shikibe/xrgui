@@ -27,7 +27,7 @@ namespace mo_yanxi::graphic::compositor{
 resource_requirement extract_image_state(const SpvReflectDescriptorBinding* resource){
 	access_flag decr{};
 
-	// spirv-reflect 使用位掩码 decoration_flags
+
 	const bool no_read = (resource->decoration_flags & SPV_REFLECT_DECORATION_NON_READABLE);
 	const bool no_write = (resource->decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE);
 
@@ -48,7 +48,7 @@ resource_requirement extract_image_state(const SpvReflectDescriptorBinding* reso
 	return resource_requirement{
 			.req = image_requirement{
 				.sample_count = VkSampleCountFlags{isSampled},
-				// 1 means sampled, but logic might vary depending on your usage
+
 				.format = convertImageFormatToVkFormat(resource->image.image_format),
 				.extent = isSampled ? image_extent_spec{} : image_extent_spec{0},
 			},
@@ -96,10 +96,10 @@ public:
 		std::optional<VkSpecializationInfo> specializationInfo = std::nullopt)
 		: shader_(&shader),
 		inout_map_(inout_map), specialization_info_(specializationInfo){
-		// 创建我们新的反射包装类
+
 		const shader_reflection refl{shader.get_binary()};
 
-		// 遍历 Storage Images
+
 		for(const auto* input : refl.storage_images()){
 			const auto binding = refl.binding_info_of(input);
 			resources_.push_back({binding, extract_image_state(input)});
@@ -108,14 +108,14 @@ public:
 				VK_SHADER_STAGE_COMPUTE_BIT);
 		}
 
-		// 遍历 Sampled Images
-		// 遍历 Sampled Images
+
+
 		for(const auto* input : refl.sampled_images()){
 			auto binding = refl.binding_info_of(input);
 			resources_.push_back({binding, extract_image_state(input)});
 			if(binding.set != 0) continue;
 
-			// [修改这里]：根据 SPIR-V 反射出的实际类型，决定是 SAMPLED_IMAGE 还是 COMBINED_IMAGE_SAMPLER
+
 			VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			if(input->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE){
 				desc_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -124,7 +124,7 @@ public:
 			descriptor_layout_builder_.push(binding.binding, desc_type, VK_SHADER_STAGE_COMPUTE_BIT);
 		}
 
-		// 遍历 Uniform Buffers
+
 		for(const auto* input : refl.uniform_buffers()){
 			auto binding = refl.binding_info_of(input);
 			uniform_buffers_.push_back({binding, get_buffer_size(input)});
@@ -133,7 +133,7 @@ public:
 				VK_SHADER_STAGE_COMPUTE_BIT);
 		}
 
-		// 遍历 Storage Buffers
+
 		for(const auto* input : refl.storage_buffers()){
 			auto binding = refl.binding_info_of(input);
 			resources_.push_back({binding, buffer_requirement{get_buffer_size(input)}});
@@ -144,7 +144,7 @@ public:
 
 		for(const auto& pass : inout_map.get_connections()){
 			if(!std::ranges::contains(resources_, pass.binding)){
-				// refl.compiler() 不再存在，如果需要 debug 信息可以从 raw_module 获取
+
 				throw std::invalid_argument("binding not match");
 			}
 		}
@@ -158,7 +158,7 @@ public:
 		}
 	}
 
-	// ... 后续代码与原文件保持一致 ...
+
 	bound_stage_resource& operator[](binding_info binding) noexcept{
 		if(auto itr = std::ranges::find(resources_, binding); itr != resources_.end()){
 			return *itr;
@@ -170,7 +170,7 @@ public:
 		return shader_->get_name();
 	}
 
-	// ... Copy remaining methods from original source as they don't depend on spirv-cross ...
+
 	void set_format_at_in(std::uint32_t slot, VkFormat format){
 		sockets.at_in<image_requirement>(slot).format = format;
 	}
@@ -324,10 +324,10 @@ protected:
 						auto& req = std::get<image_requirement>(requirement.req);
 						if(req.is_sampled_image()){
 							VkSampler sampler = VK_NULL_HANDLE;
-							// 默认使用 SAMPLED_IMAGE，因为此时没有 Sampler
+
 							VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 
-							// 如果外部显式绑定了 Sampler，说明这是一个 Combined Image Sampler
+
 							if(samplers_.contains(connection.binding)){
 								sampler = get_sampler_at(connection.binding);
 								if(sampler != VK_NULL_HANDLE){
@@ -338,10 +338,10 @@ protected:
 							mapper.set_image(
 								connection.binding.binding,
 								entity.handle.image_view,
-								0, // chunkIndex
+								0,
 								VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 								sampler,
-								desc_type // 显式传入推导出的描述符类型！
+								desc_type
 							);
 						} else{
 							mapper.set_storage_image(connection.binding.binding, entity.handle.image_view,

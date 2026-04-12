@@ -24,11 +24,11 @@ void direct_label::draw_text() const {
 	math::vec2 raw_ext = glyph_layout_.extent;
 	math::vec2 abs_scale = {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
 
-	// 先对原始局部尺寸进行缩放
+
 	math::vec2 scaled_ext = raw_ext * abs_scale;
 	math::vec2 trans_ext = scaled_ext;
 
-	// 缩放完毕后，再基于旋转角度决定物理包围盒的最终宽高
+
 	if (transform_config_.rotation == text_rotation::deg_90 || transform_config_.rotation == text_rotation::deg_270) {
 		trans_ext = {scaled_ext.y, scaled_ext.x};
 	}
@@ -39,16 +39,16 @@ void direct_label::draw_text() const {
 
 	math::mat3 mat_abs = math::mat3_idt;
 
-	// 因为底层矩阵使用左乘，变换叠加过程必须按照“由局部到全局（由内向外）”的顺序执行：
-	// 1. 将原始包围盒的中心重置到原点
+
+
 	mat_abs.translate(-raw_ext * 0.5f);
 
-	// 2. 直接应用局部缩放（包含由负数隐式指定的翻转）
+
 	if (transform_config_.scale.x != 1.f || transform_config_.scale.y != 1.f) {
 		mat_abs.scale(transform_config_.scale.x, transform_config_.scale.y);
 	}
 
-	// 3. 应用旋转
+
 	switch (transform_config_.rotation) {
 	case text_rotation::deg_90:  mat_abs.rotate_90(); break;
 	case text_rotation::deg_180: mat_abs.rotate_180(); break;
@@ -56,13 +56,13 @@ void direct_label::draw_text() const {
 	case text_rotation::deg_0:   break;
 	}
 
-	// 4. 对齐/缩放（针对 fit 和 scl 模式）
-	// trans_ext 和 reg_ext 现在比例绝对一致，除法算出的宽高缩放率是均匀的
+
+
 	if (fit_type_ != label_fit_type::fix && trans_ext.x > 0.f && trans_ext.y > 0.f) {
 		mat_abs.scale(reg_ext / trans_ext);
 	}
 
-	// 5. 平移到目标包围盒的实际屏幕中心点
+
 	mat_abs.translate(src_abs + reg_ext * 0.5f);
 
 	math::mat3 mat_local = mat_abs;

@@ -25,7 +25,7 @@ table_layout_context::pre_layout_result table_layout_context::layout_masters(
 
 	const auto [extent_major, extent_minor] = get_extent_ptr(policy_);
 
-	// 初始化网格大小以收集主从约束
+
 	std::uint32_t cell_idx = 0;
 	for (std::uint32_t idx_minor = 0; idx_minor < row_counts_.size(); ++idx_minor){
 		std::uint32_t row_len = row_counts_[idx_minor];
@@ -77,7 +77,7 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 	const auto [extent_major, extent_minor] = get_extent_ptr(policy_);
 	const auto [major_target, minor_target] = get_vec_ptr<>(policy_);
 
-	// ---------------- 局部缓存机制 ----------------
+
 	struct extent_cache {
 		layout::stated_extent request;
 		math::vec2 response;
@@ -97,7 +97,7 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 		}
 		return std::nullopt;
 	};
-	// ---------------------------------------------
+
 
 	{
 		bool single_line = max_minor_size() == 1 && std::isfinite(valid_extent.*minor_target);

@@ -17,11 +17,11 @@ struct overflow_sequence : sequence {
 private:
 	std::size_t split_index_{0};
 	
-	// 溢出时显示的替代元素 (E) 及其对应的 cell 适配器
+
 	elem_ptr overflow_elem_{};
 	cell_adaptor<layout::partial_mastering_cell> overflow_cell_{};
 
-	// 实际暴露给外界和绘制管线的入选子元素与 Cell
+
 	mr::heap_vector<elem*> exposed_children_{get_heap_allocator<elem*>()};
 	mr::heap_vector<adaptor_type*> exposed_cells_{get_heap_allocator<adaptor_type*>()};
 	mr::heap_vector<elem*> old_exposed_children_{get_heap_allocator<elem*>()};
@@ -35,16 +35,16 @@ public:
 		set_expand_policy(layout::expand_policy::passive);
 	}
 protected:
-	// [新增] 辅助函数：安全地将即将被移除的元素从曝光列表中剥离，并发送 false 通知
+
 	void notify_and_remove_exposed(elem* target) {
 		if (!target) return;
 
 		auto it = std::ranges::find(exposed_children_, target);
 		if (it != exposed_children_.end()) {
-			// 1. 发送移出通知
+
 			target->on_display_state_changed(false, false);
 
-			// 2. 同步清理 exposed_children_ 和 exposed_cells_，避免下次 layout_elem 前出现悬垂访问
+
 			std::size_t idx = std::distance(exposed_children_.begin(), it);
 			exposed_children_.erase(it);
 
@@ -76,7 +76,7 @@ public:
 		return sequence::exchange(where, std::move(elem), force_isolated_notify);
 	}
 
-	// 1. 设置 Prev 和 Post 的划分下标
+
 	void set_split_index(std::size_t index) {
 		if (util::try_modify(split_index_, index)) {
 			notify_isolated_layout_changed();
@@ -84,12 +84,12 @@ public:
 	}
 
 	void set_overflow_elem(elem_ptr&& elem) {
-		// [新增] 安全防护：如果旧的 overflow_elem_ 正在展示，替换前需发送移出通知并安全抹除，防止悬垂
+
 		if (overflow_elem_) {
 			for (auto& p : exposed_children_) {
 				if (p == overflow_elem_.get()) {
 					p->on_display_state_changed(false, false);
-					p = nullptr; // 置空，防止在下次 layout_elem 时重复发送或访问非法内存
+					p = nullptr;
 				}
 			}
 		}
@@ -123,7 +123,7 @@ public:
 		}
 	}
 
-	// 4. 获取是否需要插入 scissor
+
 	[[nodiscard]] bool is_scissor_required() const noexcept {
 		return requires_scissor_;
 	}
@@ -132,9 +132,9 @@ public:
 		return is_overflowed_;
 	}
 
-	// 核心：重写 children() 以便 draw_children 只渲染活跃的元素
+
 	[[nodiscard]] elem_span children() const noexcept final {
-		// elem_span 支持从连续的 elem* 范围构造
+
 		return elem_span{exposed_children_.data(), exposed_children_.size()};
 	}
 
@@ -149,10 +149,10 @@ public:
 	}
 
 	void layout_elem() override {
-		// [修改] 复用类成员的缓存空间
+
 		old_exposed_children_.clear();
 		for (auto* e : exposed_children_) {
-			// 过滤掉可能因为被替换而被置空的指针
+
 			if (e) old_exposed_children_.push_back(e);
 		}
 
@@ -166,11 +166,11 @@ public:
 				resize(pref.value(), propagate_mask::force_upper);
 			}
 
-			// 元素全空，旧的曝光元素全部移出
+
 			for (auto* e : old_exposed_children_) {
 				e->on_display_state_changed(false, false);
 			}
-			// [重要] 别忘了清空缓存，防止持有悬垂指针
+
 			old_exposed_children_.clear();
 			return;
 		}
@@ -192,13 +192,13 @@ public:
 			&exposed_children_, &exposed_cells_, &exposed_sizes
 		);
 
-		// 1. 寻找被移出的元素 (在 old_exposed_children_ 中，但不在 exposed_children_ 中)
+
 		for (auto* e : old_exposed_children_) {
 			if (std::ranges::find(exposed_children_, e) == exposed_children_.end()) {
 				e->on_display_state_changed(false, false);
 			}
 		}
-		// 2. 寻找被移入的元素 (在 exposed_children_ 中，但不在 old_exposed_children_ 中)
+
 		for (auto* e : exposed_children_) {
 			if (std::ranges::find(old_exposed_children_, e) == old_exposed_children_.end()) {
 				e->on_display_state_changed(true, false);
@@ -210,7 +210,7 @@ public:
 		is_overflowed_ = info.is_overflowed;
 		requires_scissor_ = info.requires_scissor;
 
-		// 重新调整自身尺寸
+
 		if (get_expand_policy() != layout::expand_policy::passive) {
 			math::vec2 size;
 			size.*majorTarget = content_sz.*majorTarget;
@@ -226,7 +226,7 @@ public:
 			content_sz = content_extent();
 		}
 
-		// 布局放置被选中的子元素
+
 		float minor_offset = (is_align_to_tail() && info.passives == 0) ? content_sz.*minorTarget - info.masterings : 0;
 		const auto remains = std::fdim(content_sz.*minorTarget, info.masterings);
 		const auto passive_unit = info.passives > 0 ? remains / info.passives : 0;
@@ -311,7 +311,7 @@ public:
 		float passives{0.f};
 	};
 
-	// 统一的布局测量与截断算法
+
 	void relocate_scene(scene& target_scene) noexcept override{
 		relocate_self_scene(target_scene);
 
@@ -332,7 +332,7 @@ protected:
 		overflow_layout_info info{};
 		auto [majorTarget, minorTarget] = layout::get_vec_ptr(get_layout_policy());
 
-		// [修复 1] 严格限定只获取 Inner 内容大小，绝不混入 Padding
+
 		auto calc_inner_minor = [&](elem* e, const adaptor_type& c) {
 			float sz = 0.f;
 			switch (c.cell.stated_size.type) {
@@ -355,7 +355,7 @@ protected:
 			return sz;
 		};
 
-		// 预计算所有潜在元素的 Inner Size
+
 		mr::heap_vector<float> inner_sizes{get_heap_allocator<float>()};
 		inner_sizes.reserve(cells_.size());
 		float sum_all_minor = 0.f;
@@ -363,13 +363,13 @@ protected:
 		for (auto& cell : cells_) {
 			float inner = calc_inner_minor(cell.element, cell);
 			inner_sizes.push_back(inner);
-			// 累加总物理占空：inner + pad.pre + pad.post
+
 			sum_all_minor += inner + cell.cell.pad.length();
 		}
 
 		float all_actual_minor = sum_all_minor;
 		if (!cells_.empty()) {
-			// 扣除两端边距以对齐基类的折叠逻辑
+
 			all_actual_minor -= cells_.front().cell.pad.pre;
 			all_actual_minor -= cells_.back().cell.pad.post;
 		}
@@ -380,13 +380,13 @@ protected:
 		float last_pad_post = 0.f;
 		bool has_any = false;
 
-		// 暴露元素的登记器
+
 		auto add_exposed = [&](elem* e, adaptor_type* c, float inner_sz) {
 			if (out_children) out_children->push_back(e);
 			if (out_cells) out_cells->push_back(c);
-			if (out_inner_sizes) out_inner_sizes->push_back(inner_sz); // 严格存入 Inner Size
+			if (out_inner_sizes) out_inner_sizes->push_back(inner_sz);
 
-			// 累加计算实际的 masterings (内部尺寸 + padding)
+
 			info.masterings += inner_sz + c->cell.pad.length();
 			if (c->cell.stated_size.type == layout::size_category::passive) {
 				info.passives += c->cell.stated_size.value;
@@ -399,7 +399,7 @@ protected:
 			last_pad_post = c->cell.pad.post;
 		};
 
-		// 2. 截断判断与装载
+
 		if (all_actual_minor <= max_minor || get_expand_policy() != layout::expand_policy::passive) {
 			for (std::size_t i = 0; i < cells_.size(); ++i) {
 				add_exposed(cells_[i].element, &cells_[i], inner_sizes[i]);
@@ -407,17 +407,17 @@ protected:
 		} else {
 			info.is_overflowed = true;
 
-			// --- 第一阶段：探测可容纳极限 ---
+
 			float current_sum = 0.f;
 			float current_first_pre = 0.f;
 
-			// 预计算 Prev 尺寸
+
 			for (std::size_t i = 0; i < valid_split; ++i) {
 				current_sum += inner_sizes[i] + cells_[i].cell.pad.length();
 				if (i == 0) current_first_pre = cells_[i].cell.pad.pre;
 			}
 
-			// 预计算 E 尺寸
+
 			float e_inner = 0.f;
 			if (overflow_elem_) {
 				e_inner = calc_inner_minor(overflow_elem_.get(), overflow_cell_);
@@ -425,13 +425,13 @@ protected:
 				if (valid_split == 0) current_first_pre = overflow_cell_.cell.pad.pre;
 			}
 
-			// 倒序探测 Post
+
 			mr::heap_vector<std::size_t> post_indices{get_heap_allocator<std::size_t>()};
 			for (std::size_t i = cells_.size(); i > valid_split; --i) {
 				std::size_t idx = i - 1;
 				float cell_total = inner_sizes[idx] + cells_[idx].cell.pad.length();
 
-				// [修复 2] 动态预测加上该元素后的实际空间（扣除头尾的折叠边距）
+
 				float candidate_sum = current_sum + cell_total;
 				float candidate_actual = candidate_sum - current_first_pre - cells_[idx].cell.pad.post;
 
@@ -444,7 +444,7 @@ protected:
 			}
 			std::ranges::reverse(post_indices);
 
-			// --- 第二阶段：真正执行装载 ---
+
 			for (std::size_t i = 0; i < valid_split; ++i) {
 				add_exposed(cells_[i].element, &cells_[i], inner_sizes[i]);
 			}
@@ -456,13 +456,13 @@ protected:
 			}
 		}
 
-		// 3. 在暴露结束后，真正抵消实际首尾边距，得出需要告诉父级的精准空间
+
 		if (has_any) {
 			info.masterings -= first_pad_pre;
 			info.masterings -= last_pad_post;
 		}
 
-		// 4. 精准检测是否需要 Scissor 裁剪
+
 		if (info.is_overflowed && info.masterings > max_minor) {
 			info.requires_scissor = true;
 		}
@@ -498,10 +498,10 @@ protected:
 			} else {
 				float major_size = potential.*majorTarget;
 				float minor_scaling = get_scaling().*minorTarget;
-				// 在预申请阶段，max_minor 取 extent 的潜在大小（若是 pending 则为 inf）
+
 				float max_minor = potential.*minorTarget;
 
-				// 调用统一算法计算应该占据的副轴总长
+
 				auto info = calculate_overflow_layout(major_size, minor_scaling, max_minor);
 				potential.*minorTarget = info.masterings;
 			}
@@ -515,4 +515,4 @@ protected:
 	}
 };
 
-} // namespace mo_yanxi::gui
+}

@@ -71,7 +71,7 @@ private:
 				.id = unstable_type_identity_of<Ty>(),
 				.entry = {
 					.size = static_cast<std::uint32_t>(sizeof(Ty)),
-					// .local_offset = static_cast<std::uint32_t>(required_capacity_ - current_base_size),
+
 					.global_offset = static_cast<std::uint32_t>(required_capacity_),
 					.group_index = I,
 				}
@@ -166,26 +166,26 @@ public:
 		return entries[idx].entry;
 	}
 	//
-	// template <typename T>
-	// [[nodiscard]] FORCE_INLINE user_data_indices index_of() const noexcept{
-	// 	const user_data_identity_entry* ptr = (*this)[unstable_type_identity_of<T>()];
-	// 	assert(ptr < end());
-	// 	return {static_cast<std::uint32_t>(ptr - begin()), ptr->entry.group_index};
-	// }
+
+
+
+
+
+
 	//
-	// [[nodiscard]] FORCE_INLINE user_data_indices index_of(type_identity_index index) const noexcept{
-	// 	const user_data_identity_entry* ptr = (*this)[index];
-	// 	assert(ptr < end());
-	// 	return {static_cast<std::uint32_t>(ptr - begin()), ptr->entry.group_index};
-	// }
+
+
+
+
+
 	//
-	// [[nodiscard]] FORCE_INLINE user_data_indices index_of_checked(type_identity_index index) const{
-	// 	const user_data_identity_entry* ptr = (*this)[index];
-	// 	if(ptr >= end()){
-	// 		throw std::out_of_range("customized type index out of range");
-	// 	}
-	// 	return {static_cast<std::uint32_t>(ptr - begin()), ptr->entry.group_index};
-	// }
+
+
+
+
+
+
+
 
 	auto get_entries() const noexcept {
 		return std::span{begin(), size()};

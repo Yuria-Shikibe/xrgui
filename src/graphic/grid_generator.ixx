@@ -101,7 +101,7 @@ namespace mo_yanxi::graphic{
 			auto v00 = grid_generator::vertex_at<Rng>(anchorPoints, x, y);
 			auto v11 = grid_generator::vertex_at<Rng>(anchorPoints, x + 1, y + 1);
 
-			// if(v00.x > v11.x || v00.y > v11.y)return {};
+
 			CHECKED_ASSUME(v00.x <= v11.x);
 			CHECKED_ASSUME(v00.y <= v11.y);
 

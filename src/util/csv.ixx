@@ -8,12 +8,12 @@ constexpr inline bool is_numeric(std::string_view sv) noexcept {
 	std::size_t start = 0;
 	std::size_t end = sv.size();
 
-	// 1. 手动 Trim：跳过前导空白字符
+
 	while (start < end && (sv[start] == ' ' || sv[start] == '\t' || sv[start] == '\r' || sv[start] == '\n')) {
 		++start;
 	}
 
-	// 2. 手动 Trim：跳过尾随空白字符
+
 	while (end > start && (sv[end - 1] == ' ' || sv[end - 1] == '\t' || sv[end - 1] == '\r' || sv[end - 1] == '\n')) {
 		--end;
 	}

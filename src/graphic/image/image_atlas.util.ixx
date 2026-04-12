@@ -113,7 +113,7 @@ public:
 
 	bool set_protected(bool to_protected) noexcept{
 		bool expected = !to_protected;
-		// 使用原子变量保证并发安全，且只递增一次引用计数
+
 		if(tag.tag.compare_exchange_strong(expected, true, std::memory_order_acq_rel)){
 			if(to_protected){
 				ref_incr();

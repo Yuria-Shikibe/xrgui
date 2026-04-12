@@ -8,9 +8,9 @@ import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.math.interpolation;
 
 namespace mo_yanxi::gui{
-	// namespace style{
-	// 	referenced_ptr<const scroll_pane_bar_drawer> global_scroll_pane_bar_drawer = default_scroll_pane_drawer;
-	// }
+
+
+
 
 
 	void style::scroll_pane_bar_drawer::draw_layer_impl(const scroll_adaptor_base& element, math::frect region,
@@ -33,7 +33,7 @@ namespace mo_yanxi::gui{
 		if(overlay_scroll_bars_){
 			bool is_interacting = false;
 
-			// 检查当前是否处于被触动/交互的状态
+
 			if(scroll_velocity_.length2() > 0.1f){
 				is_interacting = true;
 			} else if(cursor_state().inbound){
@@ -47,7 +47,7 @@ namespace mo_yanxi::gui{
 					if(is_interacting) {
 						overlay_state_ = overlay_bar_state::fading_in;
 					} else {
-						keep_draw_update = false; // 继续保持休眠
+						keep_draw_update = false;
 					}
 					break;
 
@@ -62,11 +62,11 @@ namespace mo_yanxi::gui{
 				case overlay_bar_state::active:
 					bar_opacity_ = 1.0f;
 					if(!is_interacting) {
-						// 鼠标移出或滚动停止，进入冷却计时
+
 						overlay_state_ = overlay_bar_state::cooling_down;
 						activity_timer_ = 0.0f;
 					} else {
-						// 正在被持续交互且已完全显形，无需每帧更新，交由按需唤醒
+
 						keep_draw_update = false;
 					}
 					break;
@@ -85,32 +85,32 @@ namespace mo_yanxi::gui{
 
 				case overlay_bar_state::fading_out:
 					if(is_interacting) {
-						// 渐隐中途再次被交互，折返为渐显
+
 						overlay_state_ = overlay_bar_state::fading_in;
 					} else {
 						bar_opacity_ = math::clamp(bar_opacity_ - delta_in_ticks / fade_duration_ticks, 0.0f, 1.0f);
 						if(bar_opacity_ <= 0.0f) {
 							overlay_state_ = overlay_bar_state::hidden;
-							keep_draw_update = false; // 渐隐完成，进入休眠
+							keep_draw_update = false;
 						}
 					}
 					break;
 			}
 
-			// 按需移除绘制更新
+
 			if(!keep_draw_update) {
 				util::update_erase(*this, update_channel::draw);
 			}
 		} else {
-			// 非悬浮模式，保持常亮状态
+
 			bar_opacity_ = 1.0f;
 			activity_timer_ = 0.0f;
 			overlay_state_ = overlay_bar_state::active;
 		}
 
 		{
-			// scroll physics update
-			// 修改点：使用新增加的 scroll_velocity_sensitivity 实例变量替换宏/常量
+
+
 			scroll_velocity_.lerp_inplace(scroll_target_velocity_, math::clamp(delta_in_ticks * scroll_velocity_sensitivity));
 			scroll_target_velocity_.lerp_inplace({}, math::clamp(delta_in_ticks * scroll_velocity_sensitivity));
 
@@ -122,7 +122,7 @@ namespace mo_yanxi::gui{
 
 				scroll_changed_in_update_ = true;
 
-				// 修改点：物理滚动更新期间，持续缓存当前的滚动比例
+
 				saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
 
 				util::update_insert(*this, update_channel::position);
@@ -173,12 +173,12 @@ events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std
 			cmp.swap_xy();
 			}
 
-		// 修改点：根据配置的滚动模式动态决定速度倍率
+
 		math::vec2 velocity_scale{};
 		if (sensitivity_mode == scroll_pane_mode::absolute) {
 			velocity_scale = math::vec2{scroll_scale, scroll_scale};
 		} else {
-			// proportional：按照当前视口大小的比例进行滚动步进
+
 			velocity_scale = get_viewport_extent() * scroll_scale;
 		}
 
@@ -186,7 +186,7 @@ events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std
 		scroll_target_velocity_.x *= velocity_scale.x;
 		scroll_target_velocity_.y *= velocity_scale.y;
 
-		// 将原先硬编码的 .scl(ScrollVelocityScale) 替换为我们赋予目标的初始速度
+
 		scroll_velocity_ = scroll_target_velocity_;
 
 		return {};

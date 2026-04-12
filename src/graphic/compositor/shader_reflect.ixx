@@ -24,7 +24,7 @@ private:
     std::vector<SpvReflectDescriptorBinding*> sampled_images_{};
     std::vector<SpvReflectDescriptorBinding*> uniform_buffers_{};
     std::vector<SpvReflectDescriptorBinding*> storage_buffers_{};
-    // [New]
+
     std::vector<VkPushConstantRange> push_constant_ranges_{};
 
 public:
@@ -54,7 +54,7 @@ public:
     [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& uniform_buffers() const noexcept { return uniform_buffers_; }
     [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& storage_buffers() const noexcept { return storage_buffers_; }
 
-    // [New] Getter
+
     [[nodiscard]] const std::vector<VkPushConstantRange>& push_constant_ranges() const noexcept {
         return push_constant_ranges_;
     }
@@ -65,7 +65,7 @@ public:
 
 private:
     void enumerate_resources() {
-        // 1. 处理 Descriptor Sets
+
         uint32_t count = 0;
         SpvReflectResult result = module_.EnumerateDescriptorBindings(&count, nullptr);
 
@@ -95,7 +95,7 @@ private:
             }
         }
 
-        // 2. [New] 处理 Push Constants
+
         std::uint32_t pc_count = 0;
         result = module_.EnumeratePushConstantBlocks(&pc_count, nullptr);
 
@@ -103,7 +103,7 @@ private:
             std::vector<SpvReflectBlockVariable*> blocks(pc_count);
             module_.EnumeratePushConstantBlocks(&pc_count, blocks.data());
 
-            // 获取底层的 C 结构体，方便访问入口点数组
+
             const auto& spv_module = module_.GetShaderModule();
 
             push_constant_ranges_.reserve(pc_count);
@@ -111,25 +111,25 @@ private:
             for (auto* block : blocks) {
                 VkShaderStageFlags calculated_stage_flags = 0;
 
-                // 核心修复逻辑：遍历该 SPIR-V 中所有的入口点
+
                 for (uint32_t i = 0; i < spv_module.entry_point_count; ++i) {
                     const auto& entry_point = spv_module.entry_points[i];
 
-                    // 检查该入口点使用了哪些 Push Constant
-                    // used_push_constants 存储的是 push_constant_blocks 数组的【索引】
+
+
                     for (uint32_t j = 0; j < entry_point.used_push_constant_count; ++j) {
                         uint32_t used_index = entry_point.used_push_constants[j];
 
-                        // 比较地址，判断当前 entry_point 引用的块是不是我们正在处理的 block
+
                         if (&spv_module.push_constant_blocks[used_index] == block) {
                             calculated_stage_flags |= static_cast<VkShaderStageFlags>(entry_point.shader_stage);
                         }
                     }
                 }
 
-                // 如果该 Block 被反射出来但没有被任何入口点显式使用（极少见），
-                // 为了安全起见，可以使用 module 全局的 stage 或者跳过。
-                // 这里给一个兜底策略，或者你可以选择 if (calculated_stage_flags != 0) 再 push_back
+
+
+
                 if (calculated_stage_flags == 0) {
                     calculated_stage_flags = static_cast<VkShaderStageFlags>(spv_module.shader_stage);
                 }
@@ -193,4 +193,4 @@ export std::size_t get_buffer_size(const SpvReflectDescriptorBinding* resource) 
 }
 
 
-} // namespace mo_yanxi::graphic::compositor
+}

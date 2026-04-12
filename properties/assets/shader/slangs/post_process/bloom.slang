@@ -1,9 +1,9 @@
 import post_process_lib;
 import general_lib;
 
-// ==========================================
-// 特化常量 (Specialization Constant) 控制开关
-// ==========================================
+
+
+
 [[vk::constant_id(0)]]
 const int IS_PURE_BLUR = false;
 
@@ -12,7 +12,7 @@ struct bloom_defines {
     uint mip_index;
     uint up_scaling;
     uint total_layer;
-    uint target_scale; // 新增：用于对齐物理与逻辑 mipmap 层级
+    uint target_scale;
 }
 
 [[vk::push_constant]]
@@ -136,8 +136,8 @@ void main(
         if (current_index == defines.total_layer - 1) {
             colorSrc = down_mipmap_sample.SampleLevel(uv, current_index);
         } else {
-            // 修正点：up_sample_image 如果整体变小，它的物理 mip 0 对应着逻辑上的 target_scale 层
-            // 因此原本读取的 current_index + 1 需要减去 target_scale 映射回正确的物理层级
+
+
             colorSrc = up_mipmap_sample.SampleLevel(uv, current_index + 1 - defines.target_scale);
         }
 

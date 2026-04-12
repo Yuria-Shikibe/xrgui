@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2025/11/2.
+
 //
 
 export module mo_yanxi.gui.elem.collapser;
@@ -58,7 +58,7 @@ public:
 		item_size[0] = {layout::size_category::pending, 1};
 		item_size[1] = {layout::size_category::pending, 1};
 
-		// get_scene().active_update_elems.insert(this);
+
 	}
 
 	[[nodiscard]] collapser(scene& scene, elem* parent)

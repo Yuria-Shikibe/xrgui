@@ -214,7 +214,7 @@ struct any_pool{
 	};
 
 private:
-	// 为 gtl Map 重新绑定 Allocator (针对 pair 结构)
+
 	using map_allocator_type = typename std::allocator_traits<Alloc>::template rebind_alloc<
 		std::pair<const mo_yanxi::type_identity_index, object_pool_wrapper>
 	>;
@@ -230,10 +230,10 @@ private:
 	map_type pool_;
 
 public:
-	// 默认构造
+
 	any_pool() = default;
 
-	// 增加显式分配器构造
+
 	explicit any_pool(const Alloc& alloc)
 		: pool_(0, std::hash<mo_yanxi::type_identity_index>{},
 		        std::equal_to<mo_yanxi::type_identity_index>{},
@@ -242,7 +242,7 @@ public:
 
 	template <typename T>
 	auto& acquire_pool(){
-		// 为具体的对象池重新绑定并传递分配器
+
 		using pool_allocator_type = typename std::allocator_traits<Alloc>::template rebind_alloc<T>;
 		pool_allocator_type pool_alloc{pool_.get_allocator()};
 
@@ -250,7 +250,7 @@ public:
 			pool_.try_emplace(
 				mo_yanxi::unstable_type_identity_of<T>(),
 				std::in_place_type<T>,
-				std::move(pool_alloc) // 传递给 object_pool_wrapper 内部调用的 pool<T> 构造函数
+				std::move(pool_alloc)
 			).first->second
 		);
 	}
@@ -258,7 +258,7 @@ public:
 	template <typename T, typename... Args>
 		requires (std::constructible_from<T, Args&&...>)
 	auto acquire(Args&& ...args){
-		// 为具体的对象池重新绑定并传递分配器
+
 		return acquire_pool<T>().acquire(std::forward<Args>(args)...);
 	}
 };

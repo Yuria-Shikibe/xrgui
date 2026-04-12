@@ -23,7 +23,7 @@ export union reciprocal_float {
 
 	[[nodiscard]] constexpr reciprocal_float() noexcept : original_value() {}
 
-	// 构造时保留原始整数值，保证后续 get_original_as_uint32() 绝不丢失精度
+
 	template <std::integral T>
 	[[nodiscard]] constexpr reciprocal_float(const T val) noexcept
 		: original_value(static_cast<std::uint32_t>(val)){
@@ -34,7 +34,7 @@ export union reciprocal_float {
 		return original_value;
 	}
 
-	// 在最终提交给 GPU 前调用，就地覆盖为浮点倒数
+
 	constexpr void apply_reciprocal() noexcept {
 		float val = original_value == 0 ? 0.0f : 1.0f / static_cast<float>(original_value);
 		reciprocal_value = val;
@@ -196,7 +196,7 @@ public:
 
 	}
 
-	// 辅助函数：安全归一化
+
 	FORCE_INLINE CONST_FN static math::vec2 safe_normalize(math::vec2 v, math::vec2 fallback = {}) noexcept{
 		float lenSq = v.dot(v);
 		if (lenSq > 1e-6f) {
@@ -205,25 +205,25 @@ public:
 		return fallback;
 	}
 
-	// 核心逻辑：计算 Miter 向量（等同于 GPU 的 calculate_vert_nor）
-	// 返回的向量长度包含了 1/cos(theta) 的补偿
+
+
 	FORCE_INLINE CONST_FN static math::vec2 calculate_miter_vector(math::vec2 posL, math::vec2 posC, math::vec2 posR) noexcept {
 		const auto dirL = posC - posL;
 		const auto dirR = posR - posC;
 
-		// 获取法向 (旋转 90 度: (-y, x))
+
 		const auto nL_u = safe_normalize({-dirL.y, dirL.x});
 		const auto nR_u = safe_normalize({-dirR.y, dirR.x});
 
-		// 处理端点：如果是在起点或终点，法向直接使用该段的法线
+
 		if (math::zero(dirL.dot(dirL))) return nR_u;
 		if (math::zero(dirR.dot(dirR))) return nL_u;
 
-		// Miter 方向：两个法向的平分线方向
+
 		const auto miter_dir = nL_u + nR_u;
 
-		// 计算投影长度的倒数: 1 / cos(theta)
-		// k 是 miter_dir 在单位法向上的投影长度
+
+
 		const auto k = miter_dir.dot(nL_u);
 
 		return miter_dir / std::max(k, 0.0001f);
@@ -335,13 +335,13 @@ export struct poly_partial{
 export struct curve_parameter{
 	std::array<math::vec4, 2> constrain_vector;
 
-// 辅助函数：计算三次曲线在 t 处的导数 (速度向量)
-// 假设 curve_parameter[0] 是 x 分量的系数 (t^3, t^2, t, 1)
-// 假设 curve_parameter[1] 是 y 分量的系数 (t^3, t^2, t, 1)
+
+
+
 	FORCE_INLINE math::vec2 calculate_derivative(float t) const noexcept{
 		float t2 = t * t;
-		// x(t) = a*t^3 + b*t^2 + c*t + d
-		// x'(t) = 3a*t^2 + 2b*t + c
+
+
 		float dx = 3.0f * constrain_vector[0].b * t2 + 2.0f * constrain_vector[0].g * t + constrain_vector[0].r;
 		float dy = 3.0f * constrain_vector[1].b * t2 + 2.0f * constrain_vector[1].g * t + constrain_vector[1].r;
 		return {dx, dy};
@@ -350,8 +350,8 @@ export struct curve_parameter{
 	FORCE_INLINE math::vec2 calculate(float t) const noexcept{
 		const auto t2 = t * t;
 		const auto t3 = t2 * t;
-		// x(t) = a*t^3 + b*t^2 + c*t + d
-		// x'(t) = 3a*t^2 + 2b*t + c
+
+
 		float dx = constrain_vector[0].a * t3 * constrain_vector[0].b * t2 + constrain_vector[0].g * t + constrain_vector[0].r;
 		float dy = constrain_vector[1].a * t3 * constrain_vector[1].b * t2 + constrain_vector[1].g * t + constrain_vector[1].r;
 		return {dx, dy};
@@ -552,46 +552,46 @@ constexpr inline instr_type instruction_type_of<rect_aabb_outline> = instr_type:
 template <>
 constexpr inline instr_type instruction_type_of<row_patch> = instr_type::row_patch;
 
-// export
-// [[nodiscard]] FORCE_INLINE CONST_FN std::uint32_t get_vertex_count(
-// 	instr_type type,
-// 	const std::byte* ptr_to_instr) noexcept{
+
+
+
+
 //
-// 	switch(type){
-// 	case instr_type::triangle : return 3U;
-// 	case instr_type::quad : return 4U;
-// 	case instr_type::rectangle : return 4U;
-// 	case instr_type::rect_ortho : return 4U;
-// 	case instr_type::line : return 4U;
-// 	case instr_type::line_segments:{
-// 		const auto size = get_instr_head(ptr_to_instr).get_instr_byte_size();
-// 		const auto payloadByteSize = (size - get_instr_size<line_segments>());
-// 		assert(payloadByteSize % sizeof(line_node) == 0);
-// 		const auto payloadCount = payloadByteSize / sizeof(line_node);
-// 		return line_segments::get_vertex_count(payloadCount);
-// 	}
-// 	case instr_type::line_segments_closed :{
-// 		const auto size = get_instr_head(ptr_to_instr).get_instr_byte_size();
-// 		const auto payloadByteSize = (size - get_instr_size<line_segments_closed>());
-// 		assert(payloadByteSize % sizeof(line_node) == 0);
-// 		const auto payloadCount = payloadByteSize / sizeof(line_node);
-// 		return line_segments_closed::get_vertex_count(payloadCount);
-// 	}
-// 	case instr_type::poly : return reinterpret_cast<const poly*>(ptr_to_instr + sizeof(
-// 			instruction_head))->get_vertex_count();
-// 	case instr_type::poly_partial : return reinterpret_cast<const poly_partial*>(ptr_to_instr +
-// 			sizeof(instruction_head))->get_vertex_count();
-// 	case instr_type::constrained_curve : return reinterpret_cast<const constrained_curve*>(ptr_to_instr +
-// 			sizeof(instruction_head))->get_vertex_count();
-// 	case instr_type::rect_ortho_outline: return 10;
-// 	case instr_type::row_patch: return 8;
-// 	default : std::unreachable();
-// 	}
-// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //
-// export
-// [[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(instr_type type, const std::byte* ptr_to_payload, std::uint32_t vtx) noexcept{
-// 	return vtx < 3 ? 0 : vtx - 2;
-// }
+
+
+
+
 
 }

@@ -1,7 +1,7 @@
 module;
 
 #if defined(_MSC_VER)
-// MSVC 使用 __pragma 可以在宏内展开
+
 #define MY_PUSH_IGNORE_MODULE_INCLUDE_WARNING \
 __pragma(warning(push)) \
 __pragma(warning(disable: 5244))
@@ -9,7 +9,7 @@ __pragma(warning(disable: 5244))
 #define MY_POP_IGNORE_MODULE_INCLUDE_WARNING \
 __pragma(warning(pop))
 #else
-// 其他编译器（GCC/Clang）目前没有对应的 C5244 警告
+
 #define MY_PUSH_IGNORE_MODULE_INCLUDE_WARNING
 #define MY_POP_IGNORE_MODULE_INCLUDE_WARNING
 #endif

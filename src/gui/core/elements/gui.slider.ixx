@@ -48,9 +48,9 @@ namespace style {
     };
 }
 
-// ==========================================
-// 泛型滑动条基类 (CRTP)
-// ==========================================
+
+
+
 export template <std::size_t Dim, typename Derived>
 struct slider_base : elem {
     static_assert(Dim == 1 || Dim == 2, "Only 1D and 2D sliders are supported");
@@ -63,7 +63,7 @@ struct slider_base : elem {
 
     float approach_speed_scl = 0.05f;
 
-    // 维度完全与模板参数 Dim 对齐
+
     array_type scroll_sensitivity;
     array_type sensitivity;
     array_type bar_handle_extent;
@@ -75,11 +75,11 @@ protected:
 
     std::optional<array_type> drag_src_{std::nullopt};
 
-    // CRTP 静态下行转换
+
     [[nodiscard]] Derived& derived() noexcept { return static_cast<Derived&>(*this); }
     [[nodiscard]] const Derived& derived() const noexcept { return static_cast<const Derived&>(*this); }
 
-    // 原来的 virtual 接口改为编译期判定并直接完成逻辑
+
     [[nodiscard]] array_type extract_vec2(math::vec2 v) const noexcept {
         if constexpr (Dim == 1) {
             return {derived().is_vertical() ? v.y : v.x};
@@ -151,7 +151,7 @@ public:
         bar_handle_extent.fill(10.0f);
     }
 
-    // 编译期内联处理 handle_extent
+
     [[nodiscard]] math::vec2 get_bar_handle_extent(math::vec2 content_ext) const noexcept {
         if constexpr (Dim == 1) {
             return derived().is_vertical() ? 
@@ -178,7 +178,7 @@ public:
 
         array_type mov;
         if constexpr (Dim == 1) {
-            // 对1D滚动进行泛化：吸收所有的滚轮增量
+
             mov[0] = -scroll_sensitivity[0] * sensitivity[0] * (move.x + move.y);
         } else {
             mov[0] = -scroll_sensitivity[0] * sensitivity[0] * move.x;
@@ -251,9 +251,9 @@ public:
     }
 };
 
-// ==========================================
-// 1D 滑动条特化
-// ==========================================
+
+
+
 export struct slider1d : slider_base<1, slider1d> {
 private:
     bool is_vertical_{false};
@@ -320,9 +320,9 @@ public:
     }
 };
 
-// ==========================================
-// 2D 滑动条特化
-// ==========================================
+
+
+
 export struct slider2d : slider_base<2, slider2d> {
 private:
 	referenced_ptr<const style::slider2d_drawer> drawer_{post_sync_assign(*this, &slider2d::drawer_, [](const slider2d& s){
@@ -393,4 +393,4 @@ protected:
     void on_changed() override { output_node->update_value(get_progress()); }
 };
 
-} // namespace mo_yanxi::gui
+}

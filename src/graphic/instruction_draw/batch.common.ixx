@@ -6,7 +6,7 @@ module;
 export module mo_yanxi.graphic.draw.instruction.batch.common;
 
 export import mo_yanxi.graphic.draw.instruction.general;
-export import binary_trace; // 引入 binary_trace 模块以使用 binary_diff_trace::tag
+export import binary_trace;
 
 import std;
 
@@ -34,9 +34,9 @@ struct state_transition_config{
 
 	struct entry{
 		tag_type tag;
-		std::uint32_t offset;         // 在 payload_storage 中的物理偏移
-		std::uint32_t size;           // 数据大小
-		std::uint32_t logical_offset; // [新增] 数据在目标资源中的逻辑起始偏移
+		std::uint32_t offset;
+		std::uint32_t size;
+		std::uint32_t logical_offset;
 
 		constexpr std::span<const std::byte> get_payload(const std::byte* basePtr) const noexcept{
 			return {basePtr + offset, size};
@@ -67,14 +67,14 @@ public:
 		});
 	}
 
-	// 支持带 offset 的 push
+
 	void push(tag_type tag, std::span<const std::byte> payload, std::uint32_t logical_offset = 0){
 		if(payload.empty()) return;
 
 		entry e{tag};
 		e.offset = static_cast<std::uint32_t>(payload_storage.size());
 		e.size = static_cast<std::uint32_t>(payload.size());
-		e.logical_offset = logical_offset; // 记录逻辑偏移
+		e.logical_offset = logical_offset;
 
 		payload_storage.resize(e.offset + e.size);
 		std::memcpy(payload_storage.data() + e.offset, payload.data(), e.size);

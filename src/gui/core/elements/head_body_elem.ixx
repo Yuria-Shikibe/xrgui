@@ -360,7 +360,7 @@ public:
 
 
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
-		// 处理 none 的情况
+
 		if(layout_policy_ == layout::layout_policy::none){
 			if(extent.fully_mastering()) return extent.potential_extent();
 			return std::nullopt;
@@ -370,19 +370,19 @@ public:
 		const auto dep = extent.get_pending();
 		auto [majorTarget, minorTarget] = layout::get_vec_ptr(layout_policy_);
 
-		// 核心修改点：当主轴尺寸为 pending，但副轴已知时，进行空间分配并反推主轴尺寸
+
 		if(dep.*majorTargetDep){
-			// 如果两个轴都是 pending，缺乏必要信息，直接退出
+
 			if(dep.*minorTargetDep) return std::nullopt;
 
-			// 断言 body 和 head 都一定存在
+
 			assert(items[0] != nullptr);
 			assert(items[1] != nullptr);
 
 			const auto& sz0 = item_size[0];
 			const auto& sz1 = item_size[1];
 
-			// 如果有任意一个的类型是 scaling 或者 pending，则返回 nullopt
+
 			if(sz0.type == layout::size_category::scaling || sz0.type == layout::size_category::pending ||
 			   sz1.type == layout::size_category::scaling || sz1.type == layout::size_category::pending){
 				return std::nullopt;
@@ -392,12 +392,12 @@ public:
 			const float available_minor = std::max(0.0f, known_minor - pad_);
 			float minor_alloc[2]{};
 
-			// 引入 minorScaling 保持和已有逻辑对齐
+
 			const float minorScaling = get_scaling().*minorTarget;
 			const float m0 = sz0.value * minorScaling;
 			const float m1 = sz1.value * minorScaling;
 
-			// 根据类型分配已知维度 (副轴) 的尺寸
+
 			if(sz0.type == layout::size_category::mastering && sz1.type == layout::size_category::passive){
 				minor_alloc[0] = m0;
 				minor_alloc[1] = math::fdim(available_minor, m0);
@@ -405,7 +405,7 @@ public:
 				minor_alloc[1] = m1;
 				minor_alloc[0] = math::fdim(available_minor, m1);
 			} else if(sz0.type == layout::size_category::passive && sz1.type == layout::size_category::passive){
-				// 两个都为 passive，按比例分配
+
 				const float sum = sz0.value + sz1.value;
 				if(sum > 0){
 					minor_alloc[0] = available_minor * (sz0.value / sum);
@@ -422,7 +422,7 @@ public:
 			float max_major = 0.0f;
 			bool has_valid_child = false;
 
-			// 通过调用子元素的 pre_acquire_size 尝试计算所需的主轴尺寸
+
 			for(unsigned i = 0; i < 2; ++i){
 				math::vec2 child_ext_vec;
 				child_ext_vec.*majorTarget = layout::pending_size;
@@ -430,21 +430,21 @@ public:
 
 				auto child_res = items[i]->pre_acquire_size(child_ext_vec);
 
-				// 如果有合法的返回值，将其加入最大值对比中
+
 				if(child_res){
 					has_valid_child = true;
 					max_major = std::max(max_major, child_res.value().*majorTarget);
 				}
 			}
 
-			// 只有当两个子元素都返回 nullopt 时，才放弃计算并返回 nullopt
+
 			if(!has_valid_child) return std::nullopt;
 
 			math::vec2 result;
 			result.*majorTarget = max_major;
-			result.*minorTarget = known_minor; // 返回的尺寸在已知维度上的尺寸必须与输入的尺寸相等
+			result.*minorTarget = known_minor;
 
-			// 处理 expand_policy::prefer 下的最大值限制
+
 			if(auto pref = get_prefer_content_extent(); pref && get_expand_policy() == layout::expand_policy::prefer){
 				result.max(pref.value());
 			}
@@ -452,7 +452,7 @@ public:
 			return result;
 		}
 
-		// 原有逻辑：如果主轴维度不是 pending，推导另一维度的尺寸
+
 		auto potential = extent.potential_extent();
 
 		if(dep.*minorTargetDep){

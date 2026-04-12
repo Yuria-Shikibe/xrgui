@@ -59,10 +59,10 @@ public:
 
 		});
 
-		// create_body([&](slider_with_output& s){
-		// 	s.set_style();
-		// 	s.set_clamp_from_layout_policy(layout_policy);
-		// });
+
+
+
+
 
 		set_head_size({layout::size_category::pending, 1});
 		set_body_size({layout::size_category::mastering, bar_size});

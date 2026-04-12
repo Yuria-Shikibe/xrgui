@@ -18,7 +18,7 @@ module;
 #include <fstream>
 #include <cstdlib>
 
-// 辅助函数：解码 Linux file:// URI 中的 %20 等字符
+
 std::string decode_uri(const std::string& uri) {
 	std::string result;
 	for (size_t i = 0; i < uri.length(); ++i) {

@@ -233,7 +233,7 @@ private:
 						const auto sub_v00 = math::lerp(v00_full, v11_full, math::vec2{tx0, ty0});
 						const auto sub_v11 = math::lerp(v00_full, v11_full, math::vec2{tx1, ty1});
 
-						// 2. 水平翻转顶点色：将 1.0f - tx 替换为 tx
+
 						auto c_tl = color{0, 0, 0, 1}.from_hsv({hue, tx0, 1.0f - ty0});
 						auto c_tr = color{0, 0, 0, 1}.from_hsv({hue, tx1, 1.0f - ty0});
 						auto c_bl = color{0, 0, 0, 1}.from_hsv({hue, tx0, 1.0f - ty1});
@@ -365,7 +365,7 @@ public:
 
 protected:
 	virtual void on_color_changed(graphic::color color){
-		// std::println(std::cerr, "{:a}", color);
+
 	}
 
 private:

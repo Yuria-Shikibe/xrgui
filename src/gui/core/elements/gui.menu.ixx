@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2025/6/1.
+
 //
 
 export module mo_yanxi.gui.elem.menu;
@@ -115,7 +115,7 @@ public:
 			throw std::out_of_range{"index out of range"};
 		}
 
-		// 记录交换前的当前显示元素
+
 		auto* old_item = items[1].get();
 
 		if(index == entries.size()){
@@ -131,10 +131,10 @@ public:
 			}
 		}
 
-		// 记录交换后的当前显示元素
+
 		auto* new_item = items[1].get();
 
-		// 如果发生了实质性的替换，更新显示状态
+
 		if(old_item != new_item){
 			if(old_item){
 				old_item->on_display_state_changed(false, false);

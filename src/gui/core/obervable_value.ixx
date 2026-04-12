@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2026/3/3.
+
 //
 
 export module mo_yanxi.gui.util.observable_value;

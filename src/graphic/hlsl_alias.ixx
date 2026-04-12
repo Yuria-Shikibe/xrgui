@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2025/10/28.
+
 //
 
 export module mo_yanxi.hlsl_alias;

@@ -53,10 +53,10 @@ perprimitiveEXT layout (location = 3) flat in uint draw_mode;
 layout (location = 0) out vec4 fragColor;
 
 void main() {
-//    fragColor = color;//image_index == ~0 ? vec4(1) : texture(sampler2D(heapTexture2D[image_index], heapSampler[0]), uv);
-//    fragColor = vec4(uv * 100, 1, 1);//image_index == ~0 ? vec4(1) : texture(sampler2D(heapTexture2D[image_index], heapSampler[0]), uv);
 
-//    fragColor = imageLoad(heapTexture2D[4], ivec2(0));
+
+
+
     fragColor = vec4(texture(sampler2D(heapTexture2D[0], heapSampler[0]), vec2(0)).rgb, 1);
-//    fragColor = vec4(vec3(states[264 + 6].state[0].time / 30), 1);
+
 }

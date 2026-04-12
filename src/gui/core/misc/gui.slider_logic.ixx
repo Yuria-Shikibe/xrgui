@@ -12,7 +12,7 @@ template <typename ValueType>
 struct slider_slot{
 	using value_type = ValueType;
 	using snap_shot_type = snap_shot<value_type>;
-    // 引入带符号的增量类型以支持安全的减法判断
+
     using delta_type = mo_yanxi::to_signed_t<value_type>;
 
 private:
@@ -60,7 +60,7 @@ public:
 				bar_progress_.temp = math::clamp(static_cast<value_type>(base + movement), static_cast<value_type>(0), get_max_value());
 			}
 		} else if constexpr(std::integral<value_type>){
-            // 安全增减，防止无符号类型下溢/溢出
+
             if (movement < 0) {
                 value_type abs_move = static_cast<value_type>(-movement);
                 bar_progress_.temp = (base > abs_move) ? (base - abs_move) : static_cast<value_type>(0);
@@ -136,21 +136,21 @@ public:
             float diff = static_cast<float>(bar_progress_.temp) - static_cast<float>(bar_progress_.base);
             float step = diff * delta;
 
-            // 保证最小步进1，防止因浮点数截断导致的卡死
+
             if (math::abs(step) < 1.0f) {
                 step = (diff > 0.0f) ? 1.0f : -1.0f;
             } else if (math::abs(step) > math::abs(diff)) {
-                // 防止由于 delta 太大而导致的过冲 (overshoot)
+
                 step = diff;
             }
 
-			// 区分无符号和有符号整型进行赋值
+
 			if constexpr (std::unsigned_integral<value_type>) {
-				// 安全赋值，避免无符号类型累加负数的严重 bug
+
 				if (step > 0.0f) {
 					value_type move = static_cast<value_type>(step);
 					bar_progress_.base = (get_max_value() - bar_progress_.base > move) ? (bar_progress_.base + move) : get_max_value();
-					// 强制对齐到 temp 防止轻微浮点漂移引发的超界
+
 					if (bar_progress_.base > bar_progress_.temp) bar_progress_.base = bar_progress_.temp;
 				} else {
 					value_type move = static_cast<value_type>(-step);
@@ -158,17 +158,17 @@ public:
 					if (bar_progress_.base < bar_progress_.temp) bar_progress_.base = bar_progress_.temp;
 				}
 			} else {
-				// 有符号整型可以直接相加，无需担心底层下溢错乱
+
 				bar_progress_.base += static_cast<value_type>(step);
 
-				// 强制对齐到 temp 防止过冲 (overshoot)
+
 				if (step > 0.0f && bar_progress_.base > bar_progress_.temp) {
 					bar_progress_.base = bar_progress_.temp;
 				} else if (step < 0.0f && bar_progress_.base < bar_progress_.temp) {
 					bar_progress_.base = bar_progress_.temp;
 				}
 
-				// 确保最终值在有效范围内
+
 				bar_progress_.base = math::clamp(bar_progress_.base, static_cast<value_type>(0), get_max_value());
 			}
 

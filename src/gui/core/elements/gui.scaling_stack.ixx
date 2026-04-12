@@ -30,7 +30,7 @@ namespace mo_yanxi::gui{
 			const auto bound = content_extent();
 			const auto src = adaptor.cell.region_scale.get_src() * bound;
 
-			// auto size = adaptor.cell.clamp_size(adaptor.cell.region_scale.extent() * bound) * get_scaling();
+
 			auto size = adaptor.cell.region_scale.extent() * bound * get_scaling();
 
 			auto region = math::frect{tags::from_extent, src, size};

@@ -78,7 +78,7 @@ public:
 		case file_sort_category::time :{
 			auto t1 = last_write_time(lhs, ec1);
 			auto t2 = last_write_time(rhs, ec2);
-			// 异常容错：读取失败则视为时间最小
+
 			if(ec1) t1 = decltype(t1)::min();
 			if(ec2) t2 = decltype(t2)::min();
 			return descend ? std::ranges::greater{}(t1, t2) : std::ranges::less{}(t1, t2);
@@ -86,7 +86,7 @@ public:
 		case file_sort_category::size :{
 			auto s1 = file_size(lhs, ec1);
 			auto s2 = file_size(rhs, ec2);
-			// 异常容错：读取失败则视为大小为0
+
 			if(ec1) s1 = 0;
 			if(ec2) s2 = 0;
 			return descend ? std::ranges::greater{}(s1, s2) : std::ranges::less{}(s1, s2);
@@ -175,7 +175,7 @@ public:
 	file_selector& operator=(const file_selector& other) = delete;
 	file_selector& operator=(file_selector&& other) noexcept = delete;
 
-	// --- 状态获取与设置方法 ---
+
 	[[nodiscard]] file_sort_category get_sort_category() const noexcept{ return sort_category_; }
 	void set_sort_category(const file_sort_category sort_type);
 
@@ -187,7 +187,7 @@ public:
 
 	auto& get_prov() noexcept{ return prov_path_.node; }
 
-	// --- 核心逻辑操作 ---
+
 	void refresh();
 	void set_multiple_selection(bool allow);
 	void clear_history();
@@ -200,7 +200,7 @@ public:
 	void visit_directory(const path& where);
 
 protected:
-	// --- 内部逻辑与辅助方法 ---
+
 	[[nodiscard]] bool is_suffix_met(const path& p) const;
 	[[nodiscard]] bool cared_file(const path& p) const noexcept;
 	[[nodiscard]] bool is_suffix_met_at_create(const path& file_name) const;
@@ -214,7 +214,7 @@ protected:
 	void set_current_path(const path& current_path) noexcept;
 	bool create_file(const path& file_name);
 
-	// 选择逻辑抽象
+
 	void clear_selected_ui_state();
 	void reset_selection();
 	void add_to_selection(file_entry* entry);
@@ -244,7 +244,7 @@ protected:
 		}
 	}
 
-	// --- UI 构建与刷新方法 ---
+
 	void build_ui_() noexcept;
 	void build_file_entries_();
 	void build_trace_() noexcept;

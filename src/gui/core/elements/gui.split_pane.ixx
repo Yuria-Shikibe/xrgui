@@ -18,16 +18,16 @@ private:
 	snap_shot<float> seperator_position_{.5f};
 	math::range min_margin{0.1f, 0.1f};
 
-	// --- 新增：拖拽状态机与过渡控制 ---
+
 	enum class drag_state{
-		idle, // 未拖拽
-		entering, // 正在进入拖拽（淡出过渡中）
-		dragging, // 拖拽中
-		exiting // 正在退出拖拽（淡入恢复中）
+		idle,
+		entering,
+		dragging,
+		exiting
 	};
 
 	drag_state current_drag_state_{drag_state::idle};
-	float drag_progress_{0.f}; // 0.0f (未拖拽) 到 1.0f (完全拖拽) 的淡出进度
+	float drag_progress_{0.f};
 
 	void update_seperator(){
 		set_head_size({layout::size_category::passive, seperator_position_.base});
@@ -41,8 +41,8 @@ private:
 		auto minor_ext = content_extent().*minor_p - pad_;
 		auto delta_offset = offset_in_minor / minor_ext;
 
-		// 移除了原本直接设置 set_children_opacity_with_scl(.2f) 的硬编码逻辑
-		// 透明度变化现在交由 update_state 和 drag_progress_ 统一控制
+
+
 		util::try_modify(seperator_position_.temp,
 		                 math::clamp(seperator_position_.base + delta_offset, min_margin.from, 1.f - min_margin.to));
 	}
@@ -69,9 +69,9 @@ public:
 		}
 	}
 
-	// --- 新增：处理布局和透明度的帧更新 ---
+
 	void update_state(float dt){
-		constexpr float fade_speed = 5.0f; // 动画速度，比如 5.0f 代表 0.2 秒完成渐变，你可以根据需要调整
+		constexpr float fade_speed = 5.0f;
 		bool changed = false;
 
 		if(current_drag_state_ == drag_state::entering){
@@ -93,7 +93,7 @@ public:
 		}
 
 		if(changed){
-			// 将 0~1 的拖拽进度映射到 1.0~0.2 的透明度区间
+
 			set_children_opacity_with_scl(math::lerp(1.0f, 0.2f, drag_progress_));
 		}
 	}
@@ -123,7 +123,7 @@ public:
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		auto ret = head_body::on_click(event, aboves);
 		if(event.key.on_release()){
-			// 当鼠标松开时，触发状态机进入退出状态，并重新注册 update 回调执行淡出动画
+
 			if(current_drag_state_ == drag_state::dragging || current_drag_state_ == drag_state::entering){
 				current_drag_state_ = drag_state::exiting;
 				util::update_insert(*this, update_channel::layout);
@@ -139,7 +139,7 @@ public:
 	}
 
 	events::op_afterwards on_drag(const events::drag event) override{
-		// 状态机判断：只有在空闲或退出动画状态下，才需要做“硬判断”（即鼠标是否在触发区域内）
+
 		if(current_drag_state_ == drag_state::idle || current_drag_state_ == drag_state::exiting){
 			const auto cursorlocal = event.src;
 			const auto region = get_seperator_region_element_local();
@@ -148,12 +148,12 @@ public:
 				return events::op_afterwards::fall_through;
 			}
 
-			// 进入拖拽状态并注册 update
+
 			current_drag_state_ = drag_state::entering;
 			util::update_insert(*this, update_channel::layout);
 		}
 
-		// 一旦状态机进入 entering 或 dragging 状态后，后续移动将直接交由 move_seperator 处理，避免卡顿硬判断
+
 		move_seperator(event.delta());
 		return events::op_afterwards::intercepted;
 	}

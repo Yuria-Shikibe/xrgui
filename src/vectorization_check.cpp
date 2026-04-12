@@ -1,4 +1,4 @@
-// Include cross-platform headers for CPUID and XGETBV
+
 #if defined(_MSC_VER)
 	#include <intrin.h>
 #elif defined(__GNUC__) || defined(__clang__)

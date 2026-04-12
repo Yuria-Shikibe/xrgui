@@ -11,7 +11,7 @@ export
 template <typename T, typename Allocator = std::allocator<T>>
 class fixed_vector{
 public:
-	// 标准容器的类型别名定义
+
 	using value_type = T;
 	using allocator_type = Allocator;
 	using size_type = std::size_t;
@@ -26,7 +26,7 @@ public:
 private:
 	pointer data_{};
 	size_type size_{};
-	// 使用 C++20 属性优化空分配器的空间占用
+
 	ADAPTED_NO_UNIQUE_ADDRESS allocator_type alloc_{};
 
 	// 私有核心初始化函数

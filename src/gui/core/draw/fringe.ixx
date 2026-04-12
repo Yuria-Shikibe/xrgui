@@ -149,60 +149,60 @@ export
 FORCE_INLINE void curve_with_cap(
 	renderer_frontend& r, const instruction::parametric_curve& instr,
 	float cap_length_src = fringe_size, float cap_length_dst = fringe_size, float fringe = fringe_size) {
-    // 1. 渲染中间的主体部分（包含侧向抗锯齿）
+
     curve(r, instr, fringe);
 
-    // 如果没有线头长度，直接返回
+
     if (cap_length_src <= 0.0f && cap_length_dst <= 0.0f) return;
 
-    // 2. 准备线头数据
-    // 线头不需要很高的细分，因为它很短，通常 1-2 段即可近似
+
+
     static constexpr std::uint32_t CAP_SEGMENTS = 1;
 
-    // -----------------------------------------------------------------
-    // 处理起点头 (Start Cap) - 向后延伸
-    // -----------------------------------------------------------------
+
+
+
     if (cap_length_src > 0.0f) {
         const auto t_start = instr.margin.from;
 
-        // 计算起点处的切线速度
+
         const auto vel = instr.param.calculate_derivative(t_start);
         const auto speed = math::sqrt(vel.length2());//no need for hypot in this rough case
 
-        // 防止速度过小导致除零 (近似认为它是直线或由极小dt处理)
+
         if (speed > std::numeric_limits<float>::epsilon()) {
             const auto dt = cap_length_src / speed;
 
             auto cap_start = instr;
             cap_start.segments = CAP_SEGMENTS;
-            // 参数范围：[t_start - dt, t_start]
+
         	cap_start.margin.from = instr.margin.from - dt;
-        	// 新的结束点：必须等于原起始点 -> (1.0 - margin.to = margin.from) -> margin.to = 1.0 - margin.from
+
         	cap_start.margin.to = 1.0f - instr.margin.from;
         	cap_start.stroke.to = cap_start.stroke.from;
 
-            // 颜色处理：纵向淡入 (Longitudinal Fade In)
-            // 假设 v00, v10 是该段几何体的“起始端”(Away from body)
-            // 假设 v01, v11 是该段几何体的“结束端”(Connected to body)
-            // 我们需要让起始端透明
+
+
+
+
         	cap_start.color.v00 = cap_start.color.v01;
         	cap_start.color.v10 = cap_start.color.v11;
-            cap_start.color.v00.a = {}; // Transparent
-            cap_start.color.v10.a = {}; // Transparent
-            // v01, v11 保持原色 (Opaque)，与主体连接
+            cap_start.color.v00.a = {};
+            cap_start.color.v10.a = {};
 
-            // 递归调用 curve，为线头添加侧向抗锯齿 (Lateral AA)
+
+
             curve(r, cap_start, fringe);
         }
     }
 
-    // -----------------------------------------------------------------
-    // 处理终点头 (End Cap) - 向前延伸
-    // -----------------------------------------------------------------
+
+
+
     if (cap_length_dst > 0.0f) {
         const auto t_end = instr.margin.to;
 
-        // 计算终点处的切线速度
+
         const auto vel = instr.param.calculate_derivative(t_end);
     	const auto speed = math::sqrt(vel.length2());
 
@@ -211,20 +211,20 @@ FORCE_INLINE void curve_with_cap(
 
             auto cap_end = instr;
             cap_end.segments = CAP_SEGMENTS;
-            // 参数范围：[t_end, t_end + dt]
-        	cap_end.margin.from = 1.f - t_end; // 即 1.0f - instr.margin.to
-        	// 新的结束点：原终点往前延伸 dt -> (margin.to 减小 dt)
+
+        	cap_end.margin.from = 1.f - t_end;
+
         	cap_end.margin.to = instr.margin.to - dt;
 
-            // 颜色处理：纵向淡出 (Longitudinal Fade Out)
-            // 起始端 (Connected to body) 保持实色
-            // 结束端 (Away from body) 设为透明
-            cap_end.color.v01 = cap_end.color.v00; // Transparent
-            cap_end.color.v11 = cap_end.color.v10; // Transparent
-            cap_end.color.v01.a = {}; // Transparent
-            cap_end.color.v11.a = {}; // Transparent
 
-            // 递归调用 curve
+
+
+            cap_end.color.v01 = cap_end.color.v00;
+            cap_end.color.v11 = cap_end.color.v10;
+            cap_end.color.v01.a = {};
+            cap_end.color.v11.a = {};
+
+
             curve(r, cap_end, fringe);
         }
     }
@@ -302,16 +302,16 @@ public:
 
 	FORCE_INLINE instruction::line_node& add_cap_src(float stroke){
 		const auto sz = size();
-		// 确保有两个额外的空间
+
 		resize(sz + 2);
 
 		auto* ptr = data();
-		// 移动现有数据腾出头部两个位置: [0...N] -> [2...N+2]
+
 		std::memmove(ptr + 2, ptr, sz * sizeof(instruction::line_node));
 
-		// 计算切线并填充头部
-		// 注意：移动后原数据在 ptr+2 位置
-		// 原来的 front(0) 现在是 ptr[2], front(1) 是 ptr[3]
+
+
+
 		const auto tan_front = (ptr[2].pos - ptr[3].pos).set_length(stroke);
 		return patch_cap_src(tan_front);
 	}
@@ -321,40 +321,40 @@ public:
 		resize(sz + 2);
 
 		auto* ptr = data();
-		// 尾部增加不需要移动数据，直接计算
-		// 原来的 back(0) 是 ptr[sz-1], back(1) 是 ptr[sz-2]
+
+
 		const auto tan_back = (ptr[sz - 1].pos - ptr[sz - 2].pos).set_length(stroke);
 
-		return patch_cap_dst(tan_back, sz); // 传入旧的大小作为基准
+		return patch_cap_dst(tan_back, sz);
 	}
 
 	FORCE_INLINE math::section<instruction::line_node&> add_cap(float cap_src, float cap_dst) noexcept {
 		const auto sz = size();
-		// 确保有四个额外的空间
+
 		resize(sz + 4);
 
 		auto* ptr = data();
 
-		// 1. 保存需要计算切线的原始点 (移动前)
-		// 头部切线向量：原 [0] - [1]
+
+
 		auto vec_front = ptr[0].pos - ptr[1].pos;
-		// 尾部切线向量：原 [sz-1] - [sz-2]
+
 		auto vec_back = ptr[sz-1].pos - ptr[sz-2].pos;
 
-		// 2. 整体移动数据腾出头部2个位置 [0...N] -> [2...N+2]
-		// 尾部留出的2个位置自然在 [N+2, N+3]
+
+
 		std::memmove(ptr + 2, ptr, sz * sizeof(instruction::line_node));
 
-		// 3. 计算切线
+
 		const auto tan_front = vec_front.set_length(cap_src);
 		const auto tan_back = vec_back.set_length(cap_dst);
 
-		// 4. Patch
-		// patch_cap_src 处理头部 (index 0, 1)，引用 index 2
+
+
 		auto& src_node = patch_cap_src(tan_front);
 
-		// patch_cap_dst 处理尾部 (index N+2, N+3)，引用 index N+1
-		// 现在的总大小是 sz + 4
+
+
 		auto& dst_node = patch_cap_dst(tan_back, sz + 2);
 
 		return {src_node, dst_node};
@@ -436,7 +436,7 @@ public:
 	}
 
 private:
-	// 通用的 Fringe 处理逻辑
+
 	template<typename HeadType>
 	FORCE_INLINE void dump_fringe_impl(renderer_frontend& renderer, const HeadType& head, float stroke, bool is_inner) {
 		assert(data() != nullptr);
@@ -447,7 +447,7 @@ private:
 		auto dat = data();
 		std::ranges::copy_n(dat, element_count, dat + element_count);
 
-		// 修改数据
+
 		for(std::size_t i = 0; i < element_count; ++i){
 			const auto& src = dat[i];
 			auto& dst = dat[i + element_count];
@@ -462,7 +462,7 @@ private:
 			dst.stroke = stroke;
 		}
 
-		// 提交
+
 		renderer.push(head, std::span{dat + element_count, element_count});
 		resize(element_count);
 	}

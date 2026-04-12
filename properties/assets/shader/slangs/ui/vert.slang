@@ -56,7 +56,7 @@ void main_mesh(
 ) {
     let gid = groupId + dispatch_config_ubo.group_offset;
     
-    // 6. 调用 V3 的解析函数，传入新的 Buffer
+
     let pmt = resolve_instruction_v3(
         gid, threadId, input_params.data,
         trans(), 

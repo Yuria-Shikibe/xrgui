@@ -29,7 +29,7 @@ void mo_yanxi::graphic::write_bitmap(const mo_yanxi::bitmap& bitmap, std::string
 	}
 
 	//OPTM ...
-	// ReSharper disable once CppTooWideScopeInitStatement
+
 	std::string ext = file.extension().generic_string();
 
 	if(path.ends_with(".bmp")){

@@ -16,7 +16,7 @@ struct optional_stack {
 
 	[[nodiscard]] optional_stack() = default;
 
-	// 修改点 3: 构造函数现在接受底层容器
+
 	[[nodiscard]] explicit optional_stack(const Cont& cont)
 	   : data{cont}{
 	}

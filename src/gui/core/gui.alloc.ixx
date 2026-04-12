@@ -16,22 +16,22 @@ namespace mo_yanxi::gui::mr{
 export
 class raw_memory_pool {
 public:
-    // 1. 构造函数 (资源获取)
+
     explicit raw_memory_pool(const std::size_t size) : size_(size){
         if (size > 0) {
             ptr_ = allocate(size);
             if (!ptr_) {
                 throw std::bad_alloc();
             }
-            // 将内存交给 mimalloc 托管
+
             bool success = mi_manage_os_memory_ex(ptr_, size, true, false, true, -1, true, &arena_id_);
             if (!success){
-                // 修复泄漏：如果 mimalloc 拒绝接管，抛出异常前必须手动释放刚才 allocate 的内存
+
                 deallocate(ptr_, size);
                 ptr_ = nullptr;
                 throw std::bad_alloc();
             }
-            // 成功后，ptr_ 由 mimalloc 永久管理
+
         }
     }
 

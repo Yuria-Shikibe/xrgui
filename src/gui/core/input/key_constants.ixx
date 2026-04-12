@@ -69,9 +69,9 @@ export [[nodiscard]] constexpr bool matched(const mode m, const mode expectedMod
 	return m == expectedMode;
 }
 
-// export [[nodiscard]] constexpr bool satisfy(const mode m, const mode expectedMode) noexcept{
-// 	return (m & expectedMode) == expectedMode || expectedMode == mode::ignore;
-// }
+
+
+
 
 export
 enum struct key : std::uint16_t{
@@ -133,7 +133,7 @@ enum struct key : std::uint16_t{
 	tab = 258,
 	backspace = 259,
 	insert = 260,
-	del = 261, // "delete" is a keyword, so changed to "delete_key"
+	del = 261,
 	right = 262,
 	left = 263,
 	down = 264,

@@ -365,7 +365,7 @@ namespace mo_yanxi{
 			} else if((align & pos::bottom) != pos{}){
 				move.y = bottomLeft.y;
 			} else if((align & pos::center_y) != pos{}){
-				// Center logic: average of the two opposing offsets/margins
+
 				move.y = (bottomLeft.y - topRight.y) / static_cast<T>(2);
 			}
 
@@ -374,7 +374,7 @@ namespace mo_yanxi{
 			} else if((align & pos::left) != pos{}){
 				move.x = bottomLeft.x;
 			} else if((align & pos::center_x) != pos{}){
-				// Center logic: average of the two opposing offsets/margins
+
 				move.x = (bottomLeft.x - topRight.x) / static_cast<T>(2);
 			}
 

@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2025/11/27.
+
 //
 
 export module mo_yanxi.gui.infrastructure:cursor;
@@ -21,14 +21,14 @@ export
 enum class cursor_arrow_direction{
 	left,
 	right,
-	up, // 假设 Y 轴向下递增 (UI 坐标系)
+	up,
 	down
 };
 
 struct ArrowGeometry{
-	vec2 p1; // 箭头一侧的端点
-	vec2 p2; // 箭头的顶点 (Tip)
-	vec2 p3; // 箭头另一侧的端点
+	vec2 p1;
+	vec2 p2;
+	vec2 p3;
 	float thickness;
 };
 
@@ -48,7 +48,7 @@ inline ArrowGeometry calculate_rect_arrow(
 	float arrow_size = 8.0f,
 	float margin = 7.0f,
 	float thickness = 1.f) noexcept{
-	// 1. 获取方向向量
+
 	vec2 dir_v{0.0f, 0.0f};
 	switch(dir){
 	case cursor_arrow_direction::left : dir_v = {-1.0f, 0.0f};
@@ -61,22 +61,22 @@ inline ArrowGeometry calculate_rect_arrow(
 		break;
 	}
 
-	// 2. 获取正交向量 (逆时针旋转 90 度: x' = -y, y' = x)
+
 	vec2 ortho_v{-dir_v.y, dir_v.x};
 
-	// 3. 计算矩形中心点以及边缘连接点
+
 	vec2 center = pos + extent * 0.5f;
 
-	// 利用 vec2 的 operator*(const_pass_t) 进行逐分量乘积，快速定位到矩形指定方向的边缘
+
 	vec2 half_extent = extent * 0.5f;
 	vec2 edge_pt = center + (half_extent * dir_v);
 
-	// 4. 计算箭头顶点 (Tip) 和 底部中心点
-	// 顶点处于最外侧，箭头朝向外部
+
+
 	vec2 tip = edge_pt + dir_v * (margin + arrow_size);
 	vec2 base_center = tip - dir_v * arrow_size;
 
-	// 5. 利用正交向量计算两侧翼的端点 (因为偏移量都是 arrow_size，所以形成的夹角刚好是 90 度)
+
 	vec2 p1 = base_center + ortho_v * arrow_size;
 	vec2 p2 = tip;
 	vec2 p3 = base_center - ortho_v * arrow_size;
@@ -88,12 +88,12 @@ inline ArrowGeometry calculate_rect_arrow(
  * @brief 计算箭头的粗略但绝对安全的包围盒
  */
 inline rect calculate_arrow_aabb(const ArrowGeometry& arrow) noexcept{
-	// 利用 vec2 提供的 copy, min, max 实现链式调用获取几何极值点
+
 	vec2 p_min = arrow.p1.copy().min(arrow.p2).min(arrow.p3);
 	vec2 p_max = arrow.p1.copy().max(arrow.p2).max(arrow.p3);
 
-	// 对于 90 度角的折线 (Miter Join)，它的尖角斜接长度约为 thickness * 1.414。
-	// 为了确保包围盒"完全包围"而不要求极致精确，我们在各方向上外扩厚度的 1.5 倍即可保证绝对安全。
+
+
 	float padding_val = arrow.thickness * 1.5f;
 	vec2 padding{padding_val, padding_val};
 

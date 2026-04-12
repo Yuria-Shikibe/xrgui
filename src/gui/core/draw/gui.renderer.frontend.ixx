@@ -222,7 +222,7 @@ private:
 	std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>> cache_instr_buffer_inner_usage_{};
 	std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>> cache_instr_buffer_external_usage_{};
 
-	// byte_pool<mr::aligned_heap_allocator<std::byte, 32>> mem_pool_{};
+
 
 	binary_config_trace state_trace_{};
 
@@ -252,9 +252,9 @@ public:
 		return viewports_.back();
 	}
 
-	// byte_pool<mr::aligned_heap_allocator<std::byte, 32>>& get_mem_pool() noexcept{
-	// 	return mem_pool_;
-	// }
+
+
+
 
 	fx::scissor get_full_screen_scissor() const noexcept{
 		return {region_.src.round<int>(), region_.extent().round<unsigned>()};
@@ -486,21 +486,21 @@ public:
 		return self.top_viewport().element_local_transform.back().accumul * local_pt;
 	}
 
-	// 2. 从 局部视口坐标系 到 屏幕像素坐标系
+
 	[[nodiscard]] math::vec2 map_viewport_to_screen_space(this const renderer_frontend& self, math::vec2 vp_pt) noexcept {
 		assert(!self.viewports_.empty());
 		return self.top_viewport().transform_to_root_screen * vp_pt;
 	}
 
-	// 3. (综合快捷方法) 从 局部坐标系 直接到 屏幕像素坐标系
+
 	[[nodiscard]] math::vec2 map_local_to_screen_space(this const renderer_frontend& self, math::vec2 local_pt) noexcept {
 		assert(!self.viewports_.empty());
 		return self.top_viewport().get_element_to_root_screen() * local_pt;
 	}
 
-	// ==========================================
-	// 核心功能：获取最终提交给 Vulkan 的绝对状态
-	// ==========================================
+
+
+
 
 	[[nodiscard]] fx::viewport get_absolute_viewport(
 		const fx::viewport& local_vp,

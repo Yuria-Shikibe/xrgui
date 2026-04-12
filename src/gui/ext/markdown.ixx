@@ -3,7 +3,7 @@ export module mo_yanxi.gui.markdown;
 import std;
 
 namespace mo_yanxi::gui::md {
-// 前向声明，用于在 variant 中递归
+
 struct ast_node;
 
 // 使用 vector 管理子节点，打破 variant 的递归大小计算限制，同时避免为每个节点单独 new/unique_ptr

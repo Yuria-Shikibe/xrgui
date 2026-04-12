@@ -1,6 +1,6 @@
 module;
 
-// 宏开关：设置是否使用 freetype 和 clipper2 处理复杂的 SVG 图像（如描边），默认关闭 (0)
+
 #ifndef MO_YANXI_USE_COMPLEX_SVG
 #define MO_YANXI_USE_COMPLEX_SVG 0
 #endif

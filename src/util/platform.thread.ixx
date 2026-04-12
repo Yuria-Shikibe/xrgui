@@ -24,7 +24,7 @@ export
 struct thread_attributes {
 	std::string name;
 	thread_priority priority = thread_priority::normal;
-	// std::uint32_t cpu_affinity_mask = 0;
+
 };
 
 export

@@ -70,7 +70,7 @@ struct quad_vert_color{
 struct resolve_param {
     uint vtx_idx;
     uint vtx_skip;
-    uint prm_skip; // 现在它代表的是确切的本地图元索引，或是 0xFFFF 哨兵
+    uint prm_skip;
 
     [[ForceInline]]
     bool generates_primitive() {
@@ -79,7 +79,7 @@ struct resolve_param {
 
     [[ForceInline]]
     uint get_primitive_index() {
-        return prm_skip; // 无需再进行任何加减法计算！
+        return prm_skip;
     }
 
     [[ForceInline]]
@@ -158,7 +158,7 @@ struct instruction_head
 {
     instruction_type type;
     uint32_t size;
-    uint32_t vertex_count; // Or timeline index
+    uint32_t vertex_count;
     uint32_t primit_count;
 };
 
@@ -319,7 +319,7 @@ struct line_frag : instr_resolver {
 struct line_node {
     float2 pos;
     float stroke;
-    float offset; // TODO ?
+    float offset;
     section<float4> color;
 };
 
@@ -536,7 +536,7 @@ struct constrained_curve : instr_resolver {
 
 struct rectangle_ortho_outline : instr_resolver {
     primitive_generic generic;
-    float2[2] verts; // v00, v11
+    float2[2] verts;
     float[4] strokes;
     quad_vert_color vert_color;
 
@@ -743,14 +743,14 @@ public uint resolve_instruction_v3<T, uint n>(
 
         let param = resolve_param(target_index, info.get_vtx_skip(), info.get_prm_skip());
 
-        // 解析图元顶点和数据
+
         let rst = push_vertex(
             dummy_head, data.instruction, info.payload_offset, param
         );
 
         verts[target_index] = transformer(rst.vtx);
 
-        // 将显存写入逻辑移至 Switch 外层统一执行
+
         if (param.generates_primitive()) {
             let idc_idx = param.get_primitive_index();
             prims[idc_idx] = rst.pmt;

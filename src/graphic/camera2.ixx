@@ -8,7 +8,7 @@ import std;
 
 namespace mo_yanxi::graphic {
 
-    // TODO 3D support maybe in the future?
+
     export
     class camera2 {
     public:

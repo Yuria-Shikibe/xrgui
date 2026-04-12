@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2025/5/26.
+
 //
 
 export module mo_yanxi.gui.elem.viewport;
@@ -61,7 +61,7 @@ namespace mo_yanxi::gui{
 	public:
 
 		void on_focus_changed(bool is_focused) override{
-			// this->get_scene().set_camera_focus(is_focused ? &camera : nullptr);
+
 			this->set_focused_scroll(is_focused);
 			this->set_focused_key(is_focused);
 		}
@@ -88,12 +88,12 @@ namespace mo_yanxi::gui{
 		}
 
 		void viewport_begin() const {
-			// const auto proj = camera.get_world_to_clip();
+
 			auto camera_vp = camera.get_v2v_mat(content_src_pos_abs());
 			auto& r = renderer();
 
-			// r.push_viewport({tags::from_extent, {}, content_extent()});
-			// r.push_viewport(this->content_bound_abs());
+
+
 			r.push_scissor({this->content_bound_abs()});
 			r.top_viewport().push_local_transform(camera_vp);
 			r.notify_viewport_changed();

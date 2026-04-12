@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2026/3/16.
+
 //
 
 export module mo_yanxi.gui.elem.check_box;
@@ -17,8 +17,8 @@ struct select_box : dispersed_value_selector<elem, MaxSize>{
 	static_assert(max_size >= 2);
 	using pass_type = std::conditional_t<(max_size > 2), unsigned, bool>;
 
-// private:
-// 	react_flow::node_holder<react_flow::provider_cached<pass_type>> prov_;
+
+
 
 public:
 	using icon_type = icon<component::vertex_color, component::batch_draw_mode, component::draw_switch>;

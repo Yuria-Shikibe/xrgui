@@ -55,7 +55,7 @@ public:
 	scene* switch_scene_to(std::string_view name) noexcept{
 		std::lock_guard lock(scenes_mutex_);
 		if(auto scene_itr = scenes.try_find(name)){
-			// 使用 acq_rel 序交换原子变量
+
 			return focus.exchange(scene_itr->get(), std::memory_order_acq_rel);
 		}
 		return nullptr;
@@ -110,7 +110,7 @@ public:
 		std::lock_guard lock(scenes_mutex_);
 		if(auto itr = scenes.find(name); itr != scenes.end()){
 			scene* expected = itr->second.get();
-			// 使用 CAS 来确保只有当 focus 仍然指向当前将被删除的 scene 时才清空它
+
 			focus.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel, std::memory_order_acquire);
 
 			scenes.erase(itr);

@@ -29,7 +29,7 @@ struct hsv{
 	friend constexpr hsv lerp_cw(const hsv& a, const hsv& b, float t) noexcept {
 		float delta_h = b.h - a.h;
 
-		// 如果目标色相小于当前色相，说明正向走会跨越 1.0 边界
+
 		if (delta_h < 0.0f) {
 			delta_h += 1.0f;
 		}

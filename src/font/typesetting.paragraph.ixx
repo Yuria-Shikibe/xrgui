@@ -15,7 +15,7 @@ void replace_range(std::vector<T>& vec,
 	auto it_new = std::ranges::begin(rng);
 	auto end_new = std::ranges::end(rng);
 
-	// 同步遍历：将新元素覆盖到旧空间，直到其中一方耗尽
+
 	while (it_old != last && it_new != end_new) {
 		*it_old = *it_new; // 如果新旧元素类型支持转移，这里也可以写 std::move(*it_new)
 		++it_old;

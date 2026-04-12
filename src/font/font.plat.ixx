@@ -18,7 +18,7 @@ export module mo_yanxi.font.plat;
 import std;
 import mo_yanxi.heterogeneous;
 
-// 辅助函数：Windows 宽字符串转 UTF-8 std::string
+
 #ifdef _WIN32
 std::string wide_to_utf8(const std::wstring& wstr) {
     if (wstr.empty()) return std::string();

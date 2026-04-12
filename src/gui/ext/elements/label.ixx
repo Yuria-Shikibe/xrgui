@@ -46,7 +46,7 @@ export enum struct text_rotation : std::uint8_t{
 
 export struct text_transform_config{
 	text_rotation rotation{text_rotation::deg_0};
-	math::vec2 scale{1.0f, 1.0f}; // 负值直接代表翻转
+	math::vec2 scale{1.0f, 1.0f};
 
 	constexpr bool is_vertical() const noexcept{
 		return rotation == text_rotation::deg_90 || rotation == text_rotation::deg_270;
@@ -138,7 +138,7 @@ public:
 		}
 	}
 
-	// 保留原有接口以兼容历史代码
+
 	void set_fit(bool fit = true){
 		set_fit_type(fit ? label_fit_type::fit : label_fit_type::fix);
 	}
@@ -147,7 +147,7 @@ public:
 		return tokenized_text_;
 	}
 
-	// 开放给外部或派生类直接设置 tokenized_text_
+
 	void set_tokenized_text(typesetting::tokenized_text&& tokenized_text){
 		if(util::try_modify(tokenized_text_, std::move(tokenized_text))){
 			change_mark_ |= change_type::text;
@@ -268,7 +268,7 @@ protected:
 			const auto text_size = layout_text(extent.potential_extent());
 			extent.apply(text_size.required_extent);
 		} else if(fit_type_ == label_fit_type::scl){
-			// scl 模式下，首先无限制排版获取文本真实物理大小
+
 			const auto text_size = layout_text(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2);
 			math::vec2 nat_ext = text_size.required_extent;
 			math::vec2 pot_ext = extent.potential_extent();
@@ -284,12 +284,12 @@ protected:
 				float ratio = pot_ext.y / nat_ext.y;
 				target_ext = {nat_ext.x * ratio, pot_ext.y};
 			} else if(x_det && y_det){
-				// 双侧均有确切值时，按常规的 embed 逻辑求取极限缩放边界
+
 				float ratio = align::get_fit_embed_scale(nat_ext, pot_ext);
 				target_ext = {nat_ext.x * ratio, nat_ext.y * ratio};
 			}
 
-			// 与 max_fit_scale_bound 结合使用，不超纲
+
 			target_ext = target_ext.min(max_fit_scale_bound);
 			extent.apply(target_ext);
 		}
@@ -313,7 +313,7 @@ protected:
 			return mo_yanxi::gui::align::embed_to(align::scale::fit_smaller, base_ext,
 				content_extent().min(max_fit_scale_bound));
 		} else if(fit_type_ == label_fit_type::scl){
-			// scl 模式下元素尺寸已等比调整，使用 fit 可以精准填满目标 content_extent
+
 			return mo_yanxi::gui::align::embed_to(align::scale::fit, base_ext,
 				content_extent().min(max_fit_scale_bound));
 		} else{
@@ -345,13 +345,13 @@ protected:
 			local_bound.swap_xy();
 		}
 
-		// 提取绝对缩放倍率并逆向应用
+
 		math::vec2 abs_scale = {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
 		if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
 			local_bound /= abs_scale;
 		}
 
-		// 提取公共的输出尺寸处理函数
+
 		auto process_result_ext = [&]() -> math::vec2 {
 			math::vec2 ext = glyph_layout_.extent;
 			ext *= abs_scale;
@@ -446,4 +446,4 @@ public:
 	}
 };
 
-} // namespace mo_yanxi::gui
+}

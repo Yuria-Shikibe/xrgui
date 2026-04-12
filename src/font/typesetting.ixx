@@ -663,7 +663,7 @@ private:
 
 		auto flush_decorations = [&](bool is_delim, char32_t trigger_ch = U'\0', std::uint32_t current_cluster = 0){
 			if(rs.active_wrap_start){
-				// 确定性检查：如果包裹框起始的字符就是当前触发结束的字符，
+
 				// 且该字符为换行符，说明这仅是一个因换行产生的逻辑空框。
 				bool is_empty_wrap = (rs.active_wrap_start->start_cluster == current_cluster);
 				bool skip_submit = is_empty_wrap && (trigger_ch == U'\n' || trigger_ch == U'\r');

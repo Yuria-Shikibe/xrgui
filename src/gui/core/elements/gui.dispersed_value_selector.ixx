@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2026/3/16.
+
 //
 
 export module mo_yanxi.gui.elem.value_selector;

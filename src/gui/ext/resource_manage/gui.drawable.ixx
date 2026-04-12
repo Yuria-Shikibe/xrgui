@@ -23,7 +23,7 @@ export
 struct image_display_style{
 	align::scale scaling{align::scale::fit};
 	align::pos align{align::pos::center};
-	// style::palette palette{style::general_palette};
+
 };
 
 export
@@ -91,7 +91,7 @@ struct EMPTY_BASE batch_draw_mode{
 
 template <bool enable>
 struct vtx_color_base{
-	// [[nodiscard]] constexpr explicit(false) operator graphic::draw::quad_group<graphic::color>() const noexcept = delete;
+
 };
 
 template <>

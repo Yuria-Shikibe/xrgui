@@ -105,7 +105,7 @@ struct resource_trace{
 export
 struct local_data_entry{
 	slot_pair target_slot;
-	// resource_requirement req;
+
 	bool throughout_lifetime;
 };
 
@@ -216,22 +216,22 @@ struct sync_baked_data {
 		VkAccessFlags2 access_mask;
 	};
 
-	// [生产者阶段] 需要在该 Pass 开始时重置的事件 (用于循环录制)
+
 	std::vector<VkEvent> events_to_reset;
 
-	// [消费者阶段] 在 Pass 开始前，对于紧邻依赖（上一帧是生产者），直接使用 Barrier
+
 	std::vector<VkImageMemoryBarrier2> immediate_image_barriers_in;
 	std::vector<VkBufferMemoryBarrier2> immediate_buffer_barriers_in;
 
-	// [消费者阶段] 在 Pass 开始前，对于非紧邻依赖，等待事件
-	// 注意：vkCmdWaitEvents2 需要由事件触发的 Barrier 信息
+
+
 	std::vector<wait_info> waits;
 
-	// [生产者阶段] 在 Pass 结束后，设置事件（Signal）
-	// 包含触发该事件的 Stage Mask
+
+
 	std::vector<signal_info> signals;
 
-	// [生产者阶段] 在 Pass 结束后，对于外部输出或特殊需求，执行的 Post-Barrier
+
 	std::vector<VkImageMemoryBarrier2> immediate_image_barriers_out;
 	std::vector<VkBufferMemoryBarrier2> immediate_buffer_barriers_out;
 };
@@ -355,13 +355,13 @@ public:
 		return used_resources_;
 	}
 
-	// [[nodiscard]] const resource_entity& at_out(inout_index slot) const{
-	// 	return used_resources_.at_out(slot);
-	// }
+
+
+
 	//
-	// [[nodiscard]] const resource_entity& at_in(inout_index slot) const{
-	// 	return used_resources_.at_in(slot);
-	// }
+
+
+
 };
 
 #pragma endregion
@@ -396,7 +396,7 @@ namespace mo_yanxi::graphic::compositor{
 export
 constexpr VkPipelineStageFlags2 deduce_stage(VkImageLayout layout) noexcept {
 	switch (layout) {
-		// 渲染目标相关
+
 	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
 		return VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 
@@ -406,24 +406,24 @@ constexpr VkPipelineStageFlags2 deduce_stage(VkImageLayout layout) noexcept {
 		return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
 			   VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
 
-		// 只读/采样相关
+
 	case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
 	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
 	case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:
 	case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL:
-		// 通常涵盖所有着色器阶段，也可以细化为特定阶段
+
 		return VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 
-		// 传输相关
+
 	case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
 	case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
 		return VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 
-		// 通用/存储图像
+
 	case VK_IMAGE_LAYOUT_GENERAL:
 		return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-		// 呈现相关
+
 	case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
 		return VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
 
@@ -458,7 +458,7 @@ constexpr VkAccessFlags2 deduce_access(VkImageLayout layout, VkPipelineStageFlag
 		return VK_ACCESS_2_NONE;
 
 	case VK_IMAGE_LAYOUT_GENERAL:
-		// GENERAL 布局通常用于 Storage Image 或特定硬件优化
+
 		if (stage & (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)) {
 			return VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
 		}
@@ -654,7 +654,7 @@ struct resource_runtime_info{
 	};
 
 	VkMemoryRequirements mem_reqs{};
-	VkDeviceSize offset{}; // 计算出的偏移量
+	VkDeviceSize offset{};
 };
 
 #pragma endregion
@@ -753,12 +753,12 @@ struct resource_sim_state {
 	VkImageLayout current_layout;
 
 	static constexpr std::size_t external = ~0;
-	std::optional<std::size_t> last_write_pass_index; // external 表示外部导入，如果为空则未写入
+	std::optional<std::size_t> last_write_pass_index;
 	std::optional<std::size_t> last_read_pass_index;
 
-	// 如果该资源在之前的某个 Pass 结束时触发了 Event，记录下来
-	// Key: PassIndex, Value: EventHandle (or Index)
-	// 这里的 Event 是由“上一次写入/Layout变换”的 Pass 产生的
+
+
+
 	std::optional<std::size_t> producer_event_index;
 };
 
@@ -816,7 +816,7 @@ public:
 		pass_data& pass = *passes_.insert(pass_data{
 				std::make_unique<T>(
 				std::forward<Args>(args)...)
-					// mo_yanxi::front_redundant_construct<T>(/*vk::allocator_usage{allocator_frags_}, */std::forward<Args>(args)...))
+
 			});
 		return add_result<T>{pass, static_cast<T&>(*pass.meta)};
 	}
@@ -838,19 +838,19 @@ public:
 	}
 
 private:
-// Optimized synchronization analysis: Split barriers into Events where possible
+
 	void analyze_dependencies_and_bake() {
-		// 1. 重置所有 Pass 的 Sync Data
+
 		for (auto& pass : passes_) {
 			pass.sync_info_ = {};
 		}
 
 		std::size_t event_count_needed = 0;
-		// 状态追踪表：记录资源的最新写入者、Stage、Access 和 Layout
+
 		std::unordered_map<const resource_handle*, resource_sim_state> res_states{};
 
-		// 2. 预扫描：注册外部导入资源
-		// 确立外部资源的初始状态，以便后续 Pass 生成从外部状态转换的 Barrier
+
+
 		for (const auto* pass_ptr : execute_sequence_) {
 			for (const auto& ext_in : pass_ptr->external_inputs_) {
 				if (!ext_in.resource) continue;
@@ -860,7 +860,7 @@ private:
 					state.current_layout = ext_in.resource->dependency.src_layout;
 					state.last_stage = ext_in.resource->dependency.src_stage;
 					state.last_access = ext_in.resource->dependency.src_access;
-					state.producer_event_index = std::nullopt; // 外部资源不产生 Event
+					state.producer_event_index = std::nullopt;
 					res_states[identity] = state;
 				}
 			}
@@ -868,9 +868,9 @@ private:
 
 		for (const auto* pass_ptr : execute_sequence_) {
 			for (const auto& local : pass_ptr->get_locals()) {
-				if (!local.throughout_lifetime) continue; // 仅处理持久化变量
+				if (!local.throughout_lifetime) continue;
 
-				// 找到对应的 Resource Entity
+
 				const auto& used_res = pass_ptr->used_resources_;
 				resource_entity entity;
 				if (local.target_slot.has_in()) entity = used_res.get_in(local.target_slot.in);
@@ -879,28 +879,28 @@ private:
 				if (!entity) continue;
 				const auto identity = entity.get_identity();
 
-				// 如果已经被注册（例如既是 Local 又是 External Input？虽不常见），则跳过
+
 				if (res_states.contains(identity)) continue;
 
-				// 推断上一帧结束时的状态 (Loop State)
-				// 我们查看该 Pass 的 Output Requirement。如果有 Output，则上一帧结束时处于 Output 状态。
-				// 如果仅作为 Input (Read-Only History?)，则认为它保持 Input 状态。
+
+
+
 				resource_sim_state state{};
-				state.last_write_pass_index = resource_sim_state::external; // 视为外部来源，因为来自上一帧
+				state.last_write_pass_index = resource_sim_state::external;
 				state.producer_event_index = std::nullopt;
 
-				// 尝试获取 Output Requirement
+
 				if (local.target_slot.has_out()) {
 					if (auto req_opt = pass_ptr->sockets().get_out(local.target_slot.out)) {
 						std::visit(overload_narrow{
 							[&](const image_requirement& r) {
 								state.current_layout = r.get_expected_layout_on_output();
 								state.last_stage = deduce_stage(state.current_layout);
-								// Access 稍显复杂，简单起见假设为 Write，或者根据 req 获取
-								// 这里主要为了 Layout Transition 正确
+
+
 								state.last_access = req_opt->get_access_flags(state.last_stage);
 
-								// Fix Storage
+
 								if (state.last_access & (VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) {
 									if (state.current_layout != VK_IMAGE_LAYOUT_GENERAL) state.current_layout = VK_IMAGE_LAYOUT_GENERAL;
 								}
@@ -913,7 +913,7 @@ private:
 						}, req_opt->req);
 					}
 				}
-				// 如果没有 Output (只读保留?)，则尝试 Input Requirement
+
 				else if (local.target_slot.has_in()) {
 					if (auto req_opt = pass_ptr->sockets().get_in(local.target_slot.in)) {
 						std::visit(overload_narrow{
@@ -935,16 +935,16 @@ private:
 			}
 		}
 
-		// 3. 模拟执行：遍历渲染图生成同步指令
+
 		for (auto&& [i, current_pass] : execute_sequence_ | ranges::views::deref | std::views::enumerate) {
 			auto& inout_sockets = current_pass.sockets();
 			auto& resources = current_pass.used_resources_;
 			auto& sync = current_pass.sync_info_;
 
-			// 记录当前 Pass 已处理过 Barrier 的资源，避免 InOut 资源重复生成 Barrier
+
 			std::unordered_set<const resource_handle*> processed_identities;
 
-			// --- Helper: 生成 Barrier 或 Event ---
+
 			auto process_barrier_or_event = [&](const resource_handle* identity,
 			                                    const resource_sim_state& state,
 			                                    VkPipelineStageFlags2 dst_stage,
@@ -959,26 +959,26 @@ private:
 				VkPipelineStageFlags2 src_stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
 				VkAccessFlags2 src_access = VK_ACCESS_2_NONE;
 
-				// A. 确定源状态
+
 				if (!state.last_write_pass_index.has_value()) {
-					// Case A: 内部首次使用 -> 丢弃旧内容 (Undefined)
+
 					old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 				} else if (state.last_write_pass_index == resource_sim_state::external) {
-					// Case B: 外部导入 -> 保留外部内容
+
 					old_layout = state.current_layout;
 					src_stage = state.last_stage;
 					src_access = state.last_access;
 				} else {
-					// Case C: 内部依赖 -> 继承上个 Pass 的状态
+
 					old_layout = state.current_layout;
 					src_stage = state.last_stage;
 					src_access = state.last_access;
 				}
 
-				// B. 判断是否真的需要同步 (Sync Necessity Analysis)
+
 				bool need_sync = false;
 
-				// 检查是否为写操作
+
 				auto is_write_access = [](VkAccessFlags2 access) {
 					constexpr VkAccessFlags2 write_bits =
 						VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
@@ -988,16 +988,16 @@ private:
 					return (access & write_bits) != 0;
 				};
 
-				// 必须同步的情况：首次使用或外部导入
+
 				if (!state.last_write_pass_index.has_value() ||
 					state.last_write_pass_index == resource_sim_state::external) {
 					need_sync = true;
 				} else {
-					// 内部依赖：检查 Layout 变化或内存 hazard
+
 					bool layout_changed = false;
 					if (img_req) {
 						layout_changed = (state.current_layout != target_layout);
-						// [关键修复] 如果源 Layout 是 Undefined，即使目标也是 Undefined，也强制 Barrier 确保正确转换
+
 						if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED) layout_changed = true;
 					}
 
@@ -1012,10 +1012,10 @@ private:
 
 				if (!need_sync) return;
 
-				// C. 决策：使用 Split Barrier (Event) 还是 Pipeline Barrier
+
 				bool use_event = false;
 
-				// 重新计算 curr_is_write，确保逻辑一致
+
 
 				const bool curr_is_write = is_write_access(dst_access);
 
@@ -1023,17 +1023,17 @@ private:
 					state.last_write_pass_index != resource_sim_state::external) {
 					const auto producer_idx = state.last_write_pass_index.value();
 
-					// 基础判断：距离足够远才考虑 Event
+
 					if (i > producer_idx + 1) {
 						use_event = true;
 					}
 
-					// [修复核心]: WAR (Write-After-Read) 检查
-					// 如果当前是写入操作，且存在“晚于”生产者的读取操作
-					// 必须强制使用 Barrier，因为生产者的 Event 无法涵盖后续读者的完成状态
+
+
+
 					if (curr_is_write && use_event) {
 						if (state.last_read_pass_index.has_value()) {
-							// 如果最后一次读取发生在生产者之后 (说明中间有 Reader Pass)
+
 							if (state.last_read_pass_index.value() > producer_idx) {
 								use_event = false;
 							}
@@ -1041,18 +1041,18 @@ private:
 					}
 				}
 
-				// D. 生成指令
+
 				if (use_event) {
 					const auto producer_idx = state.last_write_pass_index.value();
 					pass_data& producer_pass = *execute_sequence_[producer_idx];
 
 					std::size_t evt_idx = 0;
-					// Hack: 利用 map 引用修改 producer event index
-					auto& mutable_state = const_cast<resource_sim_state&>(state); // state 是 const引用传进来的，但在 map 里是非 const
+
+					auto& mutable_state = const_cast<resource_sim_state&>(state);
 
 					if (mutable_state.producer_event_index.has_value()) {
 						evt_idx = mutable_state.producer_event_index.value();
-						// 新增：如果多个资源共享同一个事件，需累加它们的 stage 和 access
+
 						VkEvent placeholder_evt = std::bit_cast<VkEvent>(static_cast<std::uintptr_t>(evt_idx + 1));
 						for (auto& sig : producer_pass.sync_info_.signals) {
 							if (sig.event == placeholder_evt) {
@@ -1066,7 +1066,7 @@ private:
 						mutable_state.producer_event_index = evt_idx;
 						VkEvent placeholder_evt = std::bit_cast<VkEvent>(static_cast<std::uintptr_t>(evt_idx + 1));
 						producer_pass.sync_info_.events_to_reset.push_back(placeholder_evt);
-						// 修改：把 src_access 也记录下来
+
 						producer_pass.sync_info_.signals.push_back({placeholder_evt, src_stage, src_access});
 					}
 
@@ -1109,7 +1109,7 @@ private:
 						});
 					}
 				} else {
-					// === 使用 Immediate Barrier ===
+
 					if (img_req) {
 						sync.immediate_image_barriers_in.push_back({
 							.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -1146,13 +1146,13 @@ private:
 				}
 			};
 
-			// --- Phase 1: 处理 Inputs (Generate Barriers) ---
+
 			for (const auto& [in_idx, data_idx] : inout_sockets.get_valid_in()) {
 				const auto rentity = resources.get_in(in_idx);
 				if (!rentity) continue;
 
 				const auto identity = rentity.get_identity();
-				processed_identities.insert(identity); // 标记已处理
+				processed_identities.insert(identity);
 
 				auto& req_obj = inout_sockets.data[data_idx];
 				resource_sim_state current_state{};
@@ -1166,7 +1166,7 @@ private:
 						VkPipelineStageFlags2 dst_stage = deduce_stage(target_layout);
 						VkAccessFlags2 dst_access = req_obj.get_access_flags(dst_stage);
 
-						// [Fix] 如果是 Storage Image 用法，强制使用 GENERAL 布局，防止默认推导为 READ_ONLY
+
 						if (dst_access & (VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) {
 							if (target_layout != VK_IMAGE_LAYOUT_GENERAL) {
 								target_layout = VK_IMAGE_LAYOUT_GENERAL;
@@ -1177,41 +1177,41 @@ private:
 						                         dst_stage, dst_access, target_layout,
 						                         &r, nullptr, entity.handle.image, VK_NULL_HANDLE);
 
-						// 状态更新推迟到 Output 阶段处理，或者在这里预处理
-						// 为了保持一致性，我们在这里仅做 Barrier，状态更新放在循环末尾统一做
-						// 但我们需要记录 layout_changed 等信息给 Phase 2 使用？
-						// 实际上 Phase 1 和 Phase 2 对于 InOut 资源是重叠的。
-						// 如果是 Input-Only，这里更新状态。
-						// 简化起见：Input 阶段也更新状态（Read-only update），Output 阶段覆盖状态（Write update）。
 
-						// 更新只读状态 (Extending Access)
-						// 注意：这会修改 res_states，影响后续 Output 阶段的判断吗？
-						// Output 阶段是 "Write"，会覆盖这里的状态。所以没问题。
-						// 唯一的问题是：如果 Phase 2 认为这已经是新状态了...
-						// 正确的做法是：Barrier 是 "Pre-Pass"，Pass 执行完后才是 "Post-Pass State"。
-						// 但为了链式依赖，我们需要知道资源进入 Pass 时是什么状态。
-						// 这里我们模拟的是 "Pass 开始前" 的状态转换。
-						// 所以更新 res_states 为 "Pass 执行中/后" 的状态是合理的。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 						bool is_write = (dst_access & (VK_ACCESS_2_SHADER_WRITE_BIT |
 							VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT));
 
 						if(current_state.current_layout != target_layout || is_write){
 							auto& state = res_states[identity];
-							state.last_write_pass_index = i; // 标记所有权
+							state.last_write_pass_index = i;
 							state.current_layout = target_layout;
 							state.last_stage = dst_stage;
 							state.last_access = dst_access;
 							state.producer_event_index = std::nullopt;
-							// 写入操作会覆盖之前的读取历史，不需要更新 last_read_pass_index
-							// 或者可以重置它，但逻辑上只要 last_write > last_read 也是安全的
+
+
 						} else{
-							// RAR (只读累积)
+
 							auto& state = res_states[identity];
 							state.last_stage |= dst_stage;
 							state.last_access |= dst_access;
 
-							// [新增] 记录此 Pass进行了读取
+
 							state.last_read_pass_index = i;
 						}
 					},
@@ -1232,22 +1232,22 @@ private:
 				}, req_obj.req, rentity.resource);
 			}
 
-			// --- Phase 2: 处理 Outputs (Generate Barriers for Pure Outputs & Update State) ---
+
 			for (const auto& [out_idx, data_idx] : inout_sockets.get_valid_out()) {
 				const auto rentity = resources.get_out(out_idx);
 				if (!rentity) continue;
 				const auto identity = rentity.get_identity();
 				auto& req_obj = inout_sockets.data[data_idx];
 
-				// [关键修复] 检查是否已经处理过 Barrier (即是否为 InOut)
-				// 如果是纯输出 (Pure Output)，它不在 Input 列表中，因此尚未生成 Barrier
+
+
 				if (!processed_identities.contains(identity)) {
 					resource_sim_state current_state{};
 					if (auto it = res_states.find(identity); it != res_states.end()) {
 						current_state = it->second;
 					}
 
-					// 为纯输出生成 Barrier (例如 Undefined -> ColorAttachment)
+
 					std::visit(overload_narrow{
 						[&](const image_requirement& r, const image_entity& entity) {
 							VkImageLayout target_layout = r.get_expected_layout_on_output();
@@ -1267,7 +1267,7 @@ private:
 					}, req_obj.req, rentity.resource);
 				}
 
-				// 更新最终的 Write State
+
 				std::visit(overload_narrow{
 					[&](const image_requirement& r, const image_entity& entity) {
 						VkImageLayout target_layout = r.get_expected_layout_on_output();
@@ -1295,7 +1295,7 @@ private:
 				}, req_obj.req, rentity.resource);
 			}
 
-			// --- Phase 3: External Outputs (Transition to External Layout/Stage) ---
+
 			for (const auto& res : current_pass.external_outputs_) {
 				if (!res.resource) continue;
 				if (res.resource->type() == resource_type::image &&
@@ -1306,7 +1306,7 @@ private:
 				const auto identity = rentity.get_identity();
 
 				auto& state = res_states[identity];
-				// 只有当当前 Pass 是最后写入者时才转换
+
 				if (state.last_write_pass_index != i) continue;
 
 				std::visit(overload_narrow{
@@ -1365,7 +1365,7 @@ private:
 			}
 		}
 
-		// 5. Finalize: 分配并填充真实的 Event Handles
+
 		baked_events_.resize(event_count_needed);
 		auto patch_events = [&](auto& event_list) {
 			for (auto& evt : event_list) {
@@ -1490,15 +1490,15 @@ public:
 
 
 	void analysis_minimal_allocation(){
-		// 1. 现有的生命周期分析 (保持不变)
+
 		auto life_bounds_ = life_trace_group{execute_sequence_ | std::views::reverse | ranges::views::deref};
 
 
-		// 辅助结构：定义资源在时间轴上的生命周期 [start, end]
+
 		struct LiveInterval{
 			std::span<pass_data*> range;
-			const resource_trace* trace; // 如果是 shared
-			const local_data_trace* local; // 如果是 local
+			const resource_trace* trace;
+			const local_data_trace* local;
 			std::size_t local_index;
 			VkMemoryRequirements requirements;
 			VkDeviceSize assigned_offset = 0;
@@ -1509,16 +1509,16 @@ public:
 		};
 		std::vector<LiveInterval> intervals;
 
-		// --- 第一步：创建虚句柄并获取内存需求 ---
-		// 注意：这里需要 context/device，假设你能在 manager 中访问到
+
+
 		VkDevice device = vk::allocator_usage{allocator_major_}.get_device();
 
 		auto process_requirement = [&](
 			const resource_requirement& req,
 			LiveInterval interval){
-			// 1.1 创建临时句柄 (必须加 ALIAS 标志)
-			// 这一步对于获取正确的 Size 和 Alignment 至关重要
-			// 代码细节：使用 vkCreateImage/Buffer 但不分配内存
+
+
+
 			std::visit(overload{
 				           [](std::monostate){
 					           throw std::runtime_error("unknown resource");
@@ -1529,7 +1529,7 @@ public:
 					           VkImage img;
 					           vkCreateImage(device, &info, nullptr, &img);
 					           vkGetImageMemoryRequirements(device, img, &interval.requirements);
-					           vkDestroyImage(device, img, nullptr); // 获取完需求即可销毁
+					           vkDestroyImage(device, img, nullptr);
 				           },
 				           [&](const buffer_requirement& r){
 				           }
@@ -1560,37 +1560,37 @@ public:
 			}
 		}
 
-		// --- 第二步：内存类型分类 (Bucketing) ---
-		// 只有 memoryTypeBits 兼容的资源才能放在同一个 VmaAllocation 中
-		// 通常 Render Graph 中大部分资源都是 Device Local，可以归为一类
-		// 这里简化假设所有资源都兼容 (你需要求所有 memoryTypeBits 的交集)
+
+
+
+
 		std::uint32_t common_mem_type_bits = 0xFFFF'FFFF;
 		for(auto& interval : intervals) common_mem_type_bits &= interval.requirements.memoryTypeBits;
 
 		if(common_mem_type_bits == 0){
 			throw std::runtime_error{"incompatible memory type"};
-			// 错误处理：资源内存类型不兼容，需要拆分为多个 Allocation
+
 		}
 
-		// --- 第三步：贪心算法计算 Offset (Greedy Offset Assignment) ---
-		// 按照大小降序排列，有助于减少碎片
+
+
 		std::ranges::sort(intervals, std::ranges::greater{}, &LiveInterval::required_size);
 
 		VkDeviceSize align = 1;
 		VkDeviceSize total_size = 0;
 
-		std::vector<LiveInterval*> assigned; // 已分配偏移的资源
+		std::vector<LiveInterval*> assigned;
 
 		for(auto& current : intervals){
 			VkDeviceSize candidate_offset = 0;
 
-			// 尝试找到一个不与任何“时间上重叠”且“空间上重叠”的资源冲突的 offset
-			// 这是一个简化的 First-Fit 策略
 
-			// 1. 收集所有与其时间重叠的已分配资源
+
+
+
 			std::vector<std::pair<VkDeviceSize, VkDeviceSize>> concurrent_ranges;
 			for(const auto* other : assigned){
-				// 检查时间是否重叠
+
 				if(
 					std::max(std::to_address(current.range.begin()), std::to_address(other->range.begin())) <
 					std::min(std::to_address(current.range.end()), std::to_address(other->range.end()))){
@@ -1600,25 +1600,25 @@ public:
 					}
 			}
 
-			// 2. 对空间区间排序
+
 			std::ranges::sort(concurrent_ranges);
 
-			// 3. 在缝隙中寻找位置
+
 			for(const auto& [from, to] : concurrent_ranges){
-				// 对齐调整
+
 				VkDeviceSize needed_start =
 					math::div_ceil(candidate_offset, current.requirements.alignment) * current.requirements.alignment;
 
 				if(needed_start + current.requirements.size <= from){
-					// 找到缝隙了（在这个 range 之前）
+
 					candidate_offset = needed_start;
 					goto found;
 				}
-				// 否则跳过这个 range
+
 				candidate_offset = std::max(candidate_offset, to);
 			}
 
-			// 4. 如果所有缝隙都不行，放在最后
+
 			candidate_offset = math::div_ceil(candidate_offset, current.requirements.alignment) * current.requirements.alignment;
 
 			found:
@@ -1627,7 +1627,7 @@ public:
 			assigned.push_back(&current);
 		}
 
-		// 1. 分配一大块物理显存
+
 		const VkMemoryRequirements final_req{
 			.size = total_size,
 			.alignment = align,
@@ -1672,7 +1672,7 @@ public:
 			                  }, req.req);
 		};
 
-		// 2. 创建并绑定实际的别名资源
+
 		for(const auto& interval : intervals){
 			if(interval.trace){
 				auto entity = create_resource(interval.trace->resource_entity.overall_requirement,
@@ -1715,10 +1715,10 @@ public:
 	}
 
 	void create_command(VkCommandBuffer buffer) {
-		// =========================================================
-		// Phase 0: Global Event Reset & Execution Barrier
-		// 解决 SYNC-vkCmdSetEvent2-missingbarrier-reset
-		// =========================================================
+
+
+
+
 		std::vector<VkEvent> all_events_to_reset;
 		for (const auto* pass_ptr : execute_sequence_) {
 			all_events_to_reset.insert(all_events_to_reset.end(),
@@ -1731,7 +1731,7 @@ public:
 				vkCmdResetEvent2(buffer, event, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
 			}
 
-			// 必须在此处插入全局执行屏障，避免 Reset 与后续的 Set 产生 Race Condition
+
 			const VkMemoryBarrier2 reset_barrier{
 				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
 				.pNext = nullptr,
@@ -1758,16 +1758,16 @@ public:
 			const auto& pass = *pass_ptr;
 			const auto& sync = pass.sync_info_;
 
-			// =========================================================
-			// Phase 1: Pre-Pass Synchronization
-			// =========================================================
 
-			// 1.2 Wait Events (Split Barriers / Long-distance dependencies)
+
+
+
+
 			for (const auto& wait : sync.waits) {
 				const VkDependencyInfo dep_info{
 					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
 					.pNext = nullptr,
-					.dependencyFlags = VK_DEPENDENCY_ASYMMETRIC_EVENT_BIT_KHR, // 核心修复：使用非对称事件标志
+					.dependencyFlags = VK_DEPENDENCY_ASYMMETRIC_EVENT_BIT_KHR,
 					.memoryBarrierCount = 0,
 					.pMemoryBarriers = nullptr,
 					.bufferMemoryBarrierCount = static_cast<uint32_t>(wait.buffer_barriers.size()),
@@ -1778,7 +1778,7 @@ public:
 				vkCmdWaitEvents2(buffer, 1, &wait.event, &dep_info);
 			}
 
-			// 1.3 Immediate Barriers (In) (Adjacent dependencies / First use / External)
+
 			if (!sync.immediate_image_barriers_in.empty() || !sync.immediate_buffer_barriers_in.empty()) {
 				const VkDependencyInfo dep_info{
 					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -1794,22 +1794,22 @@ public:
 				vkCmdPipelineBarrier2(buffer, &dep_info);
 			}
 
-			// =========================================================
-			// Phase 2: Execute Pass
-			// =========================================================
+
+
+
 			pass.meta->record_command(allocator_frags_, pass, {extent_.width, extent_.height}, buffer);
 
-			// =========================================================
-			// Phase 3: Post-Pass Synchronization
-			// =========================================================
 
-			// 3.1 Signal Events (Producer Signal)
+
+
+
+
 			for (const auto& sig : sync.signals) {
 				const VkMemoryBarrier2 stage_def_barrier{
 					.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
 					.pNext = nullptr,
 					.srcStageMask = sig.stage_mask,
-					.srcAccessMask = VK_ACCESS_2_NONE, // 必须为 0，因为使用了非对称事件标志
+					.srcAccessMask = VK_ACCESS_2_NONE,
 					.dstStageMask = VK_PIPELINE_STAGE_2_NONE,
 					.dstAccessMask = VK_ACCESS_2_NONE
 				};
@@ -1827,7 +1827,7 @@ public:
 				vkCmdSetEvent2(buffer, sig.event, &dep_info);
 			}
 
-			// 3.2 Immediate Barriers (Out) (External Outputs)
+
 			if (!sync.immediate_image_barriers_out.empty() || !sync.immediate_buffer_barriers_out.empty()) {
 				const VkDependencyInfo dep_info{
 					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,

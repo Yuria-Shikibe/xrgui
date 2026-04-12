@@ -78,9 +78,9 @@ public:
 	actives_{allocator}{
 	}
 
-	// bool hasInstance(const TooltipOwner& owner){
-	// 	return std::ranges::contains(actives | std::views::reverse | std::views::transform(&ValidTooltip::owner), &owner);
-	// }
+
+
+
 
 	[[nodiscard]] spawner* get_top_focus() const noexcept{
 		return actives_.empty() ? nullptr : actives_.back().owner;

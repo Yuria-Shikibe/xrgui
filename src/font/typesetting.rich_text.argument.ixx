@@ -272,7 +272,7 @@ consteval hb_tag_t make_tag_constexpr(const char* s){
 		((std::uint32_t)(s[3]) & 0xFF));
 }
 
-// 简单的编译期字符串转整数解析
+
 consteval std::uint32_t parse_uint(std::string_view s){
 	std::uint32_t res = 0;
 	auto rst = std::from_chars(s.data(), s.data() + s.size(), res);

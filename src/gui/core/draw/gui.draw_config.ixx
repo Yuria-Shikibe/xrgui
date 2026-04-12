@@ -87,7 +87,7 @@ struct render_target_mask{
     }
 
     constexpr void set(unsigned idx, bool b) noexcept{
-       // 修正：无论 b 是 true 还是 false，都需要使用 1 来创建反码掩码清除原有位
+
        mask = (mask & ~(underlying_type{1} << idx)) | (underlying_type{b} << idx);
     }
 
@@ -98,16 +98,16 @@ struct render_target_mask{
 
     constexpr bool operator==(const render_target_mask&) const noexcept = default;
 
-    // ------------------------------------------------------------------------
-    // 新增：常用位运算重载
-    // ------------------------------------------------------------------------
 
-    // 按位取反 (NOT)
+
+
+
+
     constexpr render_target_mask operator~() const noexcept {
        return {~mask};
     }
 
-    // 按位与 (AND)
+
     constexpr render_target_mask operator&(const render_target_mask& rhs) const noexcept {
        return {mask & rhs.mask};
     }
@@ -116,7 +116,7 @@ struct render_target_mask{
        return *this;
     }
 
-    // 按位或 (OR)
+
     constexpr render_target_mask operator|(const render_target_mask& rhs) const noexcept {
        return {mask | rhs.mask};
     }
@@ -125,7 +125,7 @@ struct render_target_mask{
        return *this;
     }
 
-    // 按位异或 (XOR)
+
     constexpr render_target_mask operator^(const render_target_mask& rhs) const noexcept {
        return {mask ^ rhs.mask};
     }
@@ -134,7 +134,7 @@ struct render_target_mask{
        return *this;
     }
 
-    // 左移 (Shift Left)
+
     constexpr render_target_mask operator<<(unsigned shift) const noexcept {
        return {mask << shift};
     }
@@ -143,7 +143,7 @@ struct render_target_mask{
        return *this;
     }
 
-    // 右移 (Shift Right)
+
     constexpr render_target_mask operator>>(unsigned shift) const noexcept {
        return {mask >> shift};
     }
@@ -152,7 +152,7 @@ struct render_target_mask{
        return *this;
     }
 
-    // ------------------------------------------------------------------------
+
 
     template <std::invocable<unsigned> Fn>
     constexpr void for_each_popbit(this render_target_mask self, Fn&& fn) noexcept(std::is_nothrow_invocable_v<Fn, unsigned>){
@@ -284,27 +284,27 @@ enum struct primitive_draw_mode : std::uint32_t{
 
 BITMASK_OPS(export , primitive_draw_mode);
 //
-// export
-// template <typename T>
-// struct draw_state_config_deduce{};
-//
-// export
-// template <typename T>
-// concept draw_state_config_deduceable = requires{
-// 	requires std::same_as<typename draw_state_config_deduce<T>::value_type, std::uint32_t>;
-// };
-//
-// template <>
-// struct draw_state_config_deduce<fx::blit_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::blit)>{
-// };
-//
-// template <>
-// struct draw_state_config_deduce<pipeline_config> : std::integral_constant<std::uint32_t, std::to_underlying(state_type::pipe)>{
-// };
 
-// export
-// template <typename T>
-// constexpr inline std::uint32_t draw_state_index_deduce_v = draw_state_config_deduce<T>::value;
+
+
+//
+
+
+
+
+
+//
+
+
+
+//
+
+
+
+
+
+
+
 
 export using blend_enable_flag = VkBool32;
 export using blend_write_mask_type = VkColorComponentFlags;
@@ -344,12 +344,12 @@ struct blend_equation{
 
 export namespace blend {
 
-// ==========================================
-// 直通 Alpha (Straight Alpha) 混合模式
-// 适用于未预乘 Alpha 的普通纹理或颜色
-// ==========================================
 
-// 标准 Alpha 混合
+
+
+
+
+
 constexpr inline blend_equation standard = {
     .src_color_blend_factor = VK_BLEND_FACTOR_SRC_ALPHA,
     .dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
@@ -359,7 +359,7 @@ constexpr inline blend_equation standard = {
     .alpha_blend_op         = VK_BLEND_OP_ADD
 };
 
-// 正片叠底
+
 constexpr inline blend_equation multiply = {
     .src_color_blend_factor = VK_BLEND_FACTOR_DST_COLOR,
     .dst_color_blend_factor = VK_BLEND_FACTOR_ZERO,
@@ -369,7 +369,7 @@ constexpr inline blend_equation multiply = {
     .alpha_blend_op         = VK_BLEND_OP_ADD
 };
 
-// 滤色 (注：直通 Alpha 在半透明边缘会存在不可避免的计算瑕疵，这里提供最接近的近似实现)
+
 constexpr inline blend_equation screen = {
     .src_color_blend_factor = VK_BLEND_FACTOR_SRC_ALPHA,
     .dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
@@ -379,7 +379,7 @@ constexpr inline blend_equation screen = {
     .alpha_blend_op         = VK_BLEND_OP_ADD
 };
 
-// 加法发光
+
 constexpr inline blend_equation additive = {
     .src_color_blend_factor = VK_BLEND_FACTOR_SRC_ALPHA,
     .dst_color_blend_factor = VK_BLEND_FACTOR_ONE,
@@ -389,7 +389,7 @@ constexpr inline blend_equation additive = {
     .alpha_blend_op         = VK_BLEND_OP_ADD
 };
 
-// 减法
+
 constexpr inline blend_equation subtractive = {
     .src_color_blend_factor = VK_BLEND_FACTOR_SRC_ALPHA,
     .dst_color_blend_factor = VK_BLEND_FACTOR_ONE,
@@ -409,7 +409,7 @@ constexpr inline blend_equation inverse = {
     .alpha_blend_op         = VK_BLEND_OP_ADD
 };
 
-// 完全不透明 / 覆盖
+
 constexpr inline blend_equation opaque = {
     .src_color_blend_factor = VK_BLEND_FACTOR_ONE,
     .dst_color_blend_factor = VK_BLEND_FACTOR_ZERO,
@@ -420,13 +420,13 @@ constexpr inline blend_equation opaque = {
 };
 
 
-// ==========================================
-// 预乘 Alpha (Premultiplied Alpha - PMA) 混合模式
-// 适用于已预乘 Alpha 的纹理或颜色
-// ==========================================
+
+
+
+
 namespace pma {
 
-    // 标准 PMA 混合 (GUI 与现代渲染推荐)
+
     constexpr inline blend_equation standard = {
         .src_color_blend_factor = VK_BLEND_FACTOR_ONE,
         .dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
@@ -436,7 +436,7 @@ namespace pma {
         .alpha_blend_op         = VK_BLEND_OP_ADD
     };
 
-    // PMA 正片叠底 (正确处理透明区域不发黑)
+
     constexpr inline blend_equation multiply = {
         .src_color_blend_factor = VK_BLEND_FACTOR_DST_COLOR,
         .dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
@@ -446,7 +446,7 @@ namespace pma {
         .alpha_blend_op         = VK_BLEND_OP_ADD
     };
 
-    // PMA 滤色 (数学上完美的 Screen)
+
     constexpr inline blend_equation screen = {
         .src_color_blend_factor = VK_BLEND_FACTOR_ONE,
         .dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
@@ -456,7 +456,7 @@ namespace pma {
         .alpha_blend_op         = VK_BLEND_OP_ADD
     };
 
-    // PMA 加法发光
+
     constexpr inline blend_equation additive = {
         .src_color_blend_factor = VK_BLEND_FACTOR_ONE,
         .dst_color_blend_factor = VK_BLEND_FACTOR_ONE,
@@ -466,7 +466,7 @@ namespace pma {
         .alpha_blend_op         = VK_BLEND_OP_ADD
     };
 
-    // PMA 减法
+
     constexpr inline blend_equation subtractive = {
         .src_color_blend_factor = VK_BLEND_FACTOR_ONE,
         .dst_color_blend_factor = VK_BLEND_FACTOR_ONE,
@@ -476,7 +476,7 @@ namespace pma {
         .alpha_blend_op         = VK_BLEND_OP_ADD
     };
 
-    // 完全不透明 / 覆盖 (与直通模式相同)
+
     constexpr inline blend_equation opaque = {
         .src_color_blend_factor = VK_BLEND_FACTOR_ONE,
         .dst_color_blend_factor = VK_BLEND_FACTOR_ZERO,

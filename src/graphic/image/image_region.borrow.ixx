@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2025/11/16.
+
 //
 
 export module mo_yanxi.graphic.image_region.borrow;

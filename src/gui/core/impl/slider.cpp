@@ -49,4 +49,4 @@ void style::default_slider2d_drawer::draw_layer_impl(const slider2d& element, ma
     });
 }
 
-} // namespace mo_yanxi::gui
+}

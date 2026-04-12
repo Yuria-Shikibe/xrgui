@@ -1,4 +1,4 @@
-// ReSharper disable CppExpressionWithoutSideEffects
+
 module;
 
 #include <vulkan/vulkan.h>
@@ -13,15 +13,15 @@ export import mo_yanxi.graphic.draw.instruction.batch.frontend;
 import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
 import mo_yanxi.vk.util;
-import mo_yanxi.type_register; // For user_data_index_table
+import mo_yanxi.type_register;
 import std;
 
 namespace mo_yanxi::graphic::draw::instruction{
 struct alignas(16) vertex_resolve_info{
-	std::uint32_t packed_type_timeline; // [15:0]: instr_type, [31:16]: relative_timeline
-	std::uint32_t payload_offset; // 绝对 Payload 偏移
-	std::uint32_t packed_skips; // [15:0]: vtx_skip, [31:16]: prm_skip (0xFFFF 为哨兵)
-	std::uint32_t payload_size; // 该指令的真实 Payload 尺寸
+	std::uint32_t packed_type_timeline;
+	std::uint32_t payload_offset;
+	std::uint32_t packed_skips;
+	std::uint32_t payload_size;
 };
 
 struct alignas(16) mesh_dispatch_info_v3{
@@ -37,7 +37,7 @@ struct alignas(16) mesh_dispatch_info_v3{
  */
 struct alignas(16) dispatch_config{
 	std::uint32_t group_offset;
-	std::uint32_t _cap[3]; // Padding to maintain alignment if necessary, or reserved
+	std::uint32_t _cap[3];
 };
 
 //
@@ -211,12 +211,12 @@ struct instruction_resolve_info{
 		std::uint32_t committed_blocks = 0;
 
 		if(num_timeline_slots > 0){
-			// 分配 2 个 Block：第一个作为初始 committed 状态，第二个作为 working buffer
+
 			timelines.resize(num_timeline_slots * 2, 0);
 			committed_blocks = 1;
 		}
 
-		// 通过偏移量计算，直接在 timelines 的尾部 working buffer 中进行就地修改
+
 		auto mark_timeline_dirty = [&](std::uint32_t slot_idx){
 			timelines[committed_blocks * num_timeline_slots + slot_idx]++;
 			timeline_dirty = true;
@@ -232,7 +232,7 @@ struct instruction_resolve_info{
 				v3_info.global_vertex_offset = current_global_vertex_base;
 				v3_info.primitives = dispatch_info.primitive_count;
 				if(num_timeline_slots > 0){
-					// 使用 committed_blocks 替代 timelines.size() 逻辑
+
 					v3_info.base_timeline_index = committed_blocks - 1;
 				} else{
 					v3_info.base_timeline_index = 0;
@@ -269,7 +269,7 @@ struct instruction_resolve_info{
 
 						if(head.type == instr_type::uniform_update){
 							if(num_timeline_slots > 0){
-								// 记录脏状态，直接修改 working buffer
+
 								mark_timeline_dirty(head.payload.marching_data.index);
 							}
 							idx_to_head++;
@@ -298,7 +298,7 @@ struct instruction_resolve_info{
 							idc_idx = static_cast<std::uint32_t>(skipped_primitives) + local_skip - 2;
 						}
 
-						// 提交脏数据时，推进 timelines 尾部
+
 						if(timeline_dirty){
 							const std::size_t current_size = timelines.size();
 							timelines.resize(current_size + num_timeline_slots);
@@ -346,7 +346,7 @@ struct instruction_resolve_info{
 			current_global_payload_base += static_cast<std::uint32_t>(group.get_pushed_instruction_size());
 		}
 
-		// 清理战场：截断未被消费的冗余 working buffer，保证最终 Buffer 整洁
+
 		if(num_timeline_slots > 0){
 			timelines.resize(committed_blocks * num_timeline_slots);
 		}
@@ -354,7 +354,7 @@ struct instruction_resolve_info{
 };
 
 struct frame_resource{
-	// 纹理绑定索引向后移动 1 位
+
 	static constexpr unsigned image_index = 4;
 
 	vk::buffer_cpu_to_gpu buffer_dispatch_info{};
@@ -379,10 +379,10 @@ struct frame_resource{
 		bindings{
 			[&]{
 				std::vector<vk::binding_spec> bindings{
-						{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // V3 Dispatch Info
-						{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Thread Resolve Infos
-						{2, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Timelines
-						{3, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Payload bytes
+						{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+						{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+						{2, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
+						{3, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER},
 						{image_index, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER}
 					};
 				for(unsigned i = 0; i < batch_frontend.get_data_group_vertex_info().size(); ++i){
@@ -405,7 +405,7 @@ struct frame_resource{
 		const VkBufferUsageFlags storage_flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
 			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
-		// 1. Upload group_dispatch_info (V3)
+
 		const auto dispatch_bytes = resolve_info.group_dispatch_info.size() * sizeof(mesh_dispatch_info_v3);
 		if(dispatch_bytes > 0){
 			if(buffer_dispatch_info.get_size() < dispatch_bytes){
@@ -414,7 +414,7 @@ struct frame_resource{
 			vk::buffer_mapper{buffer_dispatch_info}.load_range(resolve_info.group_dispatch_info);
 		}
 
-		// 2. Upload thread_resolve_info
+
 		const auto resolve_bytes = resolve_info.thread_resolve_info.size() * sizeof(vertex_resolve_info);
 		if(resolve_bytes > 0){
 			if(buffer_resolve_infos.get_size() < resolve_bytes){
@@ -423,7 +423,7 @@ struct frame_resource{
 			vk::buffer_mapper{buffer_resolve_infos}.load_range(resolve_info.thread_resolve_info);
 		}
 
-		// 3. Upload timelines
+
 		const auto timeline_bytes = resolve_info.timelines.size() * sizeof(std::uint32_t);
 		if(timeline_bytes > 0){
 			if(buffer_timelines.get_size() < timeline_bytes){
@@ -432,7 +432,7 @@ struct frame_resource{
 			vk::buffer_mapper{buffer_timelines}.load_range(resolve_info.timelines);
 		}
 
-		// 4. Upload instruction payload
+
 		const auto payload_size_view = submit_group_subrange | std::views::transform(
 			[](const contiguous_draw_list& list){ return list.get_pushed_instruction_size(); });
 		payloadSize = std::reduce(payload_size_view.begin(), payload_size_view.end(), 0u, std::plus<>{});
@@ -459,11 +459,11 @@ struct frame_resource{
 		const std::span<const VkDrawMeshTasksIndirectCommandEXT> submit_info,
 		data_layout_spec& state_data_layout_cache_,
 		std::vector<std::uint32_t>& cached_volatile_timelines){
-		// Sustained
+
 		load_data_group_to_buffer(host_ctx.get_data_group_vertex_info(), allocator, buffer_per_timeline_data,
 		                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
-		// Volatile
+
 		state_data_layout_cache_.begin_push();
 		state_data_layout_cache_.push(sizeof(dispatch_config), submit_info.size());
 
@@ -548,7 +548,7 @@ struct frame_resource{
 
 		vk::dynamic_descriptor_mapper dbo_mapper{descriptor_buffer};
 
-		// 绑定 0-3 分别为 V3的四大结构
+
 		const auto dispatch_bytes = resolve_info.group_dispatch_info.size() * sizeof(mesh_dispatch_info_v3);
 		const auto resolve_bytes = resolve_info.thread_resolve_info.size() * sizeof(vertex_resolve_info);
 		const auto timeline_bytes = resolve_info.timelines.size() * sizeof(std::uint32_t);
@@ -562,7 +562,7 @@ struct frame_resource{
 		dbo_mapper.set_element_at(3, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_instruction.get_address(),
 		                          payloadSize);
 
-		// 绑定 4 为 Textures
+
 		dbo_mapper.set_images_at(image_index, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler,
 		                         host_ctx.get_used_images<VkImageView>());
 
@@ -585,41 +585,41 @@ struct frame_resource{
 		std::uint32_t instructionHeadSize,
 		std::uint32_t instructionSize
 	){
-		// const auto dispatch_timeline_size = host_ctx.get_data_group_vertex_info().size() * sizeof(std::uint32_t);
-		// const auto dispatch_unit_size = sizeof(dispatch_group_info) + dispatch_timeline_size;
+
+
 		//
-		// cache_buffer_ranges_[0] = {buffer_dispatch_info.get_address(), dispatch_unit_size * (1 + totalDispatchCount)};
-		// cache_buffer_ranges_[1] = {buffer_instruction_heads.get_address(), instructionHeadSize};
-		// cache_buffer_ranges_[2] = {buffer_instruction.get_address(), instructionSize};
+
+
+
 		//
-		// VkDeviceSize cur_offset{};
-		// for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
-		// 	cache_buffer_ranges_[3 + i] = {
-		// 			buffer_sustained_info.get_address() + cur_offset, entry.get_required_byte_size()
-		// 		};
-		// 	cur_offset += entry.get_required_byte_size();
-		// }
+
+
+
+
+
+
+
 		//
-		// //UBO begin
-		// const auto v1_size = host_ctx.get_data_group_vertex_info().size();
-		// const auto ssbo_count = 3 + v1_size; // 正确的总数
+
+
+
 		//
-		// cache_buffer_ranges_[ssbo_count] = state_data_layout_cache_.
-		// 	to_subrange(buffer_state_data.get_address(), 0);
+
+
 		//
-		// for(const auto& [idx, entry] : host_ctx.get_data_group_non_vertex_info().entries | std::views::enumerate){
-		// 	cache_buffer_ranges_[ssbo_count + 1 + idx] = state_data_layout_cache_.to_subrange(
-		// 		buffer_state_data.get_address(), idx + 1);
-		// }
+
+
+
+
 		//
-		// heap.clear(buffer_section);
-		// heap.push_back_storage_buffers(buffer_section, cache_buffer_ranges_);
-		// heap.push_back_storage_buffers(buffer_section, {cache_buffer_ranges_.begin(), 2 + v1_size});
+
+
+
 		//
 		//
-		// heap.push_back_storage_buffers(buffer_section, {
-		// 		cache_buffer_ranges_.begin() + 2 + v1_size, cache_buffer_ranges_.end()
-		// 	});
+
+
+
 	}
 };
 
@@ -660,21 +660,21 @@ public:
 		: allocator_{a}
 		  , descriptor_layout_(allocator_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 		                       [&](vk::descriptor_layout_builder& builder){
-			                       // 0: group_dispatch_info_v3
-			                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
-			                       // 1: thread_resolve_info
-			                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
-			                       // 2: timelines
-			                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
-			                       // 3: instructions payload
+
 			                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
 
-			                       // 4: Textures (partially bound)
+			                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+
+			                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+
+			                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT);
+
+
 			                       builder.push_seq(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			                                        VK_SHADER_STAGE_FRAGMENT_BIT, 1,
 			                                        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
 
-			                       // 5+: vertex ubos
+
 			                       for(unsigned i = 0; i < batch_host.get_data_group_vertex_info().size(); ++i){
 				                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				                                        VK_SHADER_STAGE_MESH_BIT_EXT);
@@ -714,7 +714,7 @@ public:
 			return;
 		}
 
-		// 1. Prepare Indirect Commands
+
 		const auto dispatchCountGroups = [&]{
 			cache_submit_info_.resize(host_ctx.get_state_transitions().size());
 			std::uint32_t currentSubmitGroupIndex = 0;
@@ -730,7 +730,7 @@ public:
 			return std::span{std::as_const(cache_submit_info_)};
 		}();
 
-		// frame.upload_indirect(allocator_, dispatchCountGroups);
+
 
 		std::uint32_t payloadSize = 0;
 		frame.upload_v3_data(allocator_, cached_instruction_resolve_info_, submit_group_subrange, payloadSize);
@@ -738,10 +738,10 @@ public:
 		frame.upload_user_data(allocator_, host_ctx, dispatchCountGroups, volatile_data_layout_,
 		                       cached_state_timelines_);
 
-		// 更新描述符，传入 V3 预演缓存和最终计算出的 Payload 尺寸
+
 		frame.update_descriptors(host_ctx, descriptor_layout_, sampler, cached_instruction_resolve_info_, payloadSize);
 
-		// 如果要恢复 push_back_to_descriptor_heap，请注意调整里面的 Cache_Buffer_Ranges 的索引 (0,1,2,3 分配给SSBO)
+
 	}
 
 	std::array<VkDescriptorSetLayout, 2> get_descriptor_set_layout() const noexcept{
