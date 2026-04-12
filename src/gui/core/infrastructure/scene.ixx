@@ -150,12 +150,8 @@ export
 struct native_communicator{
 	virtual ~native_communicator() = default;
 
-	void set_clipboard(std::string_view text){
-		set_clipboard_impl(text, false);
-	}
-
-	void set_clipboard(std::string_view text, bool assume_zero_terminated){
-		set_clipboard_impl(text, assume_zero_terminated);
+	void set_clipboard(std::string&& text){
+		set_clipboard_impl(std::move(text));
 	}
 
 	virtual void set_ime_enabled(bool enabled){
@@ -167,7 +163,7 @@ struct native_communicator{
 	}
 
 protected:
-	virtual void set_clipboard_impl(std::string_view text, bool assume_zero_terminated){
+	virtual void set_clipboard_impl(std::string&& text){
 
 	}
 
@@ -564,6 +560,8 @@ private:
 		update_channel added_channels;
 		update_channel erase_channels;
 
+
+
 		constexpr auto operator<=>(const update_entry& o) const noexcept{
 			return elem <=> o.elem;
 		}
@@ -571,9 +569,17 @@ private:
 		constexpr bool operator==(const update_entry& o) const noexcept{
 			return elem == o.elem;
 		}
+
+		friend constexpr bool operator==(const update_entry& s, const gui::elem* o) noexcept{
+			return s.elem == o;
+		}
+
+		friend constexpr bool operator==(const gui::elem* o, const update_entry& s) noexcept{
+			return s.elem == o;
+		}
 	};
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY linear_flat_set<mr::heap_vector<update_entry>> active_update_elems_{get_heap_allocator()};
-	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY linear_flat_set<mr::heap_vector<update_entry>> active_update_elems_state_changes{get_heap_allocator()};
+	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY mr::heap_vector<update_entry> active_update_elems_state_changes{get_heap_allocator()};
 
 #pragma endregion
 
@@ -661,24 +667,14 @@ public:
 
 	void insert_update(elem& p, update_channel channel){
 		assert(is_on_scene_thread(*this));
-		auto& set = active_update_elems_state_changes;
-		if(auto itr = set.find({&p}); itr != set.end()){
-			itr->added_channels |= channel;
-		}else{
-			set.insert({.elem = &p, .added_channels = channel});
-		}
+		active_update_elems_state_changes.emplace_back(&p, channel);
 
 	}
 
 	void erase_update(const elem* p, update_channel channel) noexcept {
 		assert(is_on_scene_thread(*this));
-		auto& set = active_update_elems_state_changes;
-
-		if(auto itr = set.find({const_cast<elem*>(p)}); itr != set.end()){
-			itr->erase_channels |= channel;
-		}else{
-			set.insert({.elem = const_cast<elem*>(p), .erase_channels = channel});
-		}
+		//note that the const cast here is safe
+		active_update_elems_state_changes.emplace_back(const_cast<elem*>(p), update_channel::none, channel);
 	}
 
 	void apply_update_state_changes() noexcept {

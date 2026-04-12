@@ -401,17 +401,40 @@ public:
 			merge_caret(0, select, text_buffer_.size());
 			return false;
 		}
-		auto hit = layout.hit_test(pos, align);
-		if(hit){
-			unsigned new_index = hit.source->cluster_index + hit.span_offset;
 
+		auto hit = layout.hit_test(pos, align);
+		// 增加 hit.source 的判空，以防底层引擎对于空行返回了 true 但携带空指针
+		if(hit && hit.source){
+			unsigned new_index = hit.source->cluster_index + hit.span_offset;
 			unsigned line_idx = static_cast<unsigned>(hit.source_line - layout.lines.data());
 			auto bounds = get_line_bounds(layout, text_buffer_, line_idx);
 			new_index = std::clamp(new_index, bounds.start_idx, bounds.visual_end);
 
 			merge_caret(new_index, select, text_buffer_.size());
+			return true;
 		}
-		return bool(hit);
+
+		// Fallback: 用户点击在了没有任何字符的区域（例如幽灵行或文本末尾的纯白区）
+		// 我们需要计算距离鼠标 Y 轴（如果是横排版）最近的行，并将光标吸附过去
+		const bool is_vertical_layout = (layout.direction == typesetting::layout_direction::ttb || layout.direction == typesetting::layout_direction::btt);
+		unsigned closest_line_idx = 0;
+		float min_dist = std::numeric_limits<float>::max();
+
+		for (unsigned i = 0; i < layout.lines.size(); ++i) {
+			auto align_res = layout.lines[i].calculate_alignment(layout.extent, align, layout.direction);
+			float dist = is_vertical_layout ? std::abs(align_res.start_pos.x - pos.x) : std::abs(align_res.start_pos.y - pos.y);
+			if (dist < min_dist) {
+				min_dist = dist;
+				closest_line_idx = i;
+			}
+		}
+
+		// 找到最近的行后，将光标对齐到该行的行尾（由于空行的 start_idx 等于 visual_end，这会自然对齐到行首）
+		auto bounds = get_line_bounds(layout, text_buffer_, closest_line_idx);
+		merge_caret(bounds.visual_end, select, text_buffer_.size());
+
+		// 即使是 fallback 命中，我们也返回 true，以确保 UI 系统能正确保持光标存活
+		return true;
 	}
 
 	// --- 修正后的垂直移动逻辑 ---

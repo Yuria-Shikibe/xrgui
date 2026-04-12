@@ -248,12 +248,10 @@ private:
 	std::vector<contiguous_draw_list> submit_groups_{};
 	std::vector<state_transition> submit_transitions_{};
 
-	// --- New State Tracker ---
 	state_tracker tracker_{};
-	// -------------------------
 
-	data_entry_group data_group_sustained_info_{};
-	data_entry_group data_group_volatile_info_{};
+	data_entry_group data_group_per_timeline_info_{};
+	data_entry_group data_group_per_draw_call_info_{};
 	image_view_history_dynamic dynamic_image_view_history_{16};
 
 	contiguous_draw_list* current_group{};
@@ -271,8 +269,8 @@ public:
 		const data_layout_table<>& non_vertex_data_table
 	)
 		: hardware_limit_(config)
-		, data_group_sustained_info_{vertex_data_table}
-		, data_group_volatile_info_{non_vertex_data_table}{
+		, data_group_per_timeline_info_{vertex_data_table}
+		, data_group_per_draw_call_info_{non_vertex_data_table}{
 	}
 
 	void clear() noexcept{
@@ -280,19 +278,19 @@ public:
 		submit_transitions_.clear();
 		current_group = nullptr;
 		tracker_.reset();
-		data_group_sustained_info_.reset();
-		data_group_volatile_info_.reset();
+		data_group_per_timeline_info_.reset();
+		data_group_per_draw_call_info_.reset();
 	}
 
 	void begin_rendering() noexcept{
 		if(submit_groups_.empty()){
 			submit_groups_.push_back({
-					data_group_sustained_info_.size(), get_mesh_dispatch_limit(), data_group_sustained_info_.entries
+					data_group_per_timeline_info_.size(), get_mesh_dispatch_limit(), data_group_per_timeline_info_.entries
 				});
 		}
 
-		data_group_volatile_info_.reset();
-		data_group_sustained_info_.reset();
+		data_group_per_draw_call_info_.reset();
+		data_group_per_timeline_info_.reset();
 		tracker_.reset();
 
 		submit_groups_.front().reset({});
@@ -406,9 +404,9 @@ public:
 			const auto payload = std::span{instr, instr_head.payload_size};
 			const auto targetIndex = instr_head.payload.ubo.index;
 			if(instr_head.payload.ubo.group_index){
-				data_group_volatile_info_.push(targetIndex, payload);
+				data_group_per_draw_call_info_.push(targetIndex, payload);
 			} else{
-				data_group_sustained_info_.push(targetIndex, payload);
+				data_group_per_timeline_info_.push(targetIndex, payload);
 			}
 			return;
 		}
@@ -434,7 +432,7 @@ public:
 		// -------------------------------------------------
 
 		// Handle Uniform Data Marching (Volatile)
-		for(auto&& [idx, vertex_data_entry] : data_group_sustained_info_.entries | std::views::enumerate){
+		for(auto&& [idx, vertex_data_entry] : data_group_per_timeline_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				const instruction_head instruction_head{
 						.type = instr_type::uniform_update,
@@ -445,7 +443,7 @@ public:
 		}
 
 		state_transition* breakpoint{};
-		for(auto&& [idx, vertex_data_entry] : data_group_volatile_info_.entries | std::views::enumerate){
+		for(auto&& [idx, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				if(!breakpoint){
 					// If we need to break for UBO, we use the logic similar to state break
@@ -489,7 +487,7 @@ public:
 			// 阶段 A: Uniform 坍缩与状态打断（仅在切换到绘制指令前执行）
 			if (need_collapse_check && heads[idx].type != instr_type::uniform_update) {
 				// 检查 Sustained Data
-				for (auto&& [i, vertex_data_entry] : data_group_sustained_info_.entries | std::views::enumerate) {
+				for (auto&& [i, vertex_data_entry] : data_group_per_timeline_info_.entries | std::views::enumerate) {
 					if (vertex_data_entry.collapse()) {
 						const instruction_head collapse_head{
 							.type = instr_type::uniform_update,
@@ -501,7 +499,7 @@ public:
 
 				// 检查 Volatile Data
 				state_transition* breakpoint{};
-				for (auto&& [i, vertex_data_entry] : data_group_volatile_info_.entries | std::views::enumerate) {
+				for (auto&& [i, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate) {
 					if (vertex_data_entry.collapse()) {
 						if (!breakpoint) {
 							current_group->finalize();
@@ -537,9 +535,9 @@ public:
 				const auto targetIndex = head.payload.ubo.index;
 
 				if (head.payload.ubo.group_index) {
-					data_group_volatile_info_.push(targetIndex, ubo_payload);
+					data_group_per_draw_call_info_.push(targetIndex, ubo_payload);
 				} else {
-					data_group_sustained_info_.push(targetIndex, ubo_payload);
+					data_group_per_timeline_info_.push(targetIndex, ubo_payload);
 				}
 
 				// 标记发生过更新，下一次进入阶段 A 时需要执行坍缩
@@ -557,12 +555,12 @@ public:
 
 	template <typename S>
 	[[nodiscard]] auto& get_data_group_vertex_info(this S& self) noexcept{
-		return self.data_group_sustained_info_;
+		return self.data_group_per_timeline_info_;
 	}
 
 	template <typename S>
 	[[nodiscard]] auto& get_data_group_non_vertex_info(this S& self) noexcept{
-		return self.data_group_volatile_info_;
+		return self.data_group_per_draw_call_info_;
 	}
 
 	std::uint32_t get_submit_sections_count() const noexcept{
@@ -577,8 +575,8 @@ private:
 	void advance_current_group(){
 		auto last_param = current_group->get_extend_able_params();
 		if(current_group == std::to_address(submit_groups_.rbegin())){
-			current_group = &submit_groups_.emplace_back(data_group_sustained_info_.size(), get_mesh_dispatch_limit(),
-				data_group_sustained_info_.entries);
+			current_group = &submit_groups_.emplace_back(data_group_per_timeline_info_.size(), get_mesh_dispatch_limit(),
+				data_group_per_timeline_info_.entries);
 		} else{
 			++current_group;
 		}

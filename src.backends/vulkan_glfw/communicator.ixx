@@ -13,6 +13,7 @@ module;
 export module mo_yanxi.backend.communicator;
 
 import mo_yanxi.gui.infrastructure;
+import std;
 
 void UpdateIMEWindowPosition(GLFWwindow* window, const mo_yanxi::math::irect& caretRectScreen) {
 	if (!window) return;
@@ -100,16 +101,13 @@ struct communicator : gui::native_communicator{
 		return {};
 	}
 
-	void set_clipboard_impl(std::string_view text, bool zero_terminated) override{
-		if(zero_terminated){
-			glfwSetClipboardString(window, text.data());
-		}else{
-			cache_text = text;
-			//no other better way to provide a zero terminated string
-			glfwSetClipboardString(window, cache_text.data());
-		}
+protected:
+	void set_clipboard_impl(std::string&& text) override{
+		cache_text = std::move(text);
+		glfwSetClipboardString(window, cache_text.data());
 	}
 
+public:
 	void set_native_cursor_visibility(bool show) override{
 		glfwSetInputMode(window, GLFW_CURSOR, show ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_HIDDEN);
 	}

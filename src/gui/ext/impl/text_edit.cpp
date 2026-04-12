@@ -8,6 +8,8 @@ namespace mo_yanxi::gui{
 bool text_edit::update(float delta_in_ticks){
 	if(!elem::update(delta_in_ticks)) return false;
 
+	check_paste_();
+
 	// 动态滚动平滑插值处理
 	if(is_scrollable_mode()) {
 		if(!scroll_offset_.equals(target_scroll_offset_)) {
@@ -751,21 +753,11 @@ void text_edit::set_focus(bool keyFocused){
 	}
 }
 
-void text_edit::action_copy() const{
-	auto caret = core_.get_caret();
-	if(!caret.has_region()) return;
-	auto ordered = caret.get_ordered();
-
-	if(const auto cmt = get_scene().get_communicator()){
-		auto sel_u32 = tokenized_text_.get_text().substr(ordered.src, ordered.length());
-		cmt->set_clipboard(unicode::utf32_to_utf8(sel_u32));
-	}
-}
-
-void text_edit::action_paste(){
-	if(const auto cmt = get_scene().get_communicator()){
-		const auto str = cmt->get_clipboard();
-		if(!str.empty()){
+void text_edit::check_paste_(){
+	if(get_clipboard_string_to_paste_.valid()){
+		auto s = get_clipboard_string_to_paste_.wait_for(std::chrono::milliseconds(10));
+		if(s == std::future_status::ready){
+			const auto str = get_clipboard_string_to_paste_.get();
 			auto rst = unicode::utf8_to_utf32(str);
 
 			if(!filter_code_points.empty()){
@@ -801,6 +793,29 @@ void text_edit::action_paste(){
 
 			action_do_insert(std::u32string_view{rst.data(), rst.size()});
 		}
+	}
+}
+
+void text_edit::action_copy() const{
+	auto caret = core_.get_caret();
+	if(!caret.has_region()) return;
+	auto ordered = caret.get_ordered();
+
+	if(const auto cmt = get_scene().get_communicator()){
+		auto sel_u32 = tokenized_text_.get_text().substr(ordered.src, ordered.length());
+		get_scene().get_output_communicate_async_task_queue(0).post([&c = *cmt, t = unicode::utf32_to_utf8(sel_u32)]() mutable {
+			c.set_clipboard(std::move(t));
+		});
+	}
+}
+
+void text_edit::action_paste(){
+	if(const auto cmt = get_scene().get_communicator()){
+		std::promise<std::string> str{};
+		get_clipboard_string_to_paste_ = str.get_future();
+		get_scene().get_output_communicate_async_task_queue(0).post([&c = *cmt, p = std::move(str)]() mutable {
+			p.set_value(std::string{c.get_clipboard()});
+		});
 	}
 }
 

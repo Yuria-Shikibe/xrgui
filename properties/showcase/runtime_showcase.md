@@ -30,10 +30,30 @@
 ### Canvas-Viewport
 ![img.png](screen_shots/img_7.png)
 
-## 元素渲染
+## 部分元素渲染
 ### CSV表格
 ![img.png](screen_shots/img_5.png)
 
+### 富文本渲染
+![img_8.png](screen_shots/img_8.png)
+![img_9.png](screen_shots/img_9.png)
+
+### Tooltip
+![img_10.png](screen_shots/img_10.png)
+
+### 环形进度条
+* 注：该元素是带有动画效果的
+![img_11.png](screen_shots/img_11.png)
+
+### 拾色器
+![img_12.png](screen_shots/img_12.png)
+
+### 分割面板
+![img_13.png](screen_shots/img_13.png)
 
 
-
+### 流溢序列
+* 展开状态
+![img_14.png](screen_shots/img_14.png)
+* 压缩状态
+![img_15.png](screen_shots/img_15.png)

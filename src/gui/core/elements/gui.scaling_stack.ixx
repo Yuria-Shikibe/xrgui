@@ -1,7 +1,3 @@
-//
-// Created by Matrix on 2025/3/13.
-//
-
 export module mo_yanxi.gui.elem.scaling_stack;
 
 export import mo_yanxi.gui.elem.celled_group;

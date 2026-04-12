@@ -1,5 +1,5 @@
 //
-// Created by Matrix on 2024/12/7.
+
 //
 
 export module mo_yanxi.gui.elem.progress_bar;
@@ -20,7 +20,7 @@ export enum struct progress_state{
     approach_linear,
     approach_scaled,
     approach_smooth,
-    approach_smooth_lerp // 可选：新增基于 lerp 的极致平滑状态
+    approach_smooth_lerp 
 };
 
 struct bar_progress{
@@ -36,7 +36,7 @@ private:
 
 public:
     constexpr void set_speed(value_type speed) noexcept{
-       speed_scale = math::max(speed, 0.0f); // 防御性编程：避免负数缩放导致物理系统崩溃
+       speed_scale = math::max(speed, 0.0f); 
     }
 
     constexpr bool set_target(value_type target) noexcept{
@@ -58,7 +58,7 @@ public:
 
     constexpr void set_to_target() noexcept{
        current = target;
-       current_speed_ = 0; // 重置目标时，一并消除动能
+       current_speed_ = 0; 
     }
 
     [[nodiscard]] constexpr progress_state get_state() const noexcept{ return state; }
@@ -94,21 +94,21 @@ public:
        case progress_state::approach_smooth:{
           const auto dist = target - current;
 
-          // 提前终止条件：如果距离足够近，且速度几乎为零，则直接吸附
+          
           if(math::zero(dist, 1e-4f) && math::zero(current_speed_, 1e-3f)){
               current = target;
               current_speed_ = 0.0f;
               return true;
           }
 
-          // 获取系统约束下的最优加速度
+          
           auto accel = math::constrain_resolve::smooth_approach(dist, current_speed_, speed_scale);
 
-          // 半隐式欧拉积分：先更新速度
+          
           current_speed_ += accel * delta_in_tick;
           const auto delta_pos = current_speed_ * delta_in_tick;
 
-          // 防超调 (Anti-overshoot) 逻辑：如果这一步会跨越目标，强制截断并停滞
+          
           if ((dist > 0 && delta_pos >= dist) || (dist < 0 && delta_pos <= dist)) {
               current = target;
               current_speed_ = 0.0f;
@@ -120,7 +120,7 @@ public:
        }
 
        case progress_state::approach_smooth_lerp:{
-          // 利用 constrain_resolve 中的 smooth_approach_lerp 提供另一种阻尼感更强的平滑
+          
           const auto dist = target - current;
 
           if(math::zero(dist, 1e-4f) && math::zero(current_speed_, 1e-3f)){
