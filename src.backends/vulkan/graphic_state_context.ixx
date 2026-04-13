@@ -75,6 +75,15 @@ struct graphics_context_trace {
         std::vector<VkBool32> blend_enables;
         std::vector<VkColorBlendEquationEXT> blend_equations;
         std::vector<VkColorComponentFlags> blend_write_flags;
+
+    	void reset(){
+    		pipeline_index = std::numeric_limits<std::uint32_t>::max();
+    		viewport = {};
+    		scissor = {};
+    		blend_enables.clear();
+    		blend_equations.clear();
+    		blend_write_flags.clear();
+    	}
     };
 
     state_flag_bits dirty_flags = DIRTY_ALL;
@@ -274,6 +283,14 @@ struct graphics_context_trace {
         pending_state.blend_enables.clear();
         pending_state.blend_equations.clear();
         pending_state.blend_write_flags.clear();
+    }
+
+    void reset() noexcept{
+    	dirty_flags = DIRTY_ALL;
+	    pending_state.reset();
+	    current_state.reset();
+    	pipeline_just_changed = false;
+    	requires_rebind = false;
     }
 };
 
