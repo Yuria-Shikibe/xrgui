@@ -176,116 +176,144 @@ struct data_layout_spec{
 
 export
 std::uint32_t get_required_buffer_descriptor_count_per_frame(const draw_list_context& host_ctx) noexcept{
-	return 8 + host_ctx.get_data_group_vertex_info().size() + (1 + host_ctx.get_data_group_non_vertex_info().size());
+	return 7 + host_ctx.get_data_group_vertex_info().size() + (1 + host_ctx.get_data_group_non_vertex_info().size());
 }
 
 struct instruction_resolve_info{
-	std::vector<std::uint32_t> timelines;
-	std::vector<vertex_resolve_info> thread_resolve_info;
-	std::vector<mesh_dispatch_info_v3> group_dispatch_info;
+    std::vector<std::uint32_t> timelines;
+    std::vector<vertex_resolve_info> thread_resolve_info;
+    std::vector<mesh_dispatch_info_v3> group_dispatch_info;
 
-	std::uint32_t total_vertices{};
-	std::uint32_t total_primitives{};
+    std::uint32_t total_vertices{};
+    std::uint32_t total_primitives{};
 
-	void update(const draw_list_context& host_ctx){
-		const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
+    void update(const draw_list_context& host_ctx){
+       const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
+       const std::uint32_t num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().size());
 
-		std::uint32_t current_global_thread = 0;
-		std::uint32_t current_global_primitive = 0;
-		std::uint32_t current_global_payload = 0;
+       // 第一阶段：进行一次轻量级的预扫描，精确计算各 vector 所需的最终容量
+       std::uint32_t pre_total_vertices = 0;
+       std::uint32_t pre_committed_blocks = (num_timeline_slots > 0) ? 1 : 0;
+       bool pre_timeline_dirty = false;
 
-		const std::uint32_t num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().size());
+       for(std::size_t i = 0; i < submit_group_subrange.size(); ++i){
+          const auto heads = submit_group_subrange[i].get_instruction_heads();
+          for(const auto& head : heads){
+             if(head.type == instr_type::uniform_update){
+                if(num_timeline_slots > 0) {
+                   pre_timeline_dirty = true;
+                }
+             } else {
+                if(pre_timeline_dirty){
+                   pre_committed_blocks++;
+                   pre_timeline_dirty = false;
+                }
+                pre_total_vertices += head.payload.draw.vertex_count;
+             }
+          }
+       }
 
-		timelines.clear();
-		group_dispatch_info.clear();
-		thread_resolve_info.clear();
+       // 第二阶段：一次性分配所需的所有内存，彻底消除后续的动态扩容
+       if (num_timeline_slots > 0) {
+           // pre_committed_blocks 是最终有效块数，加 1 是为了给最后一次尚未提交的脏写入提供空间
+           timelines.assign((pre_committed_blocks + 1) * num_timeline_slots, 0);
+       } else {
+           timelines.clear();
+       }
 
-		bool timeline_dirty = false;
-		std::uint32_t committed_blocks = 0;
-		if(num_timeline_slots > 0){
-			timelines.resize(num_timeline_slots * 2, 0);
-			committed_blocks = 1;
-		}
+       thread_resolve_info.assign(pre_total_vertices, {});
+       group_dispatch_info.resize(submit_group_subrange.size());
 
-		auto mark_timeline_dirty = [&](std::uint32_t slot_idx){
-			timelines[committed_blocks * num_timeline_slots + slot_idx]++;
-			timeline_dirty = true;
-		};
+       std::uint32_t current_global_thread = 0;
+       std::uint32_t current_global_primitive = 0;
+       std::uint32_t current_global_payload = 0;
+       std::uint32_t thread_idx = 0; // 用于替换 push_back 的直接索引
 
-		for(std::size_t i = 0; i < submit_group_subrange.size(); ++i){
-			const auto& group = submit_group_subrange[i];
-			const auto heads = group.get_instruction_heads();
+       bool timeline_dirty = false;
+       std::uint32_t committed_blocks = num_timeline_slots > 0 ? 1 : 0;
 
-			mesh_dispatch_info_v3 v3_info{};
-			v3_info.global_vertex_offset = current_global_thread;
-			v3_info.base_timeline_index = num_timeline_slots > 0 ? (committed_blocks - 1) : 0;
-			v3_info.global_primitive_offset = current_global_primitive;
+       auto mark_timeline_dirty = [&](std::uint32_t slot_idx){
+          timelines[committed_blocks * num_timeline_slots + slot_idx]++;
+          timeline_dirty = true;
+       };
 
-			std::uint32_t group_primitives = 0;
-			std::uint32_t group_vertices = 0;
-			std::uint32_t ptr_to_payload = current_global_payload;
-			std::uint32_t relative_timeline = 0;
+       for(std::size_t i = 0; i < submit_group_subrange.size(); ++i){
+          const auto& group = submit_group_subrange[i];
+          const auto heads = group.get_instruction_heads();
 
-			for(const auto& head : heads){
-				if(head.type == instr_type::uniform_update){
-					if(num_timeline_slots > 0){
-						mark_timeline_dirty(head.payload.marching_data.index);
-					}
-					continue;
-				}
+          mesh_dispatch_info_v3 v3_info{};
+          v3_info.global_vertex_offset = current_global_thread;
+          v3_info.base_timeline_index = num_timeline_slots > 0 ? (committed_blocks - 1) : 0;
+          v3_info.global_primitive_offset = current_global_primitive;
 
-				if(timeline_dirty){
-					const std::size_t current_size = timelines.size();
-					timelines.resize(current_size + num_timeline_slots);
-					std::memcpy(
-						timelines.data() + current_size,
-						timelines.data() + current_size - num_timeline_slots,
-						num_timeline_slots * sizeof(decltype(timelines)::value_type));
-					committed_blocks++;
-					relative_timeline++;
-					timeline_dirty = false;
-				}
+          std::uint32_t group_primitives = 0;
+          std::uint32_t group_vertices = 0;
+          std::uint32_t ptr_to_payload = current_global_payload;
+          std::uint32_t relative_timeline = 0;
 
-				const std::uint32_t head_vtx_count = head.payload.draw.vertex_count;
-				const std::uint32_t head_prm_count = head.payload.draw.primitive_count;
+          for(const auto& head : heads){
+             if(head.type == instr_type::uniform_update){
+                if(num_timeline_slots > 0){
+                   mark_timeline_dirty(head.payload.marching_data.index);
+                }
+                continue;
+             }
 
-                // [修改] 展开单条指令产生的所有顶点，进行 1:1 的线程映射
-				for(std::uint32_t local_vtx = 0; local_vtx < head_vtx_count; ++local_vtx){
-					vertex_resolve_info resolve_res{};
-					resolve_res.packed_type_timeline = static_cast<std::uint32_t>(head.type) | (relative_timeline << 16);
-					resolve_res.payload_offset = ptr_to_payload;
+             if(timeline_dirty){
+                // 内存已在 Pass 1 预分配完毕，将当前的 timeline 拷贝到紧接着的下一个预分配块中
+                std::memcpy(
+                   timelines.data() + (committed_blocks + 1) * num_timeline_slots,
+                   timelines.data() + committed_blocks * num_timeline_slots,
+                   num_timeline_slots * sizeof(std::uint32_t));
+                committed_blocks++;
+                relative_timeline++;
+                timeline_dirty = false;
+             }
 
-					std::uint32_t prm_skip = 0xFFFF;
-					if(local_vtx >= 2 && (local_vtx - 2) < head_prm_count){
-						prm_skip = group_primitives + local_vtx - 2;
-					}
+             const std::uint32_t head_vtx_count = head.payload.draw.vertex_count;
+             const std::uint32_t head_prm_count = head.payload.draw.primitive_count;
 
-					resolve_res.packed_skips = (local_vtx & 0xFFFF) | (prm_skip << 16);
-					resolve_res.packed_dispatch_size = static_cast<std::uint32_t>(i) | (head.payload_size << 16);
+             // 展开单条指令产生的所有顶点，进行 1:1 的线程映射
+             for(std::uint32_t local_vtx = 0; local_vtx < head_vtx_count; ++local_vtx){
+                vertex_resolve_info resolve_res{};
+                resolve_res.packed_type_timeline = static_cast<std::uint32_t>(head.type) | (relative_timeline << 16);
+                resolve_res.payload_offset = ptr_to_payload;
 
-					thread_resolve_info.push_back(resolve_res);
-				}
+                std::uint32_t prm_skip = 0xFFFF;
+                if(local_vtx >= 2 && (local_vtx - 2) < head_prm_count){
+                   prm_skip = group_primitives + local_vtx - 2;
+                }
 
-				group_primitives += head_prm_count;
-				group_vertices += head_vtx_count;
-				ptr_to_payload += head.payload_size;
-			}
+                resolve_res.packed_skips = (local_vtx & 0xFFFF) | (prm_skip << 16);
+                resolve_res.packed_dispatch_size = static_cast<std::uint32_t>(i) | (head.payload_size << 16);
 
-			v3_info.primitives = group_primitives;
-			group_dispatch_info.push_back(v3_info);
+                // 使用数组索引赋值完全替代 push_back
+                thread_resolve_info[thread_idx++] = resolve_res;
+             }
 
-			current_global_thread += group_vertices;
-			current_global_primitive += group_primitives;
-			current_global_payload = ptr_to_payload;
-		}
+             group_primitives += head_prm_count;
+             group_vertices += head_vtx_count;
+             ptr_to_payload += head.payload_size;
+          }
 
-		total_vertices = current_global_thread;
-		total_primitives = current_global_primitive;
+          v3_info.primitives = group_primitives;
 
-		if(num_timeline_slots > 0){
-			timelines.resize(committed_blocks * num_timeline_slots);
-		}
-	}
+          // group 的数量恰好对应 submit_group_subrange 的大小，直接利用外层循环的索引 i
+          group_dispatch_info[i] = v3_info;
+
+          current_global_thread += group_vertices;
+          current_global_primitive += group_primitives;
+          current_global_payload = ptr_to_payload;
+       }
+
+       total_vertices = current_global_thread;
+       total_primitives = current_global_primitive;
+
+       // 截断到实际提交的块大小，丢弃最后为了安全写入而多分配但未生效的缓冲区
+       if(num_timeline_slots > 0){
+          timelines.resize(committed_blocks * num_timeline_slots);
+       }
+    }
 };
 
 struct frame_resource{
@@ -529,11 +557,10 @@ struct frame_resource{
 
 			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0, buffer_dispatch_info.get_address(), dispatch_bytes);
 			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, buffer_resolve_infos.get_address(), resolve_bytes);
-			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2, buffer_timelines.get_address(), timeline_bytes);
-			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, buffer_instruction.get_address(), payloadSize);
-			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4, buffer_vbo.get_address(), buffer_vbo.get_size());
-			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5, buffer_ibo.get_address(), buffer_ibo.get_size());
-			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 6, buffer_primitive_data.get_address(), buffer_primitive_data.get_size());
+			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2, buffer_instruction.get_address(), payloadSize);
+			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, buffer_vbo.get_address(), buffer_vbo.get_size());
+			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4, buffer_ibo.get_address(), buffer_ibo.get_size());
+			cs_mapper.set_buffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5, buffer_primitive_data.get_address(), buffer_primitive_data.get_size());
 		}
 
 		// 2. 更新 Graphics (VS-PS) 动态描述符
@@ -590,7 +617,7 @@ public:
 		  // CS Layout: 仅用于 Compute Shader
 		  , cs_descriptor_layout_(allocator_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 		                       [&](vk::descriptor_layout_builder& builder){
-			                       for(int i = 0; i < 8; ++i){
+			                       for(int i = 0; i < 7; ++i){
 				                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
 			                       }
 		                       })
@@ -687,7 +714,7 @@ public:
 
 	void cmd_compute_resolve(VkCommandBuffer cmd, std::uint32_t frame_index) const {
 		if (cached_instruction_resolve_info_.total_vertices == 0) return;
-		constexpr std::uint32_t THREADS_PER_GROUP = 32;
+		constexpr std::uint32_t THREADS_PER_GROUP = 256;
 		std::uint32_t group_x = (cached_instruction_resolve_info_.total_vertices + THREADS_PER_GROUP - 1) / THREADS_PER_GROUP;
 
 		vkCmdDispatch(cmd, group_x, 1, 1);

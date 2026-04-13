@@ -256,9 +256,8 @@ private:
 
 	contiguous_draw_list* current_group{};
 
-	// [修改] 替换原有的 get_mesh_dispatch_limit()
 	std::uint32_t get_expected_instruction_capacity() const noexcept{
-		return 4096; // 仅作为内部 std::vector 的 reserve 容量参考，不再作为强制打断点
+		return 4096;
 	}
 
 public:
@@ -271,7 +270,7 @@ public:
 	)
 		: hardware_limit_(config)
 		, data_group_per_timeline_info_{vertex_data_table}
-	, data_group_per_draw_call_info_{non_vertex_data_table}{
+		, data_group_per_draw_call_info_{non_vertex_data_table}{
 	}
 
 	void clear() noexcept{
@@ -290,31 +289,23 @@ public:
 				});
 		}
 
+		// 【修复】强绑定：第 0 组诞生时，第 0 个状态断点容器同步诞生
+		submit_transitions_.clear();
+		submit_transitions_.emplace_back(0);
+
 		data_group_per_draw_call_info_.reset();
 		data_group_per_timeline_info_.reset();
 		tracker_.reset();
 
-		submit_groups_.front().reset();
 		current_group = submit_groups_.data();
-		submit_transitions_.clear();
+		current_group->reset();
 	}
 
 	void end_rendering() noexcept{
 		current_group->finalize();
 		dynamic_image_view_history_.optimize_and_reset();
 
-		if(current_group->empty()){
-			// 【修复核心】如果当前组为空，但仍有挂起的 state_transition 指向当前组的索引
-			// 我们必须将其推入队列，否则该 transition 对应的 draw call 块会丢失，
-			// 进而导致 breakpoints.size() > dispatch_infos.size() 的差一错误。
-			if(!submit_transitions_.empty() && submit_transitions_.back().break_before_index == get_current_submit_group_index()){
-				advance_current_group();
-			}
-		} else{
-			// 【修复核心】如果当前组有数据，必须 advance，将其正式划入 valid_submit_groups 的范围内
-			advance_current_group();
-		}
-
+		// 【修复】不再手动 advance，因为 current_group + 1 的 span 会自然涵盖当前组
 		const auto submit_group_subrange = get_valid_submit_groups();
 
 		for(const auto& group_subrange : submit_group_subrange){
@@ -356,15 +347,16 @@ public:
 	}
 
 	std::span<contiguous_draw_list> get_valid_submit_groups() noexcept{
-		return std::span{submit_groups_.data(), current_group};
+		// 【修复】Span 使用 (pointer, count) 构造，涵盖正在录制的 current_group
+		return std::span<contiguous_draw_list>{submit_groups_.data(), get_current_submit_group_index() + 1};
 	}
 
 	std::span<const contiguous_draw_list> get_valid_submit_groups() const noexcept{
-		return std::span{submit_groups_.data(), current_group};
+		return std::span<const contiguous_draw_list>{submit_groups_.data(), get_current_submit_group_index() + 1};
 	}
 
 	std::span<const state_transition> get_state_transitions() const noexcept{
-		return std::span{submit_transitions_.data(), submit_transitions_.size()};
+		return std::span<const state_transition>{submit_transitions_.data(), submit_transitions_.size()};
 	}
 
 	template <typename T>
@@ -372,13 +364,6 @@ public:
 		return dynamic_image_view_history_.get<T>();
 	}
 
-	/**
-	 * @brief 提交状态变更
-	 * @param config 状态配置 (指定是否为幂等)
-	 * @param tag 状态标签 (Major + Minor)
-	 * @param payload 数据
-	 * @param offset 数据偏移
-	 */
 	void push_state(state_push_config config, tag_type tag, std::span<const std::byte> payload, unsigned offset = 0){
 		switch(config.type){
 		case state_push_type::idempotent : tracker_.update(tag, payload, offset);
@@ -399,7 +384,6 @@ public:
 		}
 	}
 
-
 	void push_instr(const instruction_head instr_head, const std::byte* instr){
 		assert(current_group);
 
@@ -407,7 +391,6 @@ public:
 		assert(std::to_underlying(instr_head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
 		if(instr_head.type == instr_type::uniform_update){
-			// UBO update logic
 			const auto payload = std::span{instr, instr_head.payload_size};
 			const auto targetIndex = instr_head.payload.ubo.index;
 
@@ -419,19 +402,13 @@ public:
 			return;
 		}
 
-		// [修改] 完全移除 PERFORMANCE_DISPATCH_THRESHOLD 相关的 if constexpr (false) 强制分块代码块
-
-		// --- Check for State Changes (Lazy Evaluation) ---
 		{
 			state_transition_config diff_config;
 			if(tracker_.flush(diff_config)){
-				// State has changed since last draw, force a break to inject state transition
 				force_break_and_insert(std::move(diff_config));
 			}
 		}
-		// -------------------------------------------------
 
-		// Handle Uniform Data Marching (Volatile)
 		for(auto&& [idx, vertex_data_entry] : data_group_per_timeline_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				const instruction_head collapse_head{
@@ -442,18 +419,16 @@ public:
 			}
 		}
 
-		state_transition* breakpoint{};
+		unsigned break_idx = -1u;
 		for(auto&& [idx, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
-				if(!breakpoint){
+				if(break_idx == -1u){
 					current_group->finalize();
+					break_idx = static_cast<unsigned>(get_current_submit_group_index());
 					advance_current_group();
-
-					const auto cur_idx = static_cast<unsigned>(get_current_submit_group_index());
-					breakpoint = &submit_transitions_.emplace_back(cur_idx);
 				}
-
-				breakpoint->uniform_buffer_marching_indices.push_back(static_cast<std::uint32_t>(idx));
+				// 【修复】绝对对齐的 UBO 断点追加逻辑
+				submit_transitions_[break_idx].uniform_buffer_marching_indices.push_back(static_cast<std::uint32_t>(idx));
 			}
 		}
 
@@ -464,7 +439,6 @@ public:
 		if (heads.empty()) return;
 
 		assert(current_group);
-
 
 		{
 			state_transition_config diff_config;
@@ -478,9 +452,7 @@ public:
 		std::size_t idx = 0;
 		bool need_collapse_check = true;
 
-
 		while (idx < count) {
-
 			if (need_collapse_check && heads[idx].type != instr_type::uniform_update) {
 
 				for (auto&& [i, vertex_data_entry] : data_group_per_timeline_info_.entries | std::views::enumerate) {
@@ -493,27 +465,22 @@ public:
 					}
 				}
 
-
-				state_transition* breakpoint{};
+				unsigned break_idx = -1u;
 				for (auto&& [i, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate) {
 					if (vertex_data_entry.collapse()) {
-						if (!breakpoint) {
+						if (break_idx == -1u) {
 							current_group->finalize();
+							break_idx = static_cast<unsigned>(get_current_submit_group_index());
 							advance_current_group();
-							const auto cur_idx = static_cast<unsigned>(get_current_submit_group_index());
-							breakpoint = &submit_transitions_.emplace_back(cur_idx);
 						}
-						breakpoint->uniform_buffer_marching_indices.push_back(static_cast<std::uint32_t>(i));
+						submit_transitions_[break_idx].uniform_buffer_marching_indices.push_back(static_cast<std::uint32_t>(i));
 					}
 				}
 				need_collapse_check = false;
 			}
 
-
 			while (idx < count && heads[idx].type != instr_type::uniform_update) {
 				const auto& head = heads[idx];
-
-
 				check_size(head.payload_size);
 				assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
@@ -521,7 +488,6 @@ public:
 				cur_payload += head.payload_size;
 				++idx;
 			}
-
 
 			while (idx < count && heads[idx].type == instr_type::uniform_update) {
 				const auto& head = heads[idx];
@@ -535,7 +501,6 @@ public:
 				} else {
 					data_group_per_timeline_info_.push(targetIndex, ubo_payload);
 				}
-
 
 				need_collapse_check = true;
 				cur_payload += head.payload_size;
@@ -560,7 +525,8 @@ public:
 	}
 
 	std::uint32_t get_submit_sections_count() const noexcept{
-		return static_cast<std::uint32_t>(submit_transitions_.size());
+		// 【修复】统一基准：提交节区数严格等于当前 Group 索引 + 1
+		return static_cast<std::uint32_t>(get_current_submit_group_index() + 1);
 	}
 
 	const state_transition_config& get_break_config_at(std::size_t index) const noexcept{
@@ -569,39 +535,36 @@ public:
 
 private:
 	void advance_current_group(){
-		// [修改] 移除了 get_extend_able_params 继承参数
-		if(current_group == std::to_address(submit_groups_.rbegin())){
-			current_group = &submit_groups_.emplace_back(data_group_per_timeline_info_.size(), get_expected_instruction_capacity(),
+		auto new_idx = get_current_submit_group_index() + 1;
+
+		if(new_idx == submit_groups_.size()){
+			submit_groups_.emplace_back(data_group_per_timeline_info_.size(), get_expected_instruction_capacity(),
 				data_group_per_timeline_info_.entries);
-		} else{
-			++current_group;
 		}
 
-		// [修改] 重置当前列表，不再传入继承参数
+		// 安全重分配处理
+		current_group = submit_groups_.data() + new_idx;
 		current_group->reset();
+
+		// 【修复】强绑定：推进 Group 的同时，必须为其生成同源的 Transition
+		if(submit_transitions_.size() <= new_idx){
+			submit_transitions_.emplace_back(new_idx);
+		} else {
+			submit_transitions_[new_idx] = state_transition{static_cast<unsigned>(new_idx)};
+		}
 	}
 
 	void force_break_and_insert(state_transition_config&& config){
-		// 1. 封印当前组
 		current_group->finalize();
+		auto idx = get_current_submit_group_index();
 
-		auto idx = static_cast<unsigned>(get_current_submit_group_index());
+		// 直接挂载到当前组（无论组空与否）
+		submit_transitions_[idx].config.append(config);
 
-		// 2. 写入状态切换信息
-		if(!submit_transitions_.empty() && submit_transitions_.back().break_before_index == idx){
-			submit_transitions_.back().config.append(config);
-		} else{
-			auto& t = submit_transitions_.emplace_back(idx);
-			t.config = std::move(config);
-		}
-
-		// 3. 【核心修复】必须无条件强制推进（Advance），即使当前组为空！
-		// 这保证了“当推入state产生实际变化时，下一次推入Instr必须另起一组”。
-		// 这使得空组（如第0组）能专门作为状态切换的载体，而后续的指令安全进入新组中并享受到最新的状态。
+		// 无条件开辟下一组
 		advance_current_group();
 	}
 
-	// [修改] 核心压入逻辑：移除由于硬件上限引发的 while 分发打断循环
 	bool try_push_(const instruction_head& instr_head, const std::byte* instr){
 		current_group->push(instr_head, instr);
 		return false;

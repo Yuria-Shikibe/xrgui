@@ -137,6 +137,13 @@ void main_loop::main_loop_exec(){
 				{.pipeline_index = 1, .inout_define_index = 0}
 			});
 
+		r.push(fx::slide_line_config{
+				.angle = 45,
+				.spacing = 8,
+				.stroke = 8,
+				.speed = 0,
+				.phase = 8,
+			});
 		{
 			struct trail_node_data : graphic::trail::node_type{
 				float idx_scale;
