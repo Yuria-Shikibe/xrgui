@@ -68,10 +68,8 @@
     {
       "file": "ui/true_frag_outlined.slang"
     },
-    
-
     {
-      "file": "ui/frag_coord_draw.slang"
+      "file": "ui/true_coord_draw.slang"
     },
     
 

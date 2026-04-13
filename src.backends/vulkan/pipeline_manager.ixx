@@ -6,6 +6,7 @@ module;
 
 export module mo_yanxi.backend.vulkan.pipeline_manager;
 
+export import mo_yanxi.backend.vulkan.pipeline_info;
 export import mo_yanxi.backend.vulkan.attachment_manager;
 export import mo_yanxi.gui.renderer.frontend;
 
@@ -16,7 +17,6 @@ import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.vk.util.uniform;
 import mo_yanxi.vk.util;
 import mo_yanxi.vk;
-import mo_yanxi.vk.vertex_consteval_def;
 import mo_yanxi.gui.alloc;
 
 
@@ -174,20 +174,6 @@ public:
 	}
 };
 
-struct alignas(16) Vertex {
-	float position[4];     // Offset: 0
-	float color[4];        // Offset: 16
-	float uv[2];           // Offset: 32
-	std::uint32_t timeline_index; // Offset: 40
-};
-
-static constexpr VkPipelineVertexInputStateCreateInfo desc = vk::make_vertex_input_state<
-	vk::vertex_attribute{&Vertex::position, VK_FORMAT_R32G32B32A32_SFLOAT},
-	vk::vertex_attribute{&Vertex::color, VK_FORMAT_R32G32B32A32_SFLOAT},
-	vk::vertex_attribute{&Vertex::uv, VK_FORMAT_R32G32_SFLOAT},
-	vk::vertex_attribute{&Vertex::timeline_index, VK_FORMAT_R32_UINT}
-	>();
-
 export
 struct option_blending_state{
 
@@ -201,7 +187,7 @@ struct option_blending_state{
 			throw std::invalid_argument("Invalid settings for default_blending_settings, blending setting count mismatch");
 		}
 
-		gtp.set_vertex_info(desc);
+		gtp.set_vertex_info(vertex_def_desc);
 
 		gtp.attachment_blend_states = default_blending_settings;
 

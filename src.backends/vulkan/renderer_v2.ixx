@@ -59,6 +59,7 @@ export struct renderer_create_info{
 	compute_pipeline_create_config blit_pipe_config;
 
 	VkPipelineShaderStageCreateInfo resolver_shader_stage;
+	graphic::draw::instruction::gpu_stride_config stride_config;
 };
 
 /** 内部辅助：跟踪 Attachment 的当前状态以进行自动屏障转换 */
@@ -560,20 +561,20 @@ public:
 			vkGetPhysicalDeviceProperties2(allocator_usage_.get_physical_device(), &prop);
 			return graphic::draw::instruction::hardware_limit_config{};
 		}(), table, table_non_vertex)
-		, batch_device(allocator_usage_, batch_host, frames_in_flight)
-		, resolver_pipeline_layout_(allocator_usage_.get_device(), 0, {batch_device.get_cs_descriptor_set_layout()})
-		, resolver_pipeline_(
-				allocator_usage_.get_device(),
-				resolver_pipeline_layout_,
-				VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
-				create_info.resolver_shader_stage
-			)
+		, batch_device(allocator_usage_, batch_host, create_info.stride_config, frames_in_flight)
 		, attachment_manager_{
 			allocator_usage_, std::move(create_info.attachment_draw_config),
 			std::move(create_info.attachment_blit_config)
 		}
 		, draw_pipeline_manager_(allocator_usage_, create_info.draw_pipe_config,
-			batch_device.get_gfx_descriptor_set_layout(), attachment_manager_.get_draw_config())
+		                         batch_device.get_gfx_descriptor_set_layout(), attachment_manager_.get_draw_config())
+		, resolver_pipeline_layout_(allocator_usage_.get_device(), 0, {batch_device.get_cs_descriptor_set_layout()})
+		, resolver_pipeline_(
+			allocator_usage_.get_device(),
+			resolver_pipeline_layout_,
+			VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+			create_info.resolver_shader_stage
+		)
 		, sampler_(create_info.sampler){
 		record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
 			attachment_manager_.get_blit_attachments().size());

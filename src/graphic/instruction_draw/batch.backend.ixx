@@ -18,6 +18,11 @@ import std;
 
 namespace mo_yanxi::graphic::draw::instruction{
 
+export struct gpu_stride_config {
+    std::size_t vertex_stride;
+    std::size_t primitive_stride;
+};
+
 struct alignas(16) vertex_resolve_info{
 	std::uint32_t packed_type_timeline; // [15:0]: instr_type, [31:16]: absolute_timeline_index
 	std::uint32_t payload_offset;       // 绝对 Payload 偏移
@@ -65,7 +70,6 @@ struct state_transition_command_context{
 	}
 };
 
-//
 VkDeviceSize load_data_group_to_buffer(
 	const data_entry_group& group,
 	const vk::allocator_usage& allocator,
@@ -92,7 +96,7 @@ VkDeviceSize load_data_group_to_buffer(
 }
 
 struct data_layout_spec{
-	static constexpr std::uint32_t align = 64U;
+	std::uint32_t align = 64U;
 
 	struct entry{
 		unsigned offset;
@@ -119,7 +123,6 @@ struct data_layout_spec{
 
 		const auto aligned = vk::align_up(size, align);
 		const auto total_req = aligned * count;
-
 		entries.push_back({cur.offset + total_req});
 	}
 
@@ -286,7 +289,6 @@ struct instruction_resolve_info{
 
                 resolve_res.packed_skips = (local_vtx & 0xFFFF) | (prm_skip << 16);
                 resolve_res.packed_dispatch_size = static_cast<std::uint32_t>(i) | (head.payload_size << 16);
-
                 // 使用数组索引赋值完全替代 push_back
                 thread_resolve_info[thread_idx++] = resolve_res;
              }
@@ -297,7 +299,6 @@ struct instruction_resolve_info{
           }
 
           v3_info.primitives = group_primitives;
-
           // group 的数量恰好对应 submit_group_subrange 的大小，直接利用外层循环的索引 i
           group_dispatch_info[i] = v3_info;
 
@@ -320,7 +321,7 @@ struct frame_resource{
 	// 纹理绑定索引延后，为 Compute Shader 新增的 Storage Buffer 让位
 	static constexpr unsigned image_index = 2;
 
-    // CPU 到 GPU 的输入数据缓冲
+	// CPU 到 GPU 的输入数据缓冲
 	vk::buffer_cpu_to_gpu buffer_dispatch_info{};
 	vk::buffer_cpu_to_gpu buffer_resolve_infos{};
 	vk::buffer_cpu_to_gpu buffer_timelines{};
@@ -370,15 +371,11 @@ struct frame_resource{
 	, gfx_descriptor_buffer_per_draw_call(allocator, volatile_layout, volatile_layout.binding_count()){
 	}
 
-    // [新增] 动态重分配并初始化纯 GPU Buffer
-    void allocate_pure_gpu_buffers(const vk::allocator_usage& allocator, const instruction_resolve_info& resolve_info) {
-		//TODO make these data dyn passed in
-        static constexpr std::size_t VERTEX_STRIDE = 48; // 预估: float4 pos + float4 col + float2 uv + uint timeline_index
-        static constexpr std::size_t PRIMITIVE_STRIDE = 12; // 预估: uint tex_id + uint mode + float sdf_expand
-        
-        const VkDeviceSize required_vbo_size = std::max<VkDeviceSize>(16, resolve_info.total_vertices * VERTEX_STRIDE);
+    // [修改] 接收由外部传入的 strides 结构体
+    void allocate_pure_gpu_buffers(const vk::allocator_usage& allocator, const instruction_resolve_info& resolve_info, const gpu_stride_config& strides) {
+        const VkDeviceSize required_vbo_size = std::max<VkDeviceSize>(16, resolve_info.total_vertices * strides.vertex_stride);
         const VkDeviceSize required_ibo_size = std::max<VkDeviceSize>(16, resolve_info.total_primitives * 3 * sizeof(std::uint32_t));
-        const VkDeviceSize required_prm_size = std::max<VkDeviceSize>(16, resolve_info.total_primitives * PRIMITIVE_STRIDE);
+        const VkDeviceSize required_prm_size = std::max<VkDeviceSize>(16, resolve_info.total_primitives * strides.primitive_stride);
         const VkDeviceSize required_ind_size = std::max<VkDeviceSize>(16, resolve_info.group_dispatch_info.size() * sizeof(VkDrawIndexedIndirectCommand));
 
         VmaAllocationCreateInfo alloc_info{};
@@ -410,7 +407,8 @@ struct frame_resource{
 		const vk::allocator_usage& allocator,
 		const instruction_resolve_info& resolve_info,
 		const std::span<const contiguous_draw_list> submit_group_subrange,
-		std::uint32_t& payloadSize
+		std::uint32_t& payloadSize,
+        const gpu_stride_config& strides // [修改] 透传 strides
 	){
 		const VkBufferUsageFlags storage_flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
@@ -443,8 +441,9 @@ struct frame_resource{
 
 		// 4. Upload instruction payload
 		const auto payload_size_view = submit_group_subrange |
-		std::views::transform([](const contiguous_draw_list& list){ return list.get_pushed_instruction_size(); });
+			std::views::transform([](const contiguous_draw_list& list){ return list.get_pushed_instruction_size(); });
 		payloadSize = std::reduce(payload_size_view.begin(), payload_size_view.end(), 0u, std::plus<>{});
+
 		if(payloadSize > 0){
 			if(buffer_instruction.get_size() < payloadSize){
 				buffer_instruction = vk::buffer_cpu_to_gpu{allocator, payloadSize, storage_flags};
@@ -460,8 +459,8 @@ struct frame_resource{
 			}
 		}
 
-        // 分配接收数据的 GPU Buffers
-        allocate_pure_gpu_buffers(allocator, resolve_info);
+        // [修改] 传入 strides
+        allocate_pure_gpu_buffers(allocator, resolve_info, strides);
 	}
 
 	void upload_user_data(
@@ -470,10 +469,10 @@ struct frame_resource{
 		const std::span<const mesh_dispatch_info_v3> dispatch_infos,
 		data_layout_spec& state_data_layout_cache_,
 		std::vector<std::uint32_t>& cached_volatile_timelines){
-		
+
 		load_data_group_to_buffer(host_ctx.get_data_group_vertex_info(), allocator, buffer_per_timeline_data,
 		                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-		
+
 		state_data_layout_cache_.begin_push();
 		state_data_layout_cache_.push(sizeof(dispatch_config), dispatch_infos.size());
 
@@ -482,8 +481,8 @@ struct frame_resource{
 			state_data_layout_cache_.push(entry.unit_size, total);
 		}
 		state_data_layout_cache_.finalize();
-		
-        // [修改] 将 global_primitive_offset 包装进 UBO 结构体中
+
+		// [修改] 将 global_primitive_offset 包装进 UBO 结构体中
 		state_data_layout_cache_.load(0, dispatch_infos | std::views::transform(
 			                              [cur = 0u](const mesh_dispatch_info_v3& info) mutable{
 				                              const dispatch_config rst{cur, info.global_primitive_offset};
@@ -506,6 +505,7 @@ struct frame_resource{
 				};
 		}
 		vk::buffer_mapper{buffer_per_draw_call_data}.load_range(payload);
+
 		if(gfx_descriptor_buffer_per_draw_call.get_chunk_count() < dispatch_infos.size() + 1){
 			gfx_descriptor_buffer_per_draw_call.set_chunk_count(dispatch_infos.size() + 1);
 		}
@@ -513,6 +513,7 @@ struct frame_resource{
 		auto breakpoints = host_ctx.get_state_transitions();
 		cached_volatile_timelines.resize(vtx_info.size(), 0);
 		auto dispatch_timeline_chunk_size = (cached_volatile_timelines.size() + 1);
+
 		dispatch_timeline_stamps_.resize(dispatch_timeline_chunk_size * (breakpoints.size() + 1));
 
 		vk::descriptor_mapper mapper{gfx_descriptor_buffer_per_draw_call};
@@ -528,6 +529,7 @@ struct frame_resource{
 		};
 
 		load_timelines(0);
+
 		for(const auto& [chunk_idx, breakpoint] : breakpoints | std::views::enumerate){
 			for(const auto i : breakpoint.uniform_buffer_marching_indices){
 				++cached_volatile_timelines[i];
@@ -576,7 +578,6 @@ struct frame_resource{
 			// VS/PS 真正需要的 Buffer
 			gfx_mapper.set_element_at(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_primitive_data.get_address(), buffer_primitive_data.get_size());
 			gfx_mapper.set_element_at(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_timelines.get_address(), resolve_info.timelines.size() * sizeof(std::uint32_t));
-
 			gfx_mapper.set_images_at(image_index, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler,
 			                         host_ctx.get_used_images<VkImageView>());
 
@@ -595,6 +596,9 @@ struct frame_resource{
 export class batch_vulkan_executor{
 private:
 	vk::allocator_usage allocator_{};
+
+    gpu_stride_config stride_cfg_{}; // [新增] 保存 stride 配置
+
 	std::vector<frame_resource> frames_{};
 	data_layout_spec volatile_data_layout_{};
 	std::vector<std::uint32_t> cached_state_timelines_{};
@@ -608,12 +612,15 @@ private:
 public:
 	[[nodiscard]] batch_vulkan_executor() = default;
 
+    // [修改] 构造函数中增加 strides 参数
 	[[nodiscard]] explicit batch_vulkan_executor(
 		const vk::allocator_usage& a,
 		const draw_list_context& batch_host,
+        const gpu_stride_config& strides,
 		std::size_t frames_in_flight = 3
 	)
 		: allocator_{a}
+          , stride_cfg_{strides}
 		  // CS Layout: 仅用于 Compute Shader
 		  , cs_descriptor_layout_(allocator_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 		                       [&](vk::descriptor_layout_builder& builder){
@@ -642,6 +649,16 @@ public:
 				  }
 			  }
 		  }{
+
+		{
+			VkPhysicalDeviceProperties device_props;
+			vkGetPhysicalDeviceProperties(allocator_.get_physical_device(), &device_props);
+			volatile_data_layout_.align = static_cast<std::uint32_t>(
+				std::max(device_props.limits.minUniformBufferOffsetAlignment,
+						 device_props.limits.minStorageBufferOffsetAlignment)
+			);
+		}
+
 		frames_.reserve(frames_in_flight);
 		for(std::size_t i = 0; i < frames_in_flight; ++i){
 			frames_.emplace_back(allocator_, cs_descriptor_layout_, gfx_descriptor_layout_, per_draw_call_descriptor_layout_, batch_host);
@@ -658,6 +675,7 @@ public:
 		cached_state_timelines_.clear();
 
 		cached_instruction_resolve_info_.update(host_ctx);
+
 		auto& frame = frames_[frame_index];
 		const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
 		if(submit_group_subrange.empty()){
@@ -665,7 +683,9 @@ public:
 		}
 
 		std::uint32_t payloadSize = 0;
-		frame.upload_v3_data(allocator_, cached_instruction_resolve_info_, submit_group_subrange, payloadSize);
+        // [修改] 传入 stride 参数
+		frame.upload_v3_data(allocator_, cached_instruction_resolve_info_, submit_group_subrange, payloadSize, stride_cfg_);
+
 		frame.upload_user_data(allocator_, host_ctx, cached_instruction_resolve_info_.group_dispatch_info, volatile_data_layout_,
 		                       cached_state_timelines_);
 
@@ -714,6 +734,7 @@ public:
 
 	void cmd_compute_resolve(VkCommandBuffer cmd, std::uint32_t frame_index) const {
 		if (cached_instruction_resolve_info_.total_vertices == 0) return;
+
 		constexpr std::uint32_t THREADS_PER_GROUP = 256;
 		std::uint32_t group_x = (cached_instruction_resolve_info_.total_vertices + THREADS_PER_GROUP - 1) / THREADS_PER_GROUP;
 

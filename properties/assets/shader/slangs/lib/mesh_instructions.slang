@@ -119,10 +119,8 @@ public struct Vertex
 
 public struct Primitive
 {
-    //[[vk::location(0)]]
     nointerpolation public uint texture_index : PmtTexID;
 
-    //[[vk::location(1)]]
     nointerpolation public draw_mode mode : PmtMode;
 
     nointerpolation public float sdf_expand : PmtParam;
@@ -268,8 +266,8 @@ struct rectangle_ortho : instr_resolver {
         // 拆解二进制位：
         // bit_x 控制左右：0 -> 左 (v00.x, uv00.x), 1 -> 右 (v11.x, uv11.x)
         // bit_y 控制上下：0 -> 上 (v00.y, uv00.y), 1 -> 下 (v11.y, uv11.y)
-        bool bit_x = skip & 1;
-        bool bit_y = (skip >> 1) & 1;
+        let bit_x = bool(skip & 1);
+        let bit_y = bool((skip >> 1) & 1);
 
         // 1. 无分支 UV 计算
         float2 uv = float2(

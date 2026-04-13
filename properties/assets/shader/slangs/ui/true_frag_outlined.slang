@@ -1,36 +1,21 @@
 import mesh_instruction_lib_cs;
 import general_lib;
+import ui_structs;
 import slide_line;
 import sdf;
 
-// 与 vert.slang 保持一致的 VS 输出结构
-struct VSOutput {
-    float4 position : SV_Position;
-    [[vk::location(0)]] float4 color : COLOR;
-    [[vk::location(1)]] float2 uv : TEXCOORD0;
-};
 
 // --- Gfx Set 0 Bindings ---
 [[vk::binding(0, 0)]] StructuredBuffer<mesh_instr::Primitive> global_primitives;
 [[vk::binding(2, 0)]] uniform Sampler2D textures[];
 
-// --- Gfx Set 1 Bindings (Per Draw Call) ---
+
 [[vk::binding(0, 1)]] ConstantBuffer<mesh_instr::dispatch_config> dispatch_config_ubo;
 
 struct FragOut {
     float4 out_base : SV_Target0;
 }
 
-enum draw_mode_type : uint32_t {
-    none = 0u,
-    slide_line = 1u << 0u,
-    target_background = 1u << 1u
-};
-
-enum global_draw_mode_type {
-    def,
-    sdf
-}
 
 struct outline_params {
     float stroke;
@@ -60,7 +45,7 @@ float4 DrawSDFStroke(float sdf, float strokeWidthPixels)
 
 [shader("fragment")]
 FragOut main_frag(
-    VSOutput vtx,
+    gui::io::VSOutput vtx,
     uint primitiveID : SV_PrimitiveID
 ) {
     // 获取全局图元索引

@@ -6,13 +6,13 @@ namespace mesh_instr {
 
 public struct VS_Vertex
 {
-    public float4 position = {};
+    public float3 position = {};
+    public uint timeline_index = {};
     public float4 color = {};
     public float2 uv = {};
-    public uint timeline_index = {};
 
     public __init(Vertex vtx) {
-        position = vtx.position;
+        position = vtx.position.xyz;
         color = vtx.color;
         uv = vtx.uv;
     }
@@ -63,7 +63,7 @@ public struct BuilderResources
     ByteAddressBuffer instruction_buffer;
 
     // 输出到纯 GPU Buffer
-    RWStructuredBuffer<mesh_instr::VS_Vertex> out_vbo;
+    RWStructuredBuffer<mesh_instr::VS_Vertex, CDataLayout> out_vbo;
     RWStructuredBuffer<uint> out_ibo;
     RWStructuredBuffer<mesh_instr::Primitive> out_primitive_data;
 };
