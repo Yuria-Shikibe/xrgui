@@ -57,6 +57,8 @@ export struct renderer_create_info{
 	blit_attachment_create_info attachment_blit_config;
 	graphic_pipeline_create_config draw_pipe_config;
 	compute_pipeline_create_config blit_pipe_config;
+
+	VkPipelineShaderStageCreateInfo resolver_shader_stage;
 };
 
 /** 内部辅助：跟踪 Attachment 的当前状态以进行自动屏障转换 */
@@ -164,6 +166,36 @@ export struct renderer{
 			const auto section_count = r.batch_host.get_submit_sections_count();
 			if(r.batch_host.get_valid_submit_groups().empty()) return;
 
+			// [新增] 0. 执行 Compute Shader 解析指令 (生成 VBO, IBO, PrimitiveData 等)
+			if(!r.batch_device.is_frame_empty()){
+				// 绑定计算管线
+				r.resolver_pipeline_.bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+				// 绑定描述符缓冲 (载入 set 0 与 set 1)
+				descriptor_context.clear();
+				r.batch_device.load_cs_descriptors(descriptor_context, r.current_frame_index_);
+				descriptor_context.prepare_bindings();
+				descriptor_context(r.resolver_pipeline_layout_, cmd, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+				// 发起分发
+				r.batch_device.cmd_compute_resolve(cmd, r.current_frame_index_);
+
+				// 插入同步屏障，确保 Compute Shader 的写入对 Vertex Attribute、Index 读取及 Indirect Draw 读取可见
+				const VkMemoryBarrier2 memory_barrier{
+					.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+					.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+					.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+					.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT | VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
+				};
+				const VkDependencyInfo dep_info{
+					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+					.memoryBarrierCount = 1,
+					.pMemoryBarriers = &memory_barrier
+				};
+				vkCmdPipelineBarrier2(cmd, &dep_info);
+			}
+
 			// --- 录制命令期的临时上下文全部转换为局部变量 ---
 			graphics_context_trace graphic_context{};
 			graphic_context.invalidate();
@@ -268,13 +300,13 @@ export struct renderer{
 			// 获取 Pipeline Layout 仅用于描述符绑定
 			const auto& pc = r.draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
 
-			auto data_span = r.batch_device.get_state_buffer_indices(r.batch_host, r.current_frame_index_, index);
-
 			descriptor_context.clear();
-			r.batch_device.load_descriptors(descriptor_context, r.current_frame_index_);
+			r.batch_device.load_gfx_descriptors(descriptor_context, r.current_frame_index_);
 			descriptor_context.prepare_bindings();
 			descriptor_context(pc.pipeline_layout, cmd, index, VK_PIPELINE_BIND_POINT_GRAPHICS);
-			r.batch_device.cmd_draw(cmd, index);
+
+			// [修改] 直接调用间接绘制，相关 VBO/IBO 绑定都在此函数内部完成
+			r.batch_device.cmd_draw_direct(cmd, r.current_frame_index_, index);
 		}
 
 		/** 处理 Blit 操作：Compute Shader 实现的图像处理 */
@@ -493,6 +525,8 @@ private:
 
 	vk::sampler_descriptor_heap sampler_descriptor_heap_{};
 
+	vk::pipeline_layout resolver_pipeline_layout_{};
+	vk::pipeline resolver_pipeline_{};
 public:
 
 	vk::resource_descriptor_heap resource_descriptor_heap{};
@@ -524,20 +558,22 @@ public:
 				};
 			VkPhysicalDeviceProperties2 prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &meshProperties};
 			vkGetPhysicalDeviceProperties2(allocator_usage_.get_physical_device(), &prop);
-			return graphic::draw::instruction::hardware_limit_config{
-					.max_group_count = meshProperties.maxTaskWorkGroupCount[0],
-					.max_group_size = meshProperties.maxTaskWorkGroupSize[0],
-					.max_vertices_per_group = meshProperties.maxMeshOutputVertices,
-					.max_primitives_per_group = meshProperties.maxMeshOutputPrimitives
-				};
+			return graphic::draw::instruction::hardware_limit_config{};
 		}(), table, table_non_vertex)
 		, batch_device(allocator_usage_, batch_host, frames_in_flight)
+		, resolver_pipeline_layout_(allocator_usage_.get_device(), 0, {batch_device.get_cs_descriptor_set_layout()})
+		, resolver_pipeline_(
+				allocator_usage_.get_device(),
+				resolver_pipeline_layout_,
+				VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+				create_info.resolver_shader_stage
+			)
 		, attachment_manager_{
 			allocator_usage_, std::move(create_info.attachment_draw_config),
 			std::move(create_info.attachment_blit_config)
 		}
 		, draw_pipeline_manager_(allocator_usage_, create_info.draw_pipe_config,
-			batch_device.get_descriptor_set_layout(), attachment_manager_.get_draw_config())
+			batch_device.get_gfx_descriptor_set_layout(), attachment_manager_.get_draw_config())
 		, sampler_(create_info.sampler){
 		record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
 			attachment_manager_.get_blit_attachments().size());

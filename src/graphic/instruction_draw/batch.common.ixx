@@ -19,8 +19,7 @@ export
 struct dispatch_group_info{
 	std::uint32_t instruction_head_index;
 	std::uint32_t instruction_offset;
-	std::uint32_t vertex_offset;
-	std::uint32_t primitive_offset;
+	// 移除了 vertex_offset 和 primitive_offset
 	std::uint32_t primitive_count;
 };
 
@@ -248,24 +247,16 @@ private:
 	std::uint32_t index_to_last_chunk_head_{};
 	std::uint32_t offset_to_last_chunk_head_{};
 
-	std::uint32_t verticesBreakpoint{};
-	std::uint32_t nextPrimitiveOffset{};
-
-	std::uint32_t currentMeshCount{};
-	std::uint32_t pushedVertices{};
-	std::uint32_t pushedPrimitives{};
+    // 移除了 verticesBreakpoint 和 nextPrimitiveOffset
+	std::uint32_t currentDispatchCount{}; // 替代原 currentMeshCount
+	std::uint32_t pushedPrimitives{}; // 移除了 pushedVertices，现在只关心总图元数
 
 	FORCE_INLINE void setup_current_dispatch_group_info(){
 		for(const auto& [i, vertex_data_entry] : vertex_data_entries_ | std::views::enumerate){
-			const std::uint32_t idx = static_cast<std::uint32_t>(vertex_data_entries_.size() * currentMeshCount + i);
+			const std::uint32_t idx = static_cast<std::uint32_t>(vertex_data_entries_.size() * currentDispatchCount + i);
 			auto timeline = vertex_data_entry.get_current_index();
 			group_initial_vertex_data_timestamps_[idx] = timeline;
 		}
-
-		dispatch_config_storage[currentMeshCount].primitive_offset = nextPrimitiveOffset;
-		dispatch_config_storage[currentMeshCount].vertex_offset = verticesBreakpoint > 2
-			                                                          ? (verticesBreakpoint - 2)
-			                                                          : (verticesBreakpoint = 0);
 	}
 
 public:
@@ -286,13 +277,13 @@ public:
 	}
 
 	FORCE_INLINE std::span<const dispatch_group_info> get_dispatch_infos() const noexcept{
-		return std::span{dispatch_config_storage.data(), currentMeshCount};
+		return std::span{dispatch_config_storage.data(), currentDispatchCount};
 	}
 
 	FORCE_INLINE std::span<const std::uint32_t> get_timeline_datas() const noexcept{
 		return std::span{
 				group_initial_vertex_data_timestamps_.begin(),
-				group_initial_vertex_data_timestamps_.begin() + currentMeshCount * vertex_data_entries_.size()
+				group_initial_vertex_data_timestamps_.begin() + currentDispatchCount * vertex_data_entries_.size()
 			};
 	}
 
@@ -304,19 +295,13 @@ public:
 		return instruction_buffer_.data();
 	}
 
-	FORCE_INLINE draw_list_inheritance_param get_extend_able_params() const noexcept{
-		return {verticesBreakpoint, nextPrimitiveOffset};
-	}
-
-	FORCE_INLINE void reset(draw_list_inheritance_param param){
+    // 重置列表时不再需要传入 inheritance_param
+	FORCE_INLINE void reset(){
 		std::memset(dispatch_config_storage.data(), 0, dispatch_config_storage.size() * sizeof(dispatch_group_info));
 		ptr_to_head = instruction_buffer_.data();
 		offset_to_last_chunk_head_ = 0;
 		index_to_last_chunk_head_ = 0;
-		verticesBreakpoint = param.verticesBreakpoint;
-		nextPrimitiveOffset = param.nextPrimitiveOffset;
-		currentMeshCount = 0;
-		pushedVertices = 0;
+		currentDispatchCount = 0;
 		pushedPrimitives = 0;
 		instruction_heads_.clear();
 
@@ -331,13 +316,11 @@ public:
 
 	/**
 	 * @brief push a draw instruction.
-	 * @return false if this submission group is full
 	 */
 	template <typename PrimitiveRemainFn = get_primitive_count_trivial_functor>
 		requires (std::is_invocable_r_v<std::uint32_t, PrimitiveRemainFn, instr_type, const std::byte*, const std::uint32_t>)
-	FORCE_INLINE bool push(
+	FORCE_INLINE void push( // 返回值改为 void，移除了 max_vertices_per_mesh_group 参数
 		const instruction_head& head, const std::byte* data,
-		const std::size_t max_vertices_per_mesh_group,
 		PrimitiveRemainFn fn_get_primitive_count = {}
 		){
 		assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
@@ -358,60 +341,15 @@ public:
 		instruction_heads_.push_back(head);
 		switch(head.type){
 		case instr_type::noop :
-		case instr_type::uniform_update : return true;
+		case instr_type::uniform_update : return;
 		default : break;
 		}
 
-		const auto get_remain_vertices = [&] FORCE_INLINE{
-			return max_vertices_per_mesh_group - pushedVertices;
-		};
+        // 直接累加整条指令的图元，不再进行拆分判定
 		const auto instructionVertices = head.payload.draw.vertex_count;
-
-		while(currentMeshCount != dispatch_config_storage.size()){
-			auto nextVertices = instructionVertices;
-
-			if(verticesBreakpoint){
-				assert(verticesBreakpoint >= 3);
-				assert(verticesBreakpoint < nextVertices);
-				nextVertices -= (verticesBreakpoint -= 2); //make sure a complete primitive is draw
-			}
-
-			//check if this instruction is fully consumed
-			if(pushedVertices + nextVertices <= max_vertices_per_mesh_group){
-				pushedVertices += nextVertices;
-				pushedPrimitives += fn_get_primitive_count(head.type, data, nextVertices);
-				verticesBreakpoint = 0;
-				nextPrimitiveOffset = 0;
-
-				if(pushedVertices == max_vertices_per_mesh_group){
-					instruction_offset += head.payload_size;
-					save_current_dispatch(static_cast<std::uint32_t>(instruction_offset), instruction_heads_.size());
-					pushedPrimitives = 0;
-					pushedVertices = 0;
-				}
-				return true;
-			}
-
-			//or save remain to
-			const auto remains = get_remain_vertices();
-			const auto primits = fn_get_primitive_count(head.type, data, remains);
-			nextPrimitiveOffset += primits;
-			pushedPrimitives += primits;
-
-			verticesBreakpoint += remains;
-
-			save_current_dispatch(static_cast<std::uint32_t>(instruction_offset), instruction_heads_.size() - 1);
-			pushedPrimitives = 0;
-			pushedVertices = 0;
-		}
-
-		return false;
+		pushedPrimitives += fn_get_primitive_count(head.type, data, instructionVertices);
 	}
 
-	/**
-	 *
-	 * @tparam Fn func(head, payload ptr)
-	 */
 	template <std::invocable<const instruction_head&, std::byte*> Fn>
 	FORCE_INLINE void for_each_instruction(Fn fn) const noexcept(std::is_nothrow_invocable_v<Fn, const instruction_head&, std::byte*>){
 		auto cur = instruction_buffer_.data();
@@ -429,15 +367,21 @@ private:
 	FORCE_INLINE void save_current_dispatch(std::uint32_t next_instr_begin, std::uint32_t next_head_begin){
 		assert(pushedPrimitives != 0);
 		assert(offset_to_last_chunk_head_ % 16 == 0);
-		dispatch_config_storage[currentMeshCount].instruction_offset = offset_to_last_chunk_head_;
-		dispatch_config_storage[currentMeshCount].instruction_head_index = index_to_last_chunk_head_;
-		dispatch_config_storage[currentMeshCount].primitive_count = pushedPrimitives;
 
+        // 动态扩容以防极端情况
+        if (currentDispatchCount >= dispatch_config_storage.size()) {
+            dispatch_config_storage.resize(currentDispatchCount + 1);
+            group_initial_vertex_data_timestamps_.resize((currentDispatchCount + 1) * vertex_data_entries_.size());
+        }
 
-		++currentMeshCount;
+		dispatch_config_storage[currentDispatchCount].instruction_offset = offset_to_last_chunk_head_;
+		dispatch_config_storage[currentDispatchCount].instruction_head_index = index_to_last_chunk_head_;
+		dispatch_config_storage[currentDispatchCount].primitive_count = pushedPrimitives;
+
+		++currentDispatchCount;
 		offset_to_last_chunk_head_ = next_instr_begin;
 		index_to_last_chunk_head_ = next_head_begin;
-		if(currentMeshCount != dispatch_config_storage.size()){
+		if(currentDispatchCount < dispatch_config_storage.size()){
 			setup_current_dispatch_group_info();
 		}
 	}

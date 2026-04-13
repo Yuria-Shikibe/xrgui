@@ -51,9 +51,22 @@
     {
       "file": "ui/frag_basic.slang"
     },
-    
     {
       "file": "ui/frag_outlined.slang"
+    },
+    
+    
+    {
+      "file": "ui/instruction_resolve_comp.slang"
+    },
+    {
+      "file": "ui/true_vert.slang"
+    },
+    {
+      "file": "ui/true_frag_basic.slang"
+    },
+    {
+      "file": "ui/true_frag_outlined.slang"
     },
     
 

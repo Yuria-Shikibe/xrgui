@@ -113,15 +113,22 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 	//renderer should belong to main loop actually
 	auto renderer = [&]() -> backend::vulkan::renderer{
-		vk::shader_module shader_draw_vert{ctx.get_device(), shader_spv_path / "ui.vert.spv"};
-		vk::shader_module shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.frag_basic.spv"};
-		vk::shader_module shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.frag_outlined.spv"};
+		// vk::shader_module shader_draw_vert{ctx.get_device(), shader_spv_path / "ui.vert.spv"};
+		// vk::shader_module shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.frag_basic.spv"};
+		// vk::shader_module shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.frag_outlined.spv"};
+		//
+		// vk::shader_module shader_draw_frag_coord{ctx.get_device(), shader_spv_path / "ui.frag_coord_draw.spv"};
 
-		vk::shader_module shader_draw_frag_coord{ctx.get_device(), shader_spv_path / "ui.frag_coord_draw.spv"};
+
+		vk::shader_module true_shader_draw_vert{ctx.get_device(), shader_spv_path / "ui.true_vert.spv"};
+		vk::shader_module true_shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.true_frag_basic.spv"};
+		vk::shader_module true_shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.true_frag_outlined.spv"};
 
 		vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
 		vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
 		vk::shader_module shader_inverse{ctx.get_device(), shader_spv_path / "ui.inverse.spv"};
+
+		vk::shader_module shader_instr_resolve{ctx.get_device(), shader_spv_path / "ui.instruction_resolve_comp.spv"};
 
 		using namespace backend::vulkan;
 		return {
@@ -153,8 +160,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									shader_draw_vert.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
-									shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									true_shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, {0b1},
@@ -167,8 +174,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									shader_draw_vert.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
-									shader_draw_frag_outlined.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									true_shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, {0b1},
@@ -179,10 +186,10 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							},
 							//coordiante draw
 							graphic_pipeline_create_config::config{
-								{},
+								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									shader_draw_frag_coord.get_create_info(VK_SHADER_STAGE_MESH_BIT_EXT, "main_mesh"),
-									shader_draw_frag_coord.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									true_shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, {0b1},
@@ -251,7 +258,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								}
 							}
 						}
-					}
+					},
+					.resolver_shader_stage = shader_instr_resolve.get_create_info(VK_SHADER_STAGE_COMPUTE_BIT)
 				}
 			};
 	}();

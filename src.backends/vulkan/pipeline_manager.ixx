@@ -173,6 +173,13 @@ public:
 	}
 };
 
+struct alignas(16) Vertex {
+	float position[4];     // Offset: 0
+	float color[4];        // Offset: 16
+	float uv[2];           // Offset: 32
+	std::uint32_t timeline_index; // Offset: 40
+};
+
 export
 struct option_blending_state{
 
@@ -184,6 +191,52 @@ struct option_blending_state{
 	void apply_to_template(vk::graphic_pipeline_template& gtp) const{
 		if(default_blending_settings.size() != gtp.attachment_formats.size()){
 			throw std::invalid_argument("Invalid settings for default_blending_settings, blending setting count mismatch");
+		}
+
+		{
+			// 1. 绑定描述 (Binding Description)
+			static VkVertexInputBindingDescription bindingDescription{};
+			bindingDescription.binding = 0;
+			bindingDescription.stride = sizeof(Vertex); // 44 字节
+			bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+			// 2. 属性描述 (Attribute Descriptions)
+			static std::array<VkVertexInputAttributeDescription, 4> attributeDescriptions{};
+
+			// Location 0: Position (float4)
+			attributeDescriptions[0].binding = 0;
+			attributeDescriptions[0].location = 0;
+			attributeDescriptions[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+			attributeDescriptions[0].offset = offsetof(Vertex, position);
+
+			// Location 1: Color (float4)
+			attributeDescriptions[1].binding = 0;
+			attributeDescriptions[1].location = 1;
+			attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+			attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+			// Location 2: UV (float2)
+			attributeDescriptions[2].binding = 0;
+			attributeDescriptions[2].location = 2;
+			attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+			attributeDescriptions[2].offset = offsetof(Vertex, uv);
+
+			// Location 3: Timeline Index (uint)
+			attributeDescriptions[3].binding = 0;
+			attributeDescriptions[3].location = 3;
+			attributeDescriptions[3].format = VK_FORMAT_R32_UINT;
+			attributeDescriptions[3].offset = offsetof(Vertex, timeline_index);
+
+
+
+			// 3. 组装 PipelineVertexInputStateCreateInfo
+			VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+			vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+			vertexInputInfo.vertexBindingDescriptionCount = 1;
+			vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+			vertexInputInfo.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attributeDescriptions.size());
+			vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+			gtp.set_vertex_info(vertexInputInfo);
 		}
 
 		gtp.attachment_blend_states = default_blending_settings;

@@ -133,7 +133,7 @@ constexpr VkPhysicalDeviceFeatures RequiredFeatures{
 			features.samplerAnisotropy = true;
 			features.independentBlend = true;
 			features.sampleRateShading = true;
-			features.shaderClipDistance = true;
+			features.geometryShader = true;
 
 			return features;
 		}()
