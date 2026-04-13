@@ -6,7 +6,7 @@ module;
 export module mo_yanxi.graphic.draw.instruction.batch.common;
 
 export import mo_yanxi.graphic.draw.instruction.general;
-export import binary_trace;
+export import mo_yanxi.binary_trace;
 
 import std;
 

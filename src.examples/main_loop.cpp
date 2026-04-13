@@ -129,6 +129,7 @@ void main_loop::main_loop_exec(){
 					graphic::colors::white, graphic::colors::CYAN, graphic::colors::ROYAL, graphic::colors::GREEN
 				}
 			};
+
 		r.update_state(fx::blit_config{
 				{
 					.src = {},
@@ -137,13 +138,35 @@ void main_loop::main_loop_exec(){
 				{.pipeline_index = 1, .inout_define_index = 0}
 			});
 
-		r.push(fx::slide_line_config{
-				.angle = 45,
-				.spacing = 8,
-				.stroke = 8,
-				.speed = 0,
-				.phase = 8,
+		{
+			r.update_state(fx::pipeline_config{
+				.draw_targets = {0b100},
+				.pipeline_index = 3
 			});
+
+
+			r.update_state(fx::batch_draw_mode::msdf);
+			r << fx::nine_patch_draw_vert_color{
+				.patch = &assets::builtin::default_round_square_base,
+				.region = {200, 200, 600, 600},
+				.color = {
+					graphic::colors::white, graphic::colors::gray, graphic::colors::gray, graphic::colors::black
+				}
+			};
+
+			r.update_state(fx::blit_config{
+					{
+						.src = {},
+						.extent = math::vector2{r.get_region().extent()}.round<int>()
+					},
+					{.pipeline_index = 1}
+				});
+
+			r.update_state(fx::pipeline_config{
+				.pipeline_index = 0
+			});
+		}
+
 		{
 			struct trail_node_data : graphic::trail::node_type{
 				float idx_scale;
@@ -253,6 +276,7 @@ void main_loop::main_loop_exec(){
 				{.pipeline_index = 1}
 			});
 	}
+
 
 	current_focus.draw();
 	renderer.batch_host.end_rendering();

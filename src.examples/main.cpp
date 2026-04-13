@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <vulkan/vulkan.h>
 
 import std;
@@ -124,6 +125,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		vk::shader_module true_shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.true_frag_basic.spv"};
 		vk::shader_module true_shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.true_frag_outlined.spv"};
 		vk::shader_module true_shader_draw_coord{ctx.get_device(), shader_spv_path / "ui.true_coord_draw.spv"};
+		vk::shader_module true_shader_draw_mask{ctx.get_device(), shader_spv_path / "ui.true_frag_mask.spv"};
 
 		vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
 		vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
@@ -145,6 +147,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							draw_attachment_config{
 								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT}
 							},
+							draw_attachment_config{
+								.attachment = {VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT}
+							},
 						},
 						// VK_SAMPLE_COUNT_4_BIT
 					},
@@ -165,7 +170,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									true_shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
-									false, {0b1},
+									false, {0b1}, {},
 									{
 										{vk::blending::scaled_alpha_blend}, false, true, true
 									}
@@ -179,7 +184,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									true_shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
-									false, {0b1},
+									false, {0b1}, {},
 									{
 										{vk::blending::scaled_alpha_blend}
 									}
@@ -193,9 +198,23 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									true_shader_draw_coord.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
-									false, {0b1},
+									false, {0b1}, {},
 									{
 										{vk::blending::scaled_alpha_blend}
+									}
+								}
+							},
+							//mask draw
+							graphic_pipeline_create_config::config{
+								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
+								{
+									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									true_shader_draw_mask.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+								},
+								graphic_pipeline_option{
+									false, {0b100}, {},
+									{
+										{vk::blending::mask_draw}
 									}
 								}
 							},
@@ -573,8 +592,79 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	ctx.wait_on_device();
 }
 
+class FastColorErrorBuffer : public std::streambuf {
+private:
+	std::streambuf* source;
+	std::vector<char> buffer;
+	static constexpr std::size_t BUF_SIZE = 1024; // 1KB 缓冲区
 
+	const char* RED_START = "\033[31m";
+	const char* COLOR_RESET = "\033[0m";
+
+	// 内部刷新逻辑
+	bool flush_to_source() {
+		std::ptrdiff_t n = pptr() - pbase();
+		if (n <= 0) return true;
+
+		// 批量注入颜色：[开始颜色][数据][结束颜色]
+		if (source->sputn(RED_START, 5) != 5) return false;
+		if (source->sputn(pbase(), n) != n) return false;
+		if (source->sputn(COLOR_RESET, 4) != 4) return false;
+
+		pbump(static_cast<int>(-n)); // 重置指针
+		return source->pubsync() == 0;
+	}
+
+protected:
+	// 当缓冲区满时调用
+	virtual int_type overflow(int_type c) override {
+		if (!flush_to_source()) return EOF;
+		if (c != EOF) {
+			*pptr() = static_cast<char>(c);
+			pbump(1);
+		}
+		return c;
+	}
+
+	// 当调用 std::endl 或 flush 时调用
+	virtual int sync() override {
+		return flush_to_source() ? 0 : -1;
+	}
+
+public:
+	explicit FastColorErrorBuffer(std::streambuf* s) : source(s), buffer(BUF_SIZE) {
+		// 设置缓冲区区域：开始、当前、结束
+		setp(buffer.data(), buffer.data() + buffer.size());
+	}
+
+	~FastColorErrorBuffer() override {
+		sync();
+	}
+};
+
+// 自动初始化器
+struct GlobalCerrOptimizer {
+	std::streambuf* original_buf;
+	FastColorErrorBuffer* optimized_buf;
+
+	GlobalCerrOptimizer() {
+		original_buf = std::cerr.rdbuf();
+		optimized_buf = new FastColorErrorBuffer(original_buf);
+		std::cerr.rdbuf(optimized_buf);
+
+		// 关键性能优化：cerr 默认设置了 unitbuf（每次写入都 flush）
+		// 如果追求极致性能，可以关闭它，但在错误处理中通常建议保留
+		// std::cerr.unsetf(std::ios::unitbuf);
+	}
+
+	~GlobalCerrOptimizer() {
+		std::cerr.rdbuf(original_buf);
+		delete optimized_buf;
+	}
+};
 int main(){
+	GlobalCerrOptimizer _;
+
 	using namespace mo_yanxi;
 	using namespace graphic;
 

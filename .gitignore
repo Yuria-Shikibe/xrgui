@@ -3,3 +3,4 @@
 /build/
 /cmake-build-debug/
 /properties/legacy/
+/.slang_build_cache/

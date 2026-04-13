@@ -3,28 +3,102 @@ import json
 import os
 import subprocess
 import sys
+import hashlib
+import re
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any, Union
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 
+# 兼容 Python 3.11+ 的内置 tomllib 和旧版本的 tomli
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        print("✗ 缺少 TOML 解析库。")
+        print("请使用 Python 3.11+，或在较旧版本中执行: pip install tomli")
+        sys.exit(1)
+
+# 用于解析 #include 依赖的正则表达式
+INCLUDE_RE = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.MULTILINE)
+
+def flatten_options(options: Union[List[str], Dict[str, Any]]) -> List[str]:
+    """将混合了纯选项和 KV 的配置展平为 subprocess 可用的列表"""
+    result = []
+    if isinstance(options, list):
+        for opt in options:
+            result.append(str(opt))
+    elif isinstance(options, dict):
+        for k, v in options.items():
+            if isinstance(v, bool):
+                if v:  # 如果是 True，则加入该选项 (例如 "-O3" = true)
+                    result.append(k)
+            elif isinstance(v, list):
+                # 列表展开 (例如 "-D" = ["MACRO1", "MACRO2"] -> -D MACRO1 -D MACRO2)
+                for item in v:
+                    if k: result.append(k)
+                    result.append(str(item))
+            elif v == "" or v is None:
+                result.append(k)
+            else:
+                # 普通 KV对 (例如 "-stage" = "compute")
+                if k: result.append(k)
+                result.append(str(v))
+    return result
+
+def get_file_and_deps_hash(filepath: Path, include_dirs: List[Path], visited: set = None) -> str:
+    """递归计算文件及其所有 #include 依赖项的内容哈希值"""
+    if visited is None:
+        visited = set()
+
+    filepath = filepath.resolve()
+    if filepath in visited:
+        return ""
+    visited.add(filepath)
+
+    if not filepath.is_file():
+        return ""
+
+    hasher = hashlib.sha256()
+    try:
+        content = filepath.read_text(encoding='utf-8', errors='ignore')
+        hasher.update(content.encode('utf-8'))
+
+        # 查找并解析 include 依赖
+        for match in INCLUDE_RE.finditer(content):
+            inc_name = match.group(1)
+            inc_path = None
+
+            # 1. 优先检查当前文件同级目录
+            test_path = filepath.parent / inc_name
+            if test_path.is_file():
+                inc_path = test_path
+            else:
+                # 2. 检查全局 include 目录
+                for inc_dir in include_dirs:
+                    test_path = inc_dir / inc_name
+                    if test_path.is_file():
+                        inc_path = test_path
+                        break
+
+            if inc_path:
+                dep_hash = get_file_and_deps_hash(inc_path, include_dirs, visited)
+                hasher.update(dep_hash.encode('utf-8'))
+
+        return hasher.hexdigest()
+    except Exception as e:
+        print(f"✗ 读取文件计算哈希时出错 {filepath}: {e}")
+        return ""
+
+def get_options_hash(options: List[str]) -> str:
+    """计算编译选项的哈希值"""
+    return hashlib.sha256((" ".join(options)).encode('utf-8')).hexdigest()
 
 def check_slangc_compiler(slangc_path: Union[str, Path]) -> bool:
-    """检查slangc编译器是否有效
-
-    Args:
-        slangc_path: slangc编译器路径
-
-    Returns:
-        bool: 编译器是否有效
-    """
     try:
-        result = subprocess.run(
-            [str(slangc_path), "-v"],
-            capture_output=True,
-            text=True,
-            timeout=20
-        )
+        result = subprocess.run([str(slangc_path), "-v"], capture_output=True, text=True, timeout=20)
         if result.returncode == 0:
             print(f"✓ slangc编译器有效: {slangc_path}")
             return True
@@ -41,67 +115,44 @@ def check_slangc_compiler(slangc_path: Union[str, Path]) -> bool:
         print(f"✗ 检查slangc编译器时出错: {e}")
         return False
 
-
-def check_json_file(json_path: Union[str, Path]) -> bool:
-    """检查JSON配置文件是否存在且格式正确
-
-    Args:
-        json_path: JSON配置文件路径
-
-    Returns:
-        bool: 配置文件是否有效
-    """
-    json_path = Path(json_path)
-    if not json_path.is_file():
-        print(f"✗ JSON配置文件不存在: {json_path}")
+def check_toml_file(toml_path: Union[str, Path]) -> bool:
+    toml_path = Path(toml_path)
+    if not toml_path.is_file():
+        print(f"✗ TOML配置文件不存在: {toml_path}")
         return False
-
     try:
-        with open(json_path, 'r', encoding='utf-8') as f:
-            json.load(f)  # 尝试解析JSON
-        print(f"✓ JSON配置文件有效: {json_path}")
+        with open(toml_path, 'rb') as f:
+            tomllib.load(f)
+        print(f"✓ TOML配置文件有效: {toml_path}")
         return True
-    except json.JSONDecodeError as e:
-        print(f"✗ JSON配置文件格式错误: {e}")
-        return False
     except Exception as e:
-        print(f"✗ 读取JSON配置文件时出错: {e}")
+        print(f"✗ 读取/解析TOML配置文件时出错: {e}")
         return False
 
-
-def parse_config(json_path: Union[str, Path]) -> Tuple[Optional[List[str]],
-Optional[List[Dict[str, Any]]],
-Optional[str],
-Optional[List[str]]]:
-    """解析JSON配置文件
-
-    Args:
-        json_path: JSON配置文件路径
-
-    Returns:
-        Tuple: (common_options, shaders, shader_root, include_dirs)
-    """
+def parse_config(toml_path: Union[str, Path]) -> Tuple[Optional[List[str]], Optional[List[Dict[str, Any]]], Optional[str], Optional[List[str]]]:
     try:
-        with open(json_path, 'r', encoding='utf-8') as f:
-            config: Dict[str, Any] = json.load(f)
+        with open(toml_path, 'rb') as f:
+            config: Dict[str, Any] = tomllib.load(f)
 
-        # 验证必需字段
         if 'common_options' not in config:
-            raise ValueError("JSON配置中缺少 'common_options' 字段")
+            raise ValueError("TOML配置中缺少 'common_options' 字段")
         if 'shaders' not in config:
-            raise ValueError("JSON配置中缺少 'shaders' 字段")
+            raise ValueError("TOML配置中缺少 'shaders' 字段")
 
-        common_options: List[str] = config.get('common_options', [])
+        raw_common = config.get('common_options', [])
+        common_options = flatten_options(raw_common)
+
         shaders: List[Dict[str, Any]] = config.get('shaders', [])
-        shader_root: str = config.get('shader_root', '')  # 可选字段
+        shader_root: str = config.get('shader_root', '')
         include_dirs: List[str] = config.get('include_dir', [])
 
-        # 验证shaders数组结构
         for i, shader in enumerate(shaders):
             if 'file' not in shader:
                 raise ValueError(f"shaders[{i}] 中缺少 'file' 字段")
             if 'options' not in shader:
                 shader['options'] = []
+            else:
+                shader['options'] = flatten_options(shader['options'])
 
         print(f"✓ 成功解析配置文件: {len(shaders)} 个着色器文件")
         if shader_root:
@@ -113,212 +164,214 @@ Optional[List[str]]]:
         print(f"✗ 解析配置文件时出错: {e}")
         return None, None, None, None
 
-
 def compile_shader(
         slangc_path: str,
-        shader_root: str,
-        output_dir: str,
-        common_options: List[str],
+        output_file: str,
         shader_alias: str,
         input_file: str,
-        shader_options: List[str],
-        include_dirs: List[str]
+        full_options: List[str]
 ) -> Tuple[bool, str]:
-    """编译单个着色器文件
-
-    Args:
-        slangc_path: slangc编译器路径
-        shader_root: 着色器根目录
-        output_dir: 输出目录
-        common_options: 通用编译选项
-        shader_alias: 着色器别名或文件名，用于生成输出文件
-        input_file: 输入文件完整路径
-        shader_options: 着色器特定选项
-        include_dirs: 包含目录列表
-
-    Returns:
-        Tuple[bool, str]: (是否成功, 输出信息或错误信息)
-    """
     try:
-        # 生成输出文件名
-        shader_name = Path(shader_alias).with_suffix('.spv')
-        shader_name = str(shader_name).replace(os.sep, '.').replace('/', '.')
-        output_file = os.path.join(output_dir, shader_name)
-
-        # 构建编译命令
         args: List[str] = [slangc_path]
-
-        # 添加包含目录
-        for include_dir in include_dirs:
-            include_path = Path(shader_root).absolute().joinpath(include_dir)
-            args.append(f'-I{include_path}\\')
-
-        # 添加编译选项
-        args.extend(common_options)
-        args.extend(shader_options)
+        args.extend(full_options)
         args.extend(['-o', output_file])
         args.append(input_file)
 
-        print(f"\n正在编译: {shader_alias} << {input_file}")
-        print(f"输出文件: {output_file}")
-        # 取消打印命令，因为并行时会刷屏
-        # print(f"编译命令: {' '.join(args)}")
+        print(f"正在编译: {shader_alias} << {Path(input_file).name}")
 
-        # 执行编译
         result = subprocess.run(args, capture_output=True, text=True, timeout=60)
 
         if result.returncode == 0:
-            print(f"✓ 编译成功: {shader_alias}")
             return True, result.stdout
         else:
-            print(f"✗ 编译失败: {shader_alias}")
+            print(f"\n✗ 编译失败: {shader_alias}")
             print(f"错误信息: {result.stderr}")
-
-            # 如果编译失败，删除目标文件
             if os.path.exists(output_file):
                 os.remove(output_file)
-                print(f"已删除编译失败的目标文件: {output_file}")
-
             return False, result.stderr
 
     except subprocess.TimeoutExpired:
-        print(f"✗ 编译超时: {shader_alias}")
-        # 删除可能部分生成的文件
-        output_file = os.path.join(output_dir, f"{Path(shader_alias).stem}.spv")
+        print(f"\n✗ 编译超时: {shader_alias}")
         if os.path.exists(output_file):
             os.remove(output_file)
         return False, "编译超时"
     except Exception as e:
-        print(f"✗ 编译过程中发生异常: {e}")
+        print(f"\n✗ 编译过程中发生异常: {e}")
         return False, str(e)
 
-
 def main() -> None:
-    """主函数"""
-    parser = argparse.ArgumentParser(description='SLANG着色器批量编译工具 (并行版)')
+    parser = argparse.ArgumentParser(description='SLANG着色器批量编译工具 (增量并行版)')
     parser.add_argument('slangc_path', help='slangc编译器路径')
     parser.add_argument('output_dir', help='输出目录（相对路径）')
-    parser.add_argument('config_file', help='配置文件路径（相对路径）')
+    parser.add_argument('config_file', help='配置文件路径（相对路径，TOML格式）')
 
-    # 新增-j参数，用于指定并行度
     default_jobs = multiprocessing.cpu_count()
-    parser.add_argument(
-        '-j', '--jobs',
-        type=int,
-        default=default_jobs,
-        help=f'允许并行执行的任务数 (默认: {default_jobs})'
-    )
+    parser.add_argument('-j', '--jobs', type=int, default=default_jobs, help=f'允许并行执行的任务数 (默认: {default_jobs})')
 
     args = parser.parse_args()
 
-    # 获取当前脚本所在目录的绝对路径
     script_dir = Path(__file__).parent.absolute()
+    working_dir = Path.cwd()
 
-    # 处理相对路径
     slangc_path = Path(args.slangc_path) if Path(args.slangc_path).is_absolute() else script_dir.joinpath(args.slangc_path)
     output_dir = Path(args.output_dir).absolute()
     config_file = Path(args.config_file).absolute()
 
-    print("=" * 50)
-    print("SLANG着色器批量编译工具 (并行版)")
-    print("=" * 50)
+    print("=" * 60)
+    print("SLANG 着色器批量编译工具 (TOML增量并行版)")
+    print("=" * 60)
     print(f"编译器路径: {slangc_path}")
     print(f"输出目录: {output_dir}")
     print(f"配置文件: {config_file}")
     print(f"并行度 (-j): {args.jobs}")
-    print("-" * 50)
+    print("-" * 60)
 
     if not slangc_path.exists():
-        print(f"slang c path {slangc_path} not found, using default")
-        slangc_path = "slangc"
+        print(f"未找到 slangc 路径 {slangc_path}，将尝试使用环境变量中的 slangc")
+        slangc_path = Path("slangc")
 
-    # 步骤1: 检查slangc编译器
     if not check_slangc_compiler(slangc_path):
         sys.exit(1)
-
-    # 步骤2: 检查JSON配置文件
-    if not check_json_file(config_file):
+    if not check_toml_file(config_file):
         sys.exit(1)
 
-    # 步骤3: 解析JSON配置
     common_options, shaders, shader_root, include_dirs = parse_config(config_file)
     if common_options is None or shaders is None:
         sys.exit(1)
 
-    # 创建输出目录
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"✓ 输出目录已创建/确认: {output_dir}")
 
-    # 步骤4: 并行编译所有着色器
-    print("\n开始编译着色器...")
-    print("-" * 50)
+    # 解析 Include 绝对路径列表 (用于依赖追踪和编译参数)
+    resolved_includes = []
+    if shader_root:
+        base_shader_root = config_file.parent.joinpath(shader_root).resolve()
+    else:
+        base_shader_root = script_dir
 
+    for inc in include_dirs:
+        inc_path = base_shader_root.joinpath(inc).resolve()
+        resolved_includes.append(inc_path)
+        common_options.extend(['-I', str(inc_path)])
+
+    # --- 增量编译：加载缓存 ---
+    cache_dir = working_dir / ".slang_build_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / "build_cache.json"
+
+    build_cache = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                build_cache = json.load(f)
+        except Exception:
+            print("⚠ 缓存文件损坏，将执行全量编译。")
+            build_cache = {}
+
+    new_cache = {}
     success_count = 0
     fail_count = 0
+    skip_count = 0
 
-    if shader_root:
-        shader_root = config_file.parent.joinpath(shader_root).resolve()
+    print("\n开始检查与编译着色器...")
+    print("-" * 60)
 
-    with ProcessPoolExecutor(max_workers=args.jobs) as executor:
-        futures = {}
-        for shader_config in shaders:
-            shader_file: str = shader_config['file']
-            shader_options: List[str] = shader_config['options']
-            shader_alias: str = shader_config.get('alias', shader_file)
+    tasks_to_run = []
 
-            # 处理着色器文件的路径
-            if shader_root:
-                full_shader_path = shader_root.joinpath(shader_file).resolve()
-            else:
-                full_shader_path = script_dir / shader_file
+    # 预处理与增量检查
+    for shader_config in shaders:
+        shader_file: str = shader_config['file']
+        shader_options: List[str] = shader_config['options']
+        shader_alias: str = shader_config.get('alias', shader_file)
 
-            if not full_shader_path.is_file():
-                print(f"✗ 着色器文件不存在: {full_shader_path}")
-                fail_count += 1
-                continue
+        full_shader_path = base_shader_root.joinpath(shader_file).resolve()
+        if not full_shader_path.is_file():
+            print(f"✗ 着色器文件不存在: {full_shader_path}")
+            fail_count += 1
+            continue
 
-            # 提交任务到进程池
-            future = executor.submit(
-                compile_shader,
-                str(slangc_path),
-                shader_root,
-                str(output_dir),
-                common_options,
-                shader_alias,
-                str(full_shader_path),
-                shader_options,
-                include_dirs
-            )
-            futures[future] = shader_alias
+        # 生成输出文件路径
+        shader_name = Path(shader_alias).with_suffix('.spv')
+        shader_name_str = str(shader_name).replace(os.sep, '.').replace('/', '.')
+        output_file_path = output_dir / shader_name_str
 
-        print(f"已提交 {len(futures)} 个编译任务，使用 {args.jobs} 个并行进程...")
+        # 合并编译参数
+        full_options = common_options + shader_options
 
-        # 获取已完成任务的结果
-        for future in as_completed(futures):
-            shader_alias = futures[future]
-            try:
-                success, message = future.result()
-                if success:
-                    success_count += 1
-                else:
+        # 计算 Hash
+        file_hash = get_file_and_deps_hash(full_shader_path, resolved_includes)
+        opts_hash = get_options_hash(full_options)
+
+        # 检查是否可以跳过编译
+        cached_data = build_cache.get(shader_alias, {})
+        if (output_file_path.exists() and
+                cached_data.get('file_hash') == file_hash and
+                cached_data.get('options_hash') == opts_hash):
+            print(f"⏭️ 增量跳过: {shader_alias} (文件与参数未修改)")
+            success_count += 1
+            skip_count += 1
+            new_cache[shader_alias] = cached_data # 保留缓存
+        else:
+            tasks_to_run.append({
+                'alias': shader_alias,
+                'input': str(full_shader_path),
+                'output': str(output_file_path),
+                'options': full_options,
+                'file_hash': file_hash,
+                'opts_hash': opts_hash
+            })
+
+    # 多进程执行实际的编译任务
+    if tasks_to_run:
+        print(f"\n共 {len(tasks_to_run)} 个任务需要编译，使用 {args.jobs} 个并行进程...")
+        with ProcessPoolExecutor(max_workers=args.jobs) as executor:
+            futures = {}
+            for task in tasks_to_run:
+                future = executor.submit(
+                    compile_shader,
+                    str(slangc_path),
+                    task['output'],
+                    task['alias'],
+                    task['input'],
+                    task['options']
+                )
+                futures[future] = task
+
+            for future in as_completed(futures):
+                task = futures[future]
+                try:
+                    success, message = future.result()
+                    if success:
+                        success_count += 1
+                        # 编译成功，更新新缓存
+                        new_cache[task['alias']] = {
+                            'file_hash': task['file_hash'],
+                            'options_hash': task['opts_hash']
+                        }
+                    else:
+                        fail_count += 1
+                except Exception as e:
+                    print(f"✗ 运行编译任务 '{task['alias']}' 时发生意外错误: {e}")
                     fail_count += 1
-            except Exception as e:
-                print(f"✗ 运行编译任务 '{shader_alias}' 时发生意外错误: {e}")
-                fail_count += 1
+
+    # 保存新的缓存
+    try:
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(new_cache, f, indent=4)
+    except Exception as e:
+        print(f"⚠ 写入缓存文件失败: {e}")
 
     # 输出总结
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 60)
     print("编译总结:")
-    print(f"成功: {success_count} 个文件")
-    print(f"失败: {fail_count} 个文件")
-    print(f"总计: {len(shaders)} 个文件")
+    print(f"总计处理: {len(shaders)} 个着色器")
+    print(f"成功: {success_count} 个 (其中增量跳过 {skip_count} 个)")
+    print(f"失败: {fail_count} 个")
 
     if fail_count > 0:
-        print("\n注意: 有编译失败的文件，已自动删除对应的.spv目标文件")
+        print("\n⚠ 注意: 有编译失败的文件，对应的目标文件已被清除。")
         sys.exit(1)
     else:
-        print("\n✓ 所有着色器编译完成!")
-
+        print("\n✓ 所有着色器均处理完成!")
 
 if __name__ == "__main__":
     main()

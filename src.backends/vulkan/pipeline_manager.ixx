@@ -210,6 +210,7 @@ export
 struct graphic_pipeline_option{
 	bool enables_multisample{};
 	fx::render_target_mask default_target_attachments{};
+	fx::render_target_mask input_attachments_mask{};
 	option_blending_state blend_state{};
 
 	std::vector<descriptor_use_entry> used_descriptor_sets{};
@@ -253,10 +254,9 @@ struct graphic_pipeline_create_config{
 					gtp.set_multisample(attachments.multisample, 1, option.enables_multisample);
 				}
 
-				for(std::size_t idx = 0; idx < attachments.attachments.size(); ++idx){
-					if(!option.default_target_attachments[idx])continue;
-					gtp.push_color_attachment_format(attachments.attachments[idx].attachment.format);
-				}
+				option.default_target_attachments.for_each_popbit([&](unsigned i){
+					gtp.push_color_attachment_format(attachments.attachments[i].attachment.format);
+				});
 
 				option.blend_state.apply_to_template(gtp);
 

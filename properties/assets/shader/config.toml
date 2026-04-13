@@ -1,0 +1,72 @@
+shader_root = "./slangs"
+include_dir = ["lib/"]
+
+# 使用了新脚本支持的 KV 字典格式来配置全局编译选项
+[common_options]
+"-O3" = true
+"-g" = true
+"-fvk-use-gl-layout" = true
+"-fvk-use-entrypoint-name" = true
+"-emit-spirv-directly" = true
+"-floating-point-mode" = "fast"
+
+# --- 后处理着色器 ---
+
+[[shaders]]
+file = "post_process/hdr_to_sdr.slang"
+
+[[shaders]]
+file = "post_process/bloom.slang"
+
+[[shaders]]
+file = "post_process/volume_pass.slang"
+
+[[shaders]]
+file = "post_process/highlight_extract.slang"
+
+[[shaders]]
+file = "post_process/bloom.merge.slang"
+
+# --- UI 渲染着色器 ---
+
+[[shaders]]
+file = "ui/blend.slang"
+
+[[shaders]]
+file = "ui/inverse.slang"
+
+[[shaders]]
+file = "ui/merge.slang"
+
+[[shaders]]
+file = "ui/vert.slang"
+
+[[shaders]]
+file = "ui/frag_basic.slang"
+
+[[shaders]]
+file = "ui/frag_outlined.slang"
+
+[[shaders]]
+file = "ui/instruction_resolve_comp.slang"
+
+
+[[shaders]]
+file = "ui/true_vert.slang"
+
+[[shaders]]
+file = "ui/true_frag_basic.slang"
+
+[[shaders]]
+file = "ui/true_frag_outlined.slang"
+
+[[shaders]]
+file = "ui/true_coord_draw.slang"
+
+[[shaders]]
+file = "ui/true_frag_mask.slang"
+
+
+[[shaders]]
+file = "ui/blit.default.slang"
+alias = "ui/blit/basic"

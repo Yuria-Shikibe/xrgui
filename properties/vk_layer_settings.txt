@@ -5,4 +5,4 @@ khronos_validation.validate_best_practices = true
 khronos_validation.validate_sync = true
 
 # 填入你要屏蔽的错误 ID（使用英文逗号分隔）
-khronos_validation.message_id_filter = VUID-VkShaderModuleCreateInfo-pCode-08737,VUID-RuntimeSpirv-OpVariable-08746
+khronos_validation.message_id_filter = WARNING-Shader-OutputNotConsumed,VUID-VkShaderModuleCreateInfo-pCode-08737,VUID-RuntimeSpirv-OpVariable-08746

@@ -735,7 +735,7 @@ public:
 	void cmd_compute_resolve(VkCommandBuffer cmd, std::uint32_t frame_index) const {
 		if (cached_instruction_resolve_info_.total_vertices == 0) return;
 
-		constexpr std::uint32_t THREADS_PER_GROUP = 256;
+		constexpr std::uint32_t THREADS_PER_GROUP = 128;
 		std::uint32_t group_x = (cached_instruction_resolve_info_.total_vertices + THREADS_PER_GROUP - 1) / THREADS_PER_GROUP;
 
 		vkCmdDispatch(cmd, group_x, 1, 1);

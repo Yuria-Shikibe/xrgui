@@ -13,9 +13,19 @@ export module mo_yanxi.gui.fx.config;
 
 import std;
 
+import mo_yanxi.binary_trace;
+import mo_yanxi.graphic.draw.instruction.general;
 import mo_yanxi.math.rect_ortho;
 
 namespace mo_yanxi::gui::fx{
+export using state_push_config = graphic::draw::instruction::state_push_config;
+export using state_push_type = graphic::draw::instruction::state_push_type;
+export using binary_diff_tag = binary_diff_trace::tag;
+export using graphic::draw::instruction::make_state_tag;
+
+export
+template <typename T>
+concept directly_pushable_state = std::convertible_to<T, state_push_config> && std::convertible_to<T, binary_diff_tag> && std::is_trivially_copyable_v<T>;
 
 export
 struct blit_pipeline_config{
@@ -223,9 +233,25 @@ enum struct state_type{
 	set_scissor,
 	set_viewport,
 
-	fill_color,
+	fill_color_local,
+	fill_color_other_lazy,
 	//TODO other states...
 	reserved_count
+};
+
+export
+struct state_fill_color_other_lazy{
+	render_target_mask clear_mask;
+
+	static consteval void operator()();
+
+	explicit(false) operator state_push_config() const noexcept{
+		return {state_push_type::idempotent};
+	}
+
+	explicit(false) operator binary_diff_tag() const noexcept{
+		return make_state_tag(state_type::fill_color_other_lazy, clear_mask);
+	}
 };
 
 template <state_type StateType, bool RequiresMinorTag = false, bool IsIdempotent = true>
@@ -253,14 +279,6 @@ enum struct batch_draw_mode : std::uint32_t{
 	msdf,
 };
 
-export
-enum struct blending_type : std::uint16_t{
-	alpha,
-	add,
-	reverse,
-	lock_alpha,
-	SIZE,
-};
 
 export
 constexpr inline std::uint32_t use_default_pipeline = std::numeric_limits<std::uint32_t>::max();
@@ -283,26 +301,6 @@ enum struct primitive_draw_mode : std::uint32_t{
 };
 
 BITMASK_OPS(export , primitive_draw_mode);
-//
-
-
-
-//
-
-
-
-
-
-//
-
-
-
-//
-
-
-
-
-
 
 
 
@@ -427,13 +425,24 @@ constexpr inline blend_equation opaque = {
 namespace pma {
 
 
-    constexpr inline blend_equation standard = {
+    constexpr inline blend_equation alpha_blend = {
         .src_color_blend_factor = VK_BLEND_FACTOR_ONE,
         .dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .color_blend_op         = VK_BLEND_OP_ADD,
         .src_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
         .dst_alpha_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .alpha_blend_op         = VK_BLEND_OP_ADD
+    };
+
+
+
+    constexpr inline blend_equation standard = {
+        .src_color_blend_factor = VK_BLEND_FACTOR_ONE,
+        .dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        .color_blend_op         = VK_BLEND_OP_ADD,
+        .src_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+        .dst_alpha_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        .alpha_blend_op         = VK_BLEND_OP_MAX
     };
 
 
@@ -568,7 +577,7 @@ struct state_type_deduce<pipeline_config> : state_type_deduce_base<state_type::p
 };
 
 template <>
-struct state_type_deduce<color_clear_value> : state_type_deduce_base<state_type::fill_color, true, false>{
+struct state_type_deduce<color_clear_value> : state_type_deduce_base<state_type::fill_color_local, true, false>{
 };
 
 

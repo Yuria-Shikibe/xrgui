@@ -11,7 +11,7 @@ export import mo_yanxi.gui.fx.config;
 export import mo_yanxi.graphic.draw.instruction.general;
 export import mo_yanxi.graphic.draw.instruction.batch.common;
 export import mo_yanxi.user_data_entry;
-import binary_trace;
+import mo_yanxi.binary_trace;
 
 import mo_yanxi.gui.alloc;
 import mo_yanxi.type_register;
@@ -31,14 +31,6 @@ import std;
 namespace mo_yanxi::gui{
 #pragma region VBO_config
 
-
-export
-template <typename L, typename R = unsigned>
-	requires (sizeof(L) == sizeof(graphic::draw::instruction::state_tag::major) && sizeof(R) == sizeof(
-		graphic::draw::instruction::state_tag::minor))
-constexpr graphic::draw::instruction::state_tag make_state_tag(L major, R minor = {}) noexcept{
-	return graphic::draw::instruction::make_state_tag(major, minor);
-}
 
 struct scissor_gpu_{
 	math::vec2 src{};
@@ -335,7 +327,7 @@ public:
 
 private:
 	void update_state_(
-		const graphic::draw::instruction::state_push_config& config,
+		const fx::state_push_config& config,
 		const std::span<const std::byte> payload,
 		binary_diff_trace::tag tag,
 		unsigned offset){
@@ -346,7 +338,7 @@ private:
 
 public:
 	void update_state(
-		const graphic::draw::instruction::state_push_config& config,
+		const fx::state_push_config& config,
 		const std::span<const std::byte> data_span,
 		binary_diff_trace::tag tag,
 		unsigned offset = 0){
@@ -359,9 +351,54 @@ public:
 		this->update_state_(config, data_span, tag, offset);
 	}
 
+	template <typename T>
+		requires (std::convertible_to<T, fx::state_push_config> && std::convertible_to<T, binary_diff_trace::tag> && std::is_trivially_copyable_v<T>)
+	void update_state(
+		const T& state,
+		unsigned offset = 0){
+		using namespace graphic::draw;
+
+		const fx::state_push_config config = state;
+		const binary_diff_trace::tag tag = state;
+
+		static constexpr auto crop = [](const T& obj) static -> auto {
+			if constexpr (std::invocable<T>){
+				return std::invoke(obj);
+			}else{
+				return obj;
+			}
+		};
+
+		using passed_type = std::invoke_result_t<decltype(crop)>;
+
+		if constexpr (std::is_empty_v<passed_type> || std::is_void_v<passed_type>){
+			if(config.type == instruction::state_push_type::idempotent){
+				state_trace_.push(tag, std::span<const std::byte>{}, offset);
+			}
+
+			this->update_state_(config, std::span<const std::byte>{}, tag, offset);
+		}else{
+			auto submit = [&]<typename Ty>(const Ty& s){
+				if(config.type == instruction::state_push_type::idempotent){
+					state_trace_.push(tag, std::span{reinterpret_cast<const std::byte*>(std::addressof(s)), sizeof(T)}, offset);
+				}
+
+				this->update_state_(config, std::span{reinterpret_cast<const std::byte*>(std::addressof(s)), sizeof(T)}, tag, offset);
+			};
+
+			if constexpr (std::invocable<T>){
+				const auto crop_val = std::invoke(crop, state);
+				submit(crop_val);
+			}else{
+				submit(state);
+			}
+		}
+		
+	}
+
 	template <typename Instr>
 	void update_state(
-		const graphic::draw::instruction::state_push_config& config,
+		const fx::state_push_config& config,
 		const Instr& instr,
 		binary_diff_trace::tag tag,
 		unsigned offset = 0){
@@ -375,9 +412,9 @@ public:
 	}
 
 	void set_blend_equation(const fx::blend_equation& equation, unsigned attachment_index){
-		this->update_state(graphic::draw::instruction::state_push_config{},
+		this->update_state(fx::state_push_config{},
 			equation,
-			graphic::draw::instruction::make_state_tag(fx::state_type::set_color_blend_equation, attachment_index));
+			fx::make_state_tag(fx::state_type::set_color_blend_equation, attachment_index));
 	}
 
 	void set_blend_equation(const fx::blend_equation& equation, fx::render_target_mask mask){
@@ -388,21 +425,21 @@ public:
 
 	template <fx::state_type_deducable T>
 	void update_state(const T& instr){
-		this->update_state(graphic::draw::instruction::state_push_config{
+		this->update_state(fx::state_push_config{
 			.type = fx::state_type_deduce<T>::is_idempotent ? graphic::draw::instruction::state_push_type::idempotent : graphic::draw::instruction::state_push_type::non_idempotent
-		}, instr, gui::make_state_tag(fx::state_type_deduce<T>::type));
+		}, instr, fx::make_state_tag(fx::state_type_deduce<T>::type));
 	}
 
 	template <fx::state_type_deducable T, typename MinorTag>
 		requires(fx::state_type_deduce<T>::requires_minor_tag)
 	void update_state(const T& instr, MinorTag minor_tag, unsigned offset = 0){
-		this->update_state(graphic::draw::instruction::state_push_config{
+		this->update_state(fx::state_push_config{
 			.type = fx::state_type_deduce<T>::is_idempotent ? graphic::draw::instruction::state_push_type::idempotent : graphic::draw::instruction::state_push_type::non_idempotent
-		}, instr, gui::make_state_tag(fx::state_type_deduce<T>::type, minor_tag), offset);
+		}, instr, fx::make_state_tag(fx::state_type_deduce<T>::type, minor_tag), offset);
 	}
 
 	void update_state(fx::batch_draw_mode mode){
-		this->update_state({}, mode, make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
+		this->update_state({}, mode, fx::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
 	}
 
 	void push(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
@@ -645,7 +682,7 @@ private:
 
 	void pop() const{
 		if(fix_.data){
-			renderer_->update_state_(graphic::draw::instruction::state_push_config{
+			renderer_->update_state_(fx::state_push_config{
 					.type = graphic::draw::instruction::state_push_type::idempotent
 				}, fix_.to_span(renderer_->state_trace_), tag_, fix_.logical_offset);
 			renderer_->state_trace_.store_tag(tag_, fix_);
@@ -658,7 +695,7 @@ public:
 	[[nodiscard]] state_guard(renderer_frontend& renderer,
 		const std::span<const std::byte> data, const graphic::draw::instruction::state_tag tag, unsigned offset = 0) :
 		guard_base(renderer), tag_(tag), fix_(renderer.state_trace_.load_tag(tag)){
-		renderer.update_state(graphic::draw::instruction::state_push_config{
+		renderer.update_state(fx::state_push_config{
 				.type = graphic::draw::instruction::state_push_type::idempotent
 			}, data, tag, offset);
 	}
@@ -676,16 +713,16 @@ public:
 	template <fx::state_type_deducable T, typename MinorTag>
 		requires(fx::state_type_deduce<T>::requires_minor_tag)
 	[[nodiscard]] state_guard(renderer_frontend& renderer, const T& value, MinorTag minor_tag, unsigned offset = 0) :
-		state_guard(renderer, value, gui::make_state_tag(fx::state_type_deduce<T>::type, minor_tag), offset){
+		state_guard(renderer, value, fx::make_state_tag(fx::state_type_deduce<T>::type, minor_tag), offset){
 	}
 
 	template <fx::state_type_deducable T>
 	[[nodiscard]] state_guard(renderer_frontend& renderer, const T& value, unsigned offset = 0) :
-		state_guard(renderer, value, gui::make_state_tag(fx::state_type_deduce<T>::type), offset){
+		state_guard(renderer, value, fx::make_state_tag(fx::state_type_deduce<T>::type), offset){
 	}
 
 
-	[[nodiscard]] state_guard(renderer_frontend& renderer, fx::batch_draw_mode mode) : state_guard(renderer, mode, make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)){
+	[[nodiscard]] state_guard(renderer_frontend& renderer, fx::batch_draw_mode mode) : state_guard(renderer, mode, fx::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)){
 	}
 
 

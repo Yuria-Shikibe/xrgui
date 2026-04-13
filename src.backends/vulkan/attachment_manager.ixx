@@ -24,13 +24,6 @@ export struct attachment_config{
 
 export struct draw_attachment_config{
 	attachment_config attachment{};
-	std::array<fx::blending_type, std::to_underlying(fx::blending_type::SIZE)> swizzle{
-			[]{
-				std::array<fx::blending_type, std::to_underlying(fx::blending_type::SIZE)> arr;
-				arr.fill(fx::blending_type::SIZE);
-				return arr;
-			}()
-		};
 };
 
 export struct draw_attachment_create_info{

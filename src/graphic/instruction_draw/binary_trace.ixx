@@ -1,4 +1,4 @@
-export module binary_trace;
+export module mo_yanxi.binary_trace;
 
 import std;
 

@@ -12,7 +12,7 @@ export module mo_yanxi.graphic.draw.instruction.general;
 import std;
 import mo_yanxi.meta_programming;
 import mo_yanxi.concepts;
-import binary_trace;
+import mo_yanxi.binary_trace;
 
 namespace mo_yanxi::graphic::draw::instruction{
 
@@ -436,9 +436,9 @@ export
 using state_tag = binary_diff_trace::tag;
 
 export
-template <typename L, typename R>
+template <typename L, typename R = std::uint32_t>
 	requires (sizeof(L) == sizeof(state_tag::major) && sizeof(R) == sizeof(state_tag::minor))
-FORCE_INLINE CONST_FN [[nodiscard]] constexpr state_tag make_state_tag(L major, R minor) noexcept {
+FORCE_INLINE CONST_FN [[nodiscard]] constexpr state_tag make_state_tag(L major, R minor = {}) noexcept {
 	return {std::bit_cast<decltype(state_tag::major)>(major), std::bit_cast<decltype(state_tag::minor)>(minor)};
 }
 

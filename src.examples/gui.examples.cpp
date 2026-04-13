@@ -9,7 +9,7 @@ import mo_yanxi.gui.elem.button;
 
 import std;
 
-import binary_trace;
+import mo_yanxi.binary_trace;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.group;

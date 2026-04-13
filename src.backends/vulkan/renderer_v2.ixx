@@ -74,6 +74,9 @@ export struct renderer{
 
 	/** 命令录制上下文：作为 renderer 的内部结构体，拥有访问外部私有成员的权限 */
 	struct command_recording_context{
+		std::vector<std::uint32_t> cache_input_attachment_indices;
+
+
 		// --- 缓存与持久化追踪状态 ---
 		std::vector<std::uint8_t> attachment_enter_mark;
 		graphic::draw::record_context<> descriptor_context;
@@ -166,30 +169,26 @@ export struct renderer{
 			vkCmdExecuteCommands(cmd, 1, r.blit_attachment_clear_and_init_command_buffer.as_data());
 			const auto section_count = r.batch_host.get_submit_sections_count();
 			if(r.batch_host.get_valid_submit_groups().empty()) return;
+			if(r.batch_device.is_frame_empty()) return;
 
-			// [新增] 0. 执行 Compute Shader 解析指令 (生成 VBO, IBO, PrimitiveData 等)
-			if(!r.batch_device.is_frame_empty()){
-				// 绑定计算管线
+			{
 				r.resolver_pipeline_.bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
 
-				// 绑定描述符缓冲 (载入 set 0 与 set 1)
 				descriptor_context.clear();
 				r.batch_device.load_cs_descriptors(descriptor_context, r.current_frame_index_);
 				descriptor_context.prepare_bindings();
 				descriptor_context(r.resolver_pipeline_layout_, cmd, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
 
-				// 发起分发
 				r.batch_device.cmd_compute_resolve(cmd, r.current_frame_index_);
 
-				// 插入同步屏障，确保 Compute Shader 的写入对 Vertex Attribute、Index 读取及 Indirect Draw 读取可见
-				const VkMemoryBarrier2 memory_barrier{
+				static constexpr VkMemoryBarrier2 memory_barrier{
 					.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
 					.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 					.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 					.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
 					.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT | VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
 				};
-				const VkDependencyInfo dep_info{
+				static constexpr VkDependencyInfo dep_info{
 					.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
 					.memoryBarrierCount = 1,
 					.pMemoryBarriers = &memory_barrier
@@ -250,7 +249,7 @@ export struct renderer{
 
 					r.attachment_manager_.configure_dynamic_rendering<32>(
 						rendering_config,
-						draw_cfg.draw_targets.none() ? pipe_opt.default_target_attachments : draw_cfg.draw_targets,
+						get_render_target(draw_cfg, pipe_opt),
 						is_msaa
 					);
 
@@ -264,7 +263,21 @@ export struct renderer{
 						attachment_enter_mark[idx] = true;
 					});
 
-					rendering_config.begin_rendering(cmd, r.attachment_manager_.get_screen_area());
+					cache_input_attachment_indices.clear();
+					pipe_opt.input_attachments_mask.for_each_popbit([&](const unsigned b){
+						cache_input_attachment_indices.push_back(b);
+					});
+
+					VkRenderingInputAttachmentIndexInfoKHR inputInfo;
+					if(!cache_input_attachment_indices.empty()){
+						inputInfo = {
+							.sType = VK_STRUCTURE_TYPE_RENDERING_INPUT_ATTACHMENT_INDEX_INFO_KHR,
+							.colorAttachmentCount = static_cast<std::uint32_t>(cache_input_attachment_indices.size()),
+							.pColorAttachmentInputIndices = cache_input_attachment_indices.data(),
+						};
+					}
+
+					rendering_config.begin_rendering(cmd, r.attachment_manager_.get_screen_area(), 0, cache_input_attachment_indices.empty() ? nullptr : &inputInfo);
 					is_rendering = true;
 					current_pass_mask = target_mask;
 					current_pass_msaa = is_msaa;
@@ -448,7 +461,7 @@ export struct renderer{
 				break;
 
 			}
-			case state_type::fill_color :{
+			case state_type::fill_color_local :{
 				auto mask = make_render_target_mask(cur_pipe.option, draw_cfg, entry.tag.minor);
 				cache_clear_attachments_.clear();
 				cache_clear_rects_.clear();
@@ -474,13 +487,25 @@ export struct renderer{
 							.layerCount = 1
 						};
 
-					vkCmdClearAttachments(buffer, cache_clear_attachments_.size(), cache_clear_attachments_.data(), 1,
-						&rect);
+					vkCmdClearAttachments(buffer, cache_clear_attachments_.size(), cache_clear_attachments_.data(), 1,&rect);
 				} else{
 					throw std::runtime_error{"not impl"};
 					//TODO
 				}
 
+				break;
+			}
+			case state_type::fill_color_other_lazy :{
+				render_target_mask mask{entry.tag.minor};
+
+				mask.for_each_popbit([&](unsigned i){
+					if(i < attachment_enter_mark.size()){
+						// 重置 enter_mark。
+						// 下一次渲染通道切换并包含此附件时，
+						// attachment_enter_mark[idx] 为 false，自然会使用 VK_ATTACHMENT_LOAD_OP_CLEAR
+						attachment_enter_mark[i] = 0;
+					}
+				});
 				break;
 			}
 			default : break;
