@@ -317,6 +317,12 @@ private:
 	}
 
 public:
+	constexpr void clear_mask(const std::bitset<32>& mask) noexcept {
+		if (mask.none()) return;
+		std::erase_if(records_, [&](const record& rec) {
+			return mask.test(rec.tag.major);
+		});
+	}
 
 	constexpr void reserve(std::size_t total_bytes, std::size_t record_count){
 		record_data_.reserve(total_bytes);

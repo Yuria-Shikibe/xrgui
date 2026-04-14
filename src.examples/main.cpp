@@ -143,13 +143,13 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 					.attachment_draw_config = {
 						{
 							draw_attachment_config{
-								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT}
+								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT}
 							},
 							draw_attachment_config{
-								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT}
+								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT}
 							},
 							draw_attachment_config{
-								.attachment = {VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT}
+								.attachment = {VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT}
 							},
 						},
 						// VK_SAMPLE_COUNT_4_BIT
@@ -244,8 +244,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{
-											{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
-											{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+											{0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
+											{1, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
 										},
 										{
 											{2, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
@@ -260,7 +260,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{
-											{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+											{0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
 										},
 										{
 											{1, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
@@ -274,7 +274,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{
-											{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+											{0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
 										},
 										{
 											{1, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
@@ -286,7 +286,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 						{
 							compute_pipeline_blit_inout_config{
 								{
-									{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
+									{0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
 								},
 								{
 									{1, 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},

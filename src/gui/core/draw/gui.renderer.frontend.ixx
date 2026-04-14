@@ -344,6 +344,11 @@ public:
 		unsigned offset = 0){
 		using namespace graphic::draw;
 
+		// 新增：如果 config 中存在需要清理的掩码，同步清理 state_trace_ 中的继承项
+		if(config.to_clear.any()){
+			state_trace_.clear_mask(config.to_clear);
+		}
+
 		if(config.type == instruction::state_push_type::idempotent){
 			state_trace_.push(tag, data_span, offset);
 		}
@@ -371,6 +376,10 @@ public:
 		using passed_type = decltype(crop())::type;
 
 		if constexpr (std::is_empty_v<passed_type> || std::is_void_v<passed_type>){
+			if(config.to_clear.any()){
+				state_trace_.clear_mask(config.to_clear);
+			}
+
 			if(config.type == instruction::state_push_type::idempotent){
 				state_trace_.push(tag, std::span<const std::byte>{}, offset);
 			}
@@ -378,6 +387,10 @@ public:
 			this->update_state_(config, std::span<const std::byte>{}, tag, offset);
 		}else{
 			auto submit = [&]<typename Ty>(const Ty& s){
+				if(config.to_clear.any()){
+					state_trace_.clear_mask(config.to_clear);
+				}
+
 				if(config.type == instruction::state_push_type::idempotent){
 					state_trace_.push(tag, std::span{reinterpret_cast<const std::byte*>(std::addressof(s)), sizeof(T)}, offset);
 				}

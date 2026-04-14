@@ -4,9 +4,10 @@ import os
 import subprocess
 import sys
 import hashlib
+import threading
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any, Union
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import multiprocessing
 
 # 兼容 Python 3.11+ 的内置 tomllib 和旧版本的 tomli
@@ -21,9 +22,10 @@ except ImportError:
         sys.exit(1)
 
 # ==========================================
-# 性能优化：全局文件哈希缓存
+# 性能优化：全局文件哈希缓存及线程锁
 # ==========================================
 _FILE_HASH_CACHE: Dict[str, str] = {}
+_CACHE_LOCK = threading.Lock()
 
 def flatten_options(options: Union[List[str], Dict[str, Any]]) -> List[str]:
     """将混合了纯选项和 KV 的配置展平为 subprocess 可用的列表"""
@@ -48,20 +50,25 @@ def flatten_options(options: Union[List[str], Dict[str, Any]]) -> List[str]:
     return result
 
 def get_file_hash(filepath: Union[str, Path]) -> str:
-    """计算单个文件的 SHA-256 哈希值，并带有内存缓存以消除重复 I/O"""
-    path = Path(filepath).resolve()
-    path_str = str(path)
-    
-    # 如果当前运行期间已经计算过该文件的 Hash，直接返回极速缓存
-    if path_str in _FILE_HASH_CACHE:
-        return _FILE_HASH_CACHE[path_str]
+    """计算单个文件的 SHA-256 哈希值，并带有线程安全的内存缓存"""
+    # 优化：使用 os.path.normpath 和 abspath 替代慢速的 Path.resolve()
+    path_str = os.path.normpath(os.path.abspath(filepath))
 
-    if not path.is_file():
+    # 检查缓存（加锁）
+    with _CACHE_LOCK:
+        if path_str in _FILE_HASH_CACHE:
+            return _FILE_HASH_CACHE[path_str]
+
+    if not os.path.isfile(path_str):
         return ""
-        
+
     try:
-        h = hashlib.sha256(path.read_bytes()).hexdigest()
-        _FILE_HASH_CACHE[path_str] = h
+        with open(path_str, 'rb') as f:
+            h = hashlib.sha256(f.read()).hexdigest()
+
+        # 写入缓存（加锁）
+        with _CACHE_LOCK:
+            _FILE_HASH_CACHE[path_str] = h
         return h
     except Exception:
         return ""
@@ -73,22 +80,23 @@ def parse_depfile(depfile_path: Path) -> List[str]:
     try:
         content = depfile_path.read_text(encoding='utf-8')
         content = content.replace('\\\n', ' ')
-        
+
         parts = content.split(':', 1)
         if len(parts) < 2:
             return []
-            
+
         deps_str = parts[1]
         deps_str = deps_str.replace('\\ ', '\x00')
         tokens = deps_str.split()
-        
+
         deps = []
         for token in tokens:
             token = token.replace('\x00', ' ')
-            p = Path(token).resolve()
-            if p.is_file():
-                deps.append(str(p))
-                
+            # 优化：剥离 Path 对象的创建和 resolve，使用原生 os.path
+            p_str = os.path.normpath(os.path.abspath(token))
+            if os.path.isfile(p_str):
+                deps.append(p_str)
+
         return sorted(list(set(deps)))
     except Exception as e:
         print(f"⚠ 解析依赖文件失败 {depfile_path}: {e}")
@@ -102,8 +110,8 @@ def get_deps_hash(dep_files: List[str]) -> str:
         file_hash = get_file_hash(fpath)
         if not file_hash:
             # 依赖文件丢失，强制返回空值以触发重编
-            return "" 
-        
+            return ""
+
         # 只 Hash 字符串签名，而不是把几百MB的原始文件流全塞进去
         hasher.update(file_hash.encode('utf-8'))
     return hasher.hexdigest()
@@ -219,6 +227,31 @@ def compile_shader(
         print(f"\n✗ 编译过程中发生异常: {e}")
         return False, str(e)
 
+def compile_and_hash_task(slangc_path: str, task: dict, show_cmds: bool) -> Tuple[bool, str, dict, Optional[List[str]], Optional[str]]:
+    """子线程工作任务：包含编译自身以及后置的重度 I/O 和 Hash 计算"""
+    success, msg = compile_shader(
+        slangc_path,
+        task['output'],
+        task['alias'],
+        task['input'],
+        task['options'],
+        show_cmds
+    )
+
+    if not success:
+        return False, msg, task, None, None
+
+    # 将重度 I/O 和计算留在子线程执行，避免阻塞主线程合并
+    depfile_path = Path(task['depfile'])
+    new_deps = parse_depfile(depfile_path)
+
+    if not new_deps:
+        new_deps = [os.path.normpath(os.path.abspath(task['input']))]
+
+    deps_hash = get_deps_hash(new_deps)
+
+    return True, msg, task, new_deps, deps_hash
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='SLANG着色器批量编译工具 (极速增量版)')
     parser.add_argument('slangc_path', help='slangc编译器路径')
@@ -239,7 +272,7 @@ def main() -> None:
     config_file = Path(args.config_file).absolute()
 
     print("=" * 60)
-    print("SLANG 着色器批量编译工具 (TOML极速增量验证版)")
+    print("SLANG 着色器批量编译工具 (TOML极速增量验证版 - 多线程优化)")
     print("=" * 60)
     print(f"编译器路径: {slangc_path}")
     print(f"输出目录: {output_dir}")
@@ -321,22 +354,22 @@ def main() -> None:
         # 检查是否可以跳过编译
         cached_data = build_cache.get(shader_alias, {})
         cached_deps = cached_data.get('deps', [])
-        
+
         can_skip = False
         if output_file_path.exists() and cached_deps:
-            # 现在的 get_deps_hash 会利用内存缓存，速度极快
+            # 此时的 get_deps_hash 会利用内存缓存，速度极快
             current_deps_hash = get_deps_hash(cached_deps)
-            
+
             if (main_file_hash == cached_data.get('main_file_hash')) and \
-               (current_deps_hash and current_deps_hash == cached_data.get('deps_hash')) and \
-               (opts_hash == cached_data.get('options_hash')):
+                    (current_deps_hash and current_deps_hash == cached_data.get('deps_hash')) and \
+                    (opts_hash == cached_data.get('options_hash')):
                 can_skip = True
 
         if can_skip:
             print(f"⏭️ 增量跳过: {shader_alias} (主文件与依赖树未修改)")
             success_count += 1
             skip_count += 1
-            new_cache[shader_alias] = cached_data 
+            new_cache[shader_alias] = cached_data
         else:
             if dep_file_path.exists():
                 try:
@@ -356,51 +389,42 @@ def main() -> None:
                 'main_file_hash': main_file_hash
             })
 
-    # 多进程执行实际的编译任务
     if tasks_to_run:
         actual_jobs = min(args.jobs, len(tasks_to_run))
-        print(f"\n共 {len(tasks_to_run)} 个任务需要编译，使用 {actual_jobs} 个并行进程...")
-        
-        with ProcessPoolExecutor(max_workers=actual_jobs) as executor:
+        print(f"\n共 {len(tasks_to_run)} 个任务需要编译，使用 {actual_jobs} 个并行进程/线程...")
+
+        with ThreadPoolExecutor(max_workers=actual_jobs) as executor:
             futures = {}
             for task in tasks_to_run:
+                # 提交全新的包装函数，将后处理任务也放入子线程
                 future = executor.submit(
-                    compile_shader,
+                    compile_and_hash_task,
                     str(slangc_path),
-                    task['output'],
-                    task['alias'],
-                    task['input'],
-                    task['options'],
-                    args.show_cmds  
+                    task,
+                    args.show_cmds
                 )
                 futures[future] = task
 
+            # 主线程此时只需极速合并结果字典
             for future in as_completed(futures):
-                task = futures[future]
                 try:
-                    success, message = future.result()
+                    success, message, task_info, new_deps, deps_hash = future.result()
                     if success:
                         success_count += 1
-                        
-                        depfile_path = Path(task['depfile'])
-                        new_deps = parse_depfile(depfile_path)
-                        
-                        if not new_deps:
-                            new_deps = [str(Path(task['input']).resolve())]
-                            
-                        # 由于刚刚编译完，此时产生的 hash 可能还没有缓存，或者文件改变了
-                        # 计算全新依赖树的 Hash，记录入库
-                        deps_hash = get_deps_hash(new_deps)
-                        new_cache[task['alias']] = {
-                            'main_file_hash': task['main_file_hash'],
+
+                        # 直接写入缓存，零计算成本
+                        new_cache[task_info['alias']] = {
+                            'main_file_hash': task_info['main_file_hash'],
                             'deps': new_deps,
                             'deps_hash': deps_hash,
-                            'options_hash': task['opts_hash']
+                            'options_hash': task_info['opts_hash']
                         }
                     else:
                         fail_count += 1
                 except Exception as e:
-                    print(f"✗ 运行编译任务 '{task['alias']}' 时发生意外错误: {e}")
+                    # 获取当前报错的 task，以防在解包未来结果之前就抛出了异常
+                    failed_task = futures[future]
+                    print(f"✗ 运行编译任务 '{failed_task['alias']}' 时发生意外错误: {e}")
                     fail_count += 1
 
     # 保存新的缓存

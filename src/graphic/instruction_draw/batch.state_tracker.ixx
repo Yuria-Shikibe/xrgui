@@ -39,6 +39,15 @@ public:
         storage_.reserve(4096);
     }
 
+	template <std::size_t N>
+	void clear_mask(const std::bitset<N>& mask) noexcept {
+    	if (mask.none()) return;
+        
+    	std::erase_if(records_, [&](const state_record& rec) {
+			return mask.test(rec.tag.major);
+		});
+    }
+
     /**
      * @brief 扁平化的高速状态更新
      */

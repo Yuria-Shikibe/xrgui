@@ -466,10 +466,7 @@ struct vp : gui::viewport{
 			s.viewport_begin();
 
 			{
-				s.renderer().update_state(fx::pipeline_config{
-					.draw_targets = {0b1},
-					.pipeline_index = 2
-				});
+				s.renderer().update_state(fx::pipeline_config{.pipeline_index = 2});
 
 				auto region = s.camera.get_viewport();
 
@@ -478,10 +475,8 @@ struct vp : gui::viewport{
 					.v11 = region.vert_11(),
 					.vert_color = {graphic::colors::white}
 				};
-				s.renderer().update_state(fx::pipeline_config{
-									.draw_targets = {0b1},
-									.pipeline_index = 0
-								});
+				s.renderer().update_state(fx::pipeline_config{.pipeline_index = 0});
+				s.renderer().update_state(fx::push_constant{0U});
 			}
 
 			s.draw_system();
@@ -688,11 +683,7 @@ void example_scene::draw_at(math::frect clipspace, draw_call_stack& call_stack){
 
 	for(unsigned i = 0; i < cfg.size(); ++i){
 		renderer().update_state(cfg[i].begin_config);
-
-		renderer().update_state({},
-								fx::batch_draw_mode::def,
-								graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
-		);
+		renderer().update_state(fx::push_constant{fx::batch_draw_mode::def});
 
 		call_stack.each({
 			.current_subject = this,
@@ -772,10 +763,7 @@ void example_scene::draw_impl(rect clip){
 			.pipeline_index = 1
 		});
 
-		renderer().update_state(
-			{}, 1.f,
-			graphic::draw::instruction::make_state_tag(fx::state_type::push_constant, 0x00000010)
-		);
+		renderer().update_state(fx::push_constant{1.f});
 
 		auto region = current_cursor_drawers_.draw(static_cast<scene&>(*this), resources_->cursor_collection_manager.get_cursor_size());
 

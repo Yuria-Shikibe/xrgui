@@ -24,12 +24,13 @@ void main_loop::main_loop_exec(){
 
 	r.init_projection();
 
-	r.update_state(fx::pipeline_config{});
+
+	r.update_state(r.get_full_screen_scissor());
+	r.update_state(r.get_full_screen_viewport());
+	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
 	r.update_state(fx::batch_draw_mode::def);
 	r.update_state(fx::blend::pma::standard);
 	r.update_state(fx::make_blend_write_mask(true), 0);
-	r.update_state(r.get_full_screen_scissor());
-	r.update_state(r.get_full_screen_viewport());
 
 	if(true){
 		using namespace graphic::draw::instruction;
@@ -141,10 +142,7 @@ void main_loop::main_loop_exec(){
 			});
 
 		{
-			r.update_state(fx::pipeline_config{
-				.pipeline_index = gpip_idx::mask_draw
-			});
-
+			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_draw});
 			r.update_state(fx::batch_draw_mode::msdf);
 
 			r << fx::nine_patch_draw_vert_color{
@@ -156,7 +154,7 @@ void main_loop::main_loop_exec(){
 			};
 
 			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_apply});
-			r.update_state(fx::set_mask_mode{fx::mask_mode::inv}, 4);
+			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_mode::inv});
 
 			r << fx::circle{
 				.pos = {current_focus.get_cursor_pos()},
@@ -176,9 +174,9 @@ void main_loop::main_loop_exec(){
 				});
 			r.update_state(fx::state_fill_color_other_lazy{{0b100}});
 
-			r.update_state(fx::pipeline_config{
-				.pipeline_index = gpip_idx::def
-			});
+			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
+			r.update_state(fx::batch_draw_mode::def);
+
 		}
 
 		{
@@ -292,7 +290,7 @@ void main_loop::main_loop_exec(){
 	}
 
 
-	// current_focus.draw();
+	current_focus.draw();
 	renderer.batch_host.end_rendering();
 	renderer.upload();
 	renderer.create_command();

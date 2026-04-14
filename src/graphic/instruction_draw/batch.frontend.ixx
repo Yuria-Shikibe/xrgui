@@ -13,7 +13,7 @@ export module mo_yanxi.graphic.draw.instruction.batch.frontend;
 export import mo_yanxi.graphic.draw.instruction.batch.common;
 export import mo_yanxi.graphic.draw.instruction.general;
 export import mo_yanxi.graphic.draw.instruction.state_tracker;
-export import mo_yanxi.graphic.draw.instruction.util;
+export import mo_yanxi.vk.record_context;
 export import mo_yanxi.graphic.draw.instruction;
 export import mo_yanxi.user_data_entry;
 
@@ -392,6 +392,10 @@ public:
 	 * @param offset 数据偏移
 	 */
 	void push_state(state_push_config config, tag_type tag, std::span<const std::byte> payload, unsigned offset = 0){
+		if (config.to_clear.any()) {
+			tracker_.clear_mask(config.to_clear);
+		}
+
 		switch(config.type){
 		case state_push_type::idempotent : tracker_.update(tag, payload, offset);
 			break;

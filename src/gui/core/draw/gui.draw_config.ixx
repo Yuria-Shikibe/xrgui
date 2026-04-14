@@ -261,6 +261,30 @@ struct state_fill_color_other_lazy{
 };
 
 export
+constexpr inline std::uint32_t use_default_pipeline = std::numeric_limits<std::uint32_t>::max();
+
+export
+struct pipeline_config{
+	render_target_mask draw_targets{};
+	std::uint32_t pipeline_index{use_default_pipeline};
+
+	constexpr bool use_fallback_pipeline() const noexcept{
+		return pipeline_index == use_default_pipeline;
+	}
+
+	explicit(false) operator state_push_config() const noexcept{
+		state_push_config cfg{state_push_type::idempotent};
+		cfg.to_clear.set(std::to_underlying(state_type::push_constant));
+		return cfg;
+	}
+
+	explicit(false) operator binary_diff_tag() const noexcept{
+		return make_state_tag(state_type::pipe, 0);
+	}
+};
+
+
+export
 struct set_mask_mode{
 	mask_mode mode;
 
@@ -272,6 +296,34 @@ struct set_mask_mode{
 		return make_state_tag(state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT);
 	}
 };
+
+template <typename T>
+struct wrap{
+	T t;
+};
+
+template <typename T>
+using wrap_t = std::conditional_t<std::is_class_v<T> && !std::is_final_v<T>, T, wrap<T>>;
+
+export
+template <typename ...T>
+	requires (std::is_trivially_copyable_v<T> && ...)
+struct push_constant : wrap_t<T> ...{
+
+	template <typename ...Ts>
+	explicit(false) push_constant(Ts&&... ts) : wrap_t<T>(std::forward<Ts>(ts)) ... {}
+
+	explicit(false) operator state_push_config() const noexcept{
+		return {state_push_type::idempotent};
+	}
+
+	explicit(false) operator binary_diff_tag() const noexcept{
+		return make_state_tag(state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT);
+	}
+};
+
+template <typename ...T>
+push_constant(T&& ...) -> push_constant<std::decay_t<T&&>...>;
 
 template <state_type StateType, bool RequiresMinorTag = false, bool IsIdempotent = true>
 struct state_type_deduce_base{
@@ -299,18 +351,6 @@ enum struct batch_draw_mode : std::uint32_t{
 };
 
 
-export
-constexpr inline std::uint32_t use_default_pipeline = std::numeric_limits<std::uint32_t>::max();
-
-export
-struct pipeline_config{
-	render_target_mask draw_targets{};
-	std::uint32_t pipeline_index{use_default_pipeline};
-
-	constexpr bool use_fallback_pipeline() const noexcept{
-		return pipeline_index == use_default_pipeline;
-	}
-};
 
 export
 enum struct primitive_draw_mode : std::uint32_t{
@@ -589,10 +629,6 @@ struct state_type_deduce<viewport> : state_type_deduce_base<state_type::set_view
 
 template <>
 struct state_type_deduce<blit_config> : state_type_deduce_base<state_type::blit, false, false>{
-};
-
-template <>
-struct state_type_deduce<pipeline_config> : state_type_deduce_base<state_type::pipe>{
 };
 
 template <>

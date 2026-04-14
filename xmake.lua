@@ -120,7 +120,7 @@ target("xrgui.example")
         target:add("includedirs", my_res_inc)
     end)
 
-    before_build(function (target)
+    on_config(function (target)
         import("core.project.config")
         import("utils.binary.bin2c")
 

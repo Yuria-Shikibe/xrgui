@@ -4,7 +4,7 @@ import post_process_lib;
 uint2 offset;
 
 [[vk::binding(0, 0)]]
-restrict readonly RWTexture2D input;
+restrict readonly Texture2D input;
 
 [[vk::binding(1, 0)]]
 restrict RWTexture2D output;
@@ -39,7 +39,7 @@ void main(
 ) {
     let pos = dispatchThreadID.xy + offset;
 
-    var sourceColor = input.Load(pos);
+    var sourceColor = input.Load(int3(pos, 0));
     let targetColor = output.Load(pos);
 
     output.Store(pos, ApplyMaskEffect(targetColor, sourceColor.a));

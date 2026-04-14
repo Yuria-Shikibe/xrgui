@@ -212,6 +212,7 @@ enum struct state_push_type{
 export
 struct state_push_config{
 	state_push_type type;
+	std::bitset<32> to_clear;
 };
 
 

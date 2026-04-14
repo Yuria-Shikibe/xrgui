@@ -4,10 +4,10 @@ import post_process_lib;
 uint2 offset;
 
 [[vk::binding(0, 0)]]
-restrict readonly RWTexture2D input_base;
+restrict readonly Texture2D input_base;
 
 [[vk::binding(1, 0)]]
-restrict readonly RWTexture2D input_back;
+restrict readonly Texture2D input_back;
 
 [[vk::binding(2, 0)]]
 restrict RWTexture2D output_base;
@@ -23,8 +23,8 @@ void main(
     let pos = dispatchThreadID.xy + offset;
 
 
-    let color_base_src = input_base.Load(pos);
-    let color_back_src = input_back.Load(pos);
+    let color_base_src = input_base.Load(int3(pos, 0));
+    let color_back_src = input_back.Load(int3(pos, 0));
 
     let color_base_dst = output_base.Load(pos);
     let color_back_dst = output_back.Load(pos);

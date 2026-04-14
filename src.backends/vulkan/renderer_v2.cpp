@@ -6,6 +6,8 @@ module mo_yanxi.backend.vulkan.renderer;
 
 namespace mo_yanxi::backend::vulkan{
 void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cmd){
+	cache_descriptor_context_.reset_binding_state();
+
 	vkCmdExecuteCommands(cmd, 1, r.blit_attachment_clear_and_init_command_buffer.as_data());
 	const auto section_count = r.batch_host.get_submit_sections_count();
 	if(r.batch_host.get_valid_submit_groups().empty()) return;
@@ -39,6 +41,10 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 
 	cache_graphic_context_.reset();
 	gui::fx::pipeline_config draw_cfg{.pipeline_index = 0};
+
+	const auto& initial_pipe_opt = r.draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index].option;
+	cache_graphic_context_.update_pipeline(draw_cfg.pipeline_index, initial_pipe_opt);
+
 	bool is_rendering = false;
 	gui::fx::render_target_mask current_pass_mask{};
 	bool current_pass_msaa = false;
@@ -226,8 +232,17 @@ bool renderer::command_recording_context::process_breakpoints_(renderer& r, brea
 		auto param = params.entry.as<pipeline_config>();
 
 		if(param.use_fallback_pipeline()) param.pipeline_index = params.draw_cfg.pipeline_index;
+
+		if(!param.draw_targets.any()){
+			param.draw_targets = params.draw_cfg.draw_targets;
+		}
+
 		params.draw_cfg = param;
-		params.context_trace.update_pipeline(params.draw_cfg.pipeline_index);
+
+		// 获取新的管线选项并更新 CPU 侧追踪状态
+		const auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index].option;
+		params.context_trace.update_pipeline(params.draw_cfg.pipeline_index, pipe_opt);
+
 		return false;
 	}
 	case state_type::push_constant :{

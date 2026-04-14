@@ -92,10 +92,29 @@ struct graphics_context_trace {
 	bool pipeline_just_changed = false;
 	bool requires_rebind = false;
 
-    void update_pipeline(std::size_t index) noexcept {
-        pending_state.pipeline_index = index;
-        dirty_flags |= DIRTY_PIPELINE;
-    }
+	// 注意：增加了一个参数来接收管线选项
+	void update_pipeline(std::size_t index, const graphic_pipeline_option& option) noexcept {
+		if (pending_state.pipeline_index == index) return;
+
+		pending_state.pipeline_index = index;
+		dirty_flags |= DIRTY_PIPELINE;
+
+		// 立即继承管线默认混合状态，防止在 apply 时覆盖用户的自定义断点状态
+		if (option.blend_state.dynamic_blending_enable_states) {
+			pending_state.blend_enables.assign_range(option.blend_state.default_blending_settings | std::views::transform(get_blend_enable_from_state));
+			dirty_flags |= DIRTY_BLEND_ENABLE;
+		}
+
+		if (option.blend_state.dynamic_blending_equation_states) {
+			pending_state.blend_equations.assign_range(option.blend_state.default_blending_settings | std::views::transform(get_blend_equation_from_state));
+			dirty_flags |= DIRTY_BLEND_EQUATION;
+		}
+
+		if (option.blend_state.dynamic_blending_write_flag_states) {
+			pending_state.blend_write_flags.assign_range(option.blend_state.default_blending_settings | std::views::transform(get_component_flags_from_state));
+			dirty_flags |= DIRTY_BLEND_WRITE;
+		}
+	}
 
     void set_viewport(const VkRect2D& area) noexcept {
         // 这里的转换逻辑假设 VkRect2D 转 Viewport (全覆盖)
@@ -195,31 +214,18 @@ struct graphics_context_trace {
     	}
     }
 
-    void apply(VkCommandBuffer cmd, graphic_pipeline_manager& pipeline_manager) {
-    	auto& pipe_data = pipeline_manager.get_pipelines()[pending_state.pipeline_index];
+	void apply(VkCommandBuffer cmd, graphic_pipeline_manager& pipeline_manager) {
+		auto& pipe_data = pipeline_manager.get_pipelines()[pending_state.pipeline_index];
 
-        // 1. 检查管线是否必须变更
-    	if ((dirty_flags & DIRTY_PIPELINE) && (pending_state.pipeline_index != current_state.pipeline_index)) {
-            pipe_data.pipeline.bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+		// 1. 检查管线是否必须变更
+		if ((dirty_flags & DIRTY_PIPELINE) && (pending_state.pipeline_index != current_state.pipeline_index)) {
+			pipe_data.pipeline.bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-            current_state.pipeline_index = pending_state.pipeline_index;
-            pipeline_just_changed = true;
-
-    		//set default blend states, inherit scissor and viewports
-    		if (pipe_data.option.blend_state.dynamic_blending_enable_states) {
-    			pending_state.blend_enables.assign_range(pipe_data.option.blend_state.default_blending_settings | std::views::transform(get_blend_enable_from_state));
-    		}
-
-    		if (pipe_data.option.blend_state.dynamic_blending_equation_states) {
-    			pending_state.blend_equations.assign_range(pipe_data.option.blend_state.default_blending_settings | std::views::transform(get_blend_equation_from_state));
-    		}
-
-    		if (pipe_data.option.blend_state.dynamic_blending_write_flag_states) {
-    			pending_state.blend_write_flags.assign_range(pipe_data.option.blend_state.default_blending_settings | std::views::transform(get_component_flags_from_state));
-    		}
-
-    		current_state = pending_state;
-    	}
+			current_state.pipeline_index = pending_state.pipeline_index;
+			pipeline_just_changed = true;
+			
+			current_state = pending_state;
+		}
 
         // 辅助 lambda：判断是否需要录制指令 (Dirty 且 (强制刷新 或 内容确实改变))
         const auto should_emit = [&]<typename T>(std::uint32_t flag_bit, T dynamic_state_packet::* mptr) -> bool {
