@@ -101,7 +101,7 @@ public:
 					vk::image{
 						allocator_,
 						{extent.width, extent.height, 1},
-						VK_IMAGE_USAGE_STORAGE_BIT |
+
 						VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | cfg.attachment.usage,
 						cfg.attachment.format
 					},
@@ -197,56 +197,70 @@ public:
 	}
 
 	// 辅助生成 Dynamic Rendering 信息
-	template <std::size_t N>
-	void configure_dynamic_rendering(
-		vk::dynamic_rendering& target,
-		std::bitset<N> use_mask,
-		bool use_multisample_target,
-		VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-		VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_STORE) const{
-		target.clear_color_attachments();
-		const bool enables_multisample_ = use_multisample_target && enables_multisample();
-		if(use_mask.any() && !use_mask.all()){
-			if(use_mask.size() < attachments_.size()){
-				throw std::out_of_range("mask cannot cover attachments");
-			}
+template <std::size_t N>
+void configure_dynamic_rendering(
+    vk::dynamic_rendering& target,
+    std::bitset<N> use_mask,
+    std::bitset<N> input_mask, // 新增：指示哪些绝对槽位被用作 Input Attachment
+    bool use_multisample_target,
+    VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+    VkAttachmentStoreOp storeOp = VK_ATTACHMENT_STORE_OP_STORE) const{
 
-			if(enables_multisample_){
-				for(const auto& [idx, attac, multi] : std::views::zip(std::views::iota(0uz), get_draw_attachments(), get_multisample_attachments())){
-					if(!use_mask[idx]) continue;
+    target.clear_color_attachments();
+    const bool enables_multisample_ = use_multisample_target && enables_multisample();
 
-					target.push_color_attachment(
-						multi.get_image_view(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-						loadOp, storeOp,
-						attac.get_image_view(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-					);
-				}
-			} else{
-				for(const auto& [idx, attac] : get_draw_attachments() | std::views::enumerate){
-					if(!use_mask[idx]) continue;
+    if(use_mask.any() && !use_mask.all()){
+       if(use_mask.size() < attachments_.size()){
+          throw std::out_of_range("mask cannot cover attachments");
+       }
 
-					target.push_color_attachment(
-						attac.get_image_view(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-						loadOp, storeOp);
-				}
-			}
-		} else{
-			if(enables_multisample_){
-				for(const auto& [attac, multi] : std::views::zip(get_draw_attachments(), get_multisample_attachments())){
-					target.push_color_attachment(
-						multi.get_image_view(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-						loadOp, storeOp,
-						attac.get_image_view(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-					);
-				}
-			} else{
-				for(const auto& attac : get_draw_attachments()){
-					target.push_color_attachment(
-						attac.get_image_view(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-						loadOp, storeOp);
-				}
-			}
-		}
-	}
+       if(enables_multisample_){
+          for(const auto& [idx, attac, multi] : std::views::zip(std::views::iota(0uz), get_draw_attachments(), get_multisample_attachments())){
+             if(!use_mask[idx]) continue;
+
+          	bool isInput = input_mask[idx];
+             // 根据 input_mask 决定布局
+             VkImageLayout current_layout = isInput ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+             target.push_color_attachment(
+                multi.get_image_view(), current_layout,
+                loadOp, !isInput ? storeOp : VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                attac.get_image_view(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL // Resolve 目标保持 Optimal 即可
+             );
+          }
+       } else{
+          for(const auto& [idx, attac] : get_draw_attachments() | std::views::enumerate){
+             if(!use_mask[idx]) continue;
+          	bool isInput = input_mask[idx];
+             VkImageLayout current_layout = isInput ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+             target.push_color_attachment(
+                attac.get_image_view(), current_layout,
+                loadOp, !isInput ? storeOp : VK_ATTACHMENT_STORE_OP_DONT_CARE);
+          }
+       }
+    } else{
+       // 原 else 分支缺少索引获取机制，这里补充 std::views::iota 和 enumerate 以便查询 input_mask
+       if(enables_multisample_){
+          for(const auto& [idx, attac, multi] : std::views::zip(std::views::iota(0uz), get_draw_attachments(), get_multisample_attachments())){
+             VkImageLayout current_layout = input_mask[idx] ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+             target.push_color_attachment(
+                multi.get_image_view(), current_layout,
+                loadOp, storeOp,
+                attac.get_image_view(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+             );
+          }
+       } else{
+          for(const auto& [idx, attac] : get_draw_attachments() | std::views::enumerate){
+             VkImageLayout current_layout = input_mask[idx] ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+             target.push_color_attachment(
+                attac.get_image_view(), current_layout,
+                loadOp, storeOp);
+          }
+       }
+    }
+}
 };
 }

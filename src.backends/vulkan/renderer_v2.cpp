@@ -62,40 +62,64 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 		const bool is_msaa = pipe_opt.enables_multisample && global_msaa;
 		const auto target_mask = get_render_target(draw_cfg, pipe_opt);
 
+		// 【优化】直接获取绝对掩码，移除复杂的 slot_idx 推算逻辑
+		std::uint32_t absolute_input_bits = 0;
+		pipe_opt.input_attachments_mask.for_each_popbit([&](unsigned bit){
+			absolute_input_bits |= (1u << bit);
+		});
+
 		cache_barrier_gen_.clear();
 
-		cache_sync_mgr_.sync_draw_targets(cache_barrier_gen_, target_mask, r.attachment_manager_.get_draw_attachments());
+		// 获取布局变化信号（移除了 sync_flags 的接收）
+		bool layout_changed = cache_sync_mgr_.sync_draw_targets(
+			cache_barrier_gen_, target_mask, absolute_input_bits, r.attachment_manager_.get_draw_attachments());
 
-		if(is_rendering && (!cache_barrier_gen_.empty() || target_mask != current_pass_mask || is_msaa !=
-			current_pass_msaa)){
+		if(is_rendering && (layout_changed || target_mask != current_pass_mask || is_msaa != current_pass_msaa)){
 			flush_pass();
 		}
 
 		if(!cache_barrier_gen_.empty()){
+			// 移除了不再需要的 VK_DEPENDENCY_BY_REGION_BIT 和旧 Flag 传参
 			cache_barrier_gen_.apply(cmd);
 		}
 
 		if(!is_rendering){
-			cache_sync_mgr_.commit_pending_blit_to_graphics(cache_barrier_gen_, r.attachment_manager_.get_blit_attachments());
+			cache_sync_mgr_.commit_pending_blit_to_graphics(cache_barrier_gen_,
+															r.attachment_manager_.get_blit_attachments());
 			cache_barrier_gen_.apply(cmd);
 
+			// 基于新的 target_mask 重新配置 Dynamic Rendering
+			// 注意：由于现在的 absolute_input_bits 仅代表 SAMPLED_IMAGE，如果您的 dynamic_rendering
+			// 不再需要显式管理 Input Attachment，可以将此处的传入调整为 0 或是做针对性清理。
 			r.attachment_manager_.configure_dynamic_rendering<32>(
 				cache_rendering_config_,
-				get_render_target(draw_cfg, pipe_opt),
+				target_mask,
+				std::bitset<32>(absolute_input_bits),
 				is_msaa
 			);
 
-			std::size_t slot = 0;
+			std::size_t cur_slot = 0;
 
 			target_mask.for_each_popbit([&](unsigned idx){
-				auto& info = cache_rendering_config_.get_color_attachment_infos()[slot++];
+				auto& info = cache_rendering_config_.get_color_attachment_infos()[cur_slot++];
+
+				// 动态判定 Load Op
 				info.loadOp = cache_attachment_enter_mark_[idx]
 					              ? VK_ATTACHMENT_LOAD_OP_LOAD
 					              : VK_ATTACHMENT_LOAD_OP_CLEAR;
+
+				info.imageLayout = VK_IMAGE_LAYOUT_GENERAL; // 渲染期间统一使用 GENERAL
+
 				cache_attachment_enter_mark_[idx] = true;
 			});
 
+
+
+
+			// 再次 Begin Rendering
 			cache_rendering_config_.begin_rendering(cmd, r.attachment_manager_.get_screen_area());
+
+			// 更新状态追踪变量
 			is_rendering = true;
 			current_pass_mask = target_mask;
 			current_pass_msaa = is_msaa;
@@ -105,14 +129,18 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 
 		if(r.batch_device.is_section_empty(i)){
 			for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
-				requires_clear |= process_breakpoints_(r, breakpoint_process_params{entry, cache_graphic_context_, draw_cfg, is_rendering}, cmd);
+				requires_clear |= process_breakpoints_(r, breakpoint_process_params{
+					                                       entry, cache_graphic_context_, draw_cfg, is_rendering
+				                                       }, cmd);
 			}
 		} else{
 			cache_graphic_context_.apply(cmd, r.draw_pipeline_manager_);
 			cmd_draw_(r, cmd, i, draw_cfg);
 
 			for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
-				requires_clear |= process_breakpoints_(r, breakpoint_process_params{entry, cache_graphic_context_, draw_cfg, is_rendering}, cmd);
+				requires_clear |= process_breakpoints_(r, breakpoint_process_params{
+					                                       entry, cache_graphic_context_, draw_cfg, is_rendering
+				                                       }, cmd);
 			}
 		}
 
@@ -125,12 +153,16 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	flush_pass();
 }
 
-void renderer::command_recording_context::cmd_draw_(renderer& r, VkCommandBuffer cmd, std::uint32_t index,
-	const gui::fx::pipeline_config& arg){
+void renderer::command_recording_context::cmd_draw_(renderer& r, VkCommandBuffer cmd, std::uint32_t index, const gui::fx::pipeline_config& arg){
 	const auto& pc = r.draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
 
 	cache_descriptor_context_.clear();
 	r.batch_device.load_gfx_descriptors(cache_descriptor_context_, r.current_frame_index_);
+	auto& pipe = r.draw_pipeline_manager_.get_input_attachment_mock_descriptor()[arg.pipeline_index];
+	if(pipe.buffer){
+		cache_descriptor_context_.push(2, pipe.buffer);
+	}
+
 	cache_descriptor_context_.prepare_bindings();
 	cache_descriptor_context_(pc.pipeline_layout, cmd, index, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
@@ -143,9 +175,9 @@ void renderer::command_recording_context::blit_(renderer& r, gui::fx::blit_confi
 
 	cache_barrier_gen_.clear();
 	cache_sync_mgr_.sync_blit_inputs(cache_barrier_gen_, inout.get_input_entries(),
-	                          r.attachment_manager_.get_draw_attachments());
+	                                 r.attachment_manager_.get_draw_attachments());
 	cache_sync_mgr_.sync_blit_outputs(cache_barrier_gen_, inout.get_output_entries(),
-	                           r.attachment_manager_.get_blit_attachments());
+	                                  r.attachment_manager_.get_blit_attachments());
 	if(!cache_barrier_gen_.empty()){
 		cache_barrier_gen_.apply(cmd);
 	}
@@ -178,7 +210,7 @@ void renderer::command_recording_context::blit_(renderer& r, gui::fx::blit_confi
 }
 
 bool renderer::command_recording_context::process_breakpoints_(renderer& r, breakpoint_process_params params,
-	VkCommandBuffer buffer){
+                                                               VkCommandBuffer buffer){
 	auto& cur_pipe = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index];
 	using namespace gui::fx;
 	switch(static_cast<state_type>(params.entry.tag.major)){
@@ -201,7 +233,8 @@ bool renderer::command_recording_context::process_breakpoints_(renderer& r, brea
 	case state_type::push_constant :{
 		const auto flags = static_cast<VkShaderStageFlags>(params.entry.tag.minor);
 
-		vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, params.entry.logical_offset, params.entry.payload.size(),
+		vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, params.entry.logical_offset,
+		                   params.entry.payload.size(),
 		                   params.entry.payload.data());
 		break;
 	}

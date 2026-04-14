@@ -521,6 +521,14 @@ public:
 
 export
 class graphic_pipeline_manager : public pipeline_manager_base<graphic_pipeline_data>{
+private:
+	struct input_attachment_descriptor_mock{
+		vk::descriptor_layout layout{};
+		vk::descriptor_buffer buffer{};
+	};
+	// 增加此容器，确保自动生成的 Dummy Layout 在管理器销毁前保持存活
+	std::vector<input_attachment_descriptor_mock> dummy_input_attachment_descriptor_settings_{};
+
 public:
 	[[nodiscard]] graphic_pipeline_manager() = default;
 
@@ -536,14 +544,37 @@ public:
 		const draw_attachment_create_info& draw_attachment_config
 	) : pipeline_manager_base{allocator, create_group.descriptor_create_info}{
 		pipelines.resize(create_group.size());
+
 		mr::vector<VkDescriptorSetLayout> layouts_buffer;
 
 		for(const auto& [idx, pipe, layouts] : std::views::zip(std::views::iota(0uz), pipelines, auxiliary_layouts)){
 			layouts_buffer.clear();
 			layouts_buffer.append_range(layouts);
 
-			for(const auto& [src, dst] : create_group[static_cast<std::size_t>(idx)].option.used_descriptor_sets){
+			const auto& option = create_group[static_cast<std::size_t>(idx)].option;
+
+			for(const auto& [src, dst] : option.used_descriptor_sets){
 				layouts_buffer.push_back(custom_descriptors.at(src).descriptor_set_layout());
+			}
+
+			if(option.input_attachments_mask.any()){
+				input_attachment_descriptor_mock mock{vk::descriptor_layout{
+					allocator.get_device(),
+					VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+					[&](vk::descriptor_layout_builder& builder){
+						for(unsigned i = 0; i < option.input_attachments_mask.popcount(); ++i){
+							builder.push_seq(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
+						}
+					}
+				}};
+				mock.buffer = vk::descriptor_buffer{
+					allocator, mock.layout, mock.layout.binding_count()
+				};
+
+				layouts_buffer.push_back(mock.layout);
+				dummy_input_attachment_descriptor_settings_.push_back(std::move(mock));
+			}else{
+				dummy_input_attachment_descriptor_settings_.emplace_back();
 			}
 
 			create_group.create(idx, pipe, create_param{
@@ -560,6 +591,10 @@ public:
 			const draw_attachment_create_info& draw_attachment_config
 		) : graphic_pipeline_manager(allocator, create_group, std::views::repeat(auxiliary_layouts, create_group.size()), draw_attachment_config){}
 
+
+	[[nodiscard]] std::span<input_attachment_descriptor_mock> get_input_attachment_mock_descriptor() {
+		return dummy_input_attachment_descriptor_settings_;
+	}
 };
 
 export

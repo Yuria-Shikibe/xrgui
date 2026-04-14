@@ -4,7 +4,6 @@ import os
 import subprocess
 import sys
 import hashlib
-import re
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any, Union
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -21,8 +20,10 @@ except ImportError:
         print("请使用 Python 3.11+，或在较旧版本中执行: pip install tomli")
         sys.exit(1)
 
-# 用于解析 #include 依赖的正则表达式
-INCLUDE_RE = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.MULTILINE)
+# ==========================================
+# 性能优化：全局文件哈希缓存
+# ==========================================
+_FILE_HASH_CACHE: Dict[str, str] = {}
 
 def flatten_options(options: Union[List[str], Dict[str, Any]]) -> List[str]:
     """将混合了纯选项和 KV 的配置展平为 subprocess 可用的列表"""
@@ -33,64 +34,79 @@ def flatten_options(options: Union[List[str], Dict[str, Any]]) -> List[str]:
     elif isinstance(options, dict):
         for k, v in options.items():
             if isinstance(v, bool):
-                if v:  # 如果是 True，则加入该选项 (例如 "-O3" = true)
+                if v:
                     result.append(k)
             elif isinstance(v, list):
-                # 列表展开 (例如 "-D" = ["MACRO1", "MACRO2"] -> -D MACRO1 -D MACRO2)
                 for item in v:
                     if k: result.append(k)
                     result.append(str(item))
             elif v == "" or v is None:
                 result.append(k)
             else:
-                # 普通 KV对 (例如 "-stage" = "compute")
                 if k: result.append(k)
                 result.append(str(v))
     return result
 
-def get_file_and_deps_hash(filepath: Path, include_dirs: List[Path], visited: set = None) -> str:
-    """递归计算文件及其所有 #include 依赖项的内容哈希值"""
-    if visited is None:
-        visited = set()
+def get_file_hash(filepath: Union[str, Path]) -> str:
+    """计算单个文件的 SHA-256 哈希值，并带有内存缓存以消除重复 I/O"""
+    path = Path(filepath).resolve()
+    path_str = str(path)
+    
+    # 如果当前运行期间已经计算过该文件的 Hash，直接返回极速缓存
+    if path_str in _FILE_HASH_CACHE:
+        return _FILE_HASH_CACHE[path_str]
 
-    filepath = filepath.resolve()
-    if filepath in visited:
+    if not path.is_file():
         return ""
-    visited.add(filepath)
-
-    if not filepath.is_file():
-        return ""
-
-    hasher = hashlib.sha256()
+        
     try:
-        content = filepath.read_text(encoding='utf-8', errors='ignore')
-        hasher.update(content.encode('utf-8'))
-
-        # 查找并解析 include 依赖
-        for match in INCLUDE_RE.finditer(content):
-            inc_name = match.group(1)
-            inc_path = None
-
-            # 1. 优先检查当前文件同级目录
-            test_path = filepath.parent / inc_name
-            if test_path.is_file():
-                inc_path = test_path
-            else:
-                # 2. 检查全局 include 目录
-                for inc_dir in include_dirs:
-                    test_path = inc_dir / inc_name
-                    if test_path.is_file():
-                        inc_path = test_path
-                        break
-
-            if inc_path:
-                dep_hash = get_file_and_deps_hash(inc_path, include_dirs, visited)
-                hasher.update(dep_hash.encode('utf-8'))
-
-        return hasher.hexdigest()
-    except Exception as e:
-        print(f"✗ 读取文件计算哈希时出错 {filepath}: {e}")
+        h = hashlib.sha256(path.read_bytes()).hexdigest()
+        _FILE_HASH_CACHE[path_str] = h
+        return h
+    except Exception:
         return ""
+
+def parse_depfile(depfile_path: Path) -> List[str]:
+    """解析 slangc 生成的 Makefile 格式的 .d 依赖文件"""
+    if not depfile_path.is_file():
+        return []
+    try:
+        content = depfile_path.read_text(encoding='utf-8')
+        content = content.replace('\\\n', ' ')
+        
+        parts = content.split(':', 1)
+        if len(parts) < 2:
+            return []
+            
+        deps_str = parts[1]
+        deps_str = deps_str.replace('\\ ', '\x00')
+        tokens = deps_str.split()
+        
+        deps = []
+        for token in tokens:
+            token = token.replace('\x00', ' ')
+            p = Path(token).resolve()
+            if p.is_file():
+                deps.append(str(p))
+                
+        return sorted(list(set(deps)))
+    except Exception as e:
+        print(f"⚠ 解析依赖文件失败 {depfile_path}: {e}")
+        return []
+
+def get_deps_hash(dep_files: List[str]) -> str:
+    """计算一整组依赖文件的联合哈希（大幅优化计算量）"""
+    hasher = hashlib.sha256()
+    for fpath in sorted(dep_files):
+        # 获取依赖项的独立 Hash (绝大部分都会命中内存缓存)
+        file_hash = get_file_hash(fpath)
+        if not file_hash:
+            # 依赖文件丢失，强制返回空值以触发重编
+            return "" 
+        
+        # 只 Hash 字符串签名，而不是把几百MB的原始文件流全塞进去
+        hasher.update(file_hash.encode('utf-8'))
+    return hasher.hexdigest()
 
 def get_options_hash(options: List[str]) -> str:
     """计算编译选项的哈希值"""
@@ -169,13 +185,17 @@ def compile_shader(
         output_file: str,
         shader_alias: str,
         input_file: str,
-        full_options: List[str]
+        full_options: List[str],
+        show_cmds: bool = False
 ) -> Tuple[bool, str]:
     try:
         args: List[str] = [slangc_path]
         args.extend(full_options)
         args.extend(['-o', output_file])
         args.append(input_file)
+
+        if show_cmds:
+            print(f"\n[CMD] {' '.join(args)}")
 
         print(f"正在编译: {shader_alias} << {Path(input_file).name}")
 
@@ -200,13 +220,14 @@ def compile_shader(
         return False, str(e)
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='SLANG着色器批量编译工具 (增量并行版)')
+    parser = argparse.ArgumentParser(description='SLANG着色器批量编译工具 (极速增量版)')
     parser.add_argument('slangc_path', help='slangc编译器路径')
     parser.add_argument('output_dir', help='输出目录（相对路径）')
     parser.add_argument('config_file', help='配置文件路径（相对路径，TOML格式）')
 
     default_jobs = multiprocessing.cpu_count()
     parser.add_argument('-j', '--jobs', type=int, default=default_jobs, help=f'允许并行执行的任务数 (默认: {default_jobs})')
+    parser.add_argument('--show-cmds', action='store_true', help='输出实际执行的编译命令')
 
     args = parser.parse_args()
 
@@ -218,12 +239,12 @@ def main() -> None:
     config_file = Path(args.config_file).absolute()
 
     print("=" * 60)
-    print("SLANG 着色器批量编译工具 (TOML增量并行版)")
+    print("SLANG 着色器批量编译工具 (TOML极速增量验证版)")
     print("=" * 60)
     print(f"编译器路径: {slangc_path}")
     print(f"输出目录: {output_dir}")
     print(f"配置文件: {config_file}")
-    print(f"并行度 (-j): {args.jobs}")
+    print(f"期望并行度 (-j): {args.jobs}")
     print("-" * 60)
 
     if not slangc_path.exists():
@@ -241,16 +262,14 @@ def main() -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 解析 Include 绝对路径列表 (用于依赖追踪和编译参数)
-    resolved_includes = []
     if shader_root:
         base_shader_root = config_file.parent.joinpath(shader_root).resolve()
     else:
         base_shader_root = script_dir
 
+    # 追加搜索目录
     for inc in include_dirs:
         inc_path = base_shader_root.joinpath(inc).resolve()
-        resolved_includes.append(inc_path)
         common_options.extend(['-I', str(inc_path)])
 
     # --- 增量编译：加载缓存 ---
@@ -272,7 +291,7 @@ def main() -> None:
     fail_count = 0
     skip_count = 0
 
-    print("\n开始检查与编译着色器...")
+    print("\n开始快速检查着色器依赖树...")
     print("-" * 60)
 
     tasks_to_run = []
@@ -289,41 +308,60 @@ def main() -> None:
             fail_count += 1
             continue
 
-        # 生成输出文件路径
         shader_name = Path(shader_alias).with_suffix('.spv')
         shader_name_str = str(shader_name).replace(os.sep, '.').replace('/', '.')
         output_file_path = output_dir / shader_name_str
+        dep_file_path = output_dir / f"{shader_name_str}.d"
 
-        # 合并编译参数
+        # 获取参数 Hash 和入口主文件的独立 Hash
         full_options = common_options + shader_options
-
-        # 计算 Hash
-        file_hash = get_file_and_deps_hash(full_shader_path, resolved_includes)
         opts_hash = get_options_hash(full_options)
+        main_file_hash = get_file_hash(full_shader_path)
 
         # 检查是否可以跳过编译
         cached_data = build_cache.get(shader_alias, {})
-        if (output_file_path.exists() and
-                cached_data.get('file_hash') == file_hash and
-                cached_data.get('options_hash') == opts_hash):
-            print(f"⏭️ 增量跳过: {shader_alias} (文件与参数未修改)")
+        cached_deps = cached_data.get('deps', [])
+        
+        can_skip = False
+        if output_file_path.exists() and cached_deps:
+            # 现在的 get_deps_hash 会利用内存缓存，速度极快
+            current_deps_hash = get_deps_hash(cached_deps)
+            
+            if (main_file_hash == cached_data.get('main_file_hash')) and \
+               (current_deps_hash and current_deps_hash == cached_data.get('deps_hash')) and \
+               (opts_hash == cached_data.get('options_hash')):
+                can_skip = True
+
+        if can_skip:
+            print(f"⏭️ 增量跳过: {shader_alias} (主文件与依赖树未修改)")
             success_count += 1
             skip_count += 1
-            new_cache[shader_alias] = cached_data # 保留缓存
+            new_cache[shader_alias] = cached_data 
         else:
+            if dep_file_path.exists():
+                try:
+                    dep_file_path.unlink()
+                except Exception:
+                    pass
+
+            task_options = full_options + ['-depfile', str(dep_file_path)]
+
             tasks_to_run.append({
                 'alias': shader_alias,
                 'input': str(full_shader_path),
                 'output': str(output_file_path),
-                'options': full_options,
-                'file_hash': file_hash,
-                'opts_hash': opts_hash
+                'depfile': str(dep_file_path),
+                'options': task_options,
+                'opts_hash': opts_hash,
+                'main_file_hash': main_file_hash
             })
 
     # 多进程执行实际的编译任务
     if tasks_to_run:
-        print(f"\n共 {len(tasks_to_run)} 个任务需要编译，使用 {args.jobs} 个并行进程...")
-        with ProcessPoolExecutor(max_workers=args.jobs) as executor:
+        actual_jobs = min(args.jobs, len(tasks_to_run))
+        print(f"\n共 {len(tasks_to_run)} 个任务需要编译，使用 {actual_jobs} 个并行进程...")
+        
+        with ProcessPoolExecutor(max_workers=actual_jobs) as executor:
             futures = {}
             for task in tasks_to_run:
                 future = executor.submit(
@@ -332,7 +370,8 @@ def main() -> None:
                     task['output'],
                     task['alias'],
                     task['input'],
-                    task['options']
+                    task['options'],
+                    args.show_cmds  
                 )
                 futures[future] = task
 
@@ -342,9 +381,20 @@ def main() -> None:
                     success, message = future.result()
                     if success:
                         success_count += 1
-                        # 编译成功，更新新缓存
+                        
+                        depfile_path = Path(task['depfile'])
+                        new_deps = parse_depfile(depfile_path)
+                        
+                        if not new_deps:
+                            new_deps = [str(Path(task['input']).resolve())]
+                            
+                        # 由于刚刚编译完，此时产生的 hash 可能还没有缓存，或者文件改变了
+                        # 计算全新依赖树的 Hash，记录入库
+                        deps_hash = get_deps_hash(new_deps)
                         new_cache[task['alias']] = {
-                            'file_hash': task['file_hash'],
+                            'main_file_hash': task['main_file_hash'],
+                            'deps': new_deps,
+                            'deps_hash': deps_hash,
                             'options_hash': task['opts_hash']
                         }
                     else:

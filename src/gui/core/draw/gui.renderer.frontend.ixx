@@ -351,8 +351,7 @@ public:
 		this->update_state_(config, data_span, tag, offset);
 	}
 
-	template <typename T>
-		requires (std::convertible_to<T, fx::state_push_config> && std::convertible_to<T, binary_diff_trace::tag> && std::is_trivially_copyable_v<T>)
+	template <fx::directly_emitable_state T>
 	void update_state(
 		const T& state,
 		unsigned offset = 0){
@@ -361,15 +360,15 @@ public:
 		const fx::state_push_config config = state;
 		const binary_diff_trace::tag tag = state;
 
-		static constexpr auto crop = [](const T& obj) static -> auto {
+		[[maybe_unused]] static constexpr auto crop = [] static {
 			if constexpr (std::invocable<T>){
-				return std::invoke(obj);
+				return std::type_identity<std::invoke_result_t<T>>{};
 			}else{
-				return obj;
+				return std::type_identity<T>{};
 			}
 		};
 
-		using passed_type = std::invoke_result_t<decltype(crop)>;
+		using passed_type = decltype(crop())::type;
 
 		if constexpr (std::is_empty_v<passed_type> || std::is_void_v<passed_type>){
 			if(config.type == instruction::state_push_type::idempotent){
@@ -387,8 +386,7 @@ public:
 			};
 
 			if constexpr (std::invocable<T>){
-				const auto crop_val = std::invoke(crop, state);
-				submit(crop_val);
+				submit(state());
 			}else{
 				submit(state);
 			}

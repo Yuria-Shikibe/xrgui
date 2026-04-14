@@ -77,7 +77,7 @@ public enum global_draw_mode_type {
 }
 
 public struct pipeline_flags {
-    public uint mode;
+    public global_draw_mode_type mode;
 }
 
 [[ForceInline]]

@@ -248,39 +248,6 @@ public:
 		}
 	}
 
-	template <template <typename > typename Generator, std::invocable<node_type, size_type, size_type, std::uintptr_t>
-		Func>
-	FORCE_INLINE Generator<std::invoke_result_t<Func, node_type, size_type, size_type, std::uintptr_t>> trivial_each(
-		float percent,
-		Func consumer
-	) const noexcept{
-		percent = math::clamp(percent);
-
-		const auto len = static_cast<size_type>(points.size() * percent);
-		if(!len) co_return;
-
-		for(size_type idx{}; idx < len; ++idx){
-			auto ptr = points.data_at(idx);
-			co_yield std::invoke(consumer, *ptr, idx, len, std::bit_cast<std::uintptr_t>(ptr));
-		}
-	}
-
-	template <trail_foreach_func Func>
-	FORCE_INLINE void trivial_each_2(
-		float percent,
-		Func consumer
-	) const noexcept{
-		percent = math::clamp(percent);
-
-		const auto len = static_cast<size_type>(points.size() * percent);
-		if(!len) return;
-
-		for(size_type idx{}; idx < len; ++idx){
-			auto ptr = points.data_at(idx);
-			std::invoke(consumer, *ptr, idx, len);
-		}
-	}
-
 	template <trail_foreach_func Func, std::invocable<std::invoke_result_t<Func, const node_type&, size_type, size_type>> CallBack>
 	FORCE_INLINE void trivial_each(
 		float percent,
@@ -298,85 +265,6 @@ public:
 		}
 	}
 
-
-	template <typename Func>
-	FORCE_INLINE void slide_each(
-		const math::vec2 head_indicator_vec,
-		Func consumer,
-		float percent = 1.f) const noexcept{
-		percent = math::clamp(percent);
-
-		const auto len = static_cast<size_type>(points.size() * percent);
-		if(len < 3U) return;
-		const auto total = len - 3U;
-		const auto factor_total = total + 1;
-
-		size_type idx{};
-		for(; idx < total; ++idx){
-			std::invoke(consumer, points[idx].pos, points[idx + 1].pos, points[idx + 2].pos, points[idx + 3].pos, idx,
-				factor_total, points[idx + 1].scale, points[idx + 2].scale);
-		}
-
-		std::invoke(consumer, points[idx].pos, points[idx + 1].pos, points[idx + 2].pos,
-			points[idx + 2].pos + head_indicator_vec, idx, factor_total, points[idx + 1].scale, points[idx + 2].scale);
-	}
-
-	template <
-		typename Cons,
-		typename Prov
-	>
-		requires requires{
-			requires std::invocable<
-				Cons,
-				math::vec2, math::vec2, math::vec2, math::vec2,
-				size_type, size_type,
-				float, float,
-				std::array<std::invoke_result_t<Prov, size_type, size_type, std::uintptr_t>, 4>
-			>;
-			requires std::invocable<Prov, size_type, size_type, std::uintptr_t>;
-		}
-	FORCE_INLINE void slide_each(
-		const math::vec2 head_indicator_vec,
-		Cons consumer,
-		Prov prov,
-		float percent = 1.f) const noexcept{
-		percent = math::clamp(percent);
-
-		const auto len = static_cast<size_type>(points.size() * percent);
-		if(len < 3U) return;
-		const auto adjoinLen = len + 1;
-		const auto total = len - 3U;
-		const auto factor_total = total + 1;
-
-		std::array adjoint{
-				prov(0, adjoinLen, std::bit_cast<std::uintptr_t>(points.data_at(0))),
-				prov(1, adjoinLen, std::bit_cast<std::uintptr_t>(points.data_at(1))),
-				prov(2, adjoinLen, std::bit_cast<std::uintptr_t>(points.data_at(2))),
-				prov(3, adjoinLen, std::bit_cast<std::uintptr_t>(points.data_at(3))),
-			};
-
-		size_type idx{};
-		for(; idx < total; ++idx){
-			std::invoke(
-				consumer,
-				points[idx].pos, points[idx + 1].pos, points[idx + 2].pos, points[idx + 3].pos,
-				idx, factor_total,
-				points[idx + 1].scale, points[idx + 2].scale,
-				adjoint
-			);
-
-			std::ranges::move(++std::ranges::begin(adjoint), std::ranges::end(adjoint), std::ranges::begin(adjoint));
-			adjoint[3] = prov(idx + 4, adjoinLen, std::bit_cast<std::uintptr_t>(points.data_at(idx + 4)));
-		}
-
-		std::invoke(
-			consumer,
-			points[idx].pos, points[idx + 1].pos, points[idx + 2].pos, points[idx + 2].pos + head_indicator_vec,
-			idx, factor_total,
-			points[idx + 1].scale, points[idx + 2].scale,
-			adjoint
-		);
-	}
 
 	/**
 	 * @tparam Func void(CapPos, radius, angle)
@@ -406,7 +294,7 @@ public:
 		using BufferTy = slide_window_buffer<ResultType, WindowSize + Stride * 4 + (Stride - 1), WindowSize - 1>;
 		BufferTy buffer{};
 
-		this->trivial_each(percent, std::move(nodeProv), [&](ResultType&& rst){
+		this->trivial_each(percent, std::move(nodeProv), [&] FORCE_INLINE (ResultType&& rst){
 			if (buffer.push_back(std::move(rst))) {
 				for(auto&& nodes : graphic::make_sliding_spans<WindowSize, Stride>(buffer)){
 					std::invoke(nodeCons, nodes);

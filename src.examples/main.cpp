@@ -126,6 +126,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		vk::shader_module true_shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.true_frag_outlined.spv"};
 		vk::shader_module true_shader_draw_coord{ctx.get_device(), shader_spv_path / "ui.true_coord_draw.spv"};
 		vk::shader_module true_shader_draw_mask{ctx.get_device(), shader_spv_path / "ui.true_frag_mask.spv"};
+		vk::shader_module true_shader_draw_mask_apply{ctx.get_device(), shader_spv_path / "ui.true_frag_mask_apply.spv"};
 
 		vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
 		vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
@@ -148,7 +149,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT}
 							},
 							draw_attachment_config{
-								.attachment = {VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT}
+								.attachment = {VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT}
 							},
 						},
 						// VK_SAMPLE_COUNT_4_BIT
@@ -190,9 +191,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									}
 								}
 							},
-							//coordiante draw
+							//coordinate draw
 							graphic_pipeline_create_config::config{
-								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
+								{},
 								{
 									true_shader_draw_coord.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
 									true_shader_draw_coord.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
@@ -215,6 +216,20 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									false, {0b100}, {},
 									{
 										{vk::blending::mask_draw}
+									}
+								}
+							},
+							//pipeline apply
+							graphic_pipeline_create_config::config{
+								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8}}},
+								{
+									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									true_shader_draw_mask_apply.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+								},
+								graphic_pipeline_option{
+									false, {0b1}, {0b100},
+									{
+										{vk::blending::max_alpha_blend}
 									}
 								}
 							},
@@ -663,10 +678,16 @@ struct GlobalCerrOptimizer {
 	}
 };
 int main(){
-	GlobalCerrOptimizer _;
+	std::optional<GlobalCerrOptimizer> _;
 
 	using namespace mo_yanxi;
 	using namespace graphic;
+
+	if(auto ptr = std::getenv("COLORED"); ptr != nullptr && std::strcmp(ptr, "0") == 0){
+
+	} else{
+		_.emplace();
+	}
 
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){

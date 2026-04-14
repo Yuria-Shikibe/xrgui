@@ -39,15 +39,6 @@ file = "ui/inverse.slang"
 file = "ui/merge.slang"
 
 [[shaders]]
-file = "ui/vert.slang"
-
-[[shaders]]
-file = "ui/frag_basic.slang"
-
-[[shaders]]
-file = "ui/frag_outlined.slang"
-
-[[shaders]]
 file = "ui/instruction_resolve_comp.slang"
 
 
@@ -66,6 +57,10 @@ file = "ui/true_coord_draw.slang"
 [[shaders]]
 file = "ui/true_frag_mask.slang"
 
+[[shaders]]
+file = "ui/true_frag_mask_apply.slang"
+[shaders.options]
+"-emit-spirv-via-glsl" = true
 
 [[shaders]]
 file = "ui/blit.default.slang"

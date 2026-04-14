@@ -222,7 +222,7 @@ task("gen_slang")
     set_menu({
         usage = "compile slang to spirv",
         options = {
-            {'c', "complier", "kv", "slangc", "Path to slangc.exe"},
+            {'c', "complier", "kv", "./slang/bin/slangc.exe", "Path to slangc.exe"},
             {'o', "output", "kv", "./properties/assets/shader/spv", "Spirv Output Dir Relative To Directory Root"},
             {'f', "config", "kv", "./properties/assets/shader/config.toml", "Shader Build Config"},
         }
@@ -272,3 +272,4 @@ task("switch_mode")
 
         cprint("${color.success}模式切换与清理配置完成！${clear}")
     end)
+

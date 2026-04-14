@@ -21,7 +21,6 @@ export import mo_yanxi.vk.universal_handle;
 using namespace mo_yanxi::vk;
 
 namespace mo_yanxi::backend::vulkan{
-
 struct InFlightData{
 	fence fence{};
 	semaphore fetch_semaphore{};
@@ -30,155 +29,14 @@ struct InFlightData{
 
 struct SwapChainFrameData{
 	VkImage image{};
-	command_buffer post_command{}; 
-	semaphore flush_semaphore{}; 
+	command_buffer post_command{};
+	semaphore flush_semaphore{};
 };
 
 /**
  * @return All Required Extensions
  */
-std::vector<const char*> get_required_extensions_glfw();
-
 std::vector<const char*> get_required_extensions();
-
-constexpr inline std::array device_extensions{
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
-
-		VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
-		VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
-		VK_KHR_MAINTENANCE_9_EXTENSION_NAME,
-		VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
-
-		VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
-		VK_EXT_MESH_SHADER_EXTENSION_NAME,
-		VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
-	};
-
-namespace RequiredFeatures{
-constexpr VkPhysicalDeviceMeshShaderFeaturesEXT MeshShaderFeatures{
-		[]{
-			VkPhysicalDeviceMeshShaderFeaturesEXT features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
-
-			features.meshShader = true;
-
-			return features;
-		}()
-	};
-
-constexpr VkPhysicalDeviceVulkan13Features PhysicalDeviceVulkan13Features{
-		[]{
-			VkPhysicalDeviceVulkan13Features features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-
-			features.synchronization2 = true;
-			features.dynamicRendering = true;
-			features.maintenance4 = true;
-
-			return features;
-		}()
-	};
-
-constexpr VkPhysicalDeviceShaderUntypedPointersFeaturesKHR UntypedPointer{
-		[]{
-			VkPhysicalDeviceShaderUntypedPointersFeaturesKHR features{
-					VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR
-				};
-
-			features.shaderUntypedPointers = true;
-
-			return features;
-		}()
-	};
-
-constexpr VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR PhysicalDeviceComputeShaderDerivativesFeaturesKHR{
-		[]{
-			VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR features{
-					VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR
-				};
-
-			features.computeDerivativeGroupQuads = true;
-			features.computeDerivativeGroupLinear = true;
-
-			return features;
-		}()
-	};
-
-constexpr VkPhysicalDeviceVulkan12Features PhysicalDeviceVulkan12Features{
-		[]{
-			VkPhysicalDeviceVulkan12Features features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-
-			features.bufferDeviceAddress = true;
-			features.timelineSemaphore = true;
-			features.descriptorBindingPartiallyBound = true;
-			features.runtimeDescriptorArray = true;
-
-			return features;
-		}()
-	};
-
-constexpr VkPhysicalDeviceVulkan11Features PhysicalDeviceVulkan11Features{
-		[]{
-			VkPhysicalDeviceVulkan11Features features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
-
-			features.storageBuffer16BitAccess = true;
-
-			return features;
-		}()
-	};
-
-constexpr VkPhysicalDeviceFeatures RequiredFeatures{
-		[]{
-			VkPhysicalDeviceFeatures features{};
-
-			features.samplerAnisotropy = true;
-			features.independentBlend = true;
-			features.sampleRateShading = true;
-			features.geometryShader = true;
-
-			return features;
-		}()
-	};
-
-constexpr VkPhysicalDeviceDescriptorBufferFeaturesEXT DescriptorBufferFeatures{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT,
-		.pNext = nullptr,
-		.descriptorBuffer = true,
-		.descriptorBufferCaptureReplay = false,
-		.descriptorBufferImageLayoutIgnored = false,
-		.descriptorBufferPushDescriptors = false
-	};
-
-constexpr VkPhysicalDeviceDescriptorHeapFeaturesEXT DescriptorHeapFeatures = []{
-	VkPhysicalDeviceDescriptorHeapFeaturesEXT rst{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT};
-	rst.descriptorHeap = true;
-	return rst;
-}();
-
-constexpr VkPhysicalDeviceExtendedDynamicState3FeaturesEXT PhysicalDeviceExtendedDynamicState3Features = []{
-	VkPhysicalDeviceExtendedDynamicState3FeaturesEXT rst{
-			VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT
-		};
-	rst.extendedDynamicState3ColorBlendEnable = true;
-	rst.extendedDynamicState3ColorBlendEquation = true;
-	rst.extendedDynamicState3ColorWriteMask = true;
-	return rst;
-}();
-
-const extension_chain extChain{
-		PhysicalDeviceVulkan11Features,
-		PhysicalDeviceVulkan12Features,
-		PhysicalDeviceVulkan13Features,
-
-		UntypedPointer,
-
-		PhysicalDeviceExtendedDynamicState3Features,
-
-		DescriptorBufferFeatures,
-		DescriptorHeapFeatures,
-
-		MeshShaderFeatures,
-	};
-}
 
 
 export
@@ -397,7 +255,7 @@ public:
 			};
 	}
 
-	
+
 	void record_post_command(bool no_fence_wait);
 
 private:
@@ -466,7 +324,7 @@ private:
 		} else{
 			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 			createInfo.queueFamilyIndexCount = 0;
-			createInfo.pQueueFamilyIndices = nullptr; 
+			createInfo.pQueueFamilyIndices = nullptr;
 		}
 
 		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
@@ -481,7 +339,7 @@ private:
 			throw vk_error(rst, "Failed to create swap chain!");
 		}
 
-		
+
 		if(last_swap_chain.handle){
 			vkDestroySwapchainKHR(device, last_swap_chain.handle, nullptr);
 			last_swap_chain.handle = nullptr;
@@ -498,13 +356,11 @@ private:
 
 		for(const auto& [index, imageGroup] : swap_chain_frames | std::ranges::views::enumerate){
 			imageGroup.image = images[index];
-			imageGroup.flush_semaphore = semaphore{device}; 
-			
+			imageGroup.flush_semaphore = semaphore{device};
 		}
 	}
 
 	[[nodiscard]] VkExtent2D choose_swap_extent(const VkSurfaceCapabilitiesKHR& capabilities) const{
-		
 		if(capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max()){
 			return capabilities.currentExtent;
 		}
@@ -517,42 +373,7 @@ private:
 		return size;
 	}
 
-	void create_device(){
-		auto [devices, rst] = enumerate(vkEnumeratePhysicalDevices, static_cast<VkInstance>(instance));
-
-		if(devices.empty()){
-			throw std::runtime_error("Failed to find GPUs with Vulkan support!");
-		}
-
-		std::multimap<std::uint32_t, struct physical_device, std::greater<std::uint32_t>> candidates{};
-
-		for(const auto& device : devices){
-			auto d = vk::physical_device{device};
-			candidates.insert(std::make_pair(d.rate_device(), d));
-		}
-
-		for(const auto& [score, device] : candidates){
-			if(score && device.valid(surface, device_extensions)){
-				physical_device = device;
-				break;
-			}
-		}
-
-		if(!physical_device){
-			std::println(std::cerr, "[Vulkan] Failed to find a suitable GPU");
-			throw unqualified_error("Failed to find a suitable GPU!");
-		} else{
-			std::println("[Vulkan] On Physical Device: {}", physical_device.get_name());
-		}
-
-		physical_device.cache_properties(surface);
-
-		device = logical_device{
-				physical_device, physical_device.queues,
-				device_extensions,
-				RequiredFeatures::RequiredFeatures, RequiredFeatures::extChain
-			};
-	}
+	void create_device();
 
 	void recreate(bool no_fence_wait);
 };

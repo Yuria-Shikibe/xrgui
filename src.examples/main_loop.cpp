@@ -1,5 +1,7 @@
 module mo_yanxi.gui.examples.main_loop;
 
+import mo_yanxi.gui.examples.constants;
+
 namespace mo_yanxi::gui::example{
 void main_loop::main_loop_exec(){
 	auto& current_focus = *target_scene;
@@ -135,17 +137,16 @@ void main_loop::main_loop_exec(){
 					.src = {},
 					.extent = math::vector2{r.get_region().extent()}.round<int>()
 				},
-				{.pipeline_index = 1, .inout_define_index = 0}
+				{.pipeline_index = cpip_idx::blend, .inout_define_index = cpip_bind_idx::to_background}
 			});
 
 		{
 			r.update_state(fx::pipeline_config{
-				.draw_targets = {0b100},
-				.pipeline_index = 3
+				.pipeline_index = gpip_idx::mask_draw
 			});
 
-
 			r.update_state(fx::batch_draw_mode::msdf);
+
 			r << fx::nine_patch_draw_vert_color{
 				.patch = &assets::builtin::default_round_square_base,
 				.region = {200, 200, 600, 600},
@@ -154,16 +155,29 @@ void main_loop::main_loop_exec(){
 				}
 			};
 
+			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_apply});
+			r.update_state(fx::set_mask_mode{fx::mask_mode::inv}, 4);
+
+			r << fx::circle{
+				.pos = {current_focus.get_cursor_pos()},
+				.radius = {0, 300},
+				.color = {graphic::colors::white, graphic::colors::white}
+			};
+
 			r.update_state(fx::blit_config{
 					{
 						.src = {},
 						.extent = math::vector2{r.get_region().extent()}.round<int>()
 					},
-					{.pipeline_index = 1}
+					{
+						.pipeline_index = cpip_idx::blend,
+						.inout_define_index = cpip_bind_idx::to_background
+					}
 				});
+			r.update_state(fx::state_fill_color_other_lazy{{0b100}});
 
 			r.update_state(fx::pipeline_config{
-				.pipeline_index = 0
+				.pipeline_index = gpip_idx::def
 			});
 		}
 
@@ -278,7 +292,7 @@ void main_loop::main_loop_exec(){
 	}
 
 
-	current_focus.draw();
+	// current_focus.draw();
 	renderer.batch_host.end_rendering();
 	renderer.upload();
 	renderer.create_command();

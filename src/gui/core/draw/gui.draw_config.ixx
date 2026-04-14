@@ -25,7 +25,7 @@ export using graphic::draw::instruction::make_state_tag;
 
 export
 template <typename T>
-concept directly_pushable_state = std::convertible_to<T, state_push_config> && std::convertible_to<T, binary_diff_tag> && std::is_trivially_copyable_v<T>;
+concept directly_emitable_state = std::convertible_to<T, state_push_config> && std::convertible_to<T, binary_diff_tag> && std::is_trivially_copyable_v<T>;
 
 export
 struct blit_pipeline_config{
@@ -37,6 +37,7 @@ export
 struct blit_config{
 	math::rect_ortho_trivial<int> blit_region;
 	blit_pipeline_config pipe_info;
+	// bool clear_original;
 
 	bool use_default_inouts() const noexcept{
 		return pipe_info.inout_define_index == std::numeric_limits<std::uint32_t>::max();
@@ -220,6 +221,11 @@ constexpr inline bool is_vertex_stage_only = requires{
 	typename T::tag_vertex_only;
 };
 
+export enum mask_mode : std::uint32_t {
+	def,
+	inv,
+	igr,
+};
 
 export
 enum struct state_type{
@@ -251,6 +257,19 @@ struct state_fill_color_other_lazy{
 
 	explicit(false) operator binary_diff_tag() const noexcept{
 		return make_state_tag(state_type::fill_color_other_lazy, clear_mask);
+	}
+};
+
+export
+struct set_mask_mode{
+	mask_mode mode;
+
+	explicit(false) operator state_push_config() const noexcept{
+		return {state_push_type::idempotent};
+	}
+
+	explicit(false) operator binary_diff_tag() const noexcept{
+		return make_state_tag(state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT);
 	}
 };
 

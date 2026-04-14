@@ -284,6 +284,17 @@ public:
 			update_descriptor(db, inout);
 		}
 
+
+		for (auto&& [pipe, desc] : std::views::zip(draw_pipeline_manager_.get_pipelines(), draw_pipeline_manager_.get_input_attachment_mock_descriptor())){
+			if(!desc.buffer)continue;
+			
+			vk::descriptor_mapper m{desc.buffer};
+			pipe.option.input_attachments_mask.for_each_popbit([&, idx = 0](unsigned i) mutable {
+				m.set_image(idx, attachment_manager_.get_draw_attachments()[i].get_image_view(), 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+				++idx;
+			});
+		}
+
 		create_blit_clear_and_init_cmd();
 	}
 
@@ -402,15 +413,19 @@ private:
 		// 初始化绘制附件
 		for(const auto& img : attachment_manager_.get_draw_attachments()){
 			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
-			         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			         vk::image::default_image_subrange);
+					 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+					 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+					 // 【核心修复7】初始化阶段直接转换为 GENERAL
+					 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+					 vk::image::default_image_subrange);
 		}
 		for(const auto& img : attachment_manager_.get_multisample_attachments()){
 			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
-			         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			         vk::image::default_image_subrange);
+					 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+					 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+					 // 【核心修复8】初始化阶段直接转换为 GENERAL
+					 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+					 vk::image::default_image_subrange);
 		}
 		dep.apply(recorder);
 	}
