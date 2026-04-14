@@ -134,10 +134,7 @@ void main_loop::main_loop_exec(){
 			};
 
 		r.update_state(fx::blit_config{
-				{
-					.src = {},
-					.extent = math::vector2{r.get_region().extent()}.round<int>()
-				},
+				fx::blit_config::full_screen_region,
 				{.pipeline_index = cpip_idx::blend, .inout_define_index = cpip_bind_idx::to_background}
 			});
 
@@ -163,10 +160,7 @@ void main_loop::main_loop_exec(){
 			};
 
 			r.update_state(fx::blit_config{
-					{
-						.src = {},
-						.extent = math::vector2{r.get_region().extent()}.round<int>()
-					},
+					fx::blit_config::full_screen_region,
 					{
 						.pipeline_index = cpip_idx::blend,
 						.inout_define_index = cpip_bind_idx::to_background
@@ -281,10 +275,7 @@ void main_loop::main_loop_exec(){
 
 		r.push(triangle{});
 		r.update_state(fx::blit_config{
-				{
-					.src = {},
-					.extent = math::vector2{r.get_region().extent()}.round<int>()
-				},
+			fx::blit_config::full_screen_region,
 				{.pipeline_index = 1}
 			});
 	}

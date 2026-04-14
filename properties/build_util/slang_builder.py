@@ -4,10 +4,10 @@ import os
 import subprocess
 import sys
 import hashlib
-import threading
+import re
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any, Union
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 
 # 兼容 Python 3.11+ 的内置 tomllib 和旧版本的 tomli
@@ -20,12 +20,6 @@ except ImportError:
         print("✗ 缺少 TOML 解析库。")
         print("请使用 Python 3.11+，或在较旧版本中执行: pip install tomli")
         sys.exit(1)
-
-# ==========================================
-# 性能优化：全局文件哈希缓存及线程锁
-# ==========================================
-_FILE_HASH_CACHE: Dict[str, str] = {}
-_CACHE_LOCK = threading.Lock()
 
 def flatten_options(options: Union[List[str], Dict[str, Any]]) -> List[str]:
     """将混合了纯选项和 KV 的配置展平为 subprocess 可用的列表"""
@@ -49,72 +43,65 @@ def flatten_options(options: Union[List[str], Dict[str, Any]]) -> List[str]:
                 result.append(str(v))
     return result
 
-def get_file_hash(filepath: Union[str, Path]) -> str:
-    """计算单个文件的 SHA-256 哈希值，并带有线程安全的内存缓存"""
-    # 优化：使用 os.path.normpath 和 abspath 替代慢速的 Path.resolve()
-    path_str = os.path.normpath(os.path.abspath(filepath))
-
-    # 检查缓存（加锁）
-    with _CACHE_LOCK:
-        if path_str in _FILE_HASH_CACHE:
-            return _FILE_HASH_CACHE[path_str]
-
-    if not os.path.isfile(path_str):
-        return ""
-
+def get_file_fingerprint(filepath: Union[str, Path]) -> Optional[List]:
+    """用 mtime_ns + size 做快速指纹，比 SHA-256 快约 100x"""
     try:
-        with open(path_str, 'rb') as f:
-            h = hashlib.sha256(f.read()).hexdigest()
+        st = os.stat(os.path.normpath(os.path.abspath(str(filepath))))
+        return [st.st_mtime_ns, st.st_size]
+    except OSError:
+        return None
 
-        # 写入缓存（加锁）
-        with _CACHE_LOCK:
-            _FILE_HASH_CACHE[path_str] = h
-        return h
-    except Exception:
-        return ""
-
-def parse_depfile(depfile_path: Path) -> List[str]:
-    """解析 slangc 生成的 Makefile 格式的 .d 依赖文件"""
+def parse_depfile(depfile_path: Path, main_input: str) -> List[str]:
+    """解析 slangc 生成的 Makefile 格式的 .d 依赖文件或纯列表格式"""
     if not depfile_path.is_file():
         return []
     try:
         content = depfile_path.read_text(encoding='utf-8')
+
+        # 处理 Makefile 的续行符
         content = content.replace('\\\n', ' ')
+        content = content.replace('\\\r\n', ' ')
 
-        parts = content.split(':', 1)
-        if len(parts) < 2:
-            return []
+        # 使用正则安全地分离 Target 和 Dependencies。
+        # 匹配不以反斜杠结尾，且后面跟着空白字符的冒号 (即目标文件后的冒号，如 "target.spv: ")
+        parts = re.split(r'(?<!\\):\s+', content, maxsplit=1)
+        if len(parts) == 2:
+            deps_str = parts[1]
+        else:
+            # 兼容没有目标冒号的纯列表格式
+            deps_str = content
 
-        deps_str = parts[1]
+        # 保护被转义的空格
         deps_str = deps_str.replace('\\ ', '\x00')
         tokens = deps_str.split()
 
+        main_dir = os.path.dirname(os.path.abspath(main_input))
         deps = []
+
         for token in tokens:
             token = token.replace('\x00', ' ')
-            # 优化：剥离 Path 对象的创建和 resolve，使用原生 os.path
+
+            # 核心修复: 处理 slangc 对 Windows 盘符的转义 D\:\ -> D:\
+            # 将以 "盘符字母\:" 开头的字符串替换为正常的 "盘符字母:"
+            token = re.sub(r'^([a-zA-Z])\\:', r'\1:', token)
+
+            # 过滤掉多目标时可能的杂项 target 声明
+            if token.endswith(':'):
+                continue
+
             p_str = os.path.normpath(os.path.abspath(token))
             if os.path.isfile(p_str):
                 deps.append(p_str)
+            else:
+                # 兼容某些情况下编译器输出相对于主源码文件路径的情况
+                rel_p_str = os.path.normpath(os.path.join(main_dir, token))
+                if os.path.isfile(rel_p_str):
+                    deps.append(rel_p_str)
 
         return sorted(list(set(deps)))
     except Exception as e:
         print(f"⚠ 解析依赖文件失败 {depfile_path}: {e}")
         return []
-
-def get_deps_hash(dep_files: List[str]) -> str:
-    """计算一整组依赖文件的联合哈希（大幅优化计算量）"""
-    hasher = hashlib.sha256()
-    for fpath in sorted(dep_files):
-        # 获取依赖项的独立 Hash (绝大部分都会命中内存缓存)
-        file_hash = get_file_hash(fpath)
-        if not file_hash:
-            # 依赖文件丢失，强制返回空值以触发重编
-            return ""
-
-        # 只 Hash 字符串签名，而不是把几百MB的原始文件流全塞进去
-        hasher.update(file_hash.encode('utf-8'))
-    return hasher.hexdigest()
 
 def get_options_hash(options: List[str]) -> str:
     """计算编译选项的哈希值"""
@@ -227,8 +214,8 @@ def compile_shader(
         print(f"\n✗ 编译过程中发生异常: {e}")
         return False, str(e)
 
-def compile_and_hash_task(slangc_path: str, task: dict, show_cmds: bool) -> Tuple[bool, str, dict, Optional[List[str]], Optional[str]]:
-    """子线程工作任务：包含编译自身以及后置的重度 I/O 和 Hash 计算"""
+def compile_and_hash_task(slangc_path: str, task: dict, show_cmds: bool) -> Tuple[bool, str, dict, Optional[List[str]], Optional[Dict[str, List]]]:
+    """子进程工作任务：包含编译自身以及后置的依赖解析和指纹采集"""
     success, msg = compile_shader(
         slangc_path,
         task['output'],
@@ -241,16 +228,21 @@ def compile_and_hash_task(slangc_path: str, task: dict, show_cmds: bool) -> Tupl
     if not success:
         return False, msg, task, None, None
 
-    # 将重度 I/O 和计算留在子线程执行，避免阻塞主线程合并
+    # 解析依赖文件，传入 input 路径以便于进行相对路径求值
     depfile_path = Path(task['depfile'])
-    new_deps = parse_depfile(depfile_path)
+    new_deps = parse_depfile(depfile_path, task['input'])
 
     if not new_deps:
         new_deps = [os.path.normpath(os.path.abspath(task['input']))]
 
-    deps_hash = get_deps_hash(new_deps)
+    # 采集所有依赖的 mtime+size 指纹
+    deps_fingerprints: Dict[str, List] = {}
+    for dep in new_deps:
+        fp = get_file_fingerprint(dep)
+        if fp is not None:
+            deps_fingerprints[dep] = fp
 
-    return True, msg, task, new_deps, deps_hash
+    return True, msg, task, new_deps, deps_fingerprints
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='SLANG着色器批量编译工具 (极速增量版)')
@@ -272,7 +264,7 @@ def main() -> None:
     config_file = Path(args.config_file).absolute()
 
     print("=" * 60)
-    print("SLANG 着色器批量编译工具 (TOML极速增量验证版 - 多线程优化)")
+    print("SLANG 着色器批量编译工具 (TOML极速增量验证版 - 多进程优化)")
     print("=" * 60)
     print(f"编译器路径: {slangc_path}")
     print(f"输出目录: {output_dir}")
@@ -346,24 +338,33 @@ def main() -> None:
         output_file_path = output_dir / shader_name_str
         dep_file_path = output_dir / f"{shader_name_str}.d"
 
-        # 获取参数 Hash 和入口主文件的独立 Hash
+        # 获取参数 Hash
         full_options = common_options + shader_options
         opts_hash = get_options_hash(full_options)
-        main_file_hash = get_file_hash(full_shader_path)
 
-        # 检查是否可以跳过编译
+        # 检查是否可以跳过编译（基于 mtime+size 指纹快速预筛）
         cached_data = build_cache.get(shader_alias, {})
         cached_deps = cached_data.get('deps', [])
 
         can_skip = False
         if output_file_path.exists() and cached_deps:
-            # 此时的 get_deps_hash 会利用内存缓存，速度极快
-            current_deps_hash = get_deps_hash(cached_deps)
-
-            if (main_file_hash == cached_data.get('main_file_hash')) and \
-                    (current_deps_hash and current_deps_hash == cached_data.get('deps_hash')) and \
-                    (opts_hash == cached_data.get('options_hash')):
-                can_skip = True
+            # 先检查编译选项（零 I/O，最快）
+            if opts_hash == cached_data.get('options_hash'):
+                # 再检查主文件指纹（单次 stat 调用）
+                main_fp = get_file_fingerprint(full_shader_path)
+                cached_main_fp = cached_data.get('main_file_fingerprint')
+                if main_fp and cached_main_fp and main_fp == cached_main_fp:
+                    # 最后检查所有依赖文件指纹
+                    cached_deps_fps = cached_data.get('deps_fingerprints', {})
+                    if cached_deps_fps:
+                        all_deps_ok = True
+                        for dep in cached_deps:
+                            dep_fp = get_file_fingerprint(dep)
+                            cached_dep_fp = cached_deps_fps.get(dep)
+                            if dep_fp is None or cached_dep_fp is None or dep_fp != cached_dep_fp:
+                                all_deps_ok = False
+                                break
+                        can_skip = all_deps_ok
 
         if can_skip:
             print(f"⏭️ 增量跳过: {shader_alias} (主文件与依赖树未修改)")
@@ -378,6 +379,7 @@ def main() -> None:
                     pass
 
             task_options = full_options + ['-depfile', str(dep_file_path)]
+            main_fp = get_file_fingerprint(full_shader_path)
 
             tasks_to_run.append({
                 'alias': shader_alias,
@@ -386,17 +388,17 @@ def main() -> None:
                 'depfile': str(dep_file_path),
                 'options': task_options,
                 'opts_hash': opts_hash,
-                'main_file_hash': main_file_hash
+                'main_file_fingerprint': main_fp
             })
 
     if tasks_to_run:
         actual_jobs = min(args.jobs, len(tasks_to_run))
         print(f"\n共 {len(tasks_to_run)} 个任务需要编译，使用 {actual_jobs} 个并行进程/线程...")
 
-        with ThreadPoolExecutor(max_workers=actual_jobs) as executor:
+        with ProcessPoolExecutor(max_workers=actual_jobs) as executor:
             futures = {}
             for task in tasks_to_run:
-                # 提交全新的包装函数，将后处理任务也放入子线程
+                # 提交编译任务到子进程
                 future = executor.submit(
                     compile_and_hash_task,
                     str(slangc_path),
@@ -405,18 +407,18 @@ def main() -> None:
                 )
                 futures[future] = task
 
-            # 主线程此时只需极速合并结果字典
+            # 主进程此时只需极速合并结果字典
             for future in as_completed(futures):
                 try:
-                    success, message, task_info, new_deps, deps_hash = future.result()
+                    success, message, task_info, new_deps, deps_fingerprints = future.result()
                     if success:
                         success_count += 1
 
                         # 直接写入缓存，零计算成本
                         new_cache[task_info['alias']] = {
-                            'main_file_hash': task_info['main_file_hash'],
+                            'main_file_fingerprint': task_info['main_file_fingerprint'],
                             'deps': new_deps,
-                            'deps_hash': deps_hash,
+                            'deps_fingerprints': deps_fingerprints,
                             'options_hash': task_info['opts_hash']
                         }
                     else:

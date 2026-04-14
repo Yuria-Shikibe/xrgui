@@ -1,6 +1,7 @@
 module;
 
 #include <vulkan/vulkan.h>
+#include <cassert>
 
 module mo_yanxi.backend.vulkan.renderer;
 
@@ -176,7 +177,14 @@ void renderer::command_recording_context::cmd_draw_(renderer& r, VkCommandBuffer
 }
 
 void renderer::command_recording_context::blit_(renderer& r, gui::fx::blit_config cfg, VkCommandBuffer cmd){
-	cfg.get_clamped_to_positive();
+	if(cfg.blit_region.extent == math::vectors::constant2<int>::max_vec2){
+		assert(cfg.blit_region.src.is_zero());
+		auto [w, h] = r.attachment_manager_.get_extent();
+		cfg.blit_region.extent.set(w, h);
+	}else{
+		cfg.get_clamped_to_positive();
+	}
+
 	const auto& inout = r.get_blit_inout_config(cfg);
 
 	cache_barrier_gen_.clear();

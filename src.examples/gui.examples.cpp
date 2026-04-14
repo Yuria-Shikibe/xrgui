@@ -70,6 +70,8 @@ import celestial_display;
 import mo_yanxi.graphic.trail;
 import mo_yanxi.math.rand;
 
+import mo_yanxi.gui.examples.constants;
+
 
 namespace mo_yanxi::gui::example{
 
@@ -466,7 +468,7 @@ struct vp : gui::viewport{
 			s.viewport_begin();
 
 			{
-				s.renderer().update_state(fx::pipeline_config{.pipeline_index = 2});
+				s.renderer().update_state(fx::pipeline_config{.pipeline_index = gpip_idx::coordinate});
 
 				auto region = s.camera.get_viewport();
 
@@ -475,7 +477,8 @@ struct vp : gui::viewport{
 					.v11 = region.vert_11(),
 					.vert_color = {graphic::colors::white}
 				};
-				s.renderer().update_state(fx::pipeline_config{.pipeline_index = 0});
+
+				s.renderer().update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
 				s.renderer().update_state(fx::push_constant{0U});
 			}
 
@@ -760,19 +763,19 @@ void example_scene::draw_impl(rect clip){
 	if(input_handler_.inputs_.is_cursor_inbound()){
 		renderer().update_state(fx::pipeline_config{
 			.draw_targets = {0b1},
-			.pipeline_index = 1
+			.pipeline_index = gpip_idx::cursor_outline
 		});
 
 		renderer().update_state(fx::push_constant{1.f});
 
 		auto region = current_cursor_drawers_.draw(static_cast<scene&>(*this), resources_->cursor_collection_manager.get_cursor_size());
 
-		renderer().update_state(gui::fx::blit_config{
+		renderer().update_state(fx::blit_config{
 			{
 				.src = region.src.as<int>(),
 				.extent = region.extent().as<int>()
 			},
-			{.pipeline_index = 1}});
+			{.pipeline_index = cpip_idx::blend}});
 	}
 }
 

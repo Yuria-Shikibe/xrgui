@@ -64,7 +64,7 @@ public struct BuilderResources
 
     // 输出到纯 GPU Buffer
     RWStructuredBuffer<mesh_instr::VS_Vertex, CDataLayout> out_vbo;
-    RWStructuredBuffer<uint> out_ibo;
+    RWStructuredBuffer<uint3, CDataLayout> out_ibo;
     RWStructuredBuffer<mesh_instr::Primitive> out_primitive_data;
 };
 
@@ -107,23 +107,13 @@ public void process_mesh_instruction(uint target_index, BuilderResources res)
     // --- 3. 写入 Vertex Buffer ---
     var out_v = mesh_instr::VS_Vertex(rst.vtx);
     out_v.timeline_index = absolute_timeline_idx; // 打包装箱给 VS
-
     res.out_vbo[target_index] = out_v;
 
     // --- 4. 写入 Index Buffer 和 Primitive Data Buffer ---
     // 只有负责完结图元的特定线程才进行此处写入
     if (param.generates_primitive()) {
-
-        // 计算当前图元在全局 SSBO 中的绝对偏移
         uint global_prm_idx = dispatchinfo.global_primitive_offset + param.get_primitive_index();
-
-        // IBO: 获取局部拓扑（此时已是全局索引）并直接摊平写入
-        uint3 indices = param.getTrivialIndicies();
-        res.out_ibo[global_prm_idx * 3 + 0] = indices.x;
-        res.out_ibo[global_prm_idx * 3 + 1] = indices.y;
-        res.out_ibo[global_prm_idx * 3 + 2] = indices.z;
-
-        // 图元元数据: 供 PS 通过 gl_PrimitiveID / SV_PrimitiveID 提取
+        res.out_ibo[global_prm_idx] = param.getTrivialIndicies();
         res.out_primitive_data[global_prm_idx] = rst.pmt;
     }
 }

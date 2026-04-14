@@ -35,6 +35,7 @@ struct blit_pipeline_config{
 
 export
 struct blit_config{
+	static constexpr math::rect_ortho_trivial<int> full_screen_region = {{}, math::vectors::constant2<int>::max_vec2};
 	math::rect_ortho_trivial<int> blit_region;
 	blit_pipeline_config pipe_info;
 	// bool clear_original;
@@ -272,13 +273,17 @@ struct pipeline_config{
 		return pipeline_index == use_default_pipeline;
 	}
 
-	explicit(false) operator state_push_config() const noexcept{
-		state_push_config cfg{state_push_type::idempotent};
-		cfg.to_clear.set(std::to_underlying(state_type::push_constant));
+	explicit(false) constexpr operator state_push_config() const noexcept{
+		static constexpr state_push_config cfg = []{
+			state_push_config cfg{state_push_type::idempotent};
+			cfg.to_clear.set(std::to_underlying(state_type::push_constant));
+			return cfg;
+		}();
+
 		return cfg;
 	}
 
-	explicit(false) operator binary_diff_tag() const noexcept{
+	explicit(false) constexpr operator binary_diff_tag() const noexcept{
 		return make_state_tag(state_type::pipe, 0);
 	}
 };
@@ -288,11 +293,11 @@ export
 struct set_mask_mode{
 	mask_mode mode;
 
-	explicit(false) operator state_push_config() const noexcept{
+	explicit(false) constexpr operator state_push_config() const noexcept{
 		return {state_push_type::idempotent};
 	}
 
-	explicit(false) operator binary_diff_tag() const noexcept{
+	explicit(false) constexpr operator binary_diff_tag() const noexcept{
 		return make_state_tag(state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT);
 	}
 };
@@ -360,8 +365,6 @@ enum struct primitive_draw_mode : std::uint32_t{
 };
 
 BITMASK_OPS(export , primitive_draw_mode);
-
-
 
 export using blend_enable_flag = VkBool32;
 export using blend_write_mask_type = VkColorComponentFlags;

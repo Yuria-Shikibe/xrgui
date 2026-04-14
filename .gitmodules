@@ -7,9 +7,6 @@
 [submodule "external/small_vector"]
 	path = external/small_vector
 	url = https://github.com/Yuria-Shikibe/small_vector.git
-[submodule "external/stb"]
-	path = external/stb
-	url = https://github.com/nothings/stb.git
 [submodule "external/allocator2d"]
 	path = external/allocator2d
 	url = https://github.com/Yuria-Shikibe/allocator2d.git
