@@ -6,7 +6,7 @@
 3. M个Layer经由渲染器后处理产生I个Layer
 4. 如使用了合成器，使用合成器将I个Layer结合外部数据，绘制到J个Layer上
 
-![draw_structure.drawio.svg](properties/showcase/draw_structure.drawio.svg)
+![draw_structure.drawio.svg](draw_structure.drawio.svg)
 
 #### 目前渲染方案并未完全定稿，在Descriptor Heap的支持完备之后会进行一轮改动，计划是使用Descriptor Heap替换现有的Descriptor Buffer
 
