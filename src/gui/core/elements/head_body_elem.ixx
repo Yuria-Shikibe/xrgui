@@ -95,7 +95,7 @@ public:
 		}
 	}
 
-	[[nodiscard]] elem_span children() const noexcept final{
+	[[nodiscard]] elem_span exposed_children() const noexcept final{
 		return {items, elem_ptr::cvt_mptr};
 	}
 

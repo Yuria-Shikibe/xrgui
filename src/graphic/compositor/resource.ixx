@@ -747,7 +747,7 @@ public:
 		if(sidx >= data.size()) return std::nullopt;
 		return data[sidx];
 	}
-	[[nodiscard]] resource_requirement& at_out(const inout_index outIdx) noexcept{
+	[[nodiscard]] resource_requirement& at_out(const inout_index outIdx){
 		if(outIdx >= output_slots.size()){
 			throw std::out_of_range("Invalid resource map entry");
 		}
@@ -755,7 +755,7 @@ public:
 		return data[sidx];
 	}
 
-	[[nodiscard]] resource_requirement& at_in(const inout_index inIdx) noexcept{
+	[[nodiscard]] resource_requirement& at_in(const inout_index inIdx){
 		if(inIdx >= input_slots.size()){
 			throw std::out_of_range("Invalid resource map entry");
 		}

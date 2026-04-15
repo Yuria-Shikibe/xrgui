@@ -342,8 +342,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	}
 
 	{
-		gui::assets::generate_default_shapes(image_atlas);
-		gui::assets::load_default_icons(image_atlas);
+		gui::example::generate_default_shapes(image_atlas);
+		gui::example::load_default_icons(image_atlas);
 	}
 #pragma endregion
 
@@ -598,7 +598,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	main_loop.join();
 
-	gui::assets::dispose_generated_shapes();
+	gui::example::dispose_generated_shapes();
 	gui::global::terminate_assets_manager();
 	gui::global::terminate();
 

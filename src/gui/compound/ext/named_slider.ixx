@@ -86,11 +86,11 @@ public:
 	}
 
 	[[nodiscard]] auto& get_slider() const noexcept{
-		return elem_cast<slider1d_with_output>(*body().children()[0]);
+		return elem_cast<slider1d_with_output>(*body().exposed_children()[0]);
 	}
 
 	[[nodiscard]] label& get_slider_display_label() const noexcept{
-		return elem_cast<label>(*body().children()[1]);
+		return elem_cast<label>(*body().exposed_children()[1]);
 	}
 
 	auto& get_slider_provider() const noexcept{

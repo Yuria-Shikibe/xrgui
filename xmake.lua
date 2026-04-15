@@ -18,6 +18,7 @@ if current_dir == root_dir then
     set_encodings("utf-8")
     set_symbols("debug")
     add_vectorexts("avx", "avx2")
+    set_policy("build.warning", true)
 
     if is_plat("windows") then
         set_runtimes(is_mode("debug") and "MDd" or "MD")
@@ -95,31 +96,74 @@ function set_xrgui_deps()
     add_files("./external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
     add_files("./src/**.cpp")
     add_files("./src/**.ixx", {public = true})
+
+--     on_config(function (target)
+--         local flags = nil
+--         if target:has_tool("cxx", "cl", "clang_cl") then
+--             flags = {"/wd4267", "/wd4244", "/wd4305"}
+--         elseif target:has_tool("cxx", "gcc", "clang") then
+--             flags = "-Wno-conversion"
+--         end
+--
+--         if flags then
+--             for _, file in ipairs(os.files("src/**.ixx")) do
+--                 local relpath = path.relative(file, os.projectdir())
+--                 target:fileconfig_add(relpath, {cxflags = flags, public = true})
+--             end
+--             for _, file in ipairs(os.files("src/**.cpp")) do
+--                 local relpath = path.relative(file, os.projectdir())
+--                 target:fileconfig_add(relpath, {cxflags = flags})
+--             end
+--         end
+--     end)
+
     add_links("shaderc_shared")
 end
 
--- ---------------------------------------------------------
--- 主目标定义
--- ---------------------------------------------------------
-target("xrgui.example")
-    set_kind("binary")
-    set_extension(".exe")
-    set_languages("c++23")
-
-    -- 应用依赖配置
-    set_xrgui_deps()
-    add_packages("glfw")
-
-    -- 编译选项
+target("xrgui")
+    set_kind("object")
+    set_languages("c++latest")
+    add_cxflags("/wd4267", "/wd4244", "/wd4305", {tools = {"cl", "clang_cl"}})
     set_warnings("all", "pedantic")
+    set_xrgui_deps()
+
     if is_mode("release") then
         set_policy("build.optimization.lto", true)
     end
     if is_plat("windows") then
-        add_syslinks("imm32")
+        add_syslinks("imm32", {public = true})
+    end
+target_end()
+
+target("xrgui.lib")
+    set_kind("static")
+    set_extension(".exe")
+    set_languages("c++latest")
+
+    set_warnings("all", "pedantic")
+
+    if is_mode("release") then
+        set_policy("build.optimization.lto", true)
     end
 
-    -- 源文件布局
+    add_deps("xrgui")
+    set_enabled(false)
+target_end()
+
+target("xrgui.example")
+    set_kind("binary")
+    set_extension(".exe")
+    set_languages("c++latest")
+
+--     set_warnings("all", "pedantic")
+
+    if is_mode("release") then
+        set_policy("build.optimization.lto", true)
+    end
+
+    add_deps("xrgui")
+    add_packages("glfw")
+
     add_files("src.backends/universal/**.ixx", {public = true})
     add_files("src.backends/universal/**.cpp")
     add_files("src.backends/vulkan/**.ixx", {public = true})
@@ -129,7 +173,7 @@ target("xrgui.example")
     add_files("src.examples/**.ixx", {public = true})
     add_files("src.examples/**.cpp")
 
-    -- 资源处理规则
+
     add_rules("media.svg_to_bin")
     add_files("properties/assets/images/**.svg")
 
@@ -145,8 +189,6 @@ target("xrgui.example")
         -- 确保编译器的搜索路径中包含此目录
         target:add("includedirs", my_res_inc, {public = true})
 
-        -- 2. 提前生成一个基础的 assets_summary.h
-        -- 这样即使 build 还没开始，编译器也不会报“找不到文件”的错误
         local summary_header_path = path.join(my_res_inc, "assets_summary.h")
         if not os.isfile(summary_header_path) then
             io.writefile(summary_header_path, "#pragma once\n// Generated placeholder\n")
@@ -161,7 +203,6 @@ target("xrgui.example")
 
             local summary_lines = { "#pragma once\n" }
 
-            -- 遍历所有 svg 文件（直接从磁盘扫描更可靠）
             local src_basedir = path.join(os.projectdir(), "properties/assets/images")
             local svg_files = os.files(path.join(src_basedir, "**.svg"))
 

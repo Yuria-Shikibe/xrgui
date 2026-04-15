@@ -1,7 +1,3 @@
-//
-
-//
-
 export module mo_yanxi.gui.elem.menu;
 
 import mo_yanxi.gui.elem.sequence;
@@ -121,7 +117,7 @@ public:
 		if(index == entries.size()){
 			std::swap(entries[current_showing_], items[1]);
 		} else{
-			get_button_pane().get_elem().children()[index]->set_toggled(true);
+			get_button_pane().get_elem().exposed_children()[index]->set_toggled(true);
 
 			if(current_showing_ == entries.size()){
 				std::swap(entries[index], items[1]);
@@ -147,16 +143,13 @@ public:
 		notify_layout_changed(propagate_mask::lower);
 		notify_isolated_layout_changed();
 		if(current_showing_ != entries.size()){
-			get_button_pane().get_elem().children()[current_showing_]->set_toggled(false);
+			get_button_pane().get_elem().exposed_children()[current_showing_]->set_toggled(false);
 		}
 		current_showing_ = index;
 	}
 
-	void relocate_scene(scene& target_scene) noexcept override{
-		head_body::relocate_scene(target_scene);
-		for (auto && entry : entries){
-			entry->relocate_scene(target_scene);
-		}
+	element_collect_buffer collect_children() const override{
+		return element_collect_buffer{elem_wrapper{elem_span{items, elem_ptr::cvt_mptr}}, elem_wrapper{elem_span{entries, elem_ptr::cvt_mptr}}};
 	}
 
 protected:
@@ -174,7 +167,7 @@ protected:
 		auto* elem = aboves[2];
 		auto& seq = get_button_pane().get_elem();
 		auto idx = seq.find_index(elem);
-		if(idx == seq.children().size())return events::op_afterwards::fall_through;
+		if(idx == seq.exposed_children().size())return events::op_afterwards::fall_through;
 
 		if(event.key.on_release()){
 			if(idx == current_showing_){

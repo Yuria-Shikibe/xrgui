@@ -11,7 +11,7 @@ import mo_yanxi.cond_exist;
 namespace mo_yanxi::gui{
 
 export
-constexpr inline unsigned dynamic_extent = std::dynamic_extent;
+constexpr inline unsigned dynamic_extent = ~0U;
 
 export
 template <std::derived_from<elem> T = elem, unsigned MaxSize = 0 /*0 to specify dynamic*/>

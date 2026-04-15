@@ -147,6 +147,12 @@ public:
 		return tokenized_text_;
 	}
 
+	void set_line_align(typesetting::line_alignment line_alignment){
+		if(render_cache_.set_line_align(line_alignment)){
+			render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()), layout_config_.direction);
+		}
+	}
+
 
 	void set_tokenized_text(typesetting::tokenized_text&& tokenized_text){
 		if(util::try_modify(tokenized_text_, std::move(tokenized_text))){

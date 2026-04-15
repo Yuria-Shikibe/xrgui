@@ -150,25 +150,25 @@ constexpr std::size_t get_type_size_sum(const Args& ...args) noexcept{
 	return ((instruction::get_size(args)) + ... + 0uz);
 }
 
-export
-template <typename T>
-[[nodiscard]] const T* start_lifetime_as(const void* p) noexcept{
-	const auto mp = const_cast<void*>(p);
-	const auto bytes = new(mp) std::byte[sizeof(T)];
-	const auto ptr = reinterpret_cast<const T*>(bytes);
-	(void)*ptr;
-	return ptr;
-}
-
-export
-template <typename T>
-[[nodiscard]] T* start_lifetime_as(void* p) noexcept{
-	const auto mp = p;
-	const auto bytes = new(mp) std::byte[sizeof(T)];
-	const auto ptr = reinterpret_cast<T*>(bytes);
-	(void)*ptr;
-	return ptr;
-}
+// export
+// template <typename T>
+// [[nodiscard]] const T* start_lifetime_as(const void* p) noexcept{
+// 	const auto mp = const_cast<void*>(p);
+// 	const auto bytes = new(mp) std::byte[sizeof(T)];
+// 	const auto ptr = reinterpret_cast<const T*>(bytes);
+// 	(void)*ptr;
+// 	return ptr;
+// }
+//
+// export
+// template <typename T>
+// [[nodiscard]] T* start_lifetime_as(void* p) noexcept{
+// 	const auto mp = p;
+// 	const auto bytes = new(mp) std::byte[sizeof(T)];
+// 	const auto ptr = reinterpret_cast<T*>(bytes);
+// 	(void)*ptr;
+// 	return ptr;
+// }
 
 export
 struct gpu_vertex_data_advance_data{

@@ -138,40 +138,8 @@ void main_loop::main_loop_exec(){
 				{.pipeline_index = cpip_idx::blend, .inout_define_index = cpip_bind_idx::to_background}
 			});
 
-		{
-			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_draw});
-			r.update_state(fx::batch_draw_mode::msdf);
-
-			r << fx::nine_patch_draw_vert_color{
-				.patch = &assets::builtin::default_round_square_base,
-				.region = {200, 200, 600, 600},
-				.color = {
-					graphic::colors::white, graphic::colors::gray, graphic::colors::gray, graphic::colors::black
-				}
-			};
-
-			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_apply});
-			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_mode::inv});
-
-			r << fx::circle{
-				.pos = {current_focus.get_cursor_pos()},
-				.radius = {0, 300},
-				.color = {graphic::colors::white, graphic::colors::white}
-			};
-
-			r.update_state(fx::blit_config{
-					fx::blit_config::full_screen_region,
-					{
-						.pipeline_index = cpip_idx::blend,
-						.inout_define_index = cpip_bind_idx::to_background
-					}
-				});
-			r.update_state(fx::state_fill_color_other_lazy{{0b100}});
-
-			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
-			r.update_state(fx::batch_draw_mode::def);
-
-		}
+		r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
+		r.update_state(fx::batch_draw_mode::def);
 
 		{
 			struct trail_node_data : graphic::trail::node_type{

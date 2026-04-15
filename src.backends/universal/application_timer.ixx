@@ -8,11 +8,11 @@ export import mo_yanxi.backend.unit;
 import std;
 
 namespace mo_yanxi::backend{
-double app_get_time();
+double app_get_time() noexcept;
 
-void app_reset_time(double t);
+void app_reset_time(double t) noexcept;
 
-double app_get_delta(double last);
+double app_get_delta(double last) noexcept;
 
 export
 template <typename T>
@@ -105,4 +105,19 @@ public:
 		return direct_access_time_unit<Ty, tick_ratio>{static_cast<Ty>(updateDelta * tick_ratio::den)};
 	}
 };
+
+export struct global_application_clock {
+	using rep = double;
+
+	using period = std::ratio<1>;
+	using duration = std::chrono::duration<rep, period>;
+	using time_point = std::chrono::time_point<global_application_clock>;
+
+	static constexpr bool is_steady = false;
+
+	[[nodiscard]] static time_point now() noexcept {
+		return time_point{duration{app_get_time()}};
+	}
+};
+
 }

@@ -230,7 +230,7 @@ void elem::notify_layout_changed(propagate_mask propagation){
 	}
 
 	if(check_propagate_satisfy(propagation, propagate_mask::child) && layout_state.is_broadcastable(propagate_mask::child)){
-		for(auto&& element : children()){
+		for(auto&& element : exposed_children()){
 			if(element->layout_state.notify_parent_changed()){
 				element->notify_layout_changed(propagation - propagate_mask::super);
 			}
@@ -315,8 +315,10 @@ void elem::init_altitude_(altitude_t height){
 }
 
 void elem::relocate_scene(scene& target_scene) noexcept{
-	for (auto && child : children()){
-		child->relocate_scene(target_scene);
+	for (auto&& elem_wrapper : collect_children()){
+		elem_wrapper.for_each([&](elem& e){
+			e.relocate_self_scene(target_scene);
+		});
 	}
 
 	relocate_self_scene(target_scene);

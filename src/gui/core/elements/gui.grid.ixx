@@ -297,12 +297,12 @@ void generate_layouts(
 					length = (cap.desc[1] > cap.desc[0]) ? (cap.desc[1] - cap.desc[0]) : 0;
 					break;
 				case grid_extent_type::margin : start = cap.desc[0];
-					if(dim_size > cap.desc[0] + cap.desc[1]){
+					if(dim_size > static_cast<unsigned>(cap.desc[0] + cap.desc[1])){
 						length = dim_size - cap.desc[0] - cap.desc[1];
 					}
 					break;
 				case grid_extent_type::dst_extent : length = cap.desc[1];
-					if(dim_size > cap.desc[0] + cap.desc[1]){
+					if(dim_size > static_cast<unsigned>(cap.desc[0] + cap.desc[1])){
 						start = dim_size - cap.desc[0] - cap.desc[1];
 					}
 					break;

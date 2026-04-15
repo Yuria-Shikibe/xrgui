@@ -353,6 +353,10 @@ struct input{
 	style::cursor_style get_cursor_style() const;
 };
 
+struct scene_deleter{
+	static void operator()(scene* ptr) noexcept;;
+};
+
 struct async_async_task_queue{
 	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
 
@@ -363,12 +367,12 @@ private:
 
 	std::atomic<basic_elem_async_task*> current_done_task_{};
 	mr::heap_umap<elem*, unsigned, transparent::ptr_hasher<elem>, transparent::ptr_equal_to<elem>> element_async_task_alive_owners_{};
-	std::unique_ptr<scene> forked_scene_{};
+	std::unique_ptr<scene, scene_deleter> forked_scene_{};
 	std::jthread element_async_task_thread_{};
 
 public:
 	[[nodiscard]] async_async_task_queue(const mr::heap_allocator<elem_async_task_ptr>& alloc,
-	                                     std::unique_ptr<scene>&& scene)
+	                                     std::unique_ptr<scene, scene_deleter>&& scene)
 		:
 		element_async_tasks_pending_(alloc),
 		element_async_task_alive_owners_(alloc),
@@ -944,9 +948,14 @@ protected:
 	void init_root() const;
 
 public:
-	using scene_base::scene_base;
 
+	[[nodiscard]] explicit scene(const scene_shared_resources& resources)
+		: scene_base(resources){
+	}
 
+	[[nodiscard]] scene(scene_resources& resources, renderer_frontend&& renderer)
+		: scene_base(resources, std::move(renderer)){
+	}
 
 	template <std::derived_from<elem> T, typename ...Args>
 	[[nodiscard]] explicit(false) scene(
@@ -982,10 +991,16 @@ public:
 	}
 
 
-	virtual std::unique_ptr<scene> fork(){
-		auto rst = std::make_unique<scene>(static_cast<scene_shared_resources>(*this));
-		rst->drop_and_reset_communicate_async_task_queue_size(get_output_communicate_async_task_queues_size());
-		return rst;
+	virtual std::unique_ptr<scene, scene_submodule::scene_deleter> fork(){
+		auto rst = new scene{static_cast<scene_shared_resources>(*this)};
+		try{
+			rst->drop_and_reset_communicate_async_task_queue_size(get_output_communicate_async_task_queues_size());
+		}catch(...){
+			delete rst;
+			throw;
+		}
+
+		return std::unique_ptr<scene, scene_submodule::scene_deleter>{rst};
 	}
 
 	virtual void join(scene&& scene){

@@ -159,7 +159,7 @@ public:
 	}
 
 
-	bound_stage_resource& operator[](binding_info binding) noexcept{
+	bound_stage_resource& operator[](binding_info binding) /*noexcept*/{
 		if(auto itr = std::ranges::find(resources_, binding); itr != resources_.end()){
 			return *itr;
 		}
@@ -372,7 +372,7 @@ protected:
 
 			throw std::out_of_range("failed to find resource");
 
-		CONTINUE:
+		// CONTINUE:
 			continue;
 		}
 	}

@@ -14,7 +14,7 @@ import std;
 
 namespace mo_yanxi::gui::tooltip{
 export
-class tooltip_manager;
+struct tooltip_manager;
 
 struct tooltip_draw_info{
 	elem* element{};

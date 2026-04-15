@@ -38,7 +38,7 @@ auto& load(mo_yanxi::graphic::image_page& page, std::string&& name, mo_yanxi::gr
 	return page.register_named_region(std::move(name), std::move(task), true).region;
 }
 
-namespace mo_yanxi::gui::assets{
+namespace mo_yanxi::gui::example{
 
 
 void generate_default_shapes(graphic::image_atlas& image_atlas){
@@ -76,6 +76,7 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 			graphic::msdf::msdf_generator{svgs::icons::side_bar_svg, true, true}, std::nullopt, 3
 		});
 
+	using namespace assets;
 	using namespace builtin;
 	auto& builtin_page = get_page();
 
@@ -96,7 +97,7 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 void load_default_icons(graphic::image_atlas& image_atlas){
 	auto& atlas = image_atlas;
 	auto& page = atlas.create_image_page("ui");
-
+	using namespace assets;
 	using namespace builtin;
 	auto& builtin_page = get_page();
 
@@ -136,6 +137,7 @@ void load_default_icons(graphic::image_atlas& image_atlas){
 }
 
 void dispose_generated_shapes(){
+	using namespace assets;
 	builtin::default_round_square_boarder = {};
 	builtin::default_round_square_boarder_thin = {};
 	builtin::default_round_square_base = {};

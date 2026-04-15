@@ -133,7 +133,7 @@ public:
 	}
 
 
-	[[nodiscard]] elem_span children() const noexcept final {
+	[[nodiscard]] elem_span exposed_children() const noexcept final {
 
 		return elem_span{exposed_children_.data(), exposed_children_.size()};
 	}
@@ -312,14 +312,15 @@ public:
 	};
 
 
-	void relocate_scene(scene& target_scene) noexcept override{
-		relocate_self_scene(target_scene);
 
-		if(overflow_elem_)overflow_elem_->relocate_scene(target_scene);
-		for (auto && child : children_){
-			child->relocate_scene(target_scene);
-		}
+	element_collect_buffer collect_children() const override{
+		element_collect_buffer rst{};
+		rst.push_back(elem_span{children_, elem_ptr::cvt_mptr});
+		if(overflow_elem_)rst.push_back(*overflow_elem_);
+		return rst;
 	}
+
+
 protected:
 	overflow_layout_info calculate_overflow_layout(
 		float major_size,

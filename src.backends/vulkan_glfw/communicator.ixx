@@ -4,11 +4,10 @@ module;
 
 #ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
-#include <windows.h>
+#include <GLFW/glfw3native.h>
 #include <imm.h>
 #endif
 
-#include <GLFW/glfw3native.h>
 
 export module mo_yanxi.backend.communicator;
 

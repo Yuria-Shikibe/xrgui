@@ -1,7 +1,3 @@
-//
-
-//
-
 export module mo_yanxi.gui.elem.double_side;
 
 import std;
@@ -70,7 +66,7 @@ public:
 		return static_cast<elem_init_func_create_t<Fn>&>(*candidates_[index]);
 	}
 
-	elem_span children() const noexcept final{
+	elem_span exposed_children() const noexcept final{
 		return elem_span{get_active_elem_ptr(), elem_ptr::cvt_mptr};
 	}
 
@@ -134,14 +130,12 @@ public:
 			notify_isolated_layout_changed();
 		}
 	}
-	void relocate_scene(scene& target_scene) noexcept override{
-		relocate_self_scene(target_scene);
 
-		for (elem_ptr& child : candidates_){
-			child->relocate_scene(target_scene);
-		}
 
+	element_collect_buffer collect_children() const override{
+		return element_collect_buffer{elem_wrapper{elem_span{candidates_, elem_ptr::cvt_mptr}}};
 	}
+
 protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
 		if(expand_policy_ == layout::expand_policy::passive) return std::nullopt;

@@ -1024,7 +1024,7 @@ private:
 					const auto producer_idx = state.last_write_pass_index.value();
 
 
-					if (i > producer_idx + 1) {
+					if (std::isgreater(i, producer_idx + 1)) {
 						use_event = true;
 					}
 

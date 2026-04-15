@@ -318,6 +318,9 @@ style::cursor_style input::get_cursor_style() const{
 	return focus_cursor->get_cursor_type(cursor_transformed);
 }
 
+void scene_deleter::operator()(scene* ptr) noexcept{
+	delete ptr;
+}
 }
 
 std::thread::id exchange_scene_thread(scene& s, std::thread::id id){

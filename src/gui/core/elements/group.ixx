@@ -48,7 +48,7 @@ public:
 	}
 
 	virtual void erase_afterward(std::size_t where){
-		assert(where < children().size());
+		assert(where < exposed_children().size());
 
 		const auto itr = children_.begin() + where;
 		expired_.push_back(std::move(*itr));
@@ -58,7 +58,7 @@ public:
 	}
 
 	virtual void erase_instantly(std::size_t where){
-		assert(where < children().size());
+		assert(where < exposed_children().size());
 
 		const auto itr = children_.begin() + where;
 		children_.erase(itr);
@@ -120,7 +120,7 @@ public:
 
 #pragma region Override
 public:
-	[[nodiscard]] elem_span children() const noexcept override{
+	[[nodiscard]] elem_span exposed_children() const noexcept override{
 		return {children_, elem_ptr::cvt_mptr};
 	}
 
@@ -160,7 +160,7 @@ public:
 			};
 		});
 
-		for(const auto& element : children()){
+		for(const auto& element : exposed_children()){
 			element->record_draw_layer(call_stack_builder);
 		}
 
@@ -173,7 +173,7 @@ protected:
 		if(elem::resize_impl(size)){
 			const auto newSize = content_extent();
 			bool any = false;
-			for(auto& element : children()){
+			for(auto& element : exposed_children()){
 				any = any || util::set_fill_parent(*element, newSize);
 			}
 			if(any)notify_layout_changed_on_element_change();

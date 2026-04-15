@@ -21,7 +21,6 @@ namespace mo_yanxi::graphic{
 		}
 	};
 
-	export
 	template <>
 	struct mix_func<float>{
 		FORCE_INLINE constexpr static auto operator()(const float src, const float dst, float interp) noexcept{

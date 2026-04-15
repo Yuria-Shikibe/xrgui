@@ -233,22 +233,37 @@ public:
 		return rst;
 	}
 
-	bool set_scaling(math::vec2 scl) noexcept override{
-		assert(!scl.is_NaN());
-		if(!util::try_modify(context_scaling_, scl)) return false;
-		context_scaling_ = scl;
-		layout_state.notify_self_changed();
-
-		if(!children_.empty() && propagate_scaling_){
-			layout_state.notify_children_changed();
-			auto s = get_scaling();
-
-			for(auto&& [elem, cell] : std::views::zip(children_, cells_)){
-				elem->set_scaling(s * cell.cell.scaling);
-			}
-		}
-		return true;
-	}
+	// bool set_scaling(math::vec2 scl) noexcept override{
+	// 	assert(!scl.is_NaN());
+	// 	if(!util::try_modify(context_scaling_, scl))return false;
+	// 	notify_isolated_layout_changed();
+	//
+	// 	if(propagate_scaling_){
+	// 		for(auto&& collect_child : collect_children()){
+	// 			collect_child.for_each([](elem& e){
+	// 				e.set_scaling(e.is_root_element() ? vec2{1, 1} : e.parent()->get_scaling());
+	// 			});
+	// 		}
+	//
+	// 		layout_state.notify_children_changed();
+	// 	}
+	// 	return true;
+	//
+	// 	assert(!scl.is_NaN());
+	// 	if(!util::try_modify(context_scaling_, scl)) return false;
+	// 	context_scaling_ = scl;
+	// 	layout_state.notify_self_changed();
+	//
+	// 	if(!children_.empty() && propagate_scaling_){
+	// 		layout_state.notify_children_changed();
+	// 		auto s = get_scaling();
+	//
+	// 		for(auto&& [elem, cell] : std::views::zip(children_, cells_)){
+	// 			elem->set_scaling(s * cell.cell.scaling);
+	// 		}
+	// 	}
+	// 	return true;
+	// }
 
 	template <std::derived_from<elem> E, std::derived_from<universal_group> G, typename... Args>
 		requires (std::constructible_from<E, scene&, elem*, Args...>)

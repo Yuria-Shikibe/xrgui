@@ -266,8 +266,8 @@ constexpr inline std::uint32_t use_default_pipeline = std::numeric_limits<std::u
 
 export
 struct pipeline_config{
-	render_target_mask draw_targets{};
 	std::uint32_t pipeline_index{use_default_pipeline};
+	render_target_mask draw_targets{};
 
 	constexpr bool use_fallback_pipeline() const noexcept{
 		return pipeline_index == use_default_pipeline;

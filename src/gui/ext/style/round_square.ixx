@@ -313,6 +313,8 @@ protected:
 	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
 	                     fx::layer_param layer_param) const override{
 		if(layer_param == 0){
+
+
 			if(base.image_view || edge.image_view){
 				element.renderer().update_state(fx::batch_draw_mode::msdf);
 

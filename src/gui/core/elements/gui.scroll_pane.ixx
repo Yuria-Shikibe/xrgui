@@ -411,7 +411,7 @@ public:
 		}
 	}
 
-	[[nodiscard]] elem_span children() const noexcept override {
+	[[nodiscard]] elem_span exposed_children() const noexcept override {
 		if constexpr (is_elem_child){
 			return adaptor_children();
 		}else{

@@ -3,6 +3,11 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
+// #ifdef __RESHARPER__
+// #include <memory>
+// #endif
+
+
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif
@@ -331,26 +336,26 @@ public:
 				case instr_type::uniform_update: break;
 				default:
 				{
-					auto& gen = *instruction::start_lifetime_as<primitive_generic>(payload);
+					auto& gen = *std::launder(reinterpret_cast<primitive_generic*>(payload));
 					gen.image.index = dynamic_image_view_history_.try_push(gen.image.get_image_view());
 
 					switch (head.type)
 					{
 					case instr_type::poly:
 					{
-						auto& instr = *instruction::start_lifetime_as<poly>(payload);
+						auto& instr = *std::launder(reinterpret_cast<poly*>(payload));
 						instr.segments.apply_reciprocal();
 						break;
 					}
 					case instr_type::poly_partial:
 					{
-						auto& instr = *instruction::start_lifetime_as<poly_partial>(payload);
+						auto& instr = *std::launder(reinterpret_cast<poly_partial*>(payload));
 						instr.segments.apply_reciprocal();
 						break;
 					}
 					case instr_type::constrained_curve:
 					{
-						auto& instr = *instruction::start_lifetime_as<parametric_curve>(payload);
+						auto& instr = *std::launder(reinterpret_cast<parametric_curve*>(payload));
 						instr.segments.apply_reciprocal();
 						break;
 					}

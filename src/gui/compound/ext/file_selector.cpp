@@ -687,7 +687,7 @@ namespace mo_yanxi::gui::cpd{
 				selected.clear();
 
 				bool in_range = false;
-				for(auto& child : entries->children()){
+				for(auto& child : entries->exposed_children()){
 					auto* cur = static_cast<file_entry*>(child);
 
 					if(cur == shift_anchor || cur == entry){

@@ -50,7 +50,7 @@ struct state_transition_config{
 		template <typename T>
 		const T& as() const noexcept{
 			assert(sizeof(T) <= payload.size());
-			return *start_lifetime_as<T>(payload.data());
+			return *std::launder(reinterpret_cast<const T*>(payload.data()));
 		}
 	};
 
@@ -324,7 +324,7 @@ public:
 		PrimitiveRemainFn fn_get_primitive_count = {}
 		){
 		assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
-		auto instruction_offset = ptr_to_head - instruction_buffer_.data();
+		std::uint32_t instruction_offset = ptr_to_head - instruction_buffer_.data();
 		if(head.payload_size){
 			assert(data != nullptr);
 			if(instruction_buffer_.size() < instruction_offset + head.payload_size){

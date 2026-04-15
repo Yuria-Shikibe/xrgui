@@ -159,7 +159,7 @@ export{
 export inline math::vec2 screen_ppi{102, 102};
 
 export constexpr math::vec2 get_glyph_std_size_at(const float fontSize, math::vec2 ppi) noexcept{
-	return ppi.mul(fontSize / 72.);
+	return ppi.mul(fontSize / 72.f);
 }
 
 export math::vec2 get_glyph_std_size_at(const float fontSize) noexcept{

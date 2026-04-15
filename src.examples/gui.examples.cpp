@@ -120,7 +120,65 @@ struct image_cursor : style::cursor{
 	}
 };
 
+struct r_style : style::round_style{
+protected:
+	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
+		fx::layer_param layer_param) const override{
+		if(layer_param == 0){
+			auto inbounds = element.get_scene().get_inbounds();
+			if(!inbounds.empty() && inbounds.back() == &element){
+				auto pos = util::transform_scene2local(element, element.get_scene().get_cursor_pos());
+					auto& r = element.renderer();
+					r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_draw});
+					r.update_state(fx::batch_draw_mode::msdf);
 
+					element.renderer() << fx::nine_patch_draw<>{
+						.patch = &back,
+						.region = region,
+						.color = graphic::colors::white,
+					};
+
+					r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_apply});
+					r.update_state(fx::push_constant{fx::batch_draw_mode::def, fx::mask_mode::def});
+
+					fx::fringe::poly(r, fx::circle{
+						.pos = {element.get_scene().get_cursor_pos()},
+						.radius = {0, 60},
+						.color = {graphic::colors::aqua.copy_set_a(.5f), graphic::colors::pale_green.copy_set_a(.5f)}
+					});
+
+					r.update_state(fx::state_fill_color_other_lazy{{0b100}});
+
+					r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
+					r.update_state(fx::batch_draw_mode::msdf);
+			}
+
+			if(base.image_view || edge.image_view){
+				element.renderer().update_state(fx::batch_draw_mode::msdf);
+
+				if(base.image_view){
+					draw_base(element, region, opacityScl);
+				}
+
+				if(edge.image_view){
+					auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
+					element.renderer() << fx::nine_patch_hollow_draw<>{
+						.patch = &edge,
+						.region = region,
+						.color = color_edge,
+					};
+				}
+			}
+		} else if(layer_param == 1){
+			if(back.image_view){
+				element.renderer().update_state(fx::batch_draw_mode::msdf);
+				draw_back(element, region, opacityScl);
+			}
+		}
+	}
+};
+
+#pragma region ExampleUIStructs
 struct csv_file_reader : head_body{
 	struct file_listener : react_flow::terminal<std::span<const std::filesystem::path>>{
 		gui::overlay* overlay;
@@ -490,6 +548,9 @@ struct vp : gui::viewport{
 	}
 
 };
+#pragma endregion
+
+#pragma region ResourceLoad
 
 void set_cursors(scene& scene){
 	auto& cm = scene.resources().cursor_collection_manager;
@@ -514,7 +575,7 @@ void make_styles(scene& scene){
 
 	{
 		using namespace style;
-		round_style templt{};
+		r_style templt{};
 
 		static constexpr auto color_to_dark = [](graphic::color c){
 			return c.set_value(.12f).shift_saturation(-.05f);
@@ -525,7 +586,7 @@ void make_styles(scene& scene){
 		templt.back.pal = pal::dark;
 		templt.back = assets::builtin::default_round_square_base;
 
-		auto [itr, suc] = sm.register_style<elem_style_drawer>(referenced_ptr<round_style>{std::in_place, templt});
+		auto [itr, suc] = sm.register_style<elem_style_drawer>(referenced_ptr<r_style>{std::in_place, templt});
 		auto& default_family = itr->second.get_default();
 
 		{
@@ -678,6 +739,9 @@ void make_styles(scene& scene){
 
 }
 
+#pragma endregion
+
+#pragma region Scene
 void example_scene::draw_at(math::frect clipspace, draw_call_stack& call_stack){
 	auto c = get_region().intersection_with(clipspace);
 	const auto bound = c.round<int>();
@@ -762,8 +826,8 @@ void example_scene::draw_impl(rect clip){
 
 	if(input_handler_.inputs_.is_cursor_inbound()){
 		renderer().update_state(fx::pipeline_config{
-			.draw_targets = {0b1},
-			.pipeline_index = gpip_idx::cursor_outline
+			.pipeline_index = gpip_idx::cursor_outline,
+			.draw_targets = {0b1}
 		});
 
 		renderer().update_state(fx::push_constant{1.f});
@@ -778,6 +842,7 @@ void example_scene::draw_impl(rect clip){
 			{.pipeline_index = cpip_idx::blend}});
 	}
 }
+#pragma endregion
 
 ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend renderer){
 	auto& ui_root = gui::global::manager;
@@ -816,6 +881,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 	scene.get_communicator()->set_native_cursor_visibility(false);
 
 	auto e = scene.create<scaling_stack>();
+	// e->set_scaling({.5f, .5f});
 	e->set_fill_parent({true, true});
 	auto& mroot = static_cast<scaling_stack&>(root.insert(0, std::move(e)));
 

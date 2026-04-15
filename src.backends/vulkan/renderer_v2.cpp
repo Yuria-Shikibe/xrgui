@@ -241,10 +241,6 @@ bool renderer::command_recording_context::process_breakpoints_(renderer& r, brea
 
 		if(param.use_fallback_pipeline()) param.pipeline_index = params.draw_cfg.pipeline_index;
 
-		if(!param.draw_targets.any()){
-			param.draw_targets = params.draw_cfg.draw_targets;
-		}
-
 		params.draw_cfg = param;
 
 		// 获取新的管线选项并更新 CPU 侧追踪状态

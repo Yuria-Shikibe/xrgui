@@ -2,6 +2,7 @@ module;
 
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
+#include <gch/small_vector.hpp>
 
 
 
@@ -168,6 +169,71 @@ struct cursor_states{
 
 export
 using elem_span = transparent_span<elem* const>;
+
+export
+struct elem_wrapper{
+private:
+	struct entry{
+		void* flag;
+		elem* e;
+	};
+
+	union{
+		entry etry;
+		elem_span span;
+	};
+
+	constexpr bool is_span_() const noexcept{
+		if consteval{
+			auto rst = std::bit_cast<std::array<void*, 2>>(*this);
+			return rst[0] != nullptr;
+		}else{
+			void* p;
+			std::memcpy(&p, this, sizeof(void*));
+			return p != nullptr;
+		}
+	}
+
+public:
+	[[nodiscard]] explicit(false) elem_wrapper(elem& e) noexcept
+		: etry({nullptr, &e}){
+	}
+
+	[[nodiscard]] explicit(false) elem_wrapper(elem_span span) noexcept {
+		if(span.empty()){
+			etry = {};
+		}else{
+			this->span = span;
+		}
+	}
+
+	template <std::convertible_to<elem_span> Rng>
+	[[nodiscard]] explicit(false) elem_wrapper(Rng& span) noexcept : elem_wrapper(elem_span{span}) {
+	}
+
+	constexpr bool empty() const noexcept{
+		auto rst = std::bit_cast<std::array<std::uintptr_t, 2>>(*this);
+		return rst[1] == 0;
+	}
+
+	explicit constexpr operator bool() const noexcept{
+		return !empty();
+	}
+
+	template <std::invocable<elem&> Fn>
+	constexpr void for_each(Fn&& fn) const noexcept(std::is_nothrow_invocable_v<Fn>){
+		if(is_span_()){
+			for (auto&& elem : span){
+				std::invoke(std::forward<Fn>(fn), *elem);
+			}
+		}else if(etry.e){
+			std::invoke(std::forward<Fn>(fn), *etry.e);
+		}
+	}
+};
+
+export
+using element_collect_buffer = gch::small_vector<elem_wrapper, 2, mr::unvs_allocator<elem_wrapper>>;
 
 namespace scene_submodule{
 struct input;
@@ -348,7 +414,7 @@ public:
 			is_scene_notified = true;
 		}
 
-		for (auto child : children()){
+		for (auto child : exposed_children()){
 			child->on_display_state_changed(is_shown, is_scene_notified);
 		}
 	}
@@ -538,11 +604,10 @@ public:
 
 	void clear_scene_references() noexcept;
 	void clear_scene_references_recursively() noexcept{
+		for_each_collected_children([](elem& e){
+			e.clear_scene_references();
+		});
 		clear_scene_references();
-
-		for (auto && child : children()){
-			child->clear_scene_references_recursively();
-		}
 	}
 
 	void require_scene_cursor_update() const noexcept{
@@ -648,27 +713,43 @@ public:
 
 #pragma region Group
 public:
+	template <std::invocable<elem&> Fn>
+	void for_each_collected_children(Fn&& fn){
+		for (auto&& elem_wrapper : collect_children()){
+			elem_wrapper.for_each([&](elem& e){
+				e.for_each_collected_children(fn);
+			});
+		}
+	}
 
-	[[nodiscard]] virtual elem_span children() const noexcept{
+	virtual element_collect_buffer collect_children() const{
+		element_collect_buffer buf;
+		auto c = exposed_children();
+		if(!c.empty())buf.push_back(c);
+		return buf;
+	}
+
+	[[nodiscard]] virtual elem_span exposed_children() const noexcept{
 		return {};
 	}
 
-	[[nodiscard]] bool has_children() const noexcept{
-		return !children().empty();
+	[[nodiscard]] bool has_exposed_children() const noexcept{
+		return !exposed_children().empty();
 	}
 
 	virtual bool set_scaling(math::vec2 scl) noexcept {
 		assert(!scl.is_NaN());
 		if(!util::try_modify(context_scaling_, scl))return false;
-		context_scaling_ = scl;
-		layout_state.notify_self_changed();
-		auto c = children();
-		if(!c.empty() && propagate_scaling_){
-			layout_state.notify_children_changed();
-			auto s = get_scaling();
-			for (auto && elem : c){
-				elem->set_scaling(s);
+		notify_isolated_layout_changed();
+
+		if(propagate_scaling_){
+			for(auto&& collect_child : collect_children()){
+				collect_child.for_each([](elem& e){
+					e.set_scaling(e.is_root_element() ? vec2{1, 1} : e.parent()->get_scaling());
+				});
 			}
+
+			layout_state.notify_children_changed();
 		}
 		return true;
 	}
@@ -970,8 +1051,8 @@ public:
 		if(util::try_modify(context_opacity_, val)){
 			on_opacity_changed(prev);
 			const float o = get_draw_opacity();
-			for(const auto& element : children()){
-				element->update_context_opacity(o);
+			for(const auto& element : collect_children()){
+				element.for_each(std::bind_back(&elem::update_context_opacity, o));
 			}
 		}
 	}
@@ -980,16 +1061,17 @@ public:
 		const auto prev = get_draw_opacity();
 		if(util::try_modify(inherent_opacity_, val)){
 			on_opacity_changed(prev);
-			for(const auto& element : children()){
-				element->update_context_opacity(get_draw_opacity());
+			const float o = get_draw_opacity();
+			for(const auto& element : collect_children()){
+				element.for_each(std::bind_back(&elem::update_context_opacity, o));
 			}
 		}
 	}
 
 	FORCE_INLINE inline void set_children_opacity_with_scl(const float scl) noexcept{
 		const float o = get_draw_opacity() * scl;
-		for(const auto& element : children()){
-			element->update_context_opacity(o);
+		for(const auto& element : collect_children()){
+			element.for_each(std::bind_back(&elem::update_context_opacity, o));
 		}
 	}
 
@@ -1052,7 +1134,7 @@ public:
 		return scene_->get_heap_allocator<T>();
 	}
 
-	virtual void relocate_scene(scene& target_scene) noexcept;
+	void relocate_scene(scene& target_scene) noexcept;
 
 protected:
 	void relocate_self_scene(scene& target_scene) noexcept;
@@ -1107,11 +1189,11 @@ void dfs_record_inbound_element(
 
 	selected.push_back(current);
 
-	if(current->touch_blocked() || !current->has_children()) return;
+	if(current->touch_blocked() || !current->has_exposed_children()) return;
 
 	auto transformed = current->transform_to_content_space(cursorPos);
 
-	for(const auto& child : current->children()/* | std::views::reverse*/){
+	for(const auto& child : current->exposed_children()/* | std::views::reverse*/){
 		if(!child->is_visible())continue;
 		util::dfs_record_inbound_element<Container>(transformed, selected, child);
 
