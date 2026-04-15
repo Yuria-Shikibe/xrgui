@@ -92,7 +92,10 @@ XRGUI(mo_yanXi's Retaine mode GUI)是一个近似**每帧重绘和局部更新**
 * 永远都是**即时重绘**，但是平铺的绘制命令会在绘制状态改变时重录
 * UI元素的Action推送可以从任何线程发起以执行元素相关操作，但是执行都会在UI主线程进行
 
-### 绘制流程
+## 布局说明
+[布局文档](properties/showcase/layout_spec.md)
+
+## 绘制流程
 
 [绘图流程文档](properties/showcase/render_spec.md)
 
