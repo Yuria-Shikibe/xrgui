@@ -234,7 +234,7 @@ public:
 
 export
 struct icon_frame : image_frame_single<icon<>>{
-	[[nodiscard]] icon_frame(scene& scene, elem* group, const image_region_borrow& icon_image = {}, const image_display_style& style = {})
+	[[nodiscard]] icon_frame(scene& scene, elem* group, const constant_image_region_borrow& icon_image = {}, const image_display_style& style = {})
 	: image_frame_single(scene, group, icon<>{icon_image}, style){
 	}
 

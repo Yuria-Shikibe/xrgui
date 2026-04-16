@@ -26,9 +26,7 @@ import mo_yanxi.meta_programming;
 namespace mo_yanxi::gui{
 export using image_native_handle = VkImageView;
 export using image_region_type = graphic::combined_image_region<graphic::size_awared_uv<graphic::uniformed_rect_uv>>;
-export using image_region_borrow = graphic::universal_borrowed_image_region<image_region_type,
-	referenced_object_atomic>;
-
+export using constant_image_region_borrow = graphic::universal_borrowed_constant_image_region<image_region_type, referenced_object_atomic_lazy>;
 
 export
 struct image_row_patch{
@@ -55,7 +53,7 @@ private:
 	float src_margin{};
 	float end_margin{};
 
-	image_region_borrow image_region_{};
+	constant_image_region_borrow image_region_{};
 
 	/**
 	 * @brief [0]y_src, [1]y_dst, [2]x_src, [3]x_cap_l, [4]x_cap_r, [5]x_dst
@@ -68,7 +66,7 @@ public:
 	[[nodiscard]] image_row_patch() = default;
 
 	constexpr image_row_patch(
-		const image_region_borrow& imageRegion,
+		const constant_image_region_borrow& imageRegion,
 		const math::urect region,
 		const float src_len,
 		const float end_len,
@@ -430,9 +428,9 @@ struct nine_patch_layout{
 export
 struct image_nine_region : nine_patch_layout{
 	static constexpr auto size = 9;
-	using region_type = image_region_borrow;
+	using region_type = constant_image_region_borrow;
 
-	image_region_borrow image_view{};
+	constant_image_region_borrow image_view{};
 	float margin{};
 
 	graphic::uniformed_rect_uv outer_uv{};

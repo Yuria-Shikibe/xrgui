@@ -152,6 +152,9 @@ svg_info create_solid_boarder(double radius = 15., double k = 0.5522847498);
 export
 svg_info create_capsule_smooth(double width, double height, double exponent = 3.5);
 
+export
+svg_info create_circle(double radius);
+
 /**
 	* @brief 创建标准胶囊形 (两头半圆，中间矩形)
 	* @param r 半圆半径 (radius)

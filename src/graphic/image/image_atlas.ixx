@@ -72,6 +72,7 @@ constexpr math::usize2 DefaultTexturePageSize = math::vectors::constant2<std::ui
 
 using region_type = combined_image_region<size_awared_uv<uniformed_rect_uv>>;
 
+#pragma region LoadSpec
 
 export
 struct bitmap_represent{
@@ -213,6 +214,8 @@ struct async_loader_task{
 	using variant_t = std::variant<allocated_image_load_description, texture_allocation_request>;
 	variant_t task;
 };
+
+#pragma endregion
 
 export struct image_atlas;
 
@@ -390,11 +393,17 @@ struct image_register_result{
 };
 
 export
+struct image_page_config{
+	math::usize2 extent{DefaultTexturePageSize};
+	VkClearColorValue clear_color{};
+	VkFormat format{};
+	std::uint32_t margin{4};
+};
+
+export
 struct image_page{
 private:
 	async_image_loader* loader_{};
-
-	math::usize2 page_size_{};
 
 	std::mutex subpage_mtx_{};
 
@@ -402,8 +411,7 @@ private:
 	std::atomic<vk::texture*> ptr_to_texture_temp_{nullptr};
 	std::atomic<sub_page*> task_post_lock_{};
 
-	VkClearColorValue clear_color_{};
-	std::uint32_t margin{};
+	image_page_config config_{};
 
 	concurrent_node_string_map<allocated_image_region> named_image_regions{};
 
@@ -414,21 +422,17 @@ public:
 
 	[[nodiscard]] explicit image_page(
 		async_image_loader& loader,
-		const math::usize2 page_size = DefaultTexturePageSize,
-		const VkClearColorValue& clear_color = {},
-		const std::uint32_t margin = 4)
+		image_page_config config = {})
 	:
 	loader_(&loader),
-	page_size_(page_size),
-	clear_color_(clear_color),
-	margin(margin){
+	config_(config){
 		loader_->push(texture_allocation_request{
-					.extent = {page_size_.x, page_size_.y},
-					.clear_color_value = clear_color_,
+					.extent = {config_.extent.x, config_.extent.y},
+					.clear_color_value = config_.clear_color,
 					.done_ptr = &ptr_to_texture_temp_
 				});
 
-		sub_page* sub_page = &*subpages_.emplace(page_size_);
+		sub_page* sub_page = &*subpages_.emplace(config_.extent);
 		ptr_to_texture_temp_.wait(nullptr, std::memory_order::relaxed);
 		sub_page->texture = std::move(*ptr_to_texture_temp_.load(std::memory_order::acquire));
 		ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
@@ -471,7 +475,7 @@ public:
 		image_load_description&& desc
 	){
 		const auto extent = desc.get_extent();
-		if(extent.x > page_size_.x || extent.y > page_size_.y){
+		if(extent.x + config_.margin > config_.extent.x || extent.y + config_.margin > config_.extent.y){
 			throw bad_image_allocation{};
 		}
 
@@ -480,7 +484,7 @@ public:
 			{
 				std::lock_guard _{subpage_mtx_};
 				for(auto& subpass : subpages_){
-					if(auto rst = subpass.acquire(extent, margin)){
+					if(auto rst = subpass.acquire(extent, config_.margin)){
 						return async_load(std::move(desc), std::move(rst.value()));
 					}
 				}
@@ -491,7 +495,7 @@ public:
 			{
 				std::lock_guard _{subpage_mtx_};
 				for(auto& subpass : subpages_){
-					if(auto rst = subpass.acquire(extent, margin)){
+					if(auto rst = subpass.acquire(extent, config_.margin)){
 						return async_load(std::move(desc), std::move(rst.value()));
 					}
 				}
@@ -503,13 +507,13 @@ public:
 
 					{
 						std::lock_guard _{subpage_mtx_};
-						sub_page = std::to_address(subpages_.emplace(page_size_));
+						sub_page = std::to_address(subpages_.emplace(config_.extent));
 					}
 
 
 					loader_->push(texture_allocation_request{
-							.extent = {page_size_.x, page_size_.y},
-							.clear_color_value = clear_color_,
+							.extent = {config_.extent.x, config_.extent.y},
+							.clear_color_value = config_.clear_color,
 							.done_ptr = &ptr_to_texture_temp_
 						});
 
@@ -554,7 +558,7 @@ public:
 				}
 			}
 
-			if(auto rst = sub_page->acquire(extent, margin)){
+			if(auto rst = sub_page->acquire(extent, config_.margin)){
 				return async_load(std::move(desc), std::move(rst.value()));
 			}
 		}
@@ -647,10 +651,6 @@ public:
 	[[nodiscard]] auto& operator[](this T& self, const std::string_view localName){
 		return self.at(localName);
 	}
-	//
-
-
-
 
 	~image_page() = default;
 	

@@ -26,7 +26,7 @@ namespace mo_yanxi::font{
 export
 using glyph_texture_region = graphic::combined_image_region<graphic::uniformed_rect_uv>;
 export
-using glyph_borrow = graphic::universal_borrowed_image_region<glyph_texture_region, referenced_object_atomic>;
+using glyph_borrow = graphic::universal_borrowed_constant_image_region<glyph_texture_region, referenced_object_atomic_lazy>;
 
 export
 struct glyph : glyph_borrow{
@@ -37,13 +37,13 @@ public:
 	[[nodiscard]] glyph() = default;
 
 	[[nodiscard]] glyph(glyph_borrow&& borrow, const glyph_metrics& metrics)
-		: universal_borrowed_image_region{std::move(borrow)}, metrics_{metrics}{
+		: universal_borrowed_constant_image_region{std::move(borrow)}, metrics_{metrics}{
 		assert(borrow->view != nullptr);
 		assert(this->operator*().view != nullptr);
 	}
 
 	[[nodiscard]] explicit(false) glyph(const glyph_metrics& metrics)
-		: universal_borrowed_image_region{}, metrics_{metrics}{
+		: universal_borrowed_constant_image_region{}, metrics_{metrics}{
 	}
 
 	[[nodiscard]] const glyph_metrics& metrics() const noexcept{

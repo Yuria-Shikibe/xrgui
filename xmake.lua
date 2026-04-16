@@ -155,13 +155,17 @@ target("xrgui.example")
     set_extension(".exe")
     set_languages("c++latest")
 
---     set_warnings("all", "pedantic")
+    set_warnings("all", "pedantic")
 
     if is_mode("release") then
         set_policy("build.optimization.lto", true)
     end
+    if is_plat("windows") then
+        add_syslinks("imm32", {public = true})
+    end
 
-    add_deps("xrgui")
+    set_xrgui_deps()
+--     add_deps("xrgui")
     add_packages("glfw")
 
     add_files("src.backends/universal/**.ixx", {public = true})

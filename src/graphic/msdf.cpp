@@ -896,4 +896,59 @@ svg_info create_capsule_smooth(double width, double height, double exponent){
 
 	return {shape, math::vector2{width, height}.as<float>()};
 }
+
+svg_info create_circle(double radius){
+	using namespace msdfgen;
+	Shape shape;
+	shape.inverseYAxis = true;
+
+	Contour& contour = shape.addContour();
+	const double h = radius * k_circle;
+
+	// 定义圆上的四个基准点，确保图形包围盒在 [0, 2R] x [0, 2R] 内
+	const Point2 p_top(radius, 2.0 * radius);
+	const Point2 p_right(2.0 * radius, radius);
+	const Point2 p_bottom(radius, 0.0);
+	const Point2 p_left(0.0, radius);
+
+	// 1. 顶部到右侧
+	contour.addEdge(new CubicSegment(
+		p_top,
+		Point2(radius + h, 2.0 * radius),
+		Point2(2.0 * radius, radius + h),
+		p_right
+	));
+
+	// 2. 右侧到底部
+	contour.addEdge(new CubicSegment(
+		p_right,
+		Point2(2.0 * radius, radius - h),
+		Point2(radius + h, 0.0),
+		p_bottom
+	));
+
+	// 3. 底部到左侧
+	contour.addEdge(new CubicSegment(
+		p_bottom,
+		Point2(radius - h, 0.0),
+		Point2(0.0, radius - h),
+		p_left
+	));
+
+	// 4. 左侧到顶部
+	contour.addEdge(new CubicSegment(
+		p_left,
+		Point2(0.0, radius + h),
+		Point2(radius - h, 2.0 * radius),
+		p_top
+	));
+
+	if(!shape.validate()) return {};
+	shape.orientContours();
+	edgeColoringSimple(shape, 3.0);
+	shape.normalize();
+
+	return {shape, math::vector2{2.0 * radius, 2.0 * radius}.as<float>()};
+}
+
 }

@@ -19,14 +19,14 @@ namespace mo_yanxi::gui{
 export
 template <typename ...Components>
 struct drawable_image final : drawable_base{
-	image_region_borrow image_region;
+	constant_image_region_borrow image_region;
 	ADAPTED_NO_UNIQUE_ADDRESS component::combined_components<Components...> components;
 
 	[[nodiscard]] drawable_image() = default;
 
 	template <typename RegionTy>
-		requires (std::constructible_from<image_region_borrow, RegionTy&&>)
-	[[nodiscard]] explicit(std::convertible_to<RegionTy&&, image_region_borrow>) drawable_image(
+		requires (std::constructible_from<constant_image_region_borrow, RegionTy&&>)
+	[[nodiscard]] explicit(std::convertible_to<RegionTy&&, constant_image_region_borrow>) drawable_image(
 		RegionTy&& image_region,
 		const component::combined_components<Components...>& components = {})
 	: image_region(std::forward<RegionTy>(image_region)),
@@ -40,14 +40,14 @@ struct drawable_image final : drawable_base{
 export
 template <typename ...Components>
 struct icon final : drawable_base{
-	image_region_borrow image_region;
+	constant_image_region_borrow image_region;
 	ADAPTED_NO_UNIQUE_ADDRESS component::combined_components<Components...> components;
 
 	[[nodiscard]] icon() = default;
 
 	template <typename RegionTy>
-		requires (std::constructible_from<image_region_borrow, RegionTy&&>)
-	[[nodiscard]] explicit(std::convertible_to<RegionTy&&, image_region_borrow>) icon(
+		requires (std::constructible_from<constant_image_region_borrow, RegionTy&&>)
+	[[nodiscard]] explicit(std::convertible_to<RegionTy&&, constant_image_region_borrow>) icon(
 		RegionTy&& image_region,
 		const component::combined_components<Components...>& components = {})
 	: image_region(std::forward<RegionTy>(image_region)),

@@ -11,32 +11,32 @@ namespace mo_yanxi::graphic{
 
 
 /**
- * @brief Consider that the image region is immutable after allocation, this type erasure is valid.
+ * @brief Consider that the CONSTANT image region is immutable after allocation, this type erasure is valid.
  * @tparam T image region type
  */
 export
 template <typename T, typename Base>
-struct universal_borrowed_image_region : referenced_ptr<Base, no_deletion_on_ref_count_to_zero>{
+struct universal_borrowed_constant_image_region : referenced_ptr<Base, no_deletion_on_ref_count_to_zero>{
 	using base_type = Base;
 	using region_type = T;
 
 private:
 	template <typename Ty, typename BaseTy>
-	friend struct universal_borrowed_image_region;
+	friend struct universal_borrowed_constant_image_region;
 
 	region_type cache_{};
 
 public:
-	[[nodiscard]] universal_borrowed_image_region() = default;
+	[[nodiscard]] universal_borrowed_constant_image_region() = default;
 
-	[[nodiscard]] universal_borrowed_image_region(
+	[[nodiscard]] universal_borrowed_constant_image_region(
 		base_type& target,
 		const region_type& region
 		)
 		: referenced_ptr<Base, no_deletion_on_ref_count_to_zero>(std::addressof(target)), cache_(region){
 	}
 
-	[[nodiscard]] universal_borrowed_image_region(
+	[[nodiscard]] universal_borrowed_constant_image_region(
 		const region_type& region
 		)
 		: referenced_ptr<Base, no_deletion_on_ref_count_to_zero>(nullptr), cache_(region){
@@ -44,7 +44,7 @@ public:
 
 	template <typename Ty>
 		requires (std::constructible_from<region_type, Ty>)
-	[[nodiscard]] universal_borrowed_image_region(
+	[[nodiscard]] universal_borrowed_constant_image_region(
 		base_type& target,
 		Ty&& region
 		)
@@ -55,10 +55,28 @@ public:
 		requires requires(const Ty& t, region_type& region){
 			region = static_cast<region_type>(t);
 		}
-	[[nodiscard]] explicit(!std::convertible_to<const Ty&, region_type>) universal_borrowed_image_region(
-		const universal_borrowed_image_region<Ty, Base>& target
+	[[nodiscard]] explicit(!std::convertible_to<const Ty&, region_type>) universal_borrowed_constant_image_region(
+		const universal_borrowed_constant_image_region<Ty, Base>& target
 	) noexcept(std::is_nothrow_constructible_v<region_type, const Ty&>)
 	: referenced_ptr<Base, no_deletion_on_ref_count_to_zero>(target), cache_(static_cast<region_type>(target.cache_)){
+
+	}
+
+	template <typename Ty>
+		requires requires(const Ty& t, region_type& region){
+			region = static_cast<region_type>(t);
+		}
+	[[nodiscard]] explicit(!std::convertible_to<const Ty&, region_type>) universal_borrowed_constant_image_region(const referenced_ptr<Ty, no_deletion_on_ref_count_to_zero>& other)
+	: referenced_ptr<Base, no_deletion_on_ref_count_to_zero>(other), cache_(other ? static_cast<region_type>(*other) : region_type{}){
+
+	}
+
+	template <typename Ty>
+		requires requires(const Ty& t, region_type& region){
+			region = static_cast<region_type>(t);
+		}
+	[[nodiscard]] explicit(!std::convertible_to<const Ty&, region_type>) universal_borrowed_constant_image_region(referenced_ptr<Ty, no_deletion_on_ref_count_to_zero>&& other)
+	: referenced_ptr<Base, no_deletion_on_ref_count_to_zero>(std::move(other)), cache_(this->get() ? static_cast<region_type>(*static_cast<Ty*>(this->get())) : region_type{}){
 
 	}
 
@@ -66,8 +84,8 @@ public:
 		requires requires(Ty&& t, region_type& region){
 			region = static_cast<region_type>(std::move(t));
 		}
-	[[nodiscard]] explicit(!std::convertible_to<const Ty&, region_type>) universal_borrowed_image_region(
-		universal_borrowed_image_region<Ty, Base>&& target
+	[[nodiscard]] explicit(!std::convertible_to<const Ty&, region_type>) universal_borrowed_constant_image_region(
+		universal_borrowed_constant_image_region<Ty, Base>&& target
 	) noexcept(std::is_nothrow_constructible_v<region_type, Ty&&>)
 	: referenced_ptr<Base, no_deletion_on_ref_count_to_zero>(std::move(target)), cache_(static_cast<region_type>(std::move(target.cache_))){}
 

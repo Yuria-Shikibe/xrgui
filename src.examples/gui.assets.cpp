@@ -80,7 +80,7 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 	using namespace builtin;
 	auto& builtin_page = get_page();
 
-	builtin_page.insert(shape_id::white, image_region_borrow{});
+	builtin_page.insert(shape_id::white, constant_image_region_borrow{});
 	builtin_page.insert(shape_id::row_separator, line);
 	builtin_page.insert(shape_id::round_square_edge, boarder);
 	builtin_page.insert(shape_id::round_square_edge_thin, boarder_thin);

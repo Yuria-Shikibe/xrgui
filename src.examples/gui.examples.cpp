@@ -95,9 +95,9 @@ struct test_entry{
 
 struct image_cursor : style::cursor{
 
-	gui::image_region_borrow icon_region;
+	gui::constant_image_region_borrow icon_region;
 
-	[[nodiscard]] explicit image_cursor(const gui::image_region_borrow& icon_region)
+	[[nodiscard]] explicit image_cursor(const gui::constant_image_region_borrow& icon_region)
 		: icon_region(icon_region){
 	}
 

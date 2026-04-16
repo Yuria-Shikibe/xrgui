@@ -65,7 +65,7 @@ struct dumb_propagate_atomic_bool{
 export
 struct allocated_image_region :
 	region_type,
-	referenced_object_atomic{
+	referenced_object_atomic_lazy{
 protected:
 	math::urect region{};
 	exclusive_handle_member<sub_page*> page{};
@@ -125,10 +125,10 @@ public:
 		return false;
 	}
 
-	using referenced_object_atomic::droppable;
-	using referenced_object_atomic::check_droppable_and_retire;
-	using referenced_object_atomic::ref_decr;
-	using referenced_object_atomic::ref_incr;
+	using referenced_object_atomic_lazy::droppable;
+	using referenced_object_atomic_lazy::check_droppable_and_retire;
+	using referenced_object_atomic_lazy::ref_decr;
+	using referenced_object_atomic_lazy::ref_incr;
 
 
 	/**
@@ -140,14 +140,14 @@ public:
 	 */
 	template <typename T>
 		requires (std::convertible_to<region_type, T>)
-	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic>() noexcept{
+	explicit(false) operator universal_borrowed_constant_image_region<T, referenced_object_atomic_lazy>() noexcept{
 		return {*this, static_cast<T>(static_cast<const region_type&>(*this))};
 	}
 
 	template <typename T>
 		requires (std::convertible_to<region_type, T>)
-	std::optional<universal_borrowed_image_region<T, referenced_object_atomic>> make_universal_borrow() noexcept{
-		universal_borrowed_image_region<T, referenced_object_atomic> rst{*this, static_cast<T>(static_cast<const region_type&>(*this))};
+	std::optional<universal_borrowed_constant_image_region<T, referenced_object_atomic_lazy>> make_universal_borrow() noexcept{
+		universal_borrowed_constant_image_region<T, referenced_object_atomic_lazy> rst{*this, static_cast<T>(static_cast<const region_type&>(*this))};
 		if(rst.get()){
 			return rst;
 		}
@@ -186,7 +186,7 @@ public:
 
 	template <typename T>
 		requires std::convertible_to<region_type, T>
-	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic>() noexcept{
+	explicit(false) operator universal_borrowed_constant_image_region<T, referenced_object_atomic_lazy>() noexcept{
 		return {**this, static_cast<T>(static_cast<const region_type&>(**this))};
 	}
 };
@@ -238,7 +238,7 @@ public:
 
 	template <typename T>
 		requires std::convertible_to<region_type, T>
-	explicit(false) operator universal_borrowed_image_region<T, referenced_object_atomic>() noexcept{
+	explicit(false) operator universal_borrowed_constant_image_region<T, referenced_object_atomic_lazy>() noexcept{
 		return {**this, static_cast<T>(static_cast<const region_type&>(**this))};
 	}
 };

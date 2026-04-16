@@ -46,6 +46,10 @@ namespace style{
 export struct elem_style_drawer : style_drawer<elem>{
 	using style_drawer::style_drawer;
 
+	/**
+	 * @warning boarder must not change after init section, all access(multi-thread and cache) to it assumes that it is const
+	 * @return the boarder of the drawer
+	 */
 	[[nodiscard]] virtual boarder get_boarder() const noexcept{
 		return {};
 	}
