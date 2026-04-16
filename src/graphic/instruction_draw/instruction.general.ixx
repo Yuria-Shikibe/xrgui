@@ -204,14 +204,22 @@ struct alignas(instr_required_align) generic_instruction_head{
 
 
 export
-enum struct state_push_type{
+enum struct state_push_type : std::uint8_t{
 	idempotent,
 	non_idempotent
 };
 
 export
+enum struct depth_op_type : std::uint8_t{
+	noop,
+	incr,
+	decr
+};
+
+export
 struct state_push_config{
 	state_push_type type;
+	depth_op_type depth_op;
 	std::bitset<32> to_clear;
 };
 

@@ -26,9 +26,14 @@ private:
         bool is_new;
     };
 
+	struct depth_record{
+		std::uint32_t tag;
+		std::uint32_t cur_depth;
+		std::uint32_t max_depth;
+	};
 
     std::vector<state_record> records_;
-
+	std::vector<depth_record> depths_;
 
 
     std::vector<std::byte> storage_;
@@ -37,6 +42,35 @@ public:
     [[nodiscard]] state_tracker() {
 
         storage_.reserve(4096);
+    }
+
+	[[nodiscard]] std::span<const depth_record> get_depth_records() const noexcept{
+	    return depths_;
+    }
+
+    void update_depth(depth_op_type op, std::uint32_t tag_major){
+	    auto get_track = [&] -> auto&{
+		    if(auto itr = std::ranges::find(depths_, tag_major, &depth_record::tag); itr != depths_.end()){
+			    return *itr;
+		    } else{
+			    return depths_.emplace_back(tag_major);
+		    }
+	    };
+	    switch(op){
+	    case depth_op_type::noop : break;
+	    case depth_op_type::incr :{
+		    auto& t = get_track();
+		    ++t.cur_depth;
+		    t.max_depth = std::max(t.cur_depth, t.max_depth);
+	    }
+	    break;
+	    case depth_op_type::decr :{
+		    auto& t = get_track();
+		    assert(t.cur_depth != 0);
+		    --t.cur_depth;
+	    }
+	    break;
+	    }
     }
 
 	template <std::size_t N>
@@ -180,6 +214,7 @@ public:
 
     void reset() noexcept {
         records_.clear();
+        depths_.clear();
         storage_.clear();
     }
 };

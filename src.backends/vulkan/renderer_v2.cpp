@@ -7,6 +7,11 @@ module mo_yanxi.backend.vulkan.renderer;
 
 namespace mo_yanxi::backend::vulkan{
 void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cmd){
+
+	// for (auto depth_record : r.batch_host.get_tracker().get_depth_records()){
+	// 	std::println(std::cerr, "{}, {}", depth_record.tag, depth_record.max_depth);
+	// }
+
 	cache_descriptor_context_.reset_binding_state();
 
 	vkCmdExecuteCommands(cmd, 1, r.blit_attachment_clear_and_init_command_buffer.as_data());

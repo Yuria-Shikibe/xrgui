@@ -242,8 +242,34 @@ enum struct state_type{
 
 	fill_color_local,
 	fill_color_other_lazy,
+
+	mask_op,
 	//TODO other states...
 	reserved_count
+};
+
+
+
+export
+struct push_mask{
+	constexpr explicit(false) operator state_push_config() const noexcept{
+		return {state_push_type::non_idempotent, graphic::draw::instruction::depth_op_type::incr};
+	}
+
+	constexpr explicit(false) operator binary_diff_tag() const noexcept{
+		return make_state_tag(state_type::mask_op, 1);
+	}
+};
+
+export
+struct pop_mask{
+	constexpr explicit(false) operator state_push_config() const noexcept{
+		return {state_push_type::non_idempotent, graphic::draw::instruction::depth_op_type::decr};
+	}
+
+	constexpr explicit(false) operator binary_diff_tag() const noexcept{
+		return make_state_tag(state_type::mask_op, 0);
+	}
 };
 
 export
@@ -252,11 +278,11 @@ struct state_fill_color_other_lazy{
 
 	static consteval void operator()();
 
-	explicit(false) operator state_push_config() const noexcept{
+	constexpr explicit(false) operator state_push_config() const noexcept{
 		return {state_push_type::idempotent};
 	}
 
-	explicit(false) operator binary_diff_tag() const noexcept{
+	constexpr explicit(false) operator binary_diff_tag() const noexcept{
 		return make_state_tag(state_type::fill_color_other_lazy, clear_mask);
 	}
 };

@@ -698,10 +698,8 @@ public:
 
 	image_page& create_image_page(
 		const std::string_view name,
-		const VkClearColorValue& clearColor = {},
-		const math::usize2 size = DefaultTexturePageSize,
-		const std::uint32_t margin = 4){
-		return pages.try_emplace(name, *async_image_loader_, size, clearColor, margin).first->second;
+		const image_page_config& config = {}){
+		return pages.try_emplace(name, *async_image_loader_, config).first->second;
 	}
 
 	image_page& operator[](const std::string_view name){

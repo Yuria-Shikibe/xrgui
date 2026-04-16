@@ -368,6 +368,10 @@ public:
 		}
 	}
 
+	const state_tracker& get_tracker() const noexcept{
+		return tracker_;
+	}
+
 	const hardware_limit_config& get_config() const noexcept{
 		return hardware_limit_;
 	}
@@ -397,9 +401,9 @@ public:
 	 * @param offset 数据偏移
 	 */
 	void push_state(state_push_config config, tag_type tag, std::span<const std::byte> payload, unsigned offset = 0){
-		if (config.to_clear.any()) {
-			tracker_.clear_mask(config.to_clear);
-		}
+		tracker_.clear_mask(config.to_clear);
+		tracker_.update_depth(config.depth_op, tag.major);
+
 
 		switch(config.type){
 		case state_push_type::idempotent : tracker_.update(tag, payload, offset);
