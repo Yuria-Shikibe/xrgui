@@ -127,6 +127,14 @@ std::vector<VkPushConstantRange> make_push_constants(VkShaderStageFlagBits stage
 
 struct general_config{
 	std::vector<VkPushConstantRange> push_constants{};
+
+	std::uint32_t get_used_cap() const noexcept {
+		std::uint32_t rst{};
+		for (auto && push_constant : push_constants){
+			rst = std::max(vk::align_up(push_constant.offset + push_constant.size, 4U), rst);
+		}
+		return rst;
+	}
 };
 
 #pragma region Graphic
@@ -209,6 +217,7 @@ struct option_blending_state{
 export
 struct graphic_pipeline_option{
 	bool enables_multisample{};
+	mask_usage mask_usage_type{};
 	fx::render_target_mask default_target_attachments{};
 	fx::render_target_mask input_attachments_mask{};
 	option_blending_state blend_state{};
@@ -226,6 +235,7 @@ struct graphic_pipeline_data{
 	vk::pipeline pipeline{};
 
 	graphic_pipeline_option option{};
+	std::uint32_t push_constant_request_size{};
 
 	[[nodiscard]] graphic_pipeline_data() = default;
 };
@@ -243,6 +253,7 @@ struct graphic_pipeline_create_config{
 		void create(
 			graphic_pipeline_data& data, const create_param& param,
 			const draw_attachment_create_info& attachments) const{
+			data.push_constant_request_size = general.get_used_cap();
 
 			data.pipeline_layout = {param.device, 0, param.descriptor_set_layouts, general.push_constants};
 			data.option = option;
@@ -258,6 +269,10 @@ struct graphic_pipeline_create_config{
 				option.default_target_attachments.for_each_popbit([&](unsigned i){
 					gtp.push_color_attachment_format(attachments.attachments[i].attachment.format);
 				});
+
+				if(option.mask_usage_type == mask_usage::write){
+					gtp.push_color_attachment_format(VK_FORMAT_R8_UNORM);
+				}
 
 				option.blend_state.apply_to_template(gtp);
 
@@ -292,6 +307,10 @@ struct graphic_pipeline_create_config{
 	}
 
 	const config& operator[](std::size_t index) const noexcept{
+		return configurator[index];
+	}
+
+	config& operator[](std::size_t index) noexcept{
 		return configurator[index];
 	}
 };
@@ -528,7 +547,8 @@ private:
 		vk::descriptor_buffer buffer{};
 	};
 	// 增加此容器，确保自动生成的 Dummy Layout 在管理器销毁前保持存活
-	std::vector<input_attachment_descriptor_mock> dummy_input_attachment_descriptor_settings_{};
+	std::vector<input_attachment_descriptor_mock> input_attachment_descriptor_settings_{};
+	vk::descriptor_layout mask_descriptor_set_layout_{};
 
 public:
 	[[nodiscard]] graphic_pipeline_manager() = default;
@@ -540,10 +560,16 @@ public:
 			)
 	graphic_pipeline_manager(
 		const vk::allocator_usage& allocator,
-		const graphic_pipeline_create_config& create_group,
+		graphic_pipeline_create_config&& create_group,
 		const T& auxiliary_layouts,
 		const draw_attachment_create_info& draw_attachment_config
-	) : pipeline_manager_base{allocator, create_group.descriptor_create_info}{
+		) : pipeline_manager_base{allocator, create_group.descriptor_create_info}, mask_descriptor_set_layout_(
+			    allocator.get_device(),
+			    VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+			    [&](vk::descriptor_layout_builder& builder){
+				    builder.push_seq(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
+			    }
+		    ){
 		pipelines.resize(create_group.size());
 
 		mr::vector<VkDescriptorSetLayout> layouts_buffer;
@@ -552,18 +578,19 @@ public:
 			layouts_buffer.clear();
 			layouts_buffer.append_range(layouts);
 
-			const auto& option = create_group[static_cast<std::size_t>(idx)].option;
+			auto& group = create_group[static_cast<std::size_t>(idx)];
+			const auto& option = group.option;
 
 			for(const auto& [src, dst] : option.used_descriptor_sets){
 				layouts_buffer.push_back(custom_descriptors.at(src).descriptor_set_layout());
 			}
 
-			if(option.input_attachments_mask.any()){
+			if(unsigned input_attachments_count = option.input_attachments_mask.popcount()){
 				input_attachment_descriptor_mock mock{vk::descriptor_layout{
 					allocator.get_device(),
 					VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 					[&](vk::descriptor_layout_builder& builder){
-						for(unsigned i = 0; i < option.input_attachments_mask.popcount(); ++i){
+						for(unsigned i = 0; i < input_attachments_count; ++i){
 							builder.push_seq(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
 						}
 					}
@@ -573,9 +600,20 @@ public:
 				};
 
 				layouts_buffer.push_back(mock.layout);
-				dummy_input_attachment_descriptor_settings_.push_back(std::move(mock));
+				input_attachment_descriptor_settings_.push_back(std::move(mock));
 			}else{
-				dummy_input_attachment_descriptor_settings_.emplace_back();
+				input_attachment_descriptor_settings_.emplace_back();
+			}
+
+			if(option.mask_usage_type != mask_usage::ignore){
+				layouts_buffer.push_back(mask_descriptor_set_layout_);
+				// if(option.uses_mask == mask_usage::write){
+				// 	group.general.push_constants.push_back({
+				// 		.stageFlags = ,
+				// 		.offset = group.general.get_used_cap(),
+				// 		.size = 4
+				// 	});
+				// }
 			}
 
 			create_group.create(idx, pipe, create_param{
@@ -587,14 +625,17 @@ public:
 
 	graphic_pipeline_manager(
 			const vk::allocator_usage& allocator,
-			const graphic_pipeline_create_config& create_group,
+			graphic_pipeline_create_config&& create_group,
 			std::span<const VkDescriptorSetLayout> auxiliary_layouts,
 			const draw_attachment_create_info& draw_attachment_config
-		) : graphic_pipeline_manager(allocator, create_group, std::views::repeat(auxiliary_layouts, create_group.size()), draw_attachment_config){}
+		) : graphic_pipeline_manager(allocator, std::move(create_group), std::views::repeat(auxiliary_layouts, create_group.size()), draw_attachment_config){}
 
+	[[nodiscard]] const vk::descriptor_layout& get_mask_descriptor_set_layout() const noexcept{
+		return mask_descriptor_set_layout_;
+	}
 
 	[[nodiscard]] std::span<input_attachment_descriptor_mock> get_input_attachment_mock_descriptor() {
-		return dummy_input_attachment_descriptor_settings_;
+		return input_attachment_descriptor_settings_;
 	}
 };
 

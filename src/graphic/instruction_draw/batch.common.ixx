@@ -68,15 +68,16 @@ public:
 
 
 	void push(tag_type tag, std::span<const std::byte> payload, std::uint32_t logical_offset = 0){
-		if(payload.empty()) return;
 
 		entry e{tag};
 		e.offset = static_cast<std::uint32_t>(payload_storage.size());
 		e.size = static_cast<std::uint32_t>(payload.size());
 		e.logical_offset = logical_offset;
 
-		payload_storage.resize(e.offset + e.size);
-		std::memcpy(payload_storage.data() + e.offset, payload.data(), e.size);
+		if(!payload.empty()){
+			payload_storage.resize(e.offset + e.size);
+			std::memcpy(payload_storage.data() + e.offset, payload.data(), e.size);
+		}
 
 		entries_.push_back(e);
 	}

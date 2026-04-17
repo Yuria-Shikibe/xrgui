@@ -127,30 +127,28 @@ protected:
 		if(layer_param == 0){
 			auto inbounds = element.get_scene().get_inbounds();
 			if(!inbounds.empty() && inbounds.back() == &element){
-				auto pos = util::transform_scene2local(element, element.get_scene().get_cursor_pos());
-					auto& r = element.renderer();
-					r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_draw});
-					r.update_state(fx::batch_draw_mode::msdf);
-
-					element.renderer() << fx::nine_patch_draw<>{
-						.patch = &back,
-						.region = region,
-						.color = graphic::colors::white,
-					};
-
-					r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_apply});
-					r.update_state(fx::push_constant{fx::batch_draw_mode::def, fx::mask_mode::def});
-
-					fx::fringe::poly(r, fx::circle{
-						.pos = {element.get_scene().get_cursor_pos()},
-						.radius = {0, 60},
-						.color = {graphic::colors::aqua.copy_set_a(.5f), graphic::colors::pale_green.copy_set_a(.5f)}
-					});
-
-					r.update_state(fx::state_fill_color_other_lazy{{0b100}});
-
-					r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
-					r.update_state(fx::batch_draw_mode::msdf);
+				// auto pos = util::transform_scene2local(element, element.get_scene().get_cursor_pos());
+				// 	auto& r = element.renderer();
+				// 	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_draw});
+				// 	r.update_state(fx::batch_draw_mode::msdf);
+				//
+				// 	element.renderer() << fx::nine_patch_draw<>{
+				// 		.patch = &back,
+				// 		.region = region,
+				// 		.color = graphic::colors::white,
+				// 	};
+				//
+				// 	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_apply});
+				// 	r.update_state(fx::push_constant{fx::batch_draw_mode::def, fx::mask_read_mode::def});
+				//
+				// 	fx::fringe::poly(r, fx::circle{
+				// 		.pos = {element.get_scene().get_cursor_pos()},
+				// 		.radius = {0, 60},
+				// 		.color = {graphic::colors::aqua.copy_set_a(.5f), graphic::colors::pale_green.copy_set_a(.5f)}
+				// 	});
+				//
+				// 	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
+				// 	r.update_state(fx::batch_draw_mode::msdf);
 			}
 
 			if(base.image_view || edge.image_view){

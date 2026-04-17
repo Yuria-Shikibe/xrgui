@@ -15,7 +15,7 @@ constexpr inline std::array device_extensions{
 		VK_KHR_MAINTENANCE_9_EXTENSION_NAME,
 		VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
 
-		VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
+		// VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
 		VK_EXT_MESH_SHADER_EXTENSION_NAME,
 		VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
 	};
@@ -149,7 +149,7 @@ const extension_chain extChain{
 		PhysicalDeviceExtendedDynamicState3Features,
 
 		DescriptorBufferFeatures,
-		DescriptorHeapFeatures,
+		// DescriptorHeapFeatures,
 
 		MeshShaderFeatures,
 	};

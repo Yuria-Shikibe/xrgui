@@ -7,10 +7,17 @@ module mo_yanxi.backend.vulkan.renderer;
 
 namespace mo_yanxi::backend::vulkan{
 void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cmd){
+	record_context_value_ = {};
 
-	// for (auto depth_record : r.batch_host.get_tracker().get_depth_records()){
-	// 	std::println(std::cerr, "{}, {}", depth_record.tag, depth_record.max_depth);
-	// }
+
+	for (auto depth_record : r.batch_host.get_tracker().get_depth_records()){
+		if(depth_record.tag == std::to_underlying(gui::fx::state_type::mask_op)){
+			r.update_mask_depth_(depth_record.max_depth + 1);
+			cache_mask_layer_enter_mark_.assign(depth_record.max_depth + 1, {});
+		}
+	}
+
+	std::ranges::fill(cache_mask_layer_enter_mark_, 0);
 
 	cache_descriptor_context_.reset_binding_state();
 
@@ -84,14 +91,16 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 
 		// 获取布局变化信号（移除了 sync_flags 的接收）
 		bool layout_changed = cache_sync_mgr_.sync_draw_targets(
-			cache_barrier_gen_, target_mask, absolute_input_bits, r.attachment_manager_.get_draw_attachments());
+			cache_barrier_gen_,
+			target_mask, absolute_input_bits, r.attachment_manager_.get_draw_attachments(),
+			pipe_opt.mask_usage_type, record_context_value_.mask_depth, r.attachment_manager_.get_mask_image().get_image()
+			);
 
 		if(is_rendering && (layout_changed || target_mask != current_pass_mask || is_msaa != current_pass_msaa)){
 			flush_pass();
 		}
 
 		if(!cache_barrier_gen_.empty()){
-			// 移除了不再需要的 VK_DEPENDENCY_BY_REGION_BIT 和旧 Flag 传参
 			cache_barrier_gen_.apply(cmd);
 		}
 
@@ -100,6 +109,18 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 															r.attachment_manager_.get_blit_attachments());
 			cache_barrier_gen_.apply(cmd);
 
+			VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			auto m_usage = pipe_opt.mask_usage_type;
+			auto m_depth = record_context_value_.mask_depth;
+
+			if (m_usage == mask_usage::write) {
+				// 如果该层标记为 0 (not entered)，则执行 Clear 并将其设为 1 (Clean)
+				if (cache_mask_layer_enter_mark_[m_depth] == 0) {
+					loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+					cache_mask_layer_enter_mark_[m_depth] = 1;
+				}
+			}
+
 			// 基于新的 target_mask 重新配置 Dynamic Rendering
 			// 注意：由于现在的 absolute_input_bits 仅代表 SAMPLED_IMAGE，如果您的 dynamic_rendering
 			// 不再需要显式管理 Input Attachment，可以将此处的传入调整为 0 或是做针对性清理。
@@ -107,7 +128,8 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 				cache_rendering_config_,
 				target_mask,
 				std::bitset<32>(absolute_input_bits),
-				is_msaa
+				is_msaa,
+				pipe_opt.mask_usage_type, record_context_value_.mask_depth, loadOp
 			);
 
 			std::size_t cur_slot = 0;
@@ -125,13 +147,8 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 				cache_attachment_enter_mark_[idx] = true;
 			});
 
-
-
-
-			// 再次 Begin Rendering
 			cache_rendering_config_.begin_rendering(cmd, r.attachment_manager_.get_screen_area());
 
-			// 更新状态追踪变量
 			is_rendering = true;
 			current_pass_mask = target_mask;
 			current_pass_msaa = is_msaa;
@@ -139,20 +156,22 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 
 		bool requires_clear = false;
 
+		auto get_bp_params = [&](const graphic::draw::instruction::state_transition_config::exported_entry& e) noexcept {
+			return breakpoint_process_params{
+				e, cache_graphic_context_, draw_cfg, is_rendering
+			};
+		};
+
 		if(r.batch_device.is_section_empty(i)){
 			for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
-				requires_clear |= process_breakpoints_(r, breakpoint_process_params{
-					                                       entry, cache_graphic_context_, draw_cfg, is_rendering
-				                                       }, cmd);
+				requires_clear |= process_breakpoints_(r, get_bp_params(entry), cmd);
 			}
 		} else{
 			cache_graphic_context_.apply(cmd, r.draw_pipeline_manager_);
 			cmd_draw_(r, cmd, i, draw_cfg);
 
 			for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
-				requires_clear |= process_breakpoints_(r, breakpoint_process_params{
-					                                       entry, cache_graphic_context_, draw_cfg, is_rendering
-				                                       }, cmd);
+				requires_clear |= process_breakpoints_(r, get_bp_params(entry), cmd);
 			}
 		}
 
@@ -165,14 +184,46 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	flush_pass();
 }
 
-void renderer::command_recording_context::cmd_draw_(renderer& r, VkCommandBuffer cmd, std::uint32_t index, const gui::fx::pipeline_config& arg){
+void renderer::command_recording_context::cmd_draw_(
+	renderer& r,
+	VkCommandBuffer cmd,
+	std::uint32_t index,
+	const gui::fx::pipeline_config& arg){
 	const auto& pc = r.draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
 
 	cache_descriptor_context_.clear();
 	r.batch_device.load_gfx_descriptors(cache_descriptor_context_, r.current_frame_index_);
+	auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
 	auto& pipe = r.draw_pipeline_manager_.get_input_attachment_mock_descriptor()[arg.pipeline_index];
 	if(pipe.buffer){
 		cache_descriptor_context_.push(2, pipe.buffer);
+	}
+
+	switch(pipe_opt.option.mask_usage_type){
+	case mask_usage::ignore : break;
+	case mask_usage::read :
+
+		cache_descriptor_context_.push(
+			2 + !!pipe.buffer, r.mask_descriptor_buffer_,
+			0,
+			r.mask_descriptor_buffer_.get_chunk_size() * record_context_value_.mask_depth);
+		break;
+	case mask_usage::write :
+
+		if(record_context_value_.mask_depth){
+			cache_descriptor_context_.push(
+				2 + !!pipe.buffer, r.mask_descriptor_buffer_,
+				0,
+				r.mask_descriptor_buffer_.get_chunk_size() * (record_context_value_.mask_depth - 1));
+		}else{
+			auto off = pipe_opt.push_constant_request_size;
+			assert(off >= 4);
+			auto mode_off = off - 4;
+			auto mode = gui::fx::mask_write_type::ignore_last;
+			vkCmdPushConstants(cmd, pc.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, mode_off, 4, &mode);
+		}
+
+		break;
 	}
 
 	cache_descriptor_context_.prepare_bindings();
@@ -345,8 +396,87 @@ bool renderer::command_recording_context::process_breakpoints_(renderer& r, brea
 		});
 		break;
 	}
-	default : break;
+
+	case state_type::mask_op: {
+		params.flush(*this, buffer);
+
+		if (bool is_push = params.entry.tag.minor) {
+			// Push 逻辑
+			++record_context_value_.mask_depth;
+
+			cache_mask_layer_enter_mark_[record_context_value_.mask_depth] = 0;
+
+
+		} else {
+			// Pop 逻辑
+			assert(record_context_value_.mask_depth != 0);
+			--record_context_value_.mask_depth;
+		}
+		break;
+	}
+
+	default : throw std::runtime_error{"not implemented"};
 	}
 	return false;
+}
+
+void renderer::resize(VkExtent2D extent){
+	attachment_manager_.resize(extent);
+	update_mask_depth_(1);
+
+	record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
+	                   attachment_manager_.get_blit_attachments().size());
+
+	auto update_descriptor = [this](vk::descriptor_buffer& db, const compute_pipeline_blit_inout_config& cfg){
+		vk::descriptor_mapper mapper{db};
+		for(const auto& in : cfg.get_input_entries()){
+			(void)mapper.set_image(in.binding, {
+				                       nullptr,
+				                       attachment_manager_.get_draw_attachments()[in.resource_index].
+				                       get_image_view(),
+				                       in.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL
+			                       }, 0, in.type);
+		}
+		for(const auto& out : cfg.get_output_entries()){
+			(void)mapper.set_image(out.binding, {
+				                       nullptr,
+				                       attachment_manager_.get_blit_attachments()[out.resource_index].
+				                       get_image_view(),
+				                       VK_IMAGE_LAYOUT_GENERAL
+			                       }, 0, out.type);
+		}
+	};
+
+	// 重新绑定所有 Blit 相关的描述符
+	for(auto&& [db, pipe] : std::views::zip(blit_default_inout_descriptors_,
+	                                        blit_pipeline_manager_.get_pipelines())){
+		update_descriptor(db, pipe.option.inout);
+	}
+	for(auto&& [db, inout] : std::views::zip(blit_specified_inout_descriptors_,
+	                                         blit_pipeline_manager_.get_inout_defines())){
+		update_descriptor(db, inout);
+	}
+
+
+	for (auto&& [pipe, desc] : std::views::zip(draw_pipeline_manager_.get_pipelines(), draw_pipeline_manager_.get_input_attachment_mock_descriptor())){
+		if(!desc.buffer)continue;
+
+		vk::descriptor_mapper m{desc.buffer};
+		pipe.option.input_attachments_mask.for_each_popbit([&, idx = 0](unsigned i) mutable {
+			m.set_image(idx, attachment_manager_.get_draw_attachments()[i].get_image_view(), 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+			++idx;
+		});
+
+	}
+
+	{
+		vk::descriptor_mapper mapper{mask_descriptor_buffer_};
+		for (auto&& [i, mask_image_view] : attachment_manager_.get_mask_image_views() | std::views::enumerate){
+			mapper.set_image(0, mask_image_view, i, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+		}
+	}
+
+
+	create_blit_clear_and_init_cmd();
 }
 }

@@ -222,10 +222,17 @@ constexpr inline bool is_vertex_stage_only = requires{
 	typename T::tag_vertex_only;
 };
 
-export enum mask_mode : std::uint32_t {
+export
+enum struct mask_read_mode : std::uint32_t {
 	def,
 	inv,
 	igr,
+};
+
+export
+enum struct mask_write_type : std::uint32_t{
+	mul_last,
+	ignore_last,
 };
 
 export
@@ -247,7 +254,6 @@ enum struct state_type{
 	//TODO other states...
 	reserved_count
 };
-
 
 
 export
@@ -317,7 +323,7 @@ struct pipeline_config{
 
 export
 struct set_mask_mode{
-	mask_mode mode;
+	mask_read_mode mode;
 
 	explicit(false) constexpr operator state_push_config() const noexcept{
 		return {state_push_type::idempotent};

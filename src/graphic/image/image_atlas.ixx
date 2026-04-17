@@ -242,7 +242,7 @@ private:
 	circular_queue<allocated_image_load_description> load_queue{};
 	std::atomic_bool loading_flag_{};
 
-	vk::resource_descriptor_heap* target_descriptor_heap_{};
+	// vk::resource_descriptor_heap* target_descriptor_heap_{};
 	std::uint32_t target_descriptor_heap_section_{};
 
 	std::jthread working_thread{};
@@ -323,12 +323,13 @@ public:
 		std::uint32_t graphic_family_index,
 		VkQueue working_queue,
 
-		vk::resource_descriptor_heap& target_descriptor_heap,
+		// vk::resource_descriptor_heap& target_descriptor_heap,
 		std::uint32_t target_descriptor_heap_section
 	);
 
 	std::uint32_t add_image_to_heap(VkImageViewCreateInfo create_info, VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) const{
-		return target_descriptor_heap_->push_back_images(target_descriptor_heap_section_, std::span(&create_info, 1), image_layout, type);
+		return 0;
+		// return target_descriptor_heap_->push_back_images(target_descriptor_heap_section_, std::span(&create_info, 1), image_layout, type);
 	}
 
 	void push(allocated_image_load_description&& desc){
@@ -690,10 +691,10 @@ public:
 	std::uint32_t graphic_family_index,
 	VkQueue loader_working_queue,
 
-	vk::resource_descriptor_heap& target_descriptor_heap,
+	// vk::resource_descriptor_heap& target_descriptor_heap,
 	std::uint32_t target_descriptor_heap_section
 	) :
-	async_image_loader_{std::make_unique<async_image_loader>(ctx_info, graphic_family_index, loader_working_queue, target_descriptor_heap, target_descriptor_heap_section)}{
+	async_image_loader_{std::make_unique<async_image_loader>(ctx_info, graphic_family_index, loader_working_queue/*, target_descriptor_heap*/, target_descriptor_heap_section)}{
 	}
 
 	image_page& create_image_page(

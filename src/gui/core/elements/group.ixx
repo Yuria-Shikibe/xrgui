@@ -152,7 +152,6 @@ public:
 		elem::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_enter(*this, [](const basic_group& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
-			s.renderer().update_state(fx::push_mask());
 			return {
 				.current_subject = &s,
 				.draw_bound = s.content_bound_abs().intersection_with(p.draw_bound),
@@ -165,9 +164,7 @@ public:
 			element->record_draw_layer(call_stack_builder);
 		}
 
-		call_stack_builder.push_call_leave(*this, [](const basic_group& s){
-			s.renderer().update_state(fx::pop_mask());
-		});
+		call_stack_builder.push_call_leave();
 	}
 
 protected:

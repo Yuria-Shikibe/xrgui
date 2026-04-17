@@ -66,38 +66,15 @@ export struct renderer_create_info{
 };
 
 export struct renderer{
+	//TODO change it to other value is not supported currently: attachments TODO
 	static constexpr std::size_t frames_in_flight = 1;
 
 	/** 命令录制上下文：作为 renderer 的内部结构体，拥有访问外部私有成员的权限 */
 	struct command_recording_context{
-	private:
-		// --- 缓存与持久化追踪状态 ---
-		graphic::draw::record_context<> cache_descriptor_context_{};
-		vk::cmd::dependency_gen cache_barrier_gen_{};
-		vk::dynamic_rendering cache_rendering_config_{};
-
-		std::vector<std::uint8_t> cache_attachment_enter_mark_{};
-		graphics_context_trace cache_graphic_context_{};
-		std::vector<VkClearAttachment> cache_clear_attachments_{};
-		std::vector<VkClearRect> cache_clear_rects_{};
-
-		attachment_sync_manager cache_sync_mgr_;
-
-	public:
-		command_recording_context() = default;
-
-		void resize(std::size_t draw_count, std::size_t blit_count){
-			cache_attachment_enter_mark_.resize(draw_count);
-			cache_sync_mgr_.resize(draw_count, blit_count);
-		}
-
-		/** 核心录制逻辑：将外部状态转换为局部临时变量 */
-		void record(renderer& r, VkCommandBuffer cmd);
-
-		void cmd_draw_(renderer& r, VkCommandBuffer cmd, std::uint32_t index, const gui::fx::pipeline_config& arg);
-
-		/** 处理 Blit 操作：Compute Shader 实现的图像处理 */
-		void blit_(renderer& r, gui::fx::blit_config cfg, VkCommandBuffer cmd);
+		//TODO move other local variable in record to here
+		struct per_record_context_value{
+			unsigned mask_depth;
+		};
 
 		struct breakpoint_process_params{
 			const graphic::draw::instruction::state_transition_config::exported_entry& entry;
@@ -114,6 +91,39 @@ export struct renderer{
 				}
 			}
 		};
+	private:
+		// --- 缓存与持久化追踪状态 ---
+		graphic::draw::record_context<> cache_descriptor_context_{};
+		vk::cmd::dependency_gen cache_barrier_gen_{};
+		vk::dynamic_rendering cache_rendering_config_{};
+
+		std::vector<std::uint8_t> cache_attachment_enter_mark_{};
+		std::vector<std::uint8_t> cache_mask_layer_enter_mark_{};
+
+		graphics_context_trace cache_graphic_context_{};
+		std::vector<VkClearAttachment> cache_clear_attachments_{};
+		std::vector<VkClearRect> cache_clear_rects_{};
+
+		attachment_sync_manager cache_sync_mgr_{};
+
+		per_record_context_value record_context_value_{};
+	public:
+		command_recording_context() = default;
+
+		void resize(std::size_t draw_count, std::size_t blit_count){
+			cache_attachment_enter_mark_.resize(draw_count);
+			cache_sync_mgr_.resize(draw_count, blit_count);
+			cache_mask_layer_enter_mark_.assign(1, {});
+		}
+
+		/** 核心录制逻辑：将外部状态转换为局部临时变量 */
+		void record(renderer& r, VkCommandBuffer cmd);
+
+		void cmd_draw_(renderer& r, VkCommandBuffer cmd, std::uint32_t index, const gui::fx::pipeline_config& arg);
+
+		/** 处理 Blit 操作：Compute Shader 实现的图像处理 */
+		void blit_(renderer& r, gui::fx::blit_config cfg, VkCommandBuffer cmd);
+
 
 		bool process_breakpoints_(
 			renderer& r,
@@ -157,13 +167,15 @@ private:
 	graphic_pipeline_manager draw_pipeline_manager_{};
 	compute_pipeline_manager blit_pipeline_manager_{};
 
-	vk::sampler_descriptor_heap sampler_descriptor_heap_{};
+	vk::descriptor_buffer mask_descriptor_buffer_{};
+
+	// vk::sampler_descriptor_heap sampler_descriptor_heap_{};
 
 	vk::pipeline_layout resolver_pipeline_layout_{};
 	vk::pipeline resolver_pipeline_{};
 
 public:
-	vk::resource_descriptor_heap resource_descriptor_heap{};
+	// vk::resource_descriptor_heap resource_descriptor_heap{};
 
 	static constexpr std::uint32_t get_heap_dynamic_image_section() noexcept{
 		return 1;
@@ -199,7 +211,7 @@ public:
 			  allocator_usage_, std::move(create_info.attachment_draw_config),
 			  std::move(create_info.attachment_blit_config)
 		  }
-		  , draw_pipeline_manager_(allocator_usage_, create_info.draw_pipe_config,
+		  , draw_pipeline_manager_(allocator_usage_, std::move(create_info.draw_pipe_config),
 		                           batch_device.get_gfx_descriptor_set_layout(), attachment_manager_.get_draw_config())
 		  , resolver_pipeline_layout_(allocator_usage_.get_device(), 0, {batch_device.get_cs_descriptor_set_layout()})
 		  , resolver_pipeline_(
@@ -207,22 +219,23 @@ public:
 			  resolver_pipeline_layout_,
 			  VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 			  create_info.resolver_shader_stage
-		  )
-		  , sampler_(create_info.sampler){
+		  ),
+		sampler_(create_info.sampler){
+
 		record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
 		                   attachment_manager_.get_blit_attachments().size());
 
 		initialize_frames(create_info.command_pool);
 		initialize_blit_resources(create_info);
 
-		sampler_descriptor_heap_ = {
-				allocator_usage_, {
-					vk::preset::ui_texture_sampler,
-					vk::preset::default_blit_sampler,
-					vk::preset::default_texture_sampler,
-				},
-				false
-			};
+		// sampler_descriptor_heap_ = {
+		// 		allocator_usage_, {
+		// 			vk::preset::ui_texture_sampler,
+		// 			vk::preset::default_blit_sampler,
+		// 			vk::preset::default_texture_sampler,
+		// 		},
+		// 		false
+		// 	};
 
 		std::array<vk::heap_section, 5> sections{};
 
@@ -245,66 +258,18 @@ public:
 		}
 
 
-		resource_descriptor_heap = {allocator_usage_, sections};
+		// resource_descriptor_heap = {allocator_usage_, sections};
 	}
 
 	/** 窗口缩放时重置附件与描述符绑定 */
-	void resize(VkExtent2D extent){
-		attachment_manager_.resize(extent);
-		record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
-		                   attachment_manager_.get_blit_attachments().size());
-
-		auto update_descriptor = [this](vk::descriptor_buffer& db, const compute_pipeline_blit_inout_config& cfg){
-			vk::descriptor_mapper mapper{db};
-			for(const auto& in : cfg.get_input_entries()){
-				(void)mapper.set_image(in.binding, {
-					                       nullptr,
-					                       attachment_manager_.get_draw_attachments()[in.resource_index].
-					                       get_image_view(),
-					                       VK_IMAGE_LAYOUT_GENERAL
-				                       }, 0, in.type);
-			}
-			for(const auto& out : cfg.get_output_entries()){
-				(void)mapper.set_image(out.binding, {
-					                       nullptr,
-					                       attachment_manager_.get_blit_attachments()[out.resource_index].
-					                       get_image_view(),
-					                       VK_IMAGE_LAYOUT_GENERAL
-				                       }, 0, out.type);
-			}
-		};
-
-		// 重新绑定所有 Blit 相关的描述符
-		for(auto&& [db, pipe] : std::views::zip(blit_default_inout_descriptors_,
-		                                        blit_pipeline_manager_.get_pipelines())){
-			update_descriptor(db, pipe.option.inout);
-		}
-		for(auto&& [db, inout] : std::views::zip(blit_specified_inout_descriptors_,
-		                                         blit_pipeline_manager_.get_inout_defines())){
-			update_descriptor(db, inout);
-		}
-
-
-		for (auto&& [pipe, desc] : std::views::zip(draw_pipeline_manager_.get_pipelines(), draw_pipeline_manager_.get_input_attachment_mock_descriptor())){
-			if(!desc.buffer)continue;
-			
-			vk::descriptor_mapper m{desc.buffer};
-			pipe.option.input_attachments_mask.for_each_popbit([&, idx = 0](unsigned i) mutable {
-				m.set_image(idx, attachment_manager_.get_draw_attachments()[i].get_image_view(), 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
-				++idx;
-			});
-		}
-
-		create_blit_clear_and_init_cmd();
-	}
+	void resize(VkExtent2D extent);
 
 	/** 上传渲染数据并切换帧上下文 */
 	void upload(){
 		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
 		try{
 			frames_[current_frame_index_].fence.wait_and_reset();
-			batch_device.upload(current_frame_index_ + 2, resource_descriptor_heap, batch_host, sampler_,
-			                    current_frame_index_);
+			batch_device.upload(batch_host, sampler_, current_frame_index_);
 		} catch(...){
 			frames_[current_frame_index_].fence.reset();
 		}
@@ -355,6 +320,21 @@ public:
 	}
 
 private:
+	void update_mask_depth_(unsigned mask_depth){
+		if(!attachment_manager_.update_mask_depth(mask_depth))return;
+		mask_descriptor_buffer_ = vk::descriptor_buffer{
+			allocator_usage_,
+			draw_pipeline_manager_.get_mask_descriptor_set_layout(),
+			draw_pipeline_manager_.get_mask_descriptor_set_layout().binding_count(),
+			mask_depth};
+
+		vk::descriptor_mapper mapper{mask_descriptor_buffer_};
+		for(unsigned i = 0; i < mask_depth; ++i){
+			mapper.set_image(0,
+				attachment_manager_.get_mask_image_views()[i], i, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+		}
+	}
+
 	void initialize_frames(VkCommandPool pool){
 		for(auto& f : frames_) f = frame_data(allocator_usage_.get_device(), pool);
 		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{

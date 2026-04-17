@@ -114,13 +114,6 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 	//renderer should belong to main loop actually
 	auto renderer = [&]() -> backend::vulkan::renderer{
-		// vk::shader_module shader_draw_vert{ctx.get_device(), shader_spv_path / "ui.vert.spv"};
-		// vk::shader_module shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.frag_basic.spv"};
-		// vk::shader_module shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.frag_outlined.spv"};
-		//
-		// vk::shader_module shader_draw_frag_coord{ctx.get_device(), shader_spv_path / "ui.frag_coord_draw.spv"};
-
-
 		vk::shader_module true_shader_draw_vert{ctx.get_device(), shader_spv_path / "ui.true_vert.spv"};
 		vk::shader_module true_shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.true_frag_basic.spv"};
 		vk::shader_module true_shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.true_frag_outlined.spv"};
@@ -148,9 +141,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							draw_attachment_config{
 								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT}
 							},
-							draw_attachment_config{
-								.attachment = {VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT}
-							},
+							// draw_attachment_config{
+							// 	.attachment = {VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT}
+							// },
 						},
 						// VK_SAMPLE_COUNT_4_BIT
 					},
@@ -171,7 +164,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									true_shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
-									false, {0b1}, {},
+									false, mask_usage::ignore, {0b1}, {},
 									{
 										{vk::blending::scaled_alpha_blend}, false, true, true
 									}
@@ -185,7 +178,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									true_shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
-									false, {0b1}, {},
+									false, mask_usage::ignore, {0b1}, {},
 									{
 										{vk::blending::scaled_alpha_blend}
 									}
@@ -199,7 +192,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									true_shader_draw_coord.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
-									false, {0b1}, {},
+									false, mask_usage::ignore, {0b1}, {},
 									{
 										{vk::blending::scaled_alpha_blend}
 									}
@@ -207,13 +200,13 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							},
 							//mask draw
 							graphic_pipeline_create_config::config{
-								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
+								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8}}},
 								{
 									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
 									true_shader_draw_mask.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
-									false, {0b100}, {},
+									false, mask_usage::write, {}, {},
 									{
 										{vk::blending::mask_draw}
 									}
@@ -227,7 +220,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 									true_shader_draw_mask_apply.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
-									false, {0b1}, {0b100},
+									false, mask_usage::read, {0b1}, {},
 									{
 										{vk::blending::max_alpha_blend}
 									}
@@ -309,7 +302,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 			ctx,
 			ctx.graphic_family(),
 			ctx.get_device().graphic_queue(1),
-			renderer.resource_descriptor_heap,
+
+			// renderer.resource_descriptor_heap,
 			renderer.get_heap_dynamic_image_section()
 		};
 	font::font_manager font_manager{};

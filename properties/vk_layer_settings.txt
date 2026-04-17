@@ -5,4 +5,10 @@ khronos_validation.validate_best_practices = true
 khronos_validation.validate_sync = true
 
 # 填入你要屏蔽的错误 ID（使用英文逗号分隔）
-khronos_validation.message_id_filter = WARNING-Shader-OutputNotConsumed,VUID-VkShaderModuleCreateInfo-pCode-08737,VUID-RuntimeSpirv-OpVariable-08746
+khronos_validation.message_id_filter = WARNING-Shader-OutputNotConsumed,VUID-VkShaderModuleCreateInfo-pCode-08737,VUID-RuntimeSpirv-OpVariable-08746,WARNING-Setting-Limit-Adjusted
+
+khronos_validation.enables = VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT
+khronos_validation.gpuav_descriptor_checks = true
+khronos_validation.gpuav_buffer_device_address = true
+# 关闭安全模式以获取最彻底的着色器插桩检查（可能会降低帧率）
+khronos_validation.gpuav_safe_mode = false

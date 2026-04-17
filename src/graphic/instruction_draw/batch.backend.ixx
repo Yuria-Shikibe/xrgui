@@ -666,8 +666,8 @@ public:
 	}
 
 	void upload(
-		std::uint32_t target_section,
-		vk::resource_descriptor_heap& resource_descriptor_heap,
+		// std::uint32_t target_section,
+		// vk::resource_descriptor_heap& resource_descriptor_heap,
 		draw_list_context& host_ctx,
 		VkSampler sampler,
 		std::uint32_t frame_index
