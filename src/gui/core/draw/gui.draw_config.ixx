@@ -38,7 +38,7 @@ struct blit_config{
 	static constexpr math::rect_ortho_trivial<int> full_screen_region = {{}, math::vectors::constant2<int>::max_vec2};
 	math::rect_ortho_trivial<int> blit_region;
 	blit_pipeline_config pipe_info;
-	// bool clear_original;
+	bool reserve_original;
 
 	bool use_default_inouts() const noexcept{
 		return pipe_info.inout_define_index == std::numeric_limits<std::uint32_t>::max();
@@ -239,6 +239,12 @@ export
 enum struct state_type{
 	blit,
 	pipe,
+
+ 	/**
+	 * @brief break cmd draw with noop
+	 */
+	split,
+
 	push_constant,
 	set_color_blend_enable,
 	set_color_blend_equation,
@@ -264,6 +270,17 @@ struct push_mask{
 
 	constexpr explicit(false) operator binary_diff_tag() const noexcept{
 		return make_state_tag(state_type::mask_op, 1);
+	}
+};
+
+export
+struct split_draw{
+	constexpr explicit(false) operator state_push_config() const noexcept{
+		return {state_push_type::non_idempotent};
+	}
+
+	constexpr explicit(false) operator binary_diff_tag() const noexcept{
+		return make_state_tag(state_type::split);
 	}
 };
 

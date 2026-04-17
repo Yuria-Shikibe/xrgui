@@ -237,11 +237,11 @@ public:
 	// --- Getters ---
 
 	[[nodiscard]] std::uint32_t get_draw_attachment_count() const noexcept{
-		return draw_config_.attachments.size();
+		return static_cast<std::uint32_t>(draw_config_.attachments.size());
 	}
 
 	[[nodiscard]] std::uint32_t get_blit_attachment_count() const noexcept{
-		return blit_config_.attachments.size();
+		return static_cast<std::uint32_t>(blit_config_.attachments.size());
 	}
 
 	[[nodiscard]] const draw_attachment_create_info& get_draw_config() const noexcept{

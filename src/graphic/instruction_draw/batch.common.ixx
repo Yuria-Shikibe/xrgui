@@ -124,9 +124,9 @@ struct state_transition{
 
 export
 struct draw_uniform_data_entry{
-	std::size_t unit_size{};
-	std::vector<std::byte> data_{};
+	std::uint32_t unit_size{};
 	bool pending{};
+	std::vector<std::byte> data_{};
 
 	FORCE_INLINE inline std::span<const std::byte> operator[](const std::size_t idx) const noexcept{
 		const auto off = idx * unit_size;
@@ -288,8 +288,8 @@ public:
 			};
 	}
 
-	FORCE_INLINE std::size_t get_pushed_instruction_size() const noexcept{
-		return ptr_to_head - instruction_buffer_.data();
+	FORCE_INLINE std::uint32_t get_pushed_instruction_size() const noexcept{
+		return static_cast<std::uint32_t>(ptr_to_head - instruction_buffer_.data());
 	}
 
 	FORCE_INLINE const std::byte* get_buffer_data() const noexcept{
@@ -325,7 +325,7 @@ public:
 		PrimitiveRemainFn fn_get_primitive_count = {}
 		){
 		assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
-		std::uint32_t instruction_offset = ptr_to_head - instruction_buffer_.data();
+		const std::size_t instruction_offset = ptr_to_head - instruction_buffer_.data();
 		if(head.payload_size){
 			assert(data != nullptr);
 			if(instruction_buffer_.size() < instruction_offset + head.payload_size){

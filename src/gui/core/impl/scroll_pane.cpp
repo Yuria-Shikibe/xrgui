@@ -10,9 +10,6 @@ import mo_yanxi.math.interpolation;
 namespace mo_yanxi::gui{
 
 
-
-
-
 	void style::scroll_pane_bar_drawer::draw_layer_impl(const scroll_adaptor_base& element, math::frect region,
 	                                                    float opacityScl,
 	                                                    fx::layer_param layer_param) const{
@@ -28,116 +25,66 @@ namespace mo_yanxi::gui{
 	}
 
 	bool scroll_adaptor_base::update(const float delta_in_ticks){
-		if(!elem::update(delta_in_ticks)) return false;
+    if(!elem::update(delta_in_ticks)) return false;
 
-		if(overlay_scroll_bars_){
-			bool is_interacting = false;
+    // 先执行位移更新，以确定本帧是否发生了滚动位移
+    {
+        scroll_velocity_.lerp_inplace(scroll_target_velocity_, math::clamp(delta_in_ticks * scroll_velocity_sensitivity));
+        scroll_target_velocity_.lerp_inplace({}, math::clamp(delta_in_ticks * scroll_velocity_sensitivity));
 
+        if(util::try_modify(
+            scroll_.base,
+            math::fma(scroll_velocity_, delta_in_ticks, scroll_.base).clamp_xy({}, scrollable_extent()) *
+            get_vel_clamp())){
+            scroll_.resume();
+            scroll_changed_in_update_ = true; // 标记本帧产生了滚动位移 [cite: 46]
+            saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
+            util::update_insert(*this, update_channel::position);
+        } else {
+            scroll_changed_in_update_ = false;
+        }
+    }
 
-			if(scroll_velocity_.length2() > 0.1f){
-				is_interacting = true;
-			} else if(cursor_state().inbound){
-				is_interacting = is_pos_in_bar_section(last_local_cursor_pos_) && (is_hori_scroll_enabled() || is_vert_scroll_enabled());
-			}
+    // 悬浮/滚动条动画逻辑重构
+    if(overlay_scroll_bars_){
+        // 判定条件：有滚动速度 OR 本帧产生了位移 [cite: 44]
+        bool is_scrolling = scroll_changed_in_update_ || (scroll_velocity_.length2() > 0.1f);
+        // 判定条件：鼠标在滚动条区域悬停 [cite: 64, 65]
+        bool is_hovering = cursor_state().inbound && is_pos_in_bar_section(last_local_cursor_pos_)
+                           && (is_hori_scroll_enabled() || is_vert_scroll_enabled());
 
-			bool keep_draw_update = true;
+        bool is_interacting = is_scrolling || is_hovering || scroll_.is_dirty();
 
-			switch(overlay_state_) {
-				case overlay_bar_state::hidden:
-					if(is_interacting) {
-						overlay_state_ = overlay_bar_state::fading_in;
-					} else {
-						keep_draw_update = false;
-					}
-					break;
+        // 设置动态参数（支持运行时修改 fade 频率）
+        bar_animator_.set_speed(1.0f / fade_duration_ticks);
+        bar_animator_.set_exit_delay(fade_delay_ticks);
 
-				case overlay_bar_state::fading_in:
-					bar_opacity_ = math::clamp(bar_opacity_ + delta_in_ticks / fade_duration_ticks, 0.0f, 1.0f);
-					if(bar_opacity_ >= 1.0f) {
-						overlay_state_ = is_interacting ? overlay_bar_state::active : overlay_bar_state::cooling_down;
-						activity_timer_ = 0.0f;
-					}
-					break;
+        if (is_interacting) {
+            bar_animator_.set_target(true);
+        } else {
+            // 核心修改：只有当进度达到1（即进入active状态）后，才允许开启退出倒计时 [cite: 36]
+            // 这保证了即便短促的滚动也会让 bar 完整显示后再慢慢消失
+            if (bar_animator_.get_state() == util::anim_state::active) {
+                bar_animator_.set_target(false);
+            }
+        }
 
-				case overlay_bar_state::active:
-					bar_opacity_ = 1.0f;
-					if(!is_interacting) {
+        // 推进动画状态机 [cite: 20-31]
+        bar_animator_.update(delta_in_ticks, []{}, []{});
 
-						overlay_state_ = overlay_bar_state::cooling_down;
-						activity_timer_ = 0.0f;
-					} else {
+        // 只要动画还在运行（包括等待退出期间），就保持重绘通道开启 [cite: 39]
+        if(!bar_animator_.is_updating()) {
+            util::update_erase(*this, update_channel::draw);
+        } else {
+            util::update_insert(*this, update_channel::draw);
+        }
+    }
 
-						keep_draw_update = false;
-					}
-					break;
-
-				case overlay_bar_state::cooling_down:
-					bar_opacity_ = 1.0f;
-					if(is_interacting) {
-						overlay_state_ = overlay_bar_state::active;
-					} else {
-						activity_timer_ += delta_in_ticks;
-						if(activity_timer_ >= fade_delay_ticks) {
-							overlay_state_ = overlay_bar_state::fading_out;
-						}
-					}
-					break;
-
-				case overlay_bar_state::fading_out:
-					if(is_interacting) {
-
-						overlay_state_ = overlay_bar_state::fading_in;
-					} else {
-						bar_opacity_ = math::clamp(bar_opacity_ - delta_in_ticks / fade_duration_ticks, 0.0f, 1.0f);
-						if(bar_opacity_ <= 0.0f) {
-							overlay_state_ = overlay_bar_state::hidden;
-							keep_draw_update = false;
-						}
-					}
-					break;
-			}
-
-
-			if(!keep_draw_update) {
-				util::update_erase(*this, update_channel::draw);
-			}
-		} else {
-
-			bar_opacity_ = 1.0f;
-			activity_timer_ = 0.0f;
-			overlay_state_ = overlay_bar_state::active;
-		}
-
-		{
-
-
-			scroll_velocity_.lerp_inplace(scroll_target_velocity_, math::clamp(delta_in_ticks * scroll_velocity_sensitivity));
-			scroll_target_velocity_.lerp_inplace({}, math::clamp(delta_in_ticks * scroll_velocity_sensitivity));
-
-			if(util::try_modify(
-				scroll_.base,
-				math::fma(scroll_velocity_, delta_in_ticks, scroll_.base).clamp_xy({}, scrollable_extent()) *
-				get_vel_clamp())){
-				scroll_.resume();
-
-				scroll_changed_in_update_ = true;
-
-
-				saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
-
-				util::update_insert(*this, update_channel::position);
-
-				} else{
-					scroll_changed_in_update_ = false;
-					util::update_erase(*this, update_channel::position);
-				}
-		}
-
-		return true;
-	}
+    return true;
+}
 
 	void scroll_adaptor_base::draw_scroll_bar(fx::layer_param_pass_t param) const{
-		if(drawer) drawer->draw_layer(*this, content_bound_abs(), bar_opacity_ * get_draw_opacity(), param);
+		if(drawer) drawer->draw_layer(*this, content_bound_abs(), get_bar_opacity() * get_draw_opacity(), param);
 	}
 
 	void scroll_adaptor_base::record_draw_scroll_bar(draw_call_stack_recorder& call_stack_builder) const{
@@ -147,7 +94,7 @@ namespace mo_yanxi::gui{
 				return {
 					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
 					.draw_bound = bound,
-					.opacity_scl = s.get_draw_opacity() * math::interp::smooth(s.bar_opacity_),
+					.opacity_scl = s.get_draw_opacity() * math::interp::smooth(s.get_bar_opacity()),
 					.layer_param = p.layer_param
 				};
 			});
@@ -157,6 +104,8 @@ namespace mo_yanxi::gui{
 		call_stack_builder.push_call_leave();
 	}
 
+
+
 	referenced_ptr<const style::scroll_pane_bar_drawer> scroll_adaptor_base::init_drawer_(){
 		return post_sync_assign(*this, &scroll_adaptor_base::drawer, [](scroll_adaptor_base& b){
 			return b.get_style_manager().get_default<style::scroll_pane_bar_drawer>();
@@ -164,9 +113,7 @@ namespace mo_yanxi::gui{
 	}
 
 events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std::span<elem* const> aboves){
-		activity_timer_ = 0.0f;
 		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
-
 		auto cmp = -e.delta;
 		if(input_handle::matched(e.mode, input_handle::mode::shift) || (is_hori_scroll_enabled() && !
 			is_vert_scroll_enabled())){
@@ -196,9 +143,8 @@ events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std
 		if(util::contains(e.src, content_extent().fdim(get_bar_extent()))){
 			return events::op_afterwards::fall_through;
 		}
-		activity_timer_ = 0.0f;
-		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 
+		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 		scroll_target_velocity_ = scroll_velocity_ = {};
 		const auto trans = e.delta() * get_vel_clamp();
 

@@ -10,6 +10,7 @@ export import mo_yanxi.gui.layout.policies;
 export import mo_yanxi.gui.elem.head_body_elem;
 
 import std;
+import mo_yanxi.gui.util.animator;
 
 namespace mo_yanxi::gui{
 export
@@ -21,12 +22,6 @@ enum struct collapser_expand_cond : std::uint8_t{
 	pressed,
 };
 
-enum struct collapser_state : std::uint8_t{
-	un_expand,
-	expanding,
-	expanded,
-	exiting_expand,
-};
 
 struct collapser_settings{
 	//TODO move cond to this struct?
@@ -39,12 +34,13 @@ struct collapser_settings{
 export
 struct collapser : head_body_base{
 private:
-	float expand_reload_{};
 
 	collapser_expand_cond expand_cond_{};
-	collapser_state state_{};
+	util::delayed_animator<float> animator_{};
+
 	bool clicked_{};
 	bool update_opacity_during_expand_{};
+
 
 	void update_collapse(float delta) noexcept;
 
@@ -157,10 +153,12 @@ public:
 
 
 	bool update(float delta_in_ticks) override{
-		if(!head_body_base::update(delta_in_ticks))return false;
+		if(!head_body_base::update(delta_in_ticks)) return false;
 
 		update_collapse(delta_in_ticks);
-		body().invisible = state_ == collapser_state::un_expand;
+
+		const auto st = animator_.get_state();
+		body().invisible = (st == util::anim_state::idle || st == util::anim_state::waiting_to_enter);
 		return true;
 	}
 
@@ -202,7 +200,7 @@ protected:
 	[[nodiscard]] float get_interped_progress() const noexcept;
 
 	[[nodiscard]] bool is_expanding() const noexcept{
-		return state_ == collapser_state::expanding || state_ == collapser_state::exiting_expand;
+		return animator_.is_animating();
 	}
 
 	[[nodiscard]] rect get_expand_region() const noexcept;

@@ -276,14 +276,14 @@ public:
 			std::uint32_t idx;
 			if constexpr(vtx_only){
 				const auto* ientry = table_vertex_only_[tidx];
-				idx = ientry - table_vertex_only_.begin();
+				idx = static_cast<std::uint32_t>(ientry - table_vertex_only_.begin());
 
 				if(idx >= table_vertex_only_.size()){
 					throw std::out_of_range("index out of range");
 				}
 			} else{
 				const auto* ientry = table_general_[tidx];
-				idx = ientry - table_general_.begin();
+				idx = static_cast<std::uint32_t>(ientry - table_general_.begin());
 
 				if(idx >= table_general_.size()){
 					throw std::out_of_range("index out of range");
@@ -292,7 +292,7 @@ public:
 
 			const auto head = instruction::instruction_head{
 					.type = instruction::instr_type::uniform_update,
-					.payload_size = instruction::get_payload_size<Instr>(),
+					.payload_size = static_cast<std::uint32_t>(instruction::get_payload_size<Instr>()),
 					.payload = {.ubo = instruction::user_data_indices{idx, !vtx_only}}
 				};
 			batch_backend_interface_.push(head, reinterpret_cast<const std::byte*>(&instr));

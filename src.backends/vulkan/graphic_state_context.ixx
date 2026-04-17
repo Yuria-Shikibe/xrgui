@@ -93,7 +93,7 @@ struct graphics_context_trace {
 	bool requires_rebind = false;
 
 	// 注意：增加了一个参数来接收管线选项
-	void update_pipeline(std::size_t index, const graphic_pipeline_option& option) noexcept {
+	void update_pipeline(std::uint32_t index, const graphic_pipeline_option& option) noexcept {
 		if (pending_state.pipeline_index == index) return;
 
 		pending_state.pipeline_index = index;
@@ -284,7 +284,7 @@ struct graphics_context_trace {
     }
 
     void invalidate() noexcept {
-        current_state.pipeline_index = std::numeric_limits<std::size_t>::max();
+        current_state.pipeline_index = std::numeric_limits<std::uint32_t>::max();
         dirty_flags = DIRTY_ALL;
         pending_state.blend_enables.clear();
         pending_state.blend_equations.clear();

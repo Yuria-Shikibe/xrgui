@@ -114,16 +114,16 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 	//renderer should belong to main loop actually
 	auto renderer = [&]() -> backend::vulkan::renderer{
-		vk::shader_module true_shader_draw_vert{ctx.get_device(), shader_spv_path / "ui.true_vert.spv"};
-		vk::shader_module true_shader_draw_frag_basic{ctx.get_device(), shader_spv_path / "ui.true_frag_basic.spv"};
-		vk::shader_module true_shader_draw_frag_outlined{ctx.get_device(), shader_spv_path / "ui.true_frag_outlined.spv"};
-		vk::shader_module true_shader_draw_coord{ctx.get_device(), shader_spv_path / "ui.true_coord_draw.spv"};
-		vk::shader_module true_shader_draw_mask{ctx.get_device(), shader_spv_path / "ui.true_frag_mask.spv"};
-		vk::shader_module true_shader_draw_mask_apply{ctx.get_device(), shader_spv_path / "ui.true_frag_mask_apply.spv"};
+		vk::shader_module draw_shader_vert{ctx.get_device(), shader_spv_path / "ui.draw.vert.spv"};
+		vk::shader_module draw_shader_frag_basic{ctx.get_device(), shader_spv_path / "ui.draw.frag_basic.spv"};
+		vk::shader_module draw_shader_frag_outlined{ctx.get_device(), shader_spv_path / "ui.draw.frag_outlined.spv"};
+		vk::shader_module draw_shader_coord{ctx.get_device(), shader_spv_path / "ui.draw.coord_draw.spv"};
+		vk::shader_module draw_shader_mask{ctx.get_device(), shader_spv_path / "ui.draw.frag_mask.spv"};
+		vk::shader_module draw_shader_mask_apply{ctx.get_device(), shader_spv_path / "ui.draw.frag_mask_apply.spv"};
 
-		vk::shader_module shader_blit{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
-		vk::shader_module shader_blend{ctx.get_device(), shader_spv_path / "ui.blend.spv"};
-		vk::shader_module shader_inverse{ctx.get_device(), shader_spv_path / "ui.inverse.spv"};
+		vk::shader_module blit_shader_merge{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
+		vk::shader_module blit_shader_blend{ctx.get_device(), shader_spv_path / "ui.blit.alpha_blend.spv"};
+		vk::shader_module blit_shader_inverse{ctx.get_device(), shader_spv_path / "ui.blit.inverse.spv"};
 
 		vk::shader_module shader_instr_resolve{ctx.get_device(), shader_spv_path / "ui.instruction_resolve_comp.spv"};
 
@@ -157,8 +157,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									true_shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::ignore, {0b1}, {},
@@ -171,8 +171,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									true_shader_draw_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::ignore, {0b1}, {},
@@ -185,8 +185,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							graphic_pipeline_create_config::config{
 								{},
 								{
-									true_shader_draw_coord.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									true_shader_draw_coord.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_coord.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_coord.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::ignore, {0b1}, {},
@@ -199,8 +199,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8}}},
 								{
-									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									true_shader_draw_mask.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_mask.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::write, {}, {},
@@ -213,8 +213,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							graphic_pipeline_create_config::config{
 								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8}}},
 								{
-									true_shader_draw_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									true_shader_draw_mask_apply.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_mask_apply.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::read, {0b1}, {},
@@ -230,7 +230,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 						{
 							compute_pipeline_create_config::config{
 								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
-								.shader_module = shader_blit.get_create_info_compute(),
+								.shader_module = blit_shader_merge.get_create_info_compute(),
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{
@@ -246,7 +246,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							},
 							compute_pipeline_create_config::config{
 								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
-								.shader_module = shader_blend.get_create_info_compute(),
+								.shader_module = blit_shader_blend.get_create_info_compute(),
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{
@@ -260,7 +260,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							},
 							compute_pipeline_create_config::config{
 								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
-								.shader_module = shader_inverse.get_create_info_compute(),
+								.shader_module = blit_shader_inverse.get_create_info_compute(),
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{

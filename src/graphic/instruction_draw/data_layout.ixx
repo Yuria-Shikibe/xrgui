@@ -10,8 +10,6 @@ import mo_yanxi.type_register;
 import std;
 
 namespace mo_yanxi::graphic::draw{
-
-
 export
 struct data_layout_entry{
 	std::uint32_t size;
@@ -38,7 +36,8 @@ export
 template <typename Container = std::vector<data_layout_type_aware_entry>, std::size_t Align = 64>
 struct data_layout_table{
 	static_assert(std::has_single_bit(Align));
-	static_assert(std::same_as<std::ranges::range_value_t<Container>, data_layout_type_aware_entry>, "Container must have user_data_identity_entry as value_type");
+	static_assert(std::same_as<std::ranges::range_value_t<Container>, data_layout_type_aware_entry>,
+	              "Container must have user_data_identity_entry as value_type");
 	static_assert(std::ranges::contiguous_range<Container>, "Container must be contiguous");
 	static_assert(std::ranges::sized_range<Container>, "Container must be contiguous");
 
@@ -53,10 +52,10 @@ struct data_layout_table{
 	};
 
 	using allocator_type = decltype([]{
-		if constexpr (is_allocator_aware){
+		if constexpr(is_allocator_aware){
 			return typename Container::allocator_type{};
-		}else{
-			return ;
+		} else{
+			return;
 		}
 	}());
 
@@ -64,27 +63,27 @@ private:
 	std::size_t required_capacity_{};
 	Container entries{};
 
-	template <typename ...Ts>
+	template <typename... Ts>
 	void load(){
 		auto push = [&]<typename Ty, std::size_t I>(std::size_t current_base_size){
 			entries.push_back(data_layout_type_aware_entry{
-				.id = unstable_type_identity_of<Ty>(),
-				.entry = {
-					.size = static_cast<std::uint32_t>(sizeof(Ty)),
+					.id = unstable_type_identity_of<Ty>(),
+					.entry = {
+						.size = static_cast<std::uint32_t>(sizeof(Ty)),
 
-					.global_offset = static_cast<std::uint32_t>(required_capacity_),
-					.group_index = I,
-				}
-			});
+						.global_offset = static_cast<std::uint32_t>(required_capacity_),
+						.group_index = I,
+					}
+				});
 
 			required_capacity_ += (sizeof(Ty) + align - 1) / align * align;
 		};
 
-		[&]<std::size_t ...Idx>(std::index_sequence<Idx...>){
+		[&]<std::size_t ... Idx>(std::index_sequence<Idx...>){
 			([&]<typename T, std::size_t I>(){
 				const auto cur_base = required_capacity_;
 
-				[&]<std::size_t ...J>(std::index_sequence<J...>){
+				[&]<std::size_t ... J>(std::index_sequence<J...>){
 					(push.template operator()<std::tuple_element_t<J, T>, I>(cur_base), ...);
 				}(std::make_index_sequence<std::tuple_size_v<T>>{});
 			}.template operator()<Ts, Idx>(), ...);
@@ -97,10 +96,12 @@ public:
 
 	[[nodiscard]] data_layout_table() = default;
 
-	template <std::ranges::input_range InputRng, typename ...Ts>
-		requires (std::convertible_to<std::ranges::range_value_t<InputRng>, data_layout_type_aware_entry> && std::constructible_from<Container, Ts&&...>)
-	[[nodiscard]] explicit(false) data_layout_table(const InputRng& other, Ts&& ...container_args) : entries(std::forward<Ts>(container_args)...){
-		if constexpr (is_reservable && std::ranges::sized_range<const InputRng&>){
+	template <std::ranges::input_range InputRng, typename... Ts>
+		requires (std::convertible_to<std::ranges::range_value_t<InputRng>, data_layout_type_aware_entry> &&
+			std::constructible_from<Container, Ts&&...>)
+	[[nodiscard]] explicit(false) data_layout_table(const InputRng& other, Ts&&... container_args) : entries(
+		std::forward<Ts>(container_args)...){
+		if constexpr(is_reservable && std::ranges::sized_range<const InputRng&>){
 			entries.reserve(std::ranges::size(other));
 		}
 		std::ranges::copy(other, std::back_inserter(entries));
@@ -110,16 +111,16 @@ public:
 		}
 	}
 
-	template <typename ...Ts>
+	template <typename... Ts>
 		requires (is_tuple_v<Ts> && ...)
 	[[nodiscard]] explicit(false) data_layout_table(
 		const allocator_type& allocator,
 		std::in_place_type_t<Ts>...
-		) requires(is_allocator_aware) : entries(allocator){
+	) requires(is_allocator_aware) : entries(allocator){
 		this->load<Ts...>();
 	}
 
-	template <typename ...Ts>
+	template <typename... Ts>
 		requires (is_tuple_v<Ts> && ...)
 	[[nodiscard]] explicit(false) data_layout_table(
 		std::in_place_type_t<Ts>...
@@ -165,33 +166,21 @@ public:
 		assert(idx < size());
 		return entries[idx].entry;
 	}
-	//
-
-
-
-
-
 
 	//
-
-
-
 
 
 	//
 
 
+	//
 
 
-
-
-
-
-	auto get_entries() const noexcept {
+	auto get_entries() const noexcept{
 		return std::span{begin(), size()};
 	}
 
-	auto get_entries_mut() noexcept {
+	auto get_entries_mut() noexcept{
 		return std::span{begin(), size()};
 	}
 
@@ -200,12 +189,13 @@ public:
 			*this = other;
 			return;
 		}
-		auto group_base = static_cast<data_layout_type_aware_entry&>(*std::ranges::rbegin(entries)).entry.group_index + 1;
-		if constexpr (is_reservable){
+		auto group_base = static_cast<data_layout_type_aware_entry&>(*std::ranges::rbegin(entries)).entry.group_index +
+			1;
+		if constexpr(is_reservable){
 			entries.reserve(size() + other.size());
 		}
 
-		for (data_layout_type_aware_entry entry : other.entries){
+		for(data_layout_type_aware_entry entry : other.entries){
 			entry.entry.group_index += group_base;
 			entry.entry.global_offset += required_capacity_;
 			entries.push_back(entry);
@@ -213,5 +203,4 @@ public:
 		required_capacity_ += other.required_capacity_;
 	}
 };
-
 }

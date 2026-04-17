@@ -5,89 +5,44 @@ namespace mo_yanxi::gui{
 
 
 void collapser::update_collapse(float delta) noexcept{
-	const bool enterable = expandable();
-	switch(state_){
-	case collapser_state::un_expand:{
-		if (enterable){
-			expand_reload_ += delta;
-			if(expand_reload_ >= settings.expand_enter_spacing){
-				expand_reload_ = 0.f;
 
-				if(std::isinf(settings.expand_speed)){
-					state_ = collapser_state::expanded;
-				}else{
-					state_ = collapser_state::expanding;
-				}
+	animator_.set_speed(settings.expand_speed);
+	animator_.set_enter_delay(settings.expand_enter_spacing);
+	animator_.set_exit_delay(settings.expand_exit_spacing);
 
-			}
-		}else{
-			expand_reload_ = 0;
-			util::update_erase(*this, update_channel::layout);
-		}
-		break;
-	}
-	case collapser_state::expanding:{
-		expand_reload_ += settings.expand_speed * delta;
-		notify_layout_changed(propagate_mask::force_upper);
-		require_scene_cursor_update();
+	// 2. 根据触发条件设置目标状态
+	animator_.set_target(expandable());
 
-		if(expand_reload_ >= 1){
-			expand_reload_ = 0.f;
-			state_ = collapser_state::expanded;
-			if(update_opacity_during_expand_)body().update_context_opacity(get_draw_opacity());
+	// 3. 执行状态机推进
+	animator_.update(delta,
+		[this] { // on_enter_complete (对应原 expanded 初始逻辑)
+			if(update_opacity_during_expand_) body().update_context_opacity(get_draw_opacity());
 			body().on_display_state_changed(true, false);
-			if(expandable())util::update_erase(*this, update_channel::layout);
-		}else if(update_opacity_during_expand_){
-			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
+		},
+		[this] { // on_exit_complete (对应原 un_expand 初始逻辑)
+			if(update_opacity_during_expand_) body().update_context_opacity(0);
+			body().on_display_state_changed(false, false);
 		}
+	);
 
-		if(transpose_head_and_body_){
-			set_children_src();
-		}
-
-		break;
-	}
-	case collapser_state::expanded:{
-		if (!enterable){
-			expand_reload_ += delta;
-			if(expand_reload_ >= settings.expand_exit_spacing){
-				expand_reload_ = 1.f;
-
-				if(std::isinf(settings.expand_speed)){
-					state_ = collapser_state::un_expand;
-				}else{
-					state_ = collapser_state::exiting_expand;
-				}
-			}
-		}else{
-			expand_reload_ = 0;
-			util::update_erase(*this, update_channel::layout);
-
-		}
-		break;
-	}
-	case collapser_state::exiting_expand:{
-		expand_reload_ = std::fdim(expand_reload_, settings.expand_speed * delta);
+	// 4. 处理过渡动画期间（expanding / exiting_expand）需要执行的渲染更新
+	const auto state = animator_.get_state();
+	if (state == util::anim_state::entering || state == util::anim_state::exiting) {
 		notify_layout_changed(propagate_mask::force_upper);
 		require_scene_cursor_update();
 
-		if(expand_reload_ == 0.f){
-			state_ = collapser_state::un_expand;
-			if(update_opacity_during_expand_)body().update_context_opacity(0);
-			body().on_display_state_changed(false, false);
-			util::update_erase(*this, update_channel::layout);
-
-		}else if(update_opacity_during_expand_){
+		if (update_opacity_during_expand_) {
 			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
 		}
 
-		if(transpose_head_and_body_){
+		if (transpose_head_and_body_) {
 			set_children_src();
 		}
-
-		break;
 	}
-	default: std::unreachable();
+
+	// 5. 若已达目标状态且不处于过渡中，则从布局更新队列擦除自己以节省性能
+	if (!animator_.is_updating() && (expandable() ? (state == util::anim_state::active) : (state == util::anim_state::idle))) {
+		util::update_erase(*this, update_channel::layout);
 	}
 }
 
@@ -114,17 +69,20 @@ void collapser::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 				const auto space = s.content_bound_abs().intersection_with(p.draw_bound);
 
 				bool allow_next_layer = false;
-				switch(s.state_){
-				case collapser_state::un_expand : break;
-				case collapser_state::expanding :[[fallthrough]];
-				case collapser_state::exiting_expand :{
+				switch(s.animator_.get_state()){
+				case util::anim_state::idle :
+				case util::anim_state::waiting_to_enter :
+					break;
+				case util::anim_state::entering :
+				case util::anim_state::exiting : {
 					allow_next_layer = true;
 					auto& r = s.renderer();
 					r.push_scissor({s.get_expand_region()});
 					r.notify_viewport_changed();
 					break;
 				}
-				case collapser_state::expanded :
+				case util::anim_state::active :
+				case util::anim_state::waiting_to_exit :
 					allow_next_layer = true;
 					break;
 				default : std::unreachable();
@@ -140,7 +98,8 @@ void collapser::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 		items[1]->record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_leave(*this, [](const collapser& s, const draw_call_param& p, draw_call_stack&){
-			if(s.state_ == collapser_state::exiting_expand || s.state_ == collapser_state::expanding){
+			const auto st = s.animator_.get_state();
+			if(st == util::anim_state::exiting || st == util::anim_state::entering){
 				auto& r = s.renderer();
 				r.pop_scissor();
 				r.notify_viewport_changed();
@@ -180,13 +139,8 @@ float collapser::get_interped_progress() const noexcept{
 	static constexpr auto smoother = [](float a) static noexcept{
 		return a * a * a * (a * (a * 6.0f - 15.0f) + 10.0f);
 	};
-	switch(state_){
-	case collapser_state::expanding: [[fallthrough]];
-	case collapser_state::exiting_expand: return smoother(expand_reload_);
-	case collapser_state::un_expand: return 0;
-	case collapser_state::expanded: return 1;
-	default: std::unreachable();
-	}
+
+	return smoother(animator_.get_progress());
 }
 
 rect collapser::get_expand_region() const noexcept{

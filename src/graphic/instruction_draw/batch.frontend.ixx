@@ -48,7 +48,7 @@ public:
 		set_capacity(capacity);
 	}
 
-	void set_capacity(std::uint32_t new_capacity){
+	void set_capacity(std::size_t new_capacity){
 		images.resize(4 + (new_capacity + 3) / 4 * 4);
 		use_count.resize(4 + (new_capacity + 3) / 4 * 4);
 	}
@@ -157,7 +157,7 @@ public:
 			}
 		}
 #endif
-		const auto idx = images.size();
+		const auto idx = static_cast<std::uint32_t>(images.size());
 		set_capacity(idx * 2);
 		images[idx] = image;
 		++use_count[idx].use_count;

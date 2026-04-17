@@ -179,7 +179,7 @@ struct data_layout_spec{
 
 export
 std::uint32_t get_required_buffer_descriptor_count_per_frame(const draw_list_context& host_ctx) noexcept{
-	return 7 + host_ctx.get_data_group_vertex_info().size() + (1 + host_ctx.get_data_group_non_vertex_info().size());
+	return static_cast<std::uint32_t>(7 + host_ctx.get_data_group_vertex_info().size() + (1 + host_ctx.get_data_group_non_vertex_info().size()));
 }
 
 struct instruction_resolve_info{

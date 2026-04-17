@@ -138,13 +138,11 @@ void main_loop::main_loop_exec(){
 				{.pipeline_index = cpip_idx::blend, .inout_define_index = cpip_bind_idx::to_background}
 			});
 
-		{
+		if constexpr (false){
 			r.update_state(fx::push_mask{});
 
 			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_draw});
 			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_write_type::ignore_last});
-
-
 
 			r << fx::nine_patch_draw_vert_color{
 				.patch = &assets::builtin::default_round_square_base,
@@ -177,18 +175,17 @@ void main_loop::main_loop_exec(){
 
 			r.update_state(fx::pop_mask{});
 			r.update_state(fx::pop_mask{});
-			r.update_state(fx::blit_config{
+		}
+
+		r.update_state(fx::blit_config{
 					fx::blit_config::full_screen_region,
 					{
 						.pipeline_index = cpip_idx::blend,
 						.inout_define_index = cpip_bind_idx::to_background
 					}
 				});
-
-			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
-			r.update_state(fx::batch_draw_mode::def);
-
-		}
+		r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
+		r.update_state(fx::batch_draw_mode::def);
 
 
 		// r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
@@ -302,7 +299,7 @@ void main_loop::main_loop_exec(){
 	}
 
 
-	// current_focus.draw();
+	current_focus.draw();
 	renderer.batch_host.end_rendering();
 	renderer.upload();
 	renderer.create_command();

@@ -1,5 +1,5 @@
 shader_root = "./slangs"
-include_dir = ["lib/"]
+include_dir = ["lib/", "ui/"]
 
 # 使用了新脚本支持的 KV 字典格式来配置全局编译选项
 [common_options]
@@ -30,10 +30,14 @@ file = "post_process/bloom.merge.slang"
 # --- UI 渲染着色器 ---
 
 [[shaders]]
-file = "ui/blend.slang"
+file = "ui/blit/alpha_blend.slang"
 
 [[shaders]]
-file = "ui/inverse.slang"
+file = "ui/blit/inverse.slang"
+
+[[shaders]]
+file = "ui/blit/lane_merge.slang"
+alias = "ui/blit/basic"
 
 [[shaders]]
 file = "ui/merge.slang"
@@ -43,25 +47,21 @@ file = "ui/instruction_resolve_comp.slang"
 
 
 [[shaders]]
-file = "ui/true_vert.slang"
+file = "ui/draw/vert.slang"
 
 [[shaders]]
-file = "ui/true_frag_basic.slang"
+file = "ui/draw/frag_basic.slang"
 
 [[shaders]]
-file = "ui/true_frag_outlined.slang"
+file = "ui/draw/frag_outlined.slang"
 
 [[shaders]]
-file = "ui/true_coord_draw.slang"
+file = "ui/draw/coord_draw.slang"
 
 [[shaders]]
-file = "ui/true_frag_mask.slang"
+file = "ui/draw/frag_mask.slang"
 
 [[shaders]]
-file = "ui/true_frag_mask_apply.slang"
+file = "ui/draw/frag_mask_apply.slang"
 [shaders.options]
 "-emit-spirv-via-glsl" = true
-
-[[shaders]]
-file = "ui/blit.default.slang"
-alias = "ui/blit/basic"

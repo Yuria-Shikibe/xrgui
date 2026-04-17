@@ -135,7 +135,7 @@ export struct renderer{
 
 		bool process_breakpoints_(
 			renderer& r,
-			breakpoint_process_params params,
+			const breakpoint_process_params& params,
 			VkCommandBuffer buffer);
 	private:
 		static gui::fx::render_target_mask make_render_target_mask(

@@ -12,6 +12,7 @@ import mo_yanxi.gui.elem.drag_split;
 import mo_yanxi.gui.action.elem;
 
 import mo_yanxi.core.platform;
+import mo_yanxi.gui.util.animator;
 
 
 namespace mo_yanxi::gui::cpd{
@@ -66,115 +67,94 @@ namespace mo_yanxi::gui::cpd{
 
 	struct trace_entry;
 
-	struct arrow_button : elem{
-		enum state{
-			closed, expanding, expanded, closing,
-		};
+	struct arrow_button : elem {
+    util::simple_animator<float> anim_{};
 
-		state s{};
-		float progress_{};
+    trace_entry& get_trace() const noexcept;
+    [[nodiscard]] arrow_button(scene& scene, elem* parent);
 
-		trace_entry& get_trace() const noexcept;
-		[[nodiscard]] arrow_button(scene& scene, elem* parent);
+    bool update(float delta_in_ticks) override {
+       if(elem::update(delta_in_ticks)){
+          if(anim_.is_animating()) {
+             anim_.update(delta_in_ticks,
+                [this] { util::update_erase(*this, update_channel::draw); }, // expanded
+                [this] { util::update_erase(*this, update_channel::draw); }  // closed
+             );
+          } else {
+             // 保持与原代码一致：在非动画态时，若仍在更新队列中，进行防御性清除
+             util::update_erase(*this, update_channel::draw);
+          }
+          return true;
+       }
+       return false;
+    }
 
-		bool update(float delta_in_ticks) override{
-			constexpr float scl = .12f;
-			if(elem::update(delta_in_ticks)){
-				switch(s){
-				case closed : util::update_erase(*this, update_channel::draw);
-					progress_ = 0;
-					break;
-				case expanding : progress_ += delta_in_ticks * scl;
-					if(progress_ >= 1.f){
-						progress_ = 1;
-						s = expanded;
-					}
-					break;
-				case expanded : util::update_erase(*this, update_channel::draw);
-					progress_ = 1;
-					break;
-				case closing : progress_ -= delta_in_ticks * scl;
-					if(progress_ <= 0.f){
-						progress_ = 0;
-						s = closed;
-					}
-					break;
-				}
-				return true;
-			}
-			return false;
-		}
+protected:
+    void tooltip_on_drop_behavior_impl() override {
+       elem::tooltip_on_drop_behavior_impl();
+       if (!anim_.is_tobe_idle()) {
+           anim_.set_target(false);
+           util::update_insert(*this, update_channel::draw);
+       }
+    }
 
-	protected:
-		void tooltip_on_drop_behavior_impl() override{
-			elem::tooltip_on_drop_behavior_impl();
-			switch(s){
-			case closed : s = closed;
-				break;
-			default : s = closing;
-				util::update_insert(*this, update_channel::draw);
-				break;
-			}
-		}
+public:
+    void on_display_state_changed(bool is_shown, bool is_scene_notified) override {
+       elem::on_display_state_changed(is_shown, is_scene_notified);
 
-	public:
-		void on_display_state_changed(bool is_shown, bool is_scene_notified) override{
-			elem::on_display_state_changed(is_shown, is_scene_notified);
+       if(!is_shown){
+          drop_tooltip();
+          invisible = true;
+       } else{
+          invisible = false;
+          if(!has_tooltip()){
+             anim_ = mo_yanxi::gui::util::simple_animator<float>{}; // 重置为初始 idle 状态
+             anim_.set_speed(0.12f);
+          }
+       }
+    }
 
-			if(!is_shown){
-				drop_tooltip();
-				invisible = true;
-			} else{
-				invisible = false;
-				if(!has_tooltip()){
-					s = closed;
-					progress_ = 0;
-				}
-			}
-		}
+    events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override {
+       elem::on_click(event, aboves);
+       if(event.within_elem(*this) && event.key.on_release()){
+          if (anim_.is_tobe_idle()) { // 对应原来的 closed 或 closing
+             anim_.set_target(true);
+             if(!has_tooltip() && !invisible) create_tooltip();
+          } else { // 对应原来的 expanding 或 expanded
+             anim_.set_target(false);
+             drop_tooltip();
+          }
+          util::update_insert(*this, update_channel::draw);
+       }
+       return events::op_afterwards::intercepted;
+    }
 
-		events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-			elem::on_click(event, aboves);
-			if(event.within_elem(*this) && event.key.on_release()){
-				switch(s){
-				case closed :
-				case closing : s = expanding;
-					if(!has_tooltip() && !invisible) create_tooltip();
-					break;
-				case expanding :
-				case expanded : s = closing;
-					drop_tooltip();
-					break;
-				}
-				util::update_insert(*this, update_channel::draw);
-			}
-			return events::op_afterwards::intercepted;
-		}
+    void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override {
+       elem::record_draw_layer(call_stack_builder);
+       call_stack_builder.push_call_noop(*this, [](const arrow_button& s, const draw_call_param& p) static {
+          if(!p.layer_param.is_top()) return;
+          if(!util::is_draw_param_valid(s, p)) return;
 
-		void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
-			elem::record_draw_layer(call_stack_builder);
-			call_stack_builder.push_call_noop(*this, [](const arrow_button& s, const draw_call_param& p) static {
-				if(!p.layer_param.is_top())return;
-				if(!util::is_draw_param_valid(s, p))return;
+          auto arrow = fx::compound::generate_centered_arrow(s.content_extent().fdim({4, 4}), 1.5f, 12);
+          fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
 
-				auto arrow = fx::compound::generate_centered_arrow(s.content_extent().fdim({4, 4}), 1.5f, 12);
-				fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
-				float prog = s.progress_ | math::interp::smoother;
-				auto [cos, sin] = math::cos_sin(prog * math::pi_half);
-				for(auto vertex : arrow.vertices){
-					context.push(vertex.rotate(cos, sin) + s.content_bound_abs().get_center(), arrow.thick,
-								 graphic::colors::white.copy_set_a(s.get_draw_opacity()));
-				}
+          // 从 anim_ 获取进度
+          float prog = s.anim_.get_progress() | math::interp::smoother;
+          auto [cos, sin] = math::cos_sin(prog * math::pi_half);
+          for(auto vertex : arrow.vertices){
+             context.push(vertex.rotate(cos, sin) + s.content_bound_abs().get_center(), arrow.thick,
+                       graphic::colors::white.copy_set_a(s.get_draw_opacity()));
+          }
 
-				context.add_cap();
-				context.add_fringe_cap();
-				context.dump_mid(s.renderer(), graphic::draw::instruction::line_segments{});
-				context.dump_fringe_inner(s.renderer(), graphic::draw::instruction::line_segments{});
-				context.dump_fringe_outer(s.renderer(), graphic::draw::instruction::line_segments{});
-			});
-		}
+          context.add_cap();
+          context.add_fringe_cap();
+          context.dump_mid(s.renderer(), graphic::draw::instruction::line_segments{});
+          context.dump_fringe_inner(s.renderer(), graphic::draw::instruction::line_segments{});
+          context.dump_fringe_outer(s.renderer(), graphic::draw::instruction::line_segments{});
+       });
+    }
 
-	};
+};
 
 	struct trace_entry : gui::head_body{
 		file_selector* selector;
@@ -214,65 +194,66 @@ namespace mo_yanxi::gui::cpd{
 		return parent_ref<trace_entry, true>();
 	}
 
-	arrow_button::arrow_button(scene& scene, elem* parent) : elem(scene, parent){
-		interactivity = interactivity_flag::enabled;
+	arrow_button::arrow_button(scene& scene, elem* parent) : elem(scene, parent) {
+    interactivity = interactivity_flag::enabled;
 
-		set_tooltip_state(
-			{
-				.layout_info = tooltip::align_meta{
-					.follow = tooltip::anchor_type::owner,
-					.attach_point_spawner = align::pos::bottom_center,
-					.attach_point_tooltip = align::pos::top_center,
-				},
-				.auto_release = true,
-				.min_hover_time = tooltip::create_config::disable_auto_tooltip
-			}, [this](const arrow_button& s, table& t){
-				t.set_style();
-				std::size_t count{};
-				auto hdl = t.create_back([&](scroll_adaptor<sequence>& p){
-					p.sync_run([](elem& e){
-						e.set_style(e.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::general_static));
-					});
+    // 初始化动画速度系数 (对应原先的 constexpr float scl = .12f;)
+    anim_.set_speed(0.12f);
 
-					sequence& seq = p.get_elem();
+    set_tooltip_state(
+       {
+          .layout_info = tooltip::align_meta{
+             .follow = tooltip::anchor_type::owner,
+             .attach_point_spawner = align::pos::bottom_center,
+             .attach_point_tooltip = align::pos::top_center,
+          },
+          .auto_release = true,
+          .min_hover_time = tooltip::create_config::disable_auto_tooltip
+       }, [this](const arrow_button& s, table& t){
+          t.set_style();
+          std::size_t count{};
+          auto hdl = t.create_back([&](scroll_adaptor<sequence>& p){
+             p.sync_run([](elem& e){
+                e.set_style(e.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::general_static));
+             });
 
-					seq.template_cell.set_size(60).set_pad({2, 2});
-					seq.set_style();
+             sequence& seq = p.get_elem();
 
-					safe_iterate_directory(
-						s.get_trace().path,
-						[&](const std::filesystem::directory_entry& entry,
-						    std::error_code& inner_ec){
-							if(!entry.is_directory(inner_ec) || inner_ec) return;
+             seq.template_cell.set_size(60).set_pad({2, 2});
+             seq.set_style();
 
-							++count;
-							seq.create_back([&](button<direct_label>& but){
-								set_style_side_bar(but);
-								but.set_fit_type(label_fit_type::scl);
-								but.set_tokenized_text({
-										entry.path().filename().u32string(),
-										typesetting::tokenize_tag::raw
-									});
-								but.set_button_callback([this, p = entry.path()]{
-									get_trace().selector->visit_directory(p);
-								});
-							});
-						});
+             safe_iterate_directory(
+                s.get_trace().path,
+                [&](const std::filesystem::directory_entry& entry,
+                    std::error_code& inner_ec){
+                   if(!entry.is_directory(inner_ec) || inner_ec) return;
 
+                   ++count;
+                   seq.create_back([&](button<direct_label>& but){
+                      set_style_side_bar(but);
+                      but.set_fit_type(label_fit_type::scl);
+                      but.set_tokenized_text({
+                            entry.path().filename().u32string(),
+                            typesetting::tokenize_tag::raw
+                         });
+                      but.set_button_callback([this, p = entry.path()]{
+                         get_trace().selector->visit_directory(p);
+                      });
+                   });
+                });
+          });
 
-				});
-
-				if(count){
-					hdl.cell().set_size({400.f, std::min(8uz, count) * 80.f});
-				} else{
-					t.clear();
-					t.create_back([](gui::direct_label& b){
-						using namespace std::literals;
-						b.set_tokenized_text(typesetting::tokenized_text{U"No More Other Dirs"sv});
-					}).cell().set_pending();
-				}
-			});
-	}
+          if(count){
+             hdl.cell().set_size({400.f, std::min(8uz, count) * 80.f});
+          } else{
+             t.clear();
+             t.create_back([](gui::direct_label& b){
+                using namespace std::literals;
+                b.set_tokenized_text(typesetting::tokenized_text{U"No More Other Dirs"sv});
+             }).cell().set_pending();
+          }
+       });
+}
 
 	struct current_position_bar : flipper<2>{
 		file_selector* selector;

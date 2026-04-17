@@ -14,6 +14,7 @@ import mo_yanxi.cond_exist;
 import mo_yanxi.snap_shot;
 import mo_yanxi.math;
 import std;
+import mo_yanxi.gui.util.animator;
 
 namespace mo_yanxi::gui{
 export
@@ -58,12 +59,11 @@ protected:
 	bool force_hori_scroll_enabled_{false};
 	bool force_vert_scroll_enabled_{false};
 
-	float bar_opacity_{1.0f};
-	float activity_timer_{0.0f};
 	math::vec2 last_local_cursor_pos_{};
-
 	bool overlay_scroll_bars_{false};
 	bool scroll_changed_in_update_{false};
+
+	util::animator<float, util::anime_dynamic_spec_v<float>, 0.f, util::anime_dynamic_spec_v<float>> bar_animator_{};
 
 
 public:
@@ -81,12 +81,12 @@ private:
 
 	referenced_ptr<const style::scroll_pane_bar_drawer> init_drawer_();
 
+	referenced_ptr<const style::scroll_pane_bar_drawer> drawer{init_drawer_()};
 
 public:
 	float fade_delay_ticks{60.0f * 1.5f};
 	float fade_duration_ticks{60.0f * 0.5f};
 
-	referenced_ptr<const style::scroll_pane_bar_drawer> drawer{init_drawer_()};
 
 	[[nodiscard]] scroll_adaptor_base(scene& scene, elem* parent, layout::layout_policy policy)
 		: elem(scene, parent), layout_policy_{policy}{
@@ -99,12 +99,12 @@ public:
 	void set_overlay_bar(bool enable){
 		if(util::try_modify(overlay_scroll_bars_, enable)){
 			notify_isolated_layout_changed();
-			if(enable){
-				bar_opacity_ = 0.f;
-			}else{
-				bar_opacity_ = 1.f;
-			}
 		}
+	}
+
+	// 新增获取当前进度（透明度）的快捷函数
+	[[nodiscard]] float get_bar_opacity() const noexcept {
+		return overlay_scroll_bars_ ? bar_animator_.get_progress() : 1.0f;
 	}
 
 	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept{

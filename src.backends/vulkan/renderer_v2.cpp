@@ -161,15 +161,16 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	flush_pass_(cmd, ctx_val);
 }
 
-bool renderer::command_recording_context::process_breakpoints_(renderer& r, breakpoint_process_params params,
-                                                               VkCommandBuffer buffer){
+bool renderer::command_recording_context::process_breakpoints_(
+	renderer& r, const breakpoint_process_params& params, VkCommandBuffer buffer){
 	auto& cur_pipe = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index];
 	using namespace gui::fx;
 	switch(static_cast<state_type>(params.entry.tag.major)){
 	case state_type::blit :{
 		params.flush(*this, buffer);
-		blit_(r, params.entry.as<blit_config>(), buffer);
-		return true;
+		auto cfg = params.entry.as<blit_config>();
+		blit_(r, cfg, buffer);
+		return !cfg.reserve_original;
 	}
 	case state_type::pipe :{
 		auto param = params.entry.as<pipeline_config>();
@@ -188,6 +189,10 @@ bool renderer::command_recording_context::process_breakpoints_(renderer& r, brea
 				flush_pass_(buffer, params.ctx_val);
 			}
 		}
+		return false;
+	}
+	case state_type::split:{
+		params.flush(*this, buffer);
 		return false;
 	}
 	case state_type::push_constant :{
@@ -265,7 +270,7 @@ bool renderer::command_recording_context::process_breakpoints_(renderer& r, brea
 			params.flush(*this, buffer);
 		}
 
-		if(bool is_push = params.entry.tag.minor){
+		if([[maybe_unused]] bool is_push = params.entry.tag.minor){
 			++params.ctx_val.mask_depth;
 			cache_mask_layer_enter_mark_[params.ctx_val.mask_depth] = 0;
 		} else{
