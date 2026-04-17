@@ -118,23 +118,31 @@ private:
 
 		const auto d = allocator_.get_device();
 		for(auto&& [idx, mask_image_view] : mask_image_views_ | std::views::enumerate){
-			mask_image_view = vk::image_view{
-					d, {
-						.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-						.image = mask_image_.get_image(),
-						.viewType = VK_IMAGE_VIEW_TYPE_2D,
-						.format = VK_FORMAT_R8_UNORM,
-						.components = {},
-						.subresourceRange = {
-							.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-							.baseMipLevel = 0,
-							.levelCount = 1,
-							.baseArrayLayer = static_cast<std::uint32_t>(idx),
-							.layerCount = 1
-						}
-					}
 
-				};
+			VkComponentMapping mapping{};
+			if (idx == 0) {
+				mapping.r = VK_COMPONENT_SWIZZLE_ONE;
+				mapping.g = VK_COMPONENT_SWIZZLE_ZERO;
+				mapping.b = VK_COMPONENT_SWIZZLE_ZERO;
+				mapping.a = VK_COMPONENT_SWIZZLE_ZERO;
+			}
+
+			mask_image_view = vk::image_view{
+				d, {
+					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+					.image = mask_image_.get_image(),
+					.viewType = VK_IMAGE_VIEW_TYPE_2D,
+					.format = VK_FORMAT_R8_UNORM,
+					.components = mapping,
+					.subresourceRange = {
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = static_cast<std::uint32_t>(idx),
+						.layerCount = 1
+					}
+				}
+			};
 		}
 	}
 

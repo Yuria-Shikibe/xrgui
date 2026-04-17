@@ -3,13 +3,9 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
-// #ifdef __RESHARPER__
-// #include <memory>
-// #endif
-
 
 #ifdef __AVX2__
-#include <immintrin.h>
+#include <intrin.h>
 #endif
 
 
@@ -183,8 +179,8 @@ export
 struct hardware_limit_config{
 	std::uint32_t max_group_count{};
 	std::uint32_t max_group_size{};
-	// [修改] 移除原有的 max_vertices_per_group 和 max_primitives_per_group
-	// 改为全局上限记录，用于后续 Buffer 越界预警
+
+
 	std::uint32_t max_global_vertices{};
 	std::uint32_t max_global_primitives{};
 };
@@ -261,9 +257,9 @@ private:
 
 	contiguous_draw_list* current_group{};
 
-	// [修改] 替换原有的 get_mesh_dispatch_limit()
+
 	std::uint32_t get_expected_instruction_capacity() const noexcept{
-		return 4096; // 仅作为内部 std::vector 的 reserve 容量参考，不再作为强制打断点
+		return 4096;
 	}
 
 public:
@@ -305,61 +301,47 @@ public:
 		submit_transitions_.clear();
 	}
 
-	void end_rendering() noexcept
-	{
+	void end_rendering() noexcept{
 		current_group->finalize();
 		dynamic_image_view_history_.optimize_and_reset();
 
-		if (current_group->empty())
-		{
-			// 如果组为空，说明这是个没用的尾部，不放入 valid_submit_groups。
-			// 此时如果有指向该空组的未决 transition，直接丢弃，防止 Chunk 数量越界。
-			if (!submit_transitions_.empty() && submit_transitions_.back().break_before_index == get_current_submit_group_index())
-			{
+		if(current_group->empty()){
+			if(!submit_transitions_.empty() && submit_transitions_.back().break_before_index ==
+				get_current_submit_group_index()){
 				submit_transitions_.pop_back();
 			}
-		}
-		else
-		{
+		} else{
 			advance_current_group();
 		}
 
 		const auto submit_group_subrange = get_valid_submit_groups();
 
-		for (const auto& group_subrange : submit_group_subrange)
-		{
-			group_subrange.for_each_instruction([&] FORCE_INLINE (const instruction_head& head, std::byte* payload)
-			{
-				switch (head.type)
-				{
-				case instr_type::noop: break;
-				case instr_type::uniform_update: break;
-				default:
-				{
+		for(const auto& group_subrange : submit_group_subrange){
+			group_subrange.for_each_instruction([&] FORCE_INLINE (const instruction_head& head, std::byte* payload){
+				switch(head.type){
+				case instr_type::noop : break;
+				case instr_type::uniform_update : break;
+				default :{
 					auto& gen = *std::launder(reinterpret_cast<primitive_generic*>(payload));
 					gen.image.index = dynamic_image_view_history_.try_push(gen.image.get_image_view());
 
-					switch (head.type)
-					{
-					case instr_type::poly:
-					{
+					switch(head.type){
+					case instr_type::poly :{
 						auto& instr = *std::launder(reinterpret_cast<poly*>(payload));
 						instr.segments.apply_reciprocal();
 						break;
 					}
-					case instr_type::poly_partial:
-					{
+					case instr_type::poly_partial :{
 						auto& instr = *std::launder(reinterpret_cast<poly_partial*>(payload));
 						instr.segments.apply_reciprocal();
 						break;
 					}
-					case instr_type::constrained_curve:
-					{
+					case instr_type::constrained_curve :{
 						auto& instr = *std::launder(reinterpret_cast<parametric_curve*>(payload));
 						instr.segments.apply_reciprocal();
 						break;
 					}
-					default: break;
+					default : break;
 					}
 					break;
 				}
@@ -432,7 +414,6 @@ public:
 		assert(std::to_underlying(instr_head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
 		if(instr_head.type == instr_type::uniform_update){
-			// UBO update logic
 			const auto payload = std::span{instr, instr_head.payload_size};
 			const auto targetIndex = instr_head.payload.ubo.index;
 
@@ -444,19 +425,15 @@ public:
 			return;
 		}
 
-		// [修改] 完全移除 PERFORMANCE_DISPATCH_THRESHOLD 相关的 if constexpr (false) 强制分块代码块
 
-		// --- Check for State Changes (Lazy Evaluation) ---
 		{
 			state_transition_config diff_config;
 			if(tracker_.flush(diff_config)){
-				// State has changed since last draw, force a break to inject state transition
 				force_break_and_insert(std::move(diff_config));
 			}
 		}
-		// -------------------------------------------------
 
-		// Handle Uniform Data Marching (Volatile)
+
 		for(auto&& [idx, vertex_data_entry] : data_group_per_timeline_info_.entries | std::views::enumerate){
 			if(vertex_data_entry.collapse()){
 				const instruction_head collapse_head{
@@ -468,14 +445,11 @@ public:
 		}
 
 		state_transition* breakpoint{};
-		for (auto&& [idx, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate)
-		{
-			if (vertex_data_entry.collapse())
-			{
-				if (!breakpoint)
-				{
+		for(auto&& [idx, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate){
+			if(vertex_data_entry.collapse()){
+				if(!breakpoint){
 					current_group->finalize();
-					// 【必须无条件推进】为 UBO 变更开辟新环境
+
 					advance_current_group();
 					const auto cur_idx = static_cast<unsigned>(get_current_submit_group_index());
 					breakpoint = &submit_transitions_.emplace_back(cur_idx);
@@ -521,14 +495,11 @@ public:
 
 
 				state_transition* breakpoint{};
-				for (auto&& [idx, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate)
-				{
-					if (vertex_data_entry.collapse())
-					{
-						if (!breakpoint)
-						{
+				for(auto&& [idx, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate){
+					if(vertex_data_entry.collapse()){
+						if(!breakpoint){
 							current_group->finalize();
-							// 【必须无条件推进】为 UBO 变更开辟新环境
+
 							advance_current_group();
 							const auto cur_idx = static_cast<unsigned>(get_current_submit_group_index());
 							breakpoint = &submit_transitions_.emplace_back(cur_idx);
@@ -600,7 +571,6 @@ public:
 
 private:
 	void advance_current_group(){
-		// [修改] 移除了 get_extend_able_params 继承参数
 		if(current_group == std::to_address(submit_groups_.rbegin())){
 			current_group = &submit_groups_.emplace_back(data_group_per_timeline_info_.size(),
 			                                             get_expected_instruction_capacity(),
@@ -609,31 +579,27 @@ private:
 			++current_group;
 		}
 
-		// [修改] 重置当前列表，不再传入继承参数
+
 		current_group->reset();
 	}
 
-	void force_break_and_insert(state_transition_config&& config)
-	{
+	void force_break_and_insert(state_transition_config&& config){
 		current_group->finalize();
-		auto idx = static_cast<unsigned>(get_current_submit_group_index());
 
-		// 合并发生在同一个组边界的连续状态变更
-		if (!submit_transitions_.empty() && submit_transitions_.back().break_before_index == idx)
-		{
+
+		if(current_group->empty() && !submit_transitions_.empty()){
 			submit_transitions_.back().config.append(config);
-		}
-		else
-		{
+		} else{
+			auto idx = static_cast<unsigned>(get_current_submit_group_index());
 			auto& t = submit_transitions_.emplace_back(idx);
 			t.config = std::move(config);
-		}
 
-		// 【必须无条件推进】即使产生空组，也要确保后续指令进入正确的 Chunk
-		advance_current_group();
+
+			advance_current_group();
+		}
 	}
 
-	// [修改] 核心压入逻辑：移除由于硬件上限引发的 while 分发打断循环
+
 	bool try_push_(const instruction_head& instr_head, const std::byte* instr){
 		current_group->push(instr_head, instr);
 		return false;

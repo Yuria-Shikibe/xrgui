@@ -139,6 +139,8 @@ void main_loop::main_loop_exec(){
 			});
 
 		{
+			r.update_state(fx::push_mask{});
+
 			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_draw});
 			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_write_type::ignore_last});
 
@@ -173,6 +175,7 @@ void main_loop::main_loop_exec(){
 				.color = {graphic::colors::white, graphic::colors::white}
 			};
 
+			r.update_state(fx::pop_mask{});
 			r.update_state(fx::pop_mask{});
 			r.update_state(fx::blit_config{
 					fx::blit_config::full_screen_region,
@@ -294,7 +297,7 @@ void main_loop::main_loop_exec(){
 		r.push(triangle{});
 		r.update_state(fx::blit_config{
 			fx::blit_config::full_screen_region,
-				{.pipeline_index = 1}
+				{.pipeline_index = cpip_idx::blend}
 			});
 	}
 

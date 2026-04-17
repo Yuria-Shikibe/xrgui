@@ -71,9 +71,9 @@ export struct renderer{
 
 	/** 命令录制上下文：作为 renderer 的内部结构体，拥有访问外部私有成员的权限 */
 	struct command_recording_context{
-		//TODO move other local variable in record to here
 		struct per_record_context_value{
 			unsigned mask_depth;
+			bool is_rendering{false}; // 将 is_rendering 移入上下文中
 		};
 
 		struct breakpoint_process_params{
@@ -81,14 +81,10 @@ export struct renderer{
 			graphics_context_trace& context_trace;
 			gui::fx::pipeline_config& draw_cfg;
 
-			bool& is_rendering;
+			// 移除 bool& is_rendering;
 
 			void flush(command_recording_context& ctx, VkCommandBuffer buf) const{
-				if(is_rendering){
-					vkCmdEndRendering(buf);
-					is_rendering = false;
-					ctx.cache_graphic_context_.set_rebind_required();
-				}
+				ctx.flush_pass_(buf); // 直接调用外部类的统一清理函数
 			}
 		};
 	private:
@@ -103,10 +99,26 @@ export struct renderer{
 		graphics_context_trace cache_graphic_context_{};
 		std::vector<VkClearAttachment> cache_clear_attachments_{};
 		std::vector<VkClearRect> cache_clear_rects_{};
-
 		attachment_sync_manager cache_sync_mgr_{};
 
 		per_record_context_value record_context_value_{};
+
+		// 惰性渲染通道状态追踪
+		gui::fx::render_target_mask current_pass_mask_{};
+		bool current_pass_msaa_{false};
+		mask_usage current_pass_mask_usage_{mask_usage::ignore};
+		unsigned current_pass_mask_depth_{0};
+
+		void flush_pass_(VkCommandBuffer cmd) {
+			if(record_context_value_.is_rendering){
+				vkCmdEndRendering(cmd);
+				record_context_value_.is_rendering = false;
+				cache_graphic_context_.set_rebind_required();
+			}
+		}
+
+		void ensure_render_pass_(renderer& r, VkCommandBuffer cmd, const gui::fx::pipeline_config& draw_cfg);
+
 	public:
 		command_recording_context() = default;
 

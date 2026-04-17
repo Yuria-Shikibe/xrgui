@@ -109,7 +109,7 @@ public:
 		vk::cmd::dependency_gen& dep,
 
 		const gui::fx::render_target_mask target_mask,
-		std::uint32_t absolute_input_bits,
+		const gui::fx::render_target_mask absolute_input_bits,
 		std::span<const vk::combined_image> draw_attachments,
 
 		mask_usage mask_usage_,
@@ -147,7 +147,7 @@ public:
 			});
 		}
 
-		gui::fx::render_target_mask{absolute_input_bits}.for_each_popbit([&](unsigned idx){
+		absolute_input_bits.for_each_popbit([&](unsigned idx){
 			VkPipelineStageFlags2 stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
 			VkAccessFlags2 access = VK_ACCESS_2_SHADER_READ_BIT;
 			VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

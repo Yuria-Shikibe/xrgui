@@ -6,11 +6,79 @@ module;
 module mo_yanxi.backend.vulkan.renderer;
 
 namespace mo_yanxi::backend::vulkan{
+// 实现按需开启渲染通道
+void renderer::command_recording_context::ensure_render_pass_(renderer& r, VkCommandBuffer cmd,
+                                                              const gui::fx::pipeline_config& draw_cfg){
+	if(record_context_value_.is_rendering) return;
+
+	const auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index].option;
+	const bool is_msaa = pipe_opt.enables_multisample && r.attachment_manager_.enables_multisample();
+	const auto target_mask = get_render_target(draw_cfg, pipe_opt);
+
+	cache_barrier_gen_.clear();
+
+	cache_sync_mgr_.sync_draw_targets(
+		cache_barrier_gen_,
+		target_mask, pipe_opt.input_attachments_mask, r.attachment_manager_.get_draw_attachments(),
+		pipe_opt.mask_usage_type, record_context_value_.mask_depth, r.attachment_manager_.get_mask_image().get_image()
+	);
+
+	if(!cache_barrier_gen_.empty()){
+		cache_barrier_gen_.apply(cmd);
+	}
+
+	cache_sync_mgr_.commit_pending_blit_to_graphics(cache_barrier_gen_, r.attachment_manager_.get_blit_attachments());
+	cache_barrier_gen_.apply(cmd);
+
+	VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	auto m_usage = pipe_opt.mask_usage_type;
+	auto m_depth = record_context_value_.mask_depth;
+
+	if(m_usage == mask_usage::write){
+		if(cache_mask_layer_enter_mark_[m_depth] == 0){
+			loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			cache_mask_layer_enter_mark_[m_depth] = 1;
+		}
+	}
+
+	r.attachment_manager_.configure_dynamic_rendering<32>(
+		cache_rendering_config_,
+		target_mask,
+		{},
+		is_msaa,
+		pipe_opt.mask_usage_type, record_context_value_.mask_depth, loadOp
+	);
+
+	std::size_t cur_slot = 0;
+
+	target_mask.for_each_popbit([&](unsigned idx){
+		auto& info = cache_rendering_config_.get_color_attachment_infos()[cur_slot++];
+		info.loadOp = cache_attachment_enter_mark_[idx]
+			              ? VK_ATTACHMENT_LOAD_OP_LOAD
+			              : VK_ATTACHMENT_LOAD_OP_CLEAR;
+		info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+		cache_attachment_enter_mark_[idx] = true;
+	});
+
+	cache_rendering_config_.begin_rendering(cmd, r.attachment_manager_.get_screen_area());
+
+	// 更新上下文状态
+	record_context_value_.is_rendering = true;
+	current_pass_mask_ = target_mask;
+	current_pass_msaa_ = is_msaa;
+	current_pass_mask_usage_ = pipe_opt.mask_usage_type;
+	current_pass_mask_depth_ = record_context_value_.mask_depth;
+}
+
+
 void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cmd){
-	record_context_value_ = {};
+	record_context_value_ = {}; // is_rendering 初始化为 false
+	current_pass_mask_ = {};
+	current_pass_msaa_ = false;
+	current_pass_mask_usage_ = mask_usage::ignore;
+	current_pass_mask_depth_ = 0;
 
-
-	for (auto depth_record : r.batch_host.get_tracker().get_depth_records()){
+	for(auto depth_record : r.batch_host.get_tracker().get_depth_records()){
 		if(depth_record.tag == std::to_underlying(gui::fx::state_type::mask_op)){
 			r.update_mask_depth_(depth_record.max_depth + 1);
 			cache_mask_layer_enter_mark_.assign(depth_record.max_depth + 1, {});
@@ -58,115 +126,27 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	const auto& initial_pipe_opt = r.draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index].option;
 	cache_graphic_context_.update_pipeline(draw_cfg.pipeline_index, initial_pipe_opt);
 
-	bool is_rendering = false;
-	gui::fx::render_target_mask current_pass_mask{};
-	bool current_pass_msaa = false;
-
 	cache_sync_mgr_.reset_barriers();
 	std::ranges::fill(cache_attachment_enter_mark_, 0);
 	cache_rendering_config_.clear_color_attachments();
 
-	auto flush_pass = [&](){
-		if(is_rendering){
-			vkCmdEndRendering(cmd);
-			is_rendering = false;
-			cache_graphic_context_.set_rebind_required();
-		}
+	auto get_bp_params = [&](const graphic::draw::instruction::state_transition_config::exported_entry& e) noexcept{
+		return breakpoint_process_params{
+				e, cache_graphic_context_, draw_cfg // 不再传入 is_rendering
+			};
 	};
 
-	const bool global_msaa = r.attachment_manager_.enables_multisample();
-
 	for(unsigned i = 0; i < section_count; ++i){
-		const auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index].option;
-		const bool is_msaa = pipe_opt.enables_multisample && global_msaa;
-		const auto target_mask = get_render_target(draw_cfg, pipe_opt);
-
-		// 【优化】直接获取绝对掩码，移除复杂的 slot_idx 推算逻辑
-		std::uint32_t absolute_input_bits = 0;
-		pipe_opt.input_attachments_mask.for_each_popbit([&](unsigned bit){
-			absolute_input_bits |= (1u << bit);
-		});
-
-		cache_barrier_gen_.clear();
-
-		// 获取布局变化信号（移除了 sync_flags 的接收）
-		bool layout_changed = cache_sync_mgr_.sync_draw_targets(
-			cache_barrier_gen_,
-			target_mask, absolute_input_bits, r.attachment_manager_.get_draw_attachments(),
-			pipe_opt.mask_usage_type, record_context_value_.mask_depth, r.attachment_manager_.get_mask_image().get_image()
-			);
-
-		if(is_rendering && (layout_changed || target_mask != current_pass_mask || is_msaa != current_pass_msaa)){
-			flush_pass();
-		}
-
-		if(!cache_barrier_gen_.empty()){
-			cache_barrier_gen_.apply(cmd);
-		}
-
-		if(!is_rendering){
-			cache_sync_mgr_.commit_pending_blit_to_graphics(cache_barrier_gen_,
-															r.attachment_manager_.get_blit_attachments());
-			cache_barrier_gen_.apply(cmd);
-
-			VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-			auto m_usage = pipe_opt.mask_usage_type;
-			auto m_depth = record_context_value_.mask_depth;
-
-			if (m_usage == mask_usage::write) {
-				// 如果该层标记为 0 (not entered)，则执行 Clear 并将其设为 1 (Clean)
-				if (cache_mask_layer_enter_mark_[m_depth] == 0) {
-					loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-					cache_mask_layer_enter_mark_[m_depth] = 1;
-				}
-			}
-
-			// 基于新的 target_mask 重新配置 Dynamic Rendering
-			// 注意：由于现在的 absolute_input_bits 仅代表 SAMPLED_IMAGE，如果您的 dynamic_rendering
-			// 不再需要显式管理 Input Attachment，可以将此处的传入调整为 0 或是做针对性清理。
-			r.attachment_manager_.configure_dynamic_rendering<32>(
-				cache_rendering_config_,
-				target_mask,
-				std::bitset<32>(absolute_input_bits),
-				is_msaa,
-				pipe_opt.mask_usage_type, record_context_value_.mask_depth, loadOp
-			);
-
-			std::size_t cur_slot = 0;
-
-			target_mask.for_each_popbit([&](unsigned idx){
-				auto& info = cache_rendering_config_.get_color_attachment_infos()[cur_slot++];
-
-				// 动态判定 Load Op
-				info.loadOp = cache_attachment_enter_mark_[idx]
-					              ? VK_ATTACHMENT_LOAD_OP_LOAD
-					              : VK_ATTACHMENT_LOAD_OP_CLEAR;
-
-				info.imageLayout = VK_IMAGE_LAYOUT_GENERAL; // 渲染期间统一使用 GENERAL
-
-				cache_attachment_enter_mark_[idx] = true;
-			});
-
-			cache_rendering_config_.begin_rendering(cmd, r.attachment_manager_.get_screen_area());
-
-			is_rendering = true;
-			current_pass_mask = target_mask;
-			current_pass_msaa = is_msaa;
-		}
-
 		bool requires_clear = false;
-
-		auto get_bp_params = [&](const graphic::draw::instruction::state_transition_config::exported_entry& e) noexcept {
-			return breakpoint_process_params{
-				e, cache_graphic_context_, draw_cfg, is_rendering
-			};
-		};
 
 		if(r.batch_device.is_section_empty(i)){
 			for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
 				requires_clear |= process_breakpoints_(r, get_bp_params(entry), cmd);
 			}
 		} else{
+			// 【核心】在实际发起 Draw Call 前，确保通道已开启
+			ensure_render_pass_(r, cmd, draw_cfg);
+
 			cache_graphic_context_.apply(cmd, r.draw_pipeline_manager_);
 			cmd_draw_(r, cmd, i, draw_cfg);
 
@@ -176,12 +156,136 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 		}
 
 		if(requires_clear){
-			flush_pass();
+			flush_pass_(cmd);
 			std::ranges::fill(cache_attachment_enter_mark_, 0);
 		}
 	}
 
-	flush_pass();
+	flush_pass_(cmd);
+}
+
+// 修改 process_breakpoints_ 使用 record_context_value_.is_rendering
+bool renderer::command_recording_context::process_breakpoints_(renderer& r, breakpoint_process_params params,
+                                                               VkCommandBuffer buffer){
+	auto& cur_pipe = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index];
+	using namespace gui::fx;
+	switch(static_cast<state_type>(params.entry.tag.major)){
+	case state_type::blit :{
+		params.flush(*this, buffer);
+		blit_(r, params.entry.as<blit_config>(), buffer);
+		return true;
+	}
+	case state_type::pipe :{
+		auto param = params.entry.as<pipeline_config>();
+		if(param.use_fallback_pipeline()) param.pipeline_index = params.draw_cfg.pipeline_index;
+		params.draw_cfg = param;
+
+		const auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index].option;
+		params.context_trace.update_pipeline(params.draw_cfg.pipeline_index, pipe_opt);
+
+		// 智能截断
+		if(record_context_value_.is_rendering){
+			const bool is_new_msaa = pipe_opt.enables_multisample && r.attachment_manager_.enables_multisample();
+			const auto new_target = get_render_target(params.draw_cfg, pipe_opt);
+			if(new_target != current_pass_mask_ || is_new_msaa != current_pass_msaa_ || pipe_opt.mask_usage_type !=
+				current_pass_mask_usage_){
+				flush_pass_(buffer);
+			}
+		}
+		return false;
+	}
+	case state_type::push_constant :{
+		const auto flags = static_cast<VkShaderStageFlags>(params.entry.tag.minor);
+		vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, params.entry.logical_offset,
+		                   params.entry.payload.size(),
+		                   params.entry.payload.data());
+		break;
+	}
+	case state_type::set_color_blend_enable :{
+		auto param = params.entry.as<blend_enable_flag>();
+		auto mask = make_render_target_mask(cur_pipe.option, params.draw_cfg, params.entry.tag.minor);
+		mask.for_each_popbit([&](unsigned i){ params.context_trace.set_blend_enable(i, param); });
+		break;
+	}
+	case state_type::set_color_blend_equation :{
+		auto param = params.entry.as<blend_equation>();
+		auto mask = make_render_target_mask(cur_pipe.option, params.draw_cfg, params.entry.tag.minor);
+		mask.for_each_popbit([&](unsigned i){ params.context_trace.set_blend_equation(i, param); });
+		break;
+	}
+	case state_type::set_color_write_mask :{
+		auto param = params.entry.as<blend_write_mask_type>();
+		auto mask = make_render_target_mask(cur_pipe.option, params.draw_cfg, params.entry.tag.minor);
+		mask.for_each_popbit([&](unsigned i){ params.context_trace.set_blend_write_mask(i, param); });
+		break;
+	}
+	case state_type::set_scissor :{
+		auto param = params.entry.as<scissor>();
+		params.context_trace.set_scissor(param);
+		break;
+	}
+	case state_type::set_viewport :{
+		auto param = params.entry.as<viewport>();
+		params.context_trace.set_viewport(param);
+		break;
+	}
+	case state_type::fill_color_local :{
+		ensure_render_pass_(r, buffer, params.draw_cfg); // 按需唤醒
+		auto mask = make_render_target_mask(cur_pipe.option, params.draw_cfg, params.entry.tag.minor);
+		cache_clear_attachments_.clear();
+		cache_clear_rects_.clear();
+
+		if(params.entry.payload.size() == sizeof(color_clear_value)){
+			auto param = params.entry.as<color_clear_value>();
+			mask.for_each_popbit([&](unsigned i){
+				cache_clear_attachments_.push_back({
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.colorAttachment = i,
+						.clearValue = param
+					});
+			});
+			VkClearRect rect{
+					.rect = {{}, r.attachment_manager_.get_extent()},
+					.baseArrayLayer = 0,
+					.layerCount = 1
+				};
+			vkCmdClearAttachments(buffer, cache_clear_attachments_.size(), cache_clear_attachments_.data(), 1, &rect);
+		} else{
+			throw std::runtime_error{"not impl"};
+		}
+		break;
+	}
+	case state_type::fill_color_other_lazy :{
+		render_target_mask mask{params.entry.tag.minor};
+		mask.for_each_popbit([&](unsigned i){
+			if(i < cache_attachment_enter_mark_.size()){
+				cache_attachment_enter_mark_[i] = 0;
+			}
+		});
+		break;
+	}
+	case state_type::mask_op :{
+		if(cur_pipe.option.mask_usage_type == mask_usage::write){
+			params.flush(*this, buffer);
+		}
+
+		if(bool is_push = params.entry.tag.minor){
+			++record_context_value_.mask_depth;
+			cache_mask_layer_enter_mark_[record_context_value_.mask_depth] = 0;
+		} else{
+			assert(record_context_value_.mask_depth != 0);
+			--record_context_value_.mask_depth;
+		}
+
+		if(record_context_value_.is_rendering && record_context_value_.mask_depth != current_pass_mask_depth_){
+			flush_pass_(buffer);
+		}
+		break;
+	}
+
+	default : throw std::runtime_error{"not implemented"};
+	}
+	return false;
 }
 
 void renderer::command_recording_context::cmd_draw_(
@@ -201,28 +305,18 @@ void renderer::command_recording_context::cmd_draw_(
 
 	switch(pipe_opt.option.mask_usage_type){
 	case mask_usage::ignore : break;
-	case mask_usage::read :
-
-		cache_descriptor_context_.push(
+	case mask_usage::read : cache_descriptor_context_.push(
 			2 + !!pipe.buffer, r.mask_descriptor_buffer_,
 			0,
 			r.mask_descriptor_buffer_.get_chunk_size() * record_context_value_.mask_depth);
 		break;
 	case mask_usage::write :
+		assert(record_context_value_.mask_depth > 0 && "Cannot write to the root mask layer (Layer 0)");
 
-		if(record_context_value_.mask_depth){
-			cache_descriptor_context_.push(
-				2 + !!pipe.buffer, r.mask_descriptor_buffer_,
-				0,
-				r.mask_descriptor_buffer_.get_chunk_size() * (record_context_value_.mask_depth - 1));
-		}else{
-			auto off = pipe_opt.push_constant_request_size;
-			assert(off >= 4);
-			auto mode_off = off - 4;
-			auto mode = gui::fx::mask_write_type::ignore_last;
-			vkCmdPushConstants(cmd, pc.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, mode_off, 4, &mode);
-		}
-
+		cache_descriptor_context_.push(
+			2 + !!pipe.buffer, r.mask_descriptor_buffer_,
+			0,
+			r.mask_descriptor_buffer_.get_chunk_size() * (record_context_value_.mask_depth - 1));
 		break;
 	}
 
@@ -237,7 +331,7 @@ void renderer::command_recording_context::blit_(renderer& r, gui::fx::blit_confi
 		assert(cfg.blit_region.src.is_zero());
 		auto [w, h] = r.attachment_manager_.get_extent();
 		cfg.blit_region.extent.set(w, h);
-	}else{
+	} else{
 		cfg.get_clamped_to_positive();
 	}
 
@@ -279,147 +373,6 @@ void renderer::command_recording_context::blit_(renderer& r, gui::fx::blit_confi
 	cache_sync_mgr_.mark_blit_completed(inout.get_output_entries());
 }
 
-bool renderer::command_recording_context::process_breakpoints_(renderer& r, breakpoint_process_params params,
-                                                               VkCommandBuffer buffer){
-	auto& cur_pipe = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index];
-	using namespace gui::fx;
-	switch(static_cast<state_type>(params.entry.tag.major)){
-	case state_type::blit :{
-		params.flush(*this, buffer);
-
-		// Blit 必须在渲染通道外
-		blit_(r, params.entry.as<blit_config>(), buffer);
-		//TODO separate clean request and blit?
-		return true;
-	}
-	case state_type::pipe :{
-		auto param = params.entry.as<pipeline_config>();
-
-		if(param.use_fallback_pipeline()) param.pipeline_index = params.draw_cfg.pipeline_index;
-
-		params.draw_cfg = param;
-
-		// 获取新的管线选项并更新 CPU 侧追踪状态
-		const auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index].option;
-		params.context_trace.update_pipeline(params.draw_cfg.pipeline_index, pipe_opt);
-
-		return false;
-	}
-	case state_type::push_constant :{
-		const auto flags = static_cast<VkShaderStageFlags>(params.entry.tag.minor);
-
-		vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, params.entry.logical_offset,
-		                   params.entry.payload.size(),
-		                   params.entry.payload.data());
-		break;
-	}
-	case state_type::set_color_blend_enable :{
-		auto param = params.entry.as<blend_enable_flag>();
-		auto mask = make_render_target_mask(cur_pipe.option, params.draw_cfg, params.entry.tag.minor);
-
-		mask.for_each_popbit([&](unsigned i){
-			params.context_trace.set_blend_enable(i, param);
-		});
-		break;
-	}
-	case state_type::set_color_blend_equation :{
-		auto param = params.entry.as<blend_equation>();
-		auto mask = make_render_target_mask(cur_pipe.option, params.draw_cfg, params.entry.tag.minor);
-		mask.for_each_popbit([&](unsigned i){
-			params.context_trace.set_blend_equation(i, param);
-		});
-		break;
-	}
-	case state_type::set_color_write_mask :{
-		auto param = params.entry.as<blend_write_mask_type>();
-		auto mask = make_render_target_mask(cur_pipe.option, params.draw_cfg, params.entry.tag.minor);
-		mask.for_each_popbit([&](unsigned i){
-			params.context_trace.set_blend_write_mask(i, param);
-		});
-		break;
-	}
-	case state_type::set_scissor :{
-		auto param = params.entry.as<scissor>();
-		params.context_trace.set_scissor(param);
-		break;
-	}
-	case state_type::set_viewport :{
-		auto param = params.entry.as<viewport>();
-		params.context_trace.set_viewport(param);
-		break;
-	}
-	case state_type::fill_color_local :{
-		auto mask = make_render_target_mask(cur_pipe.option, params.draw_cfg, params.entry.tag.minor);
-		cache_clear_attachments_.clear();
-		cache_clear_rects_.clear();
-
-		if(params.entry.payload.size() == sizeof(color_clear_value)){
-			//only color clear value is set, make full screen clear.
-			auto param = params.entry.as<color_clear_value>();
-
-			// vkCmdClearAttachments()
-			mask.for_each_popbit([&](unsigned i){
-				cache_clear_attachments_.push_back({
-						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-						.colorAttachment = i,
-						.clearValue = param
-					});
-			});
-			VkClearRect rect{
-					.rect = {
-						{},
-						r.attachment_manager_.get_extent()
-					},
-					.baseArrayLayer = 0,
-					.layerCount = 1
-				};
-
-			vkCmdClearAttachments(buffer, cache_clear_attachments_.size(), cache_clear_attachments_.data(), 1,
-			                      &rect);
-		} else{
-			throw std::runtime_error{"not impl"};
-			//TODO
-		}
-
-		break;
-	}
-	case state_type::fill_color_other_lazy :{
-		render_target_mask mask{params.entry.tag.minor};
-
-		mask.for_each_popbit([&](unsigned i){
-			if(i < cache_attachment_enter_mark_.size()){
-				// 重置 enter_mark。
-				// 下一次渲染通道切换并包含此附件时，
-				// attachment_enter_mark[idx] 为 false，自然会使用 VK_ATTACHMENT_LOAD_OP_CLEAR
-				cache_attachment_enter_mark_[i] = 0;
-			}
-		});
-		break;
-	}
-
-	case state_type::mask_op: {
-		params.flush(*this, buffer);
-
-		if (bool is_push = params.entry.tag.minor) {
-			// Push 逻辑
-			++record_context_value_.mask_depth;
-
-			cache_mask_layer_enter_mark_[record_context_value_.mask_depth] = 0;
-
-
-		} else {
-			// Pop 逻辑
-			assert(record_context_value_.mask_depth != 0);
-			--record_context_value_.mask_depth;
-		}
-		break;
-	}
-
-	default : throw std::runtime_error{"not implemented"};
-	}
-	return false;
-}
-
 void renderer::resize(VkExtent2D extent){
 	attachment_manager_.resize(extent);
 	update_mask_depth_(1);
@@ -434,7 +387,9 @@ void renderer::resize(VkExtent2D extent){
 				                       nullptr,
 				                       attachment_manager_.get_draw_attachments()[in.resource_index].
 				                       get_image_view(),
-				                       in.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL
+				                       in.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+					                       ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+					                       : VK_IMAGE_LAYOUT_GENERAL
 			                       }, 0, in.type);
 		}
 		for(const auto& out : cfg.get_output_entries()){
@@ -458,21 +413,23 @@ void renderer::resize(VkExtent2D extent){
 	}
 
 
-	for (auto&& [pipe, desc] : std::views::zip(draw_pipeline_manager_.get_pipelines(), draw_pipeline_manager_.get_input_attachment_mock_descriptor())){
-		if(!desc.buffer)continue;
+	for(auto&& [pipe, desc] : std::views::zip(draw_pipeline_manager_.get_pipelines(),
+	                                          draw_pipeline_manager_.get_input_attachment_mock_descriptor())){
+		if(!desc.buffer) continue;
 
 		vk::descriptor_mapper m{desc.buffer};
-		pipe.option.input_attachments_mask.for_each_popbit([&, idx = 0](unsigned i) mutable {
-			m.set_image(idx, attachment_manager_.get_draw_attachments()[i].get_image_view(), 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+		pipe.option.input_attachments_mask.for_each_popbit([&, idx = 0](unsigned i) mutable{
+			m.set_image(idx, attachment_manager_.get_draw_attachments()[i].get_image_view(), 0,
+			            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 			++idx;
 		});
-
 	}
 
 	{
 		vk::descriptor_mapper mapper{mask_descriptor_buffer_};
-		for (auto&& [i, mask_image_view] : attachment_manager_.get_mask_image_views() | std::views::enumerate){
-			mapper.set_image(0, mask_image_view, i, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+		for(auto&& [i, mask_image_view] : attachment_manager_.get_mask_image_views() | std::views::enumerate){
+			mapper.set_image(0, mask_image_view, i, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr,
+			                 VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 		}
 	}
 
