@@ -3,6 +3,7 @@ module;
 #include <cassert>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
+#include <mo_yanxi/enum_operator_gen.hpp>
 
 export module mo_yanxi.backend.vulkan.pipeline_manager;
 
@@ -183,12 +184,32 @@ public:
 };
 
 export
+enum struct blend_dynamic_flags{
+	none,
+	enable = 1 << 0,
+	equation = 1 << 1,
+	write_flag = 1 << 2,
+};
+
+BITMASK_OPS(export, blend_dynamic_flags);
+
+export
 struct option_blending_state{
 
 	std::vector<VkPipelineColorBlendAttachmentState> default_blending_settings{};
-	bool dynamic_blending_enable_states;
-	bool dynamic_blending_equation_states;
-	bool dynamic_blending_write_flag_states;
+	blend_dynamic_flags flags;
+
+	bool is_dynamic_enable() const noexcept{
+		return (flags & blend_dynamic_flags::enable) != blend_dynamic_flags::none;
+	}
+
+	bool is_dynamic_equation() const noexcept{
+		return (flags & blend_dynamic_flags::equation) != blend_dynamic_flags::none;
+	}
+
+	bool is_dynamic_write_flag() const noexcept{
+		return (flags & blend_dynamic_flags::write_flag) != blend_dynamic_flags::none;
+	}
 
 	void apply_to_template(vk::graphic_pipeline_template& gtp) const{
 		if(default_blending_settings.size() != gtp.attachment_formats.size()){
@@ -199,15 +220,15 @@ struct option_blending_state{
 
 		gtp.attachment_blend_states = default_blending_settings;
 
-		if(dynamic_blending_enable_states){
+		if(is_dynamic_enable()){
 			gtp.dynamic_states.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT);
 		}
 
-		if(dynamic_blending_equation_states){
+		if(is_dynamic_equation()){
 			gtp.dynamic_states.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT);
 		}
 
-		if(dynamic_blending_write_flag_states){
+		if(is_dynamic_write_flag()){
 			gtp.dynamic_states.push_back(VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT);
 		}
 

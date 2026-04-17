@@ -141,9 +141,6 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							draw_attachment_config{
 								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT}
 							},
-							// draw_attachment_config{
-							// 	.attachment = {VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT}
-							// },
 						},
 						// VK_SAMPLE_COUNT_4_BIT
 					},
@@ -166,7 +163,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								graphic_pipeline_option{
 									false, mask_usage::ignore, {0b1}, {},
 									{
-										{vk::blending::scaled_alpha_blend}, false, true, true
+										{vk::blending::premultiplied_alpha_blend}, blend_dynamic_flags::equation | blend_dynamic_flags::write_flag
 									}
 								}
 							},
@@ -180,7 +177,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								graphic_pipeline_option{
 									false, mask_usage::ignore, {0b1}, {},
 									{
-										{vk::blending::scaled_alpha_blend}
+										{vk::blending::premultiplied_alpha_blend}
 									}
 								}
 							},
@@ -194,7 +191,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								graphic_pipeline_option{
 									false, mask_usage::ignore, {0b1}, {},
 									{
-										{vk::blending::scaled_alpha_blend}
+										{vk::blending::premultiplied_alpha_blend}
 									}
 								}
 							},
@@ -208,7 +205,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								graphic_pipeline_option{
 									false, mask_usage::write, {}, {},
 									{
-										{vk::blending::mask_draw}
+										{vk::blending::mask_draw}, blend_dynamic_flags::equation
 									}
 								}
 							},

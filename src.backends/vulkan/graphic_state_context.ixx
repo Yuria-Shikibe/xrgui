@@ -100,17 +100,17 @@ struct graphics_context_trace {
 		dirty_flags |= DIRTY_PIPELINE;
 
 		// 立即继承管线默认混合状态，防止在 apply 时覆盖用户的自定义断点状态
-		if (option.blend_state.dynamic_blending_enable_states) {
+		if (option.blend_state.is_dynamic_enable()) {
 			pending_state.blend_enables.assign_range(option.blend_state.default_blending_settings | std::views::transform(get_blend_enable_from_state));
 			dirty_flags |= DIRTY_BLEND_ENABLE;
 		}
 
-		if (option.blend_state.dynamic_blending_equation_states) {
+		if (option.blend_state.is_dynamic_equation()) {
 			pending_state.blend_equations.assign_range(option.blend_state.default_blending_settings | std::views::transform(get_blend_equation_from_state));
 			dirty_flags |= DIRTY_BLEND_EQUATION;
 		}
 
-		if (option.blend_state.dynamic_blending_write_flag_states) {
+		if (option.blend_state.is_dynamic_write_flag()) {
 			pending_state.blend_write_flags.assign_range(option.blend_state.default_blending_settings | std::views::transform(get_component_flags_from_state));
 			dirty_flags |= DIRTY_BLEND_WRITE;
 		}
@@ -143,7 +143,7 @@ struct graphics_context_trace {
     }
 
     void update_blend_config(const graphic_pipeline_option& option) {
-        if (option.blend_state.dynamic_blending_enable_states) {
+        if (option.blend_state.is_dynamic_enable()) {
             auto range = option.blend_state.default_blending_settings | std::views::transform(get_blend_enable_from_state);
             if (!std::ranges::equal(pending_state.blend_enables, range)) {
                 pending_state.blend_enables.assign_range(range);
@@ -151,7 +151,7 @@ struct graphics_context_trace {
             }
         }
 
-        if (option.blend_state.dynamic_blending_equation_states) {
+        if (option.blend_state.is_dynamic_equation()) {
             auto range = option.blend_state.default_blending_settings | std::views::transform(get_blend_equation_from_state);
             if (pending_state.blend_equations.size() != range.size() || // 简单长度检查，完全比较可能开销较大，依赖 dirty_bit
                 !std::equal(pending_state.blend_equations.begin(), pending_state.blend_equations.end(), range.begin(),
@@ -162,7 +162,7 @@ struct graphics_context_trace {
             }
         }
 
-        if (option.blend_state.dynamic_blending_write_flag_states) {
+        if (option.blend_state.is_dynamic_write_flag()) {
             auto range = option.blend_state.default_blending_settings | std::views::transform(get_component_flags_from_state);
             if (!std::ranges::equal(pending_state.blend_write_flags, range)) {
                 pending_state.blend_write_flags.assign_range(range);
@@ -263,15 +263,15 @@ struct graphics_context_trace {
             vk::cmd::set_scissor(cmd, current_state.scissor);
         }
 
-        if (pipe_data.option.blend_state.dynamic_blending_enable_states && should_emit(DIRTY_BLEND_ENABLE, &dynamic_state_packet::blend_enables)) {
+        if (pipe_data.option.blend_state.is_dynamic_enable() && should_emit(DIRTY_BLEND_ENABLE, &dynamic_state_packet::blend_enables)) {
         	vk::cmd::setColorBlendEnableEXT(cmd, 0, static_cast<std::uint32_t>(current_state.blend_enables.size()), current_state.blend_enables.data());
         }
 
-    	if (pipe_data.option.blend_state.dynamic_blending_equation_states && should_emit(DIRTY_BLEND_EQUATION, &dynamic_state_packet::blend_equations)) {
+    	if (pipe_data.option.blend_state.is_dynamic_equation() && should_emit(DIRTY_BLEND_EQUATION, &dynamic_state_packet::blend_equations)) {
     		vk::cmd::setColorBlendEquationEXT(cmd, 0, static_cast<std::uint32_t>(current_state.blend_equations.size()), current_state.blend_equations.data());
         }
 
-    	if (pipe_data.option.blend_state.dynamic_blending_write_flag_states && should_emit(DIRTY_BLEND_WRITE, &dynamic_state_packet::blend_write_flags)) {
+    	if (pipe_data.option.blend_state.is_dynamic_write_flag() && should_emit(DIRTY_BLEND_WRITE, &dynamic_state_packet::blend_write_flags)) {
     		vk::cmd::setColorWriteMaskEXT(cmd, 0, static_cast<std::uint32_t>(current_state.blend_write_flags.size()), current_state.blend_write_flags.data());
         }
 

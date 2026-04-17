@@ -437,7 +437,72 @@ struct blend_equation{
 export namespace blend {
 
 
+namespace mask{
 
+constexpr inline blend_equation standard = {
+	.src_color_blend_factor = VK_BLEND_FACTOR_ONE,
+	.dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+	.color_blend_op         = VK_BLEND_OP_ADD,
+	.src_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+	.dst_alpha_blend_factor = VK_BLEND_FACTOR_ZERO,
+	.alpha_blend_op         = VK_BLEND_OP_MAX
+};
+
+constexpr inline blend_equation erase = {
+	.src_color_blend_factor = VK_BLEND_FACTOR_ZERO,
+	.dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+	.color_blend_op         = VK_BLEND_OP_ADD,
+	.src_alpha_blend_factor = VK_BLEND_FACTOR_ZERO,
+	.dst_alpha_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+	.alpha_blend_op         = VK_BLEND_OP_ADD
+};
+
+constexpr inline blend_equation max_blend = {
+	.src_color_blend_factor = VK_BLEND_FACTOR_ONE,
+	.dst_color_blend_factor = VK_BLEND_FACTOR_ONE,
+	.color_blend_op         = VK_BLEND_OP_MAX,
+	.src_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+	.dst_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+	.alpha_blend_op         = VK_BLEND_OP_MAX
+};
+
+constexpr inline blend_equation min_blend = {
+	.src_color_blend_factor = VK_BLEND_FACTOR_ONE,
+	.dst_color_blend_factor = VK_BLEND_FACTOR_ONE,
+	.color_blend_op         = VK_BLEND_OP_MIN,
+	.src_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+	.dst_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+	.alpha_blend_op         = VK_BLEND_OP_MIN
+};
+
+constexpr inline blend_equation multiply = {
+	.src_color_blend_factor = VK_BLEND_FACTOR_ZERO,
+	.dst_color_blend_factor = VK_BLEND_FACTOR_SRC_COLOR,
+	.color_blend_op         = VK_BLEND_OP_ADD,
+	.src_alpha_blend_factor = VK_BLEND_FACTOR_ZERO,
+	.dst_alpha_blend_factor = VK_BLEND_FACTOR_SRC_ALPHA,
+	.alpha_blend_op         = VK_BLEND_OP_ADD
+};
+
+constexpr inline blend_equation additive = {
+	.src_color_blend_factor = VK_BLEND_FACTOR_SRC_ALPHA,
+	.dst_color_blend_factor = VK_BLEND_FACTOR_ONE,
+	.color_blend_op         = VK_BLEND_OP_ADD,
+	.src_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+	.dst_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+	.alpha_blend_op         = VK_BLEND_OP_MAX
+};
+
+constexpr inline blend_equation screen = {
+	.src_color_blend_factor = VK_BLEND_FACTOR_ONE,
+	.dst_color_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
+	.color_blend_op         = VK_BLEND_OP_ADD,
+	.src_alpha_blend_factor = VK_BLEND_FACTOR_ONE,
+	.dst_alpha_blend_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+	.alpha_blend_op         = VK_BLEND_OP_ADD
+};
+
+}
 
 
 

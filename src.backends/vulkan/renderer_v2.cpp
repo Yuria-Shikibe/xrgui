@@ -6,10 +6,11 @@ module;
 module mo_yanxi.backend.vulkan.renderer;
 
 namespace mo_yanxi::backend::vulkan{
-// 实现按需开启渲染通道
-void renderer::command_recording_context::ensure_render_pass_(renderer& r, VkCommandBuffer cmd,
-                                                              const gui::fx::pipeline_config& draw_cfg){
-	if(record_context_value_.is_rendering) return;
+void renderer::command_recording_context::ensure_render_pass_(
+	renderer& r, VkCommandBuffer cmd,
+	const gui::fx::pipeline_config& draw_cfg,
+	per_record_context_value& ctx_val){
+	if(ctx_val.is_rendering) return;
 
 	const auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index].option;
 	const bool is_msaa = pipe_opt.enables_multisample && r.attachment_manager_.enables_multisample();
@@ -20,7 +21,7 @@ void renderer::command_recording_context::ensure_render_pass_(renderer& r, VkCom
 	cache_sync_mgr_.sync_draw_targets(
 		cache_barrier_gen_,
 		target_mask, pipe_opt.input_attachments_mask, r.attachment_manager_.get_draw_attachments(),
-		pipe_opt.mask_usage_type, record_context_value_.mask_depth, r.attachment_manager_.get_mask_image().get_image()
+		pipe_opt.mask_usage_type, ctx_val.mask_depth, r.attachment_manager_.get_mask_image().get_image()
 	);
 
 	if(!cache_barrier_gen_.empty()){
@@ -32,7 +33,7 @@ void renderer::command_recording_context::ensure_render_pass_(renderer& r, VkCom
 
 	VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	auto m_usage = pipe_opt.mask_usage_type;
-	auto m_depth = record_context_value_.mask_depth;
+	auto m_depth = ctx_val.mask_depth;
 
 	if(m_usage == mask_usage::write){
 		if(cache_mask_layer_enter_mark_[m_depth] == 0){
@@ -46,7 +47,7 @@ void renderer::command_recording_context::ensure_render_pass_(renderer& r, VkCom
 		target_mask,
 		{},
 		is_msaa,
-		pipe_opt.mask_usage_type, record_context_value_.mask_depth, loadOp
+		pipe_opt.mask_usage_type, ctx_val.mask_depth, loadOp
 	);
 
 	std::size_t cur_slot = 0;
@@ -63,20 +64,17 @@ void renderer::command_recording_context::ensure_render_pass_(renderer& r, VkCom
 	cache_rendering_config_.begin_rendering(cmd, r.attachment_manager_.get_screen_area());
 
 	// 更新上下文状态
-	record_context_value_.is_rendering = true;
-	current_pass_mask_ = target_mask;
-	current_pass_msaa_ = is_msaa;
-	current_pass_mask_usage_ = pipe_opt.mask_usage_type;
-	current_pass_mask_depth_ = record_context_value_.mask_depth;
+	ctx_val.is_rendering = true;
+	ctx_val.current_pass_mask = target_mask;
+	ctx_val.current_pass_msaa = is_msaa;
+	ctx_val.current_pass_mask_usage = pipe_opt.mask_usage_type;
+	ctx_val.current_pass_mask_depth = ctx_val.mask_depth;
 }
 
 
 void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cmd){
-	record_context_value_ = {}; // is_rendering 初始化为 false
-	current_pass_mask_ = {};
-	current_pass_msaa_ = false;
-	current_pass_mask_usage_ = mask_usage::ignore;
-	current_pass_mask_depth_ = 0;
+	// 使用局部变量实例化单次记录的上下文状态
+	per_record_context_value ctx_val{};
 
 	for(auto depth_record : r.batch_host.get_tracker().get_depth_records()){
 		if(depth_record.tag == std::to_underlying(gui::fx::state_type::mask_op)){
@@ -132,7 +130,7 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 
 	auto get_bp_params = [&](const graphic::draw::instruction::state_transition_config::exported_entry& e) noexcept{
 		return breakpoint_process_params{
-				e, cache_graphic_context_, draw_cfg // 不再传入 is_rendering
+				e, cache_graphic_context_, draw_cfg, ctx_val
 			};
 	};
 
@@ -144,11 +142,10 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 				requires_clear |= process_breakpoints_(r, get_bp_params(entry), cmd);
 			}
 		} else{
-			// 【核心】在实际发起 Draw Call 前，确保通道已开启
-			ensure_render_pass_(r, cmd, draw_cfg);
+			ensure_render_pass_(r, cmd, draw_cfg, ctx_val);
 
 			cache_graphic_context_.apply(cmd, r.draw_pipeline_manager_);
-			cmd_draw_(r, cmd, i, draw_cfg);
+			cmd_draw_(r, cmd, i, draw_cfg, ctx_val);
 
 			for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
 				requires_clear |= process_breakpoints_(r, get_bp_params(entry), cmd);
@@ -156,15 +153,14 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 		}
 
 		if(requires_clear){
-			flush_pass_(cmd);
+			flush_pass_(cmd, ctx_val);
 			std::ranges::fill(cache_attachment_enter_mark_, 0);
 		}
 	}
 
-	flush_pass_(cmd);
+	flush_pass_(cmd, ctx_val);
 }
 
-// 修改 process_breakpoints_ 使用 record_context_value_.is_rendering
 bool renderer::command_recording_context::process_breakpoints_(renderer& r, breakpoint_process_params params,
                                                                VkCommandBuffer buffer){
 	auto& cur_pipe = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index];
@@ -183,13 +179,13 @@ bool renderer::command_recording_context::process_breakpoints_(renderer& r, brea
 		const auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index].option;
 		params.context_trace.update_pipeline(params.draw_cfg.pipeline_index, pipe_opt);
 
-		// 智能截断
-		if(record_context_value_.is_rendering){
+		if(params.ctx_val.is_rendering){
 			const bool is_new_msaa = pipe_opt.enables_multisample && r.attachment_manager_.enables_multisample();
 			const auto new_target = get_render_target(params.draw_cfg, pipe_opt);
-			if(new_target != current_pass_mask_ || is_new_msaa != current_pass_msaa_ || pipe_opt.mask_usage_type !=
-				current_pass_mask_usage_){
-				flush_pass_(buffer);
+			if(new_target != params.ctx_val.current_pass_mask || is_new_msaa != params.ctx_val.current_pass_msaa ||
+				pipe_opt.mask_usage_type !=
+				params.ctx_val.current_pass_mask_usage){
+				flush_pass_(buffer, params.ctx_val);
 			}
 		}
 		return false;
@@ -230,7 +226,7 @@ bool renderer::command_recording_context::process_breakpoints_(renderer& r, brea
 		break;
 	}
 	case state_type::fill_color_local :{
-		ensure_render_pass_(r, buffer, params.draw_cfg); // 按需唤醒
+		ensure_render_pass_(r, buffer, params.draw_cfg, params.ctx_val);
 		auto mask = make_render_target_mask(cur_pipe.option, params.draw_cfg, params.entry.tag.minor);
 		cache_clear_attachments_.clear();
 		cache_clear_rects_.clear();
@@ -270,15 +266,15 @@ bool renderer::command_recording_context::process_breakpoints_(renderer& r, brea
 		}
 
 		if(bool is_push = params.entry.tag.minor){
-			++record_context_value_.mask_depth;
-			cache_mask_layer_enter_mark_[record_context_value_.mask_depth] = 0;
+			++params.ctx_val.mask_depth;
+			cache_mask_layer_enter_mark_[params.ctx_val.mask_depth] = 0;
 		} else{
-			assert(record_context_value_.mask_depth != 0);
-			--record_context_value_.mask_depth;
+			assert(params.ctx_val.mask_depth != 0);
+			--params.ctx_val.mask_depth;
 		}
 
-		if(record_context_value_.is_rendering && record_context_value_.mask_depth != current_pass_mask_depth_){
-			flush_pass_(buffer);
+		if(params.ctx_val.is_rendering && params.ctx_val.mask_depth != params.ctx_val.current_pass_mask_depth){
+			flush_pass_(buffer, params.ctx_val);
 		}
 		break;
 	}
@@ -292,7 +288,8 @@ void renderer::command_recording_context::cmd_draw_(
 	renderer& r,
 	VkCommandBuffer cmd,
 	std::uint32_t index,
-	const gui::fx::pipeline_config& arg){
+	const gui::fx::pipeline_config& arg,
+	per_record_context_value& ctx_val){
 	const auto& pc = r.draw_pipeline_manager_.get_pipelines()[arg.pipeline_index];
 
 	cache_descriptor_context_.clear();
@@ -308,15 +305,15 @@ void renderer::command_recording_context::cmd_draw_(
 	case mask_usage::read : cache_descriptor_context_.push(
 			2 + !!pipe.buffer, r.mask_descriptor_buffer_,
 			0,
-			r.mask_descriptor_buffer_.get_chunk_size() * record_context_value_.mask_depth);
+			r.mask_descriptor_buffer_.get_chunk_size() * ctx_val.mask_depth);
 		break;
 	case mask_usage::write :
-		assert(record_context_value_.mask_depth > 0 && "Cannot write to the root mask layer (Layer 0)");
+		assert(ctx_val.mask_depth > 0 && "Cannot write to the root mask layer (Layer 0)");
 
 		cache_descriptor_context_.push(
 			2 + !!pipe.buffer, r.mask_descriptor_buffer_,
 			0,
-			r.mask_descriptor_buffer_.get_chunk_size() * (record_context_value_.mask_depth - 1));
+			r.mask_descriptor_buffer_.get_chunk_size() * (ctx_val.mask_depth - 1));
 		break;
 	}
 

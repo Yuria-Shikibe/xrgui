@@ -72,52 +72,51 @@ export struct renderer{
 	/** 命令录制上下文：作为 renderer 的内部结构体，拥有访问外部私有成员的权限 */
 	struct command_recording_context{
 		struct per_record_context_value{
-			unsigned mask_depth;
-			bool is_rendering{false}; // 将 is_rendering 移入上下文中
+			unsigned mask_depth{};
+			unsigned current_pass_mask_depth{};
+			gui::fx::render_target_mask current_pass_mask{};
+			mask_usage current_pass_mask_usage{};
+			bool is_rendering{};
+			bool current_pass_msaa{};
 		};
 
 		struct breakpoint_process_params{
 			const graphic::draw::instruction::state_transition_config::exported_entry& entry;
 			graphics_context_trace& context_trace;
 			gui::fx::pipeline_config& draw_cfg;
-
-			// 移除 bool& is_rendering;
+			per_record_context_value& ctx_val;
 
 			void flush(command_recording_context& ctx, VkCommandBuffer buf) const{
-				ctx.flush_pass_(buf); // 直接调用外部类的统一清理函数
+				ctx.flush_pass_(buf, ctx_val);
 			}
 		};
+
 	private:
-		// --- 缓存与持久化追踪状态 ---
 		graphic::draw::record_context<> cache_descriptor_context_{};
 		vk::cmd::dependency_gen cache_barrier_gen_{};
+
 		vk::dynamic_rendering cache_rendering_config_{};
 
 		std::vector<std::uint8_t> cache_attachment_enter_mark_{};
 		std::vector<std::uint8_t> cache_mask_layer_enter_mark_{};
 
 		graphics_context_trace cache_graphic_context_{};
+
+		//TODO merge clear requests
 		std::vector<VkClearAttachment> cache_clear_attachments_{};
 		std::vector<VkClearRect> cache_clear_rects_{};
 		attachment_sync_manager cache_sync_mgr_{};
 
-		per_record_context_value record_context_value_{};
 
-		// 惰性渲染通道状态追踪
-		gui::fx::render_target_mask current_pass_mask_{};
-		bool current_pass_msaa_{false};
-		mask_usage current_pass_mask_usage_{mask_usage::ignore};
-		unsigned current_pass_mask_depth_{0};
-
-		void flush_pass_(VkCommandBuffer cmd) {
-			if(record_context_value_.is_rendering){
+		void flush_pass_(VkCommandBuffer cmd, per_record_context_value& ctx_val) {
+			if(ctx_val.is_rendering){
 				vkCmdEndRendering(cmd);
-				record_context_value_.is_rendering = false;
+				ctx_val.is_rendering = false;
 				cache_graphic_context_.set_rebind_required();
 			}
 		}
 
-		void ensure_render_pass_(renderer& r, VkCommandBuffer cmd, const gui::fx::pipeline_config& draw_cfg);
+		void ensure_render_pass_(renderer& r, VkCommandBuffer cmd, const gui::fx::pipeline_config& draw_cfg, per_record_context_value& ctx_val);
 
 	public:
 		command_recording_context() = default;
@@ -128,20 +127,16 @@ export struct renderer{
 			cache_mask_layer_enter_mark_.assign(1, {});
 		}
 
-		/** 核心录制逻辑：将外部状态转换为局部临时变量 */
 		void record(renderer& r, VkCommandBuffer cmd);
 
-		void cmd_draw_(renderer& r, VkCommandBuffer cmd, std::uint32_t index, const gui::fx::pipeline_config& arg);
+		void cmd_draw_(renderer& r, VkCommandBuffer cmd, std::uint32_t index, const gui::fx::pipeline_config& arg, per_record_context_value& ctx_val);
 
-		/** 处理 Blit 操作：Compute Shader 实现的图像处理 */
 		void blit_(renderer& r, gui::fx::blit_config cfg, VkCommandBuffer cmd);
-
 
 		bool process_breakpoints_(
 			renderer& r,
 			breakpoint_process_params params,
 			VkCommandBuffer buffer);
-
 	private:
 		static gui::fx::render_target_mask make_render_target_mask(
 			const graphic_pipeline_option& current_pipe_option, const gui::fx::pipeline_config& config,
