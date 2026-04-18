@@ -84,7 +84,7 @@ void app_run(
 	while(!ctx.window().should_close()){
 		ctx.window().poll_events();
 		timer.fetch_time();
-
+		//
 		gui::global::event_queue.push_frame_split(timer.global_delta());
 		main_loop.permit_burst();
 		current_focus.get_output_communicate_async_task_queue(0).consume();
@@ -155,10 +155,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 						{
 							//basic draw
 							graphic_pipeline_create_config::config{
-								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									draw_shader_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_vert.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_frag_basic.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::ignore, {0b1}, {},
@@ -169,10 +168,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							},
 							//outline sdf
 							graphic_pipeline_create_config::config{
-								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}}},
 								{
-									draw_shader_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_frag_basic.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_vert.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_frag_outlined.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::ignore, {0b1}, {},
@@ -183,10 +181,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							},
 							//coordinate draw
 							graphic_pipeline_create_config::config{
-								{},
 								{
-									draw_shader_coord.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_coord.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_coord.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_coord.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::ignore, {0b1}, {},
@@ -197,10 +194,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							},
 							//mask draw
 							graphic_pipeline_create_config::config{
-								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8}}},
 								{
-									draw_shader_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_mask.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_vert.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_mask.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::write, {}, {},
@@ -211,10 +207,9 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 							},
 							//pipeline apply
 							graphic_pipeline_create_config::config{
-								{{VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8}}},
 								{
-									draw_shader_vert.get_create_info(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_mask_apply.get_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
+									draw_shader_vert.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
+									draw_shader_mask_apply.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
 								},
 								graphic_pipeline_option{
 									false, mask_usage::read, {0b1}, {},
@@ -229,8 +224,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 					.blit_pipe_config = compute_pipeline_create_config{
 						{
 							compute_pipeline_create_config::config{
-								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
-								.shader_module = blit_shader_merge.get_create_info_compute(),
+								.shader_bundle = blit_shader_merge.get_stage_bundle(VK_SHADER_STAGE_COMPUTE_BIT),
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{
@@ -245,8 +239,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								}
 							},
 							compute_pipeline_create_config::config{
-								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
-								.shader_module = blit_shader_blend.get_create_info_compute(),
+								.shader_bundle = blit_shader_blend.get_stage_bundle(VK_SHADER_STAGE_COMPUTE_BIT),
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{
@@ -259,8 +252,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 								}
 							},
 							compute_pipeline_create_config::config{
-								.general = {make_push_constants(VK_SHADER_STAGE_COMPUTE_BIT, {8})},
-								.shader_module = blit_shader_inverse.get_create_info_compute(),
+								.shader_bundle = blit_shader_inverse.get_stage_bundle(VK_SHADER_STAGE_COMPUTE_BIT),
 								.option = {
 									.inout = compute_pipeline_blit_inout_config{
 										{
@@ -696,17 +688,33 @@ int main(){
 	typesetting::rich_text_look_up_table table;
 	typesetting::look_up_table = &table;
 
-	constexpr VkApplicationInfo ApplicationInfo{
+
+
+	VkApplicationInfo appInfo{
 		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		.pApplicationName = "Hello Xrgui",
 		.applicationVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
 		.pEngineName = "No Engine",
 		.engineVersion = VK_MAKE_API_VERSION(1, 0, 0, 0),
-		.apiVersion = VK_API_VERSION_1_3,
+		.apiVersion = VK_API_VERSION_1_4,
 	};
 
+
+	if (std::uint32_t supportedVersion = 0; vkEnumerateInstanceVersion(&supportedVersion) == VK_SUCCESS) {
+		if (supportedVersion >= VK_API_VERSION_1_4) {
+			// appInfo.apiVersion = VK_API_VERSION_1_3;
+			//currently using 1.4 cause the code dead, I really have no idea why
+			appInfo.apiVersion = VK_API_VERSION_1_3;
+		} else {
+			appInfo.apiVersion = VK_API_VERSION_1_3;
+		}
+	} else {
+		appInfo.apiVersion = VK_API_VERSION_1_0;
+	}
+
+	std::println("[Vulkan] API Version: {}.{}.{}.{}", VK_API_VERSION_VARIANT(appInfo.apiVersion), VK_API_VERSION_MAJOR(appInfo.apiVersion), VK_API_VERSION_MINOR(appInfo.apiVersion), VK_API_VERSION_PATCH(appInfo.apiVersion));
 	{
-		backend::vulkan::context ctx{ApplicationInfo};
+		backend::vulkan::context ctx{appInfo};
 		vk::load_ext(ctx.get_instance());
 
 		prepare(ctx);

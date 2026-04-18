@@ -312,7 +312,8 @@ public:
 		return frames_[current_frame_index_].main_command_buffer;
 	}
 
-	VkFence get_fence() const noexcept{ return frames_[current_frame_index_].fence; }
+	const vk::fence& get_fence() const noexcept{ return frames_[current_frame_index_].fence; }
+	vk::fence& get_fence() noexcept{ return frames_[current_frame_index_].fence; }
 
 	vk::image_handle get_base() const noexcept{
 		return attachment_manager_.get_blit_attachments()[0];

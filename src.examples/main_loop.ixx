@@ -214,6 +214,14 @@ public:
 			return false;
 		});
 	}
+
+	void done_(){
+		auto& renderer = *renderer_ptr;
+
+		renderer.batch_host.end_rendering();
+		renderer.upload();
+		renderer.create_command();
+	}
 };
 
 }

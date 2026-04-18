@@ -49,8 +49,7 @@ FragOut main_frag(
     uint primitiveID : SV_PrimitiveID
 ) {
     // 获取全局图元索引
-    uint global_prm_idx = dispatch_config_ubo.global_primitive_offset + primitiveID;
-    mesh_instr::Primitive primit = global_primitives[global_prm_idx];
+    var primit = gui::get_current_primitive(primitiveID, dispatch_config_ubo, global_primitives);
 
     let no_tex = bool(primit.texture_index == ~0U);
     float dst;
@@ -58,7 +57,7 @@ FragOut main_frag(
     if (no_tex) {
         dst = vtx.color.a * 2 - 1.f;
     } else {
-        let rst = sdf::msdf(textures[primit.texture_index], vtx.uv, float2(4096.f, 4096.f));
+        let rst = sdf::msdf(textures[primit.texture_index], vtx.uv, gui::msdf_image_extent);
         let rng = rst.scale * primit.sdf_expand;
         dst = rst.factor - rng;
     }

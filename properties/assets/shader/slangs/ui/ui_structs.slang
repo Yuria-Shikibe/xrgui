@@ -1,6 +1,13 @@
 module ui_structs;
 
+import mesh_instructions;
+import mesh_instruction_lib_cs;
+import slide_line;
+import sdf;
+
 namespace gui {
+
+public static const float2 msdf_image_extent = { 4096.f, 4096.f };
 
 public struct ubo_screen_info {
     public float3x3 screen_to_uniform;
@@ -108,5 +115,56 @@ uint get_timeline_index(uint idx) {
 
 //     return uniformed_coord.xy;
 // }
+
+public mesh_instr::Primitive get_current_primitive(
+    uint primitiveID,
+    ConstantBuffer<mesh_instr::dispatch_config> config,
+    StructuredBuffer<mesh_instr::Primitive> primitives
+) {
+    uint global_prm_idx = config.global_primitive_offset + primitiveID;
+    return primitives[global_prm_idx];
+}
+
+public float4 evaluate_primitive_base_color(
+    mesh_instr::Primitive primit,
+    io::VSOutput vtx,
+    uniform Sampler2D textures[],
+    global_draw_mode_type draw_mode_type 
+) {
+    let no_tex = bool(primit.texture_index == ~0U);
+    float4 out_color;
+
+    switch (draw_mode_type) {
+    case global_draw_mode_type::def:
+        out_color = (no_tex ? float4(1.f) : textures[primit.texture_index].Sample(vtx.uv)) * vtx.color;
+        break;
+    case global_draw_mode_type::sdf:
+        if (no_tex) {
+            out_color = float4(1.f) * vtx.color;
+        } else {
+            let rst = sdf::msdf(textures[primit.texture_index], vtx.uv, msdf_image_extent);
+            let rng = rst.scale * primit.sdf_expand;
+            out_color = float4(1.f, 1.f, 1.f, smoothstep(-0.6f, 0.6f, rst.factor - rng)) * vtx.color;
+        }
+        break;
+    default:
+        out_color = vtx.color;
+        break;
+    }
+    return out_color;
+}
+
+public void apply_slide_line_effect(
+    inout float4 color,
+    mesh_instr::Primitive primit,
+    float2 position_xy,
+    ConstantBuffer<slide_line::slide_line_style> style,
+    float time
+) {
+    if (bool(primit.mode.value & gui::draw_mode_type::slide_line)) {
+        float scl = slide_line::is_in_slide_line_smooth(position_xy, style, time);
+        color.a *= scl;
+    }
+}
 
 }

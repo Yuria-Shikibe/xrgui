@@ -53,4 +53,30 @@ protected:
 		elem.update_context_opacity(dst_alpha);
 	}
 };
+
+export
+struct alpha_ctx_fade_in_action final : action<elem>{
+private:
+	float initialAlpha{};
+public:
+
+	[[nodiscard]] alpha_ctx_fade_in_action(const mr::heap_allocator<>& allocator, float lifetime, float initial, interp_func_t interpFunc)
+		: action<elem>(allocator, lifetime, interpFunc){
+	}
+
+	[[nodiscard]] alpha_ctx_fade_in_action(const mr::heap_allocator<>& allocator, float lifetime, float initial = 0)
+		: action<elem>(allocator, lifetime), initialAlpha(initial){
+	}
+
+protected:
+	void apply(elem& elem, const float progress) override{
+		float targetAbs{1};
+		if(auto p = elem.parent()){
+			targetAbs = p->get_draw_opacity();
+		}
+		elem.update_context_opacity(math::lerp(initialAlpha, targetAbs, progress));
+	}
+};
+
+
 }

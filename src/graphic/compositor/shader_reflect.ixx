@@ -1,6 +1,7 @@
 module;
 
 #include <vulkan/vulkan.h>
+#include <cassert>
 #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <spirv_reflect.h>;
 #endif
@@ -14,183 +15,228 @@ import std;
 import <spirv_reflect.h>;
 #endif
 
-namespace mo_yanxi::graphic {
-
-export struct shader_reflection {
+namespace mo_yanxi::graphic{
+export struct shader_reflection{
 private:
-    spv_reflect::ShaderModule module_;
+	spv_reflect::ShaderModule module_;
 
-    std::vector<SpvReflectDescriptorBinding*> storage_images_{};
-    std::vector<SpvReflectDescriptorBinding*> sampled_images_{};
-    std::vector<SpvReflectDescriptorBinding*> uniform_buffers_{};
-    std::vector<SpvReflectDescriptorBinding*> storage_buffers_{};
+	std::vector<SpvReflectDescriptorBinding*> storage_images_{};
+	std::vector<SpvReflectDescriptorBinding*> sampled_images_{};
+	std::vector<SpvReflectDescriptorBinding*> uniform_buffers_{};
+	std::vector<SpvReflectDescriptorBinding*> storage_buffers_{};
 
-    std::vector<VkPushConstantRange> push_constant_ranges_{};
+	std::vector<VkPushConstantRange> push_constant_ranges_{};
 
 public:
-    [[nodiscard]] shader_reflection() = default;
+	[[nodiscard]] shader_reflection() = default;
 
-    [[nodiscard]] shader_reflection(std::span<const std::uint32_t> binary)
-        : module_(binary.size_bytes(), binary.data())
-    {
-        if (module_.GetResult() != SPV_REFLECT_RESULT_SUCCESS) {
-            throw std::runtime_error("Failed to create SPIRV-Reflect shader module");
-        }
-        enumerate_resources();
-    }
+	[[nodiscard]] shader_reflection(std::span<const std::uint32_t> binary)
+		: module_(binary.size_bytes(), binary.data(), SPV_REFLECT_MODULE_FLAG_NO_COPY){
+		if(module_.GetResult() != SPV_REFLECT_RESULT_SUCCESS){
+			throw std::runtime_error("Failed to create SPIRV-Reflect shader module");
+		}
+		enumerate_resources();
+	}
 
-    shader_reflection(shader_reflection&& other) noexcept = default;
-    shader_reflection& operator=(shader_reflection&& other) noexcept = default;
+	shader_reflection(shader_reflection&& other) noexcept = default;
+	shader_reflection& operator=(shader_reflection&& other) noexcept = default;
 
-    shader_reflection(const shader_reflection&) = delete;
-    shader_reflection& operator=(const shader_reflection&) = delete;
+	shader_reflection(const shader_reflection&) = delete;
+	shader_reflection& operator=(const shader_reflection&) = delete;
 
-    [[nodiscard]] const SpvReflectShaderModule& raw_module() const noexcept {
-        return module_.GetShaderModule();
-    }
+	[[nodiscard]] const SpvReflectShaderModule& raw_module() const noexcept{
+		return module_.GetShaderModule();
+	}
 
-    [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& storage_images() const noexcept { return storage_images_; }
-    [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& sampled_images() const noexcept { return sampled_images_; }
-    [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& uniform_buffers() const noexcept { return uniform_buffers_; }
-    [[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& storage_buffers() const noexcept { return storage_buffers_; }
+	[[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& storage_images() const noexcept{
+		return storage_images_;
+	}
+
+	[[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& sampled_images() const noexcept{
+		return sampled_images_;
+	}
+
+	[[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& uniform_buffers() const noexcept{
+		return uniform_buffers_;
+	}
+
+	[[nodiscard]] const std::vector<SpvReflectDescriptorBinding*>& storage_buffers() const noexcept{
+		return storage_buffers_;
+	}
 
 
-    [[nodiscard]] const std::vector<VkPushConstantRange>& push_constant_ranges() const noexcept {
-        return push_constant_ranges_;
-    }
+	[[nodiscard]] const std::vector<VkPushConstantRange>& push_constant_ranges() const noexcept{
+		return push_constant_ranges_;
+	}
 
-    [[nodiscard]] compositor::binding_info binding_info_of(const SpvReflectDescriptorBinding* resource) const noexcept {
-        return {resource->binding, resource->set};
-    }
+	[[nodiscard]] compositor::binding_info binding_info_of(const SpvReflectDescriptorBinding* resource) const noexcept{
+		return {resource->binding, resource->set};
+	}
 
 private:
-    void enumerate_resources() {
+	void enumerate_resources(){
+		uint32_t count = 0;
+		SpvReflectResult result = module_.EnumerateDescriptorBindings(&count, nullptr);
 
-        uint32_t count = 0;
-        SpvReflectResult result = module_.EnumerateDescriptorBindings(&count, nullptr);
+		if(result == SPV_REFLECT_RESULT_SUCCESS && count > 0){
+			std::vector<SpvReflectDescriptorBinding*> bindings(count);
+			module_.EnumerateDescriptorBindings(&count, bindings.data());
 
-        if (result == SPV_REFLECT_RESULT_SUCCESS && count > 0) {
-            std::vector<SpvReflectDescriptorBinding*> bindings(count);
-            module_.EnumerateDescriptorBindings(&count, bindings.data());
-
-            for (auto* binding : bindings) {
-                switch (binding->descriptor_type) {
-                    case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-                        storage_images_.push_back(binding);
-                        break;
-                    case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
-                    case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-                    case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
-                        sampled_images_.push_back(binding);
-                        break;
-                    case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-                        uniform_buffers_.push_back(binding);
-                        break;
-                    case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-                        storage_buffers_.push_back(binding);
-                        break;
-                    default:
-                        break;
-                }
-            }
-        }
+			for(auto* binding : bindings){
+				switch(binding->descriptor_type){
+				case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE : storage_images_.push_back(binding);
+					break;
+				case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER :
+				case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE :
+				case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER : sampled_images_.push_back(binding);
+					break;
+				case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER : uniform_buffers_.push_back(binding);
+					break;
+				case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER : storage_buffers_.push_back(binding);
+					break;
+				default : break;
+				}
+			}
+		}
 
 
-        std::uint32_t pc_count = 0;
-        result = module_.EnumeratePushConstantBlocks(&pc_count, nullptr);
+		std::uint32_t pc_count = 0;
+		result = module_.EnumeratePushConstantBlocks(&pc_count, nullptr);
 
-        if (result == SPV_REFLECT_RESULT_SUCCESS && pc_count > 0) {
-            std::vector<SpvReflectBlockVariable*> blocks(pc_count);
-            module_.EnumeratePushConstantBlocks(&pc_count, blocks.data());
-
-
-            const auto& spv_module = module_.GetShaderModule();
-
-            push_constant_ranges_.reserve(pc_count);
-
-            for (auto* block : blocks) {
-                VkShaderStageFlags calculated_stage_flags = 0;
+		if(result == SPV_REFLECT_RESULT_SUCCESS && pc_count > 0){
+			std::vector<SpvReflectBlockVariable*> blocks(pc_count);
+			module_.EnumeratePushConstantBlocks(&pc_count, blocks.data());
 
 
-                for (uint32_t i = 0; i < spv_module.entry_point_count; ++i) {
-                    const auto& entry_point = spv_module.entry_points[i];
+			const auto& spv_module = module_.GetShaderModule();
+
+			push_constant_ranges_.reserve(pc_count);
+
+			for(auto* block : blocks){
+				VkShaderStageFlags calculated_stage_flags = 0;
 
 
-
-                    for (uint32_t j = 0; j < entry_point.used_push_constant_count; ++j) {
-                        uint32_t used_index = entry_point.used_push_constants[j];
-
-
-                        if (&spv_module.push_constant_blocks[used_index] == block) {
-                            calculated_stage_flags |= static_cast<VkShaderStageFlags>(entry_point.shader_stage);
-                        }
-                    }
-                }
+				for(uint32_t i = 0; i < spv_module.entry_point_count; ++i){
+					const auto& entry_point = spv_module.entry_points[i];
 
 
+					for(uint32_t j = 0; j < entry_point.used_push_constant_count; ++j){
+						uint32_t used_index = entry_point.used_push_constants[j];
 
 
-                if (calculated_stage_flags == 0) {
-                    calculated_stage_flags = static_cast<VkShaderStageFlags>(spv_module.shader_stage);
-                }
+						if(&spv_module.push_constant_blocks[used_index] == block){
+							calculated_stage_flags |= static_cast<VkShaderStageFlags>(entry_point.shader_stage);
+						}
+					}
+				}
 
-                push_constant_ranges_.push_back({
-                    .stageFlags = calculated_stage_flags,
-                    .offset = block->offset,
-                    .size = block->size
-                });
-            }
-        }
-    }
+
+				if(calculated_stage_flags == 0){
+					calculated_stage_flags = static_cast<VkShaderStageFlags>(spv_module.shader_stage);
+				}
+
+				push_constant_ranges_.push_back({
+						.stageFlags = calculated_stage_flags,
+						.offset = block->offset,
+						.size = block->size
+					});
+			}
+		}
+	}
 };
 
 
 export
-constexpr VkFormat convertImageFormatToVkFormat(SpvImageFormat imageFormat) noexcept {
-    switch (imageFormat) {
-    case SpvImageFormatUnknown: return VK_FORMAT_UNDEFINED;
-    case SpvImageFormatRgba8: return VK_FORMAT_R8G8B8A8_UNORM;
-    case SpvImageFormatRgba8Snorm: return VK_FORMAT_R8G8B8A8_SNORM;
-    case SpvImageFormatRgba8ui: return VK_FORMAT_R8G8B8A8_UINT;
-    case SpvImageFormatRgba8i: return VK_FORMAT_R8G8B8A8_SINT;
-    case SpvImageFormatR32ui: return VK_FORMAT_R32_UINT;
-    case SpvImageFormatR32i: return VK_FORMAT_R32_SINT;
-    case SpvImageFormatRgba16: return VK_FORMAT_R16G16B16A16_UNORM;
-    case SpvImageFormatRgba16Snorm: return VK_FORMAT_R16G16B16A16_SNORM;
-    case SpvImageFormatRgba16ui: return VK_FORMAT_R16G16B16A16_UINT;
-    case SpvImageFormatRgba16i: return VK_FORMAT_R16G16B16A16_SINT;
-    case SpvImageFormatRgba16f: return VK_FORMAT_R16G16B16A16_SFLOAT;
-    case SpvImageFormatR32f: return VK_FORMAT_R32_SFLOAT;
-    case SpvImageFormatRgba32ui: return VK_FORMAT_R32G32B32A32_UINT;
-    case SpvImageFormatRgba32i: return VK_FORMAT_R32G32B32A32_SINT;
-    case SpvImageFormatRgba32f: return VK_FORMAT_R32G32B32A32_SFLOAT;
-    case SpvImageFormatR8: return VK_FORMAT_R8_UNORM;
-    case SpvImageFormatR8Snorm: return VK_FORMAT_R8_SNORM;
-    case SpvImageFormatR8ui: return VK_FORMAT_R8_UINT;
-    case SpvImageFormatR8i: return VK_FORMAT_R8_SINT;
-    case SpvImageFormatRg8: return VK_FORMAT_R8G8_UNORM;
-    case SpvImageFormatRg8Snorm: return VK_FORMAT_R8G8_SNORM;
-    case SpvImageFormatRg8ui: return VK_FORMAT_R8G8_UINT;
-    case SpvImageFormatRg8i: return VK_FORMAT_R8G8_SINT;
-    case SpvImageFormatR16: return VK_FORMAT_R16_UNORM;
-    case SpvImageFormatR16Snorm: return VK_FORMAT_R16_SNORM;
-    case SpvImageFormatR16ui: return VK_FORMAT_R16_UINT;
-    case SpvImageFormatR16i: return VK_FORMAT_R16_SINT;
-    case SpvImageFormatR16f: return VK_FORMAT_R16_SFLOAT;
-    case SpvImageFormatRg16: return VK_FORMAT_R16G16_UNORM;
-    case SpvImageFormatRg16Snorm: return VK_FORMAT_R16G16_SNORM;
-    case SpvImageFormatRg16ui: return VK_FORMAT_R16G16_UINT;
-    case SpvImageFormatRg16i: return VK_FORMAT_R16G16_SINT;
-    case SpvImageFormatRg16f: return VK_FORMAT_R16G16_SFLOAT;
-    case SpvImageFormatR64ui: return VK_FORMAT_R64_UINT;
-    case SpvImageFormatR64i: return VK_FORMAT_R64_SINT;
-    default: return VK_FORMAT_UNDEFINED;
-    }
+constexpr VkFormat convertImageFormatToVkFormat(SpvImageFormat imageFormat) noexcept{
+	switch(imageFormat){
+	case SpvImageFormatUnknown : return VK_FORMAT_UNDEFINED;
+	case SpvImageFormatRgba8 : return VK_FORMAT_R8G8B8A8_UNORM;
+	case SpvImageFormatRgba8Snorm : return VK_FORMAT_R8G8B8A8_SNORM;
+	case SpvImageFormatRgba8ui : return VK_FORMAT_R8G8B8A8_UINT;
+	case SpvImageFormatRgba8i : return VK_FORMAT_R8G8B8A8_SINT;
+	case SpvImageFormatR32ui : return VK_FORMAT_R32_UINT;
+	case SpvImageFormatR32i : return VK_FORMAT_R32_SINT;
+	case SpvImageFormatRgba16 : return VK_FORMAT_R16G16B16A16_UNORM;
+	case SpvImageFormatRgba16Snorm : return VK_FORMAT_R16G16B16A16_SNORM;
+	case SpvImageFormatRgba16ui : return VK_FORMAT_R16G16B16A16_UINT;
+	case SpvImageFormatRgba16i : return VK_FORMAT_R16G16B16A16_SINT;
+	case SpvImageFormatRgba16f : return VK_FORMAT_R16G16B16A16_SFLOAT;
+	case SpvImageFormatR32f : return VK_FORMAT_R32_SFLOAT;
+	case SpvImageFormatRgba32ui : return VK_FORMAT_R32G32B32A32_UINT;
+	case SpvImageFormatRgba32i : return VK_FORMAT_R32G32B32A32_SINT;
+	case SpvImageFormatRgba32f : return VK_FORMAT_R32G32B32A32_SFLOAT;
+	case SpvImageFormatR8 : return VK_FORMAT_R8_UNORM;
+	case SpvImageFormatR8Snorm : return VK_FORMAT_R8_SNORM;
+	case SpvImageFormatR8ui : return VK_FORMAT_R8_UINT;
+	case SpvImageFormatR8i : return VK_FORMAT_R8_SINT;
+	case SpvImageFormatRg8 : return VK_FORMAT_R8G8_UNORM;
+	case SpvImageFormatRg8Snorm : return VK_FORMAT_R8G8_SNORM;
+	case SpvImageFormatRg8ui : return VK_FORMAT_R8G8_UINT;
+	case SpvImageFormatRg8i : return VK_FORMAT_R8G8_SINT;
+	case SpvImageFormatR16 : return VK_FORMAT_R16_UNORM;
+	case SpvImageFormatR16Snorm : return VK_FORMAT_R16_SNORM;
+	case SpvImageFormatR16ui : return VK_FORMAT_R16_UINT;
+	case SpvImageFormatR16i : return VK_FORMAT_R16_SINT;
+	case SpvImageFormatR16f : return VK_FORMAT_R16_SFLOAT;
+	case SpvImageFormatRg16 : return VK_FORMAT_R16G16_UNORM;
+	case SpvImageFormatRg16Snorm : return VK_FORMAT_R16G16_SNORM;
+	case SpvImageFormatRg16ui : return VK_FORMAT_R16G16_UINT;
+	case SpvImageFormatRg16i : return VK_FORMAT_R16G16_SINT;
+	case SpvImageFormatRg16f : return VK_FORMAT_R16G16_SFLOAT;
+	case SpvImageFormatR64ui : return VK_FORMAT_R64_UINT;
+	case SpvImageFormatR64i : return VK_FORMAT_R64_SINT;
+	default : return VK_FORMAT_UNDEFINED;
+	}
 }
 
-export std::size_t get_buffer_size(const SpvReflectDescriptorBinding* resource) {
-    return resource->block.size;
+export std::size_t get_buffer_size(const SpvReflectDescriptorBinding* resource){
+	return resource->block.size;
 }
 
 
+export struct push_constant_merge_context{
+private:
+	std::vector<VkPushConstantRange> result_{};
+	std::vector<SpvReflectBlockVariable*> cache_{};
+
+public:
+	void append(std::span<const std::uint32_t> bytecode, VkShaderStageFlags stage_flag){
+		spv_reflect::ShaderModule module{bytecode.size_bytes(), bytecode.data(), SPV_REFLECT_MODULE_FLAG_NO_COPY};
+
+		std::uint32_t count{};
+		module.EnumeratePushConstantBlocks(&count, nullptr);
+
+		std::vector<SpvReflectBlockVariable*> blocks(count);
+		module.EnumeratePushConstantBlocks(&count, blocks.data());
+
+		for(const auto& new_range : blocks | std::views::transform([&](const SpvReflectBlockVariable* p){
+			return VkPushConstantRange{
+					.stageFlags = stage_flag,
+					.offset = p->offset,
+					.size = p->size
+				};
+		})){
+			bool found_overlap = false;
+			for(auto& merged_range : result_){
+				// 如果偏移和大小完全一致，合并 StageFlags
+				if(merged_range.offset == new_range.offset && merged_range.size == new_range.size){
+					merged_range.stageFlags |= new_range.stageFlags;
+					found_overlap = true;
+					break;
+				}
+			}
+			if(!found_overlap){
+				result_.push_back(new_range);
+			}
+		}
+	}
+
+	[[nodiscard]] std::span<const VkPushConstantRange> get_result() const & noexcept{
+		return result_;
+	}
+
+	[[nodiscard]] std::vector<VkPushConstantRange> get_result() && noexcept{
+		return std::move(result_);
+	}
+};
 }

@@ -11,6 +11,8 @@ public struct VS_Vertex
     public float4 color = {};
     public float2 uv = {};
 
+    float2 _padding = {};
+
     public __init(Vertex vtx) {
         position = vtx.position.xyz;
         color = vtx.color;

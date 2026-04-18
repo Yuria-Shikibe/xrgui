@@ -4,10 +4,10 @@ import post_process_lib;
 uint2 offset;
 
 [[vk::binding(0, 0)]]
-restrict readonly Texture2D input_base;
+restrict Texture2D input_base;
 
 [[vk::binding(1, 0)]]
-restrict readonly Texture2D input_back;
+restrict Texture2D input_back;
 
 [[vk::binding(2, 0)]]
 restrict RWTexture2D output_base;

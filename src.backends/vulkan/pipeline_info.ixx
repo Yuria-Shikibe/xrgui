@@ -15,6 +15,7 @@ export struct gui_vertex_mock{
 	std::uint32_t timeline_index;
 	float color[4];
 	float uv[2];
+	std::uint32_t _cap[2];
 };
 
 export struct gui_primitive_mock{

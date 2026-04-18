@@ -1050,6 +1050,10 @@ public:
 		return context_opacity_ * inherent_opacity_;
 	}
 
+	[[nodiscard]] float get_context_opacity() const noexcept{
+		return context_opacity_;
+	}
+
 	FORCE_INLINE inline void update_context_opacity(const float val) noexcept{
 		const auto prev = get_draw_opacity();
 		if(util::try_modify(context_opacity_, val)){

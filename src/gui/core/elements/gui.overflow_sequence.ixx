@@ -2,6 +2,7 @@ export module mo_yanxi.gui.elem.overflow_sequence;
 
 import mo_yanxi.gui.elem.sequence;
 import std;
+import mo_yanxi.gui.action.elem;
 
 namespace mo_yanxi::gui {
 
@@ -201,6 +202,7 @@ public:
 
 		for (auto* e : exposed_children_) {
 			if (std::ranges::find(old_exposed_children_, e) == old_exposed_children_.end()) {
+				e->push_action<action::alpha_ctx_fade_in_action>(15.f);
 				e->on_display_state_changed(true, false);
 			}
 		}

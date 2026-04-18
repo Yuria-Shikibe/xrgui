@@ -15,6 +15,7 @@ import std;
 import mo_yanxi.utility;
 import mo_yanxi.vk.record_context;
 import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.shader_reflect;
 import mo_yanxi.vk.util.uniform;
 import mo_yanxi.vk.util;
 import mo_yanxi.vk;
@@ -126,15 +127,19 @@ std::vector<VkPushConstantRange> make_push_constants(VkShaderStageFlagBits stage
 	return rst;
 }
 
+constexpr std::uint32_t get_used_cap(std::span<const VkPushConstantRange> push_constants) noexcept {
+	std::uint32_t rst{};
+	for (auto && push_constant : push_constants){
+		rst = std::max(vk::align_up(push_constant.offset + push_constant.size, 4U), rst);
+	}
+	return rst;
+}
+
 struct general_config{
 	std::vector<VkPushConstantRange> push_constants{};
 
 	std::uint32_t get_used_cap() const noexcept {
-		std::uint32_t rst{};
-		for (auto && push_constant : push_constants){
-			rst = std::max(vk::align_up(push_constant.offset + push_constant.size, 4U), rst);
-		}
-		return rst;
+		return vulkan::get_used_cap(push_constants);
 	}
 };
 
@@ -264,48 +269,59 @@ struct graphic_pipeline_data{
 export
 struct graphic_pipeline_create_config{
 
-	struct config{
-		general_config general{};
-		std::vector<VkPipelineShaderStageCreateInfo> shader_modules;
-		graphic_pipeline_option option{};
+	struct config {
 
-		std::function<void(vk::pipeline&, VkPipelineLayout pipelineLayout, const create_param& param, const draw_attachment_create_info&)> creator{};
+        // 替换原本的 vector<VkPipelineShaderStageCreateInfo>
+        std::vector<vk::shader_stage_bundle> shader_bundles;
 
-		void create(
-			graphic_pipeline_data& data, const create_param& param,
-			const draw_attachment_create_info& attachments) const{
-			data.push_constant_request_size = general.get_used_cap();
+        graphic_pipeline_option option{};
+        std::function<void(vk::pipeline&, VkPipelineLayout, const create_param&, const draw_attachment_create_info&)> creator{};
 
-			data.pipeline_layout = {param.device, 0, param.descriptor_set_layouts, general.push_constants};
-			data.option = option;
-			if(creator){
-				creator(data.pipeline, data.pipeline_layout, param, attachments);
-			}else{
-				vk::graphic_pipeline_template gtp{};
-				gtp.set_shaders({shader_modules});
-				if(attachments.enables_multisample() && option.enables_multisample){
-					gtp.set_multisample(attachments.multisample, 1, option.enables_multisample);
-				}
 
-				option.default_target_attachments.for_each_popbit([&](unsigned i){
+        void create(
+            graphic_pipeline_data& data, const create_param& param,
+            const draw_attachment_create_info& attachments) const{
+
+            // 1. 自动执行反射，推导 Push Constants
+        	graphic::push_constant_merge_context psh_ctx{};
+        	for (const auto& bundle : shader_bundles){
+        		auto stage_flags = bundle.create_info.stage;
+        		psh_ctx.append(bundle.bytecode, stage_flags);
+        	}
+
+            data.push_constant_request_size = get_used_cap(psh_ctx.get_result());
+            data.pipeline_layout = {param.device, 0, param.descriptor_set_layouts, psh_ctx.get_result()};
+            data.option = option;
+
+            if (creator) {
+                creator(data.pipeline, data.pipeline_layout, param, attachments);
+            } else {
+                vk::graphic_pipeline_template gtp{};
+
+                gtp.set_shaders(shader_bundles | std::views::transform(&vk::shader_stage_bundle::create_info) | std::ranges::to<std::vector>());
+
+            	if(attachments.enables_multisample() && option.enables_multisample){
+            		gtp.set_multisample(attachments.multisample, 1, option.enables_multisample);
+            	}
+
+            	option.default_target_attachments.for_each_popbit([&](unsigned i){
 					gtp.push_color_attachment_format(attachments.attachments[i].attachment.format);
 				});
 
-				if(option.mask_usage_type == mask_usage::write){
-					gtp.push_color_attachment_format(VK_FORMAT_R8_UNORM);
-				}
+            	if(option.mask_usage_type == mask_usage::write){
+            		gtp.push_color_attachment_format(VK_FORMAT_R8_UNORM);
+            	}
 
-				option.blend_state.apply_to_template(gtp);
+            	option.blend_state.apply_to_template(gtp);
 
-
-				data.pipeline = vk::pipeline{
-					data.pipeline_layout.get_device(), data.pipeline_layout,
+            	data.pipeline = vk::pipeline{
+            		data.pipeline_layout.get_device(), data.pipeline_layout,
 					VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 					gtp
 				};
-			}
-		}
-	};
+            }
+        }
+    };
 
 	std::vector<config> configurator{};
 	std::vector<descriptor_create_config> descriptor_create_info{};
@@ -447,14 +463,23 @@ export
 struct compute_pipeline_create_config{
 
 	struct config{
-		general_config general{};
-		VkPipelineShaderStageCreateInfo shader_module{};
+		vk::shader_stage_bundle shader_bundle{};
 
 		compute_pipeline_option option{};
 
 		void create(compute_pipeline_data& data, const create_param& param) const{
-			data.pipeline_layout = {param.device, 0, param.descriptor_set_layouts, general.push_constants};
-			data.pipeline = vk::pipeline{param.device, data.pipeline_layout, VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT, shader_module};
+			graphic::push_constant_merge_context psh_ctx{};
+			psh_ctx.append(shader_bundle.bytecode, shader_bundle.create_info.stage);
+
+			auto push_constants = psh_ctx.get_result();
+
+			data.pipeline_layout = {param.device, 0, param.descriptor_set_layouts, push_constants};
+			data.pipeline = vk::pipeline{
+				param.device,
+				data.pipeline_layout,
+				VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+				shader_bundle.create_info
+			};
 			data.option = option;
 		}
 	};

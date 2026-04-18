@@ -560,7 +560,7 @@ struct rectangle_ortho_outline : instr_resolver {
 
     [ForceInline]
     float2 at(uint idx) {
-        return float2(verts[idx & 1].x, verts[bool(idx & 2)].y);
+        return float2(verts[idx & 1].x, verts[(idx >> 1) & 1].y);
     }
 
     [ForceInline]
