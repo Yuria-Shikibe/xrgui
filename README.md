@@ -134,6 +134,17 @@ XRGUI(mo_yanXi's Retaine mode GUI)是一个近似**每帧重绘和局部更新**
 * *Python (用于构建或者转换脚本)
 * Xmake 
 
+## 下载编译
+
+目前库还处于实验阶段，暂时不提供通过xrepo的直接包安装，建议直接拉成submodule
+
+注意：`gen_icon`需要Node.js，如果你有更好的能减少相关依赖的svg工具请留言issue，感激不尽。
+
+```
+git submodule update --init --recursive
+xmake gen_slang
+xmake gen_icon
+```
 
 # TODO
 * [ ] 文档
