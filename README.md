@@ -16,7 +16,7 @@ XRGUI(mo_yanXi's Retaine mode GUI)是一个近似**每帧重绘和局部更新**
 1. 核心不提供窗口相关功能
 2. 渲染只负责输出到输出附件（如Vulkan的Image）
 3. GUI不需运行于主线程
-4. GUI的默认绘制系统被设计为快优先，不默认提供元素级的clip或者蒙版操作（预计可能会支持，通过interlock color attachment之类，等到descriptor heap迁移后）。对于仅绘制到一个颜色附件上的流程来说，这套GUI只占据0.1ms（测试于NV RTX4080 Laptop，分辨率2K），对于样例来说，加上后处理和合成器部分，总计耗时约为1ms）
+4. GUI的默认绘制系统被设计为快优先。对于仅绘制到一个颜色附件上的流程来说，这套GUI只占据0.1ms（测试于NV RTX4080 Laptop，分辨率2K），对于样例来说，加上后处理和合成器部分，总计耗时约为1ms）
 ![img.png](properties/showcase/profiler/img.png)
    (Nsight Profiler 对样例中拖动条页面的测试图，忽略被D3D打断的上下文约为1ms，其中后半部分的计算管线耗时全部为合成器产生)
 5. 核心自己并不提供过多默认设置，用户负责初始化样例，着色器等。
@@ -64,17 +64,17 @@ XRGUI(mo_yanXi's Retaine mode GUI)是一个近似**每帧重绘和局部更新**
 * **Image Loader** 提供一个异步不阻塞的图像加载和管理系统，目前针对Vulkan，完全多线程可用。
 
 
-* **Font/TypeSetting** 文本排版系统，仅提供LTR完全支持和有限的TTB支持，暂不支持RTL和BTT。内嵌一个简单的富文本系统，见[富文本操作文档](properties/showcase/rich_text_doc.md)
+* **Font/TypeSetting** 文本排版系统，每个上下文实例和参数组成的布局操作要求串行执行，多个布局上下文间没有任何资源联系。仅提供LTR完全支持和有限的TTB支持，暂不支持RTL和BTT。内嵌一个简单的富文本系统，见[富文本操作文档](properties/showcase/rich_text_doc.md)
 
 
-* **Assets Storage Manager** GUI的资源注册系统，目前暂不保证多线程访问安全，默认在加载时一次加载完毕
+* **Assets Storage Manager** GUI的资源注册系统，多线程访问安全，目前暂不默认提供自动传播更新的方式（默认注册的资源不会变化），如有需要请自己编写
 
 
 
 * **Compositor** GUI合成器，暂时并未对Buffer相关内容进行测试，提供一个基于内存别名复用的半自动化后处理管线合成处理器
 
 
-* **Renderer Backend** 基于Vulkan-Mesh Shader-Dynamic Rendering-Descriptor Buffer(将在Descriptor Heap完全可用后迁移到Descriptor Heap)-Compute Graphics Mixed的渲染器，对CPU的压力较小，但是对驱动和硬件的要求较高
+* **Renderer Backend** 基于Vulkan-Compute Graphics Mixed的渲染器，对CPU的压力较小，但是对驱动和硬件的要求较高。目前在复杂情况下mesh shader实现有情况超过compute shader生成顶点，后续可能会再次考虑这方面的方案。
 
 #### Backend/默认实现
 * 提供一个基于GLFW-Vulkan的默认后端，以处理外设输入和交换链呈现

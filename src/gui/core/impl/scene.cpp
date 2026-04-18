@@ -410,13 +410,23 @@ void scene_base::update(double delta_in_tick){
 
 
 events::op_afterwards scene_base::on_esc(){
-	if(overlay_manager_.on_esc() != events::op_afterwards::fall_through)return events::op_afterwards::intercepted;
-	if(tooltip_manager_.on_esc() != events::op_afterwards::fall_through)return events::op_afterwards::intercepted;
+	if(tooltip_manager_.on_esc() != events::op_afterwards::fall_through){
+		request_cursor_update();
+		return events::op_afterwards::intercepted;
+	}
+	if(overlay_manager_.on_esc() != events::op_afterwards::fall_through){
+		request_cursor_update();
+		return events::op_afterwards::intercepted;
+	}
 
 	elem* focus = input_handler_.focus_key;
 	if(!focus) focus = input_handler_.focus_cursor;
 
-	return util::thoroughly_esc(focus);
+	if(util::thoroughly_esc(focus) != events::op_afterwards::fall_through){
+		request_cursor_update();
+		return events::op_afterwards::intercepted;
+	}
+	return events::op_afterwards::fall_through;
 }
 
 

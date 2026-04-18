@@ -44,7 +44,13 @@ private:
 
 	void update_collapse(float delta) noexcept;
 
+protected:
+	[[nodiscard]] bool is_clicked() const{
+		return clicked_;
+	}
+
 public:
+
 	collapser_settings settings{};
 
 	[[nodiscard]] collapser(scene& scene, elem* parent, layout::layout_policy layout_policy)

@@ -735,7 +735,7 @@ public:
 	void cmd_compute_resolve(VkCommandBuffer cmd, std::uint32_t frame_index) const {
 		if (cached_instruction_resolve_info_.total_vertices == 0) return;
 
-		constexpr std::uint32_t THREADS_PER_GROUP = 128;
+		constexpr std::uint32_t THREADS_PER_GROUP = 64;
 		std::uint32_t group_x = (cached_instruction_resolve_info_.total_vertices + THREADS_PER_GROUP - 1) / THREADS_PER_GROUP;
 
 		vkCmdDispatch(cmd, group_x, 1, 1);
@@ -743,7 +743,6 @@ public:
 
 	void cmd_draw_direct(VkCommandBuffer cmd, std::uint32_t frame_index, std::uint32_t dispatch_group_index) const{
 		auto& frame = frames_[frame_index];
-		// CPU 端读取当前 Draw Call 对应的分发信息
 		const auto& group_info = cached_instruction_resolve_info_.group_dispatch_info[dispatch_group_index];
 
 		VkBuffer vertex_buffers[] = {frame.buffer_vbo.get()};
@@ -751,9 +750,6 @@ public:
 		vkCmdBindVertexBuffers(cmd, 0, 1, vertex_buffers, offsets);
 		vkCmdBindIndexBuffer(cmd, frame.buffer_ibo.get(), 0, VK_INDEX_TYPE_UINT32);
 
-		// 使用 vkCmdDrawIndexed 进行直接绘制
-		// indexCount = 图元数 * 3
-		// firstIndex = 全局图元偏移 * 3
 		vkCmdDrawIndexed(cmd, group_info.primitives * 3, 1, group_info.global_primitive_offset * 3, 0, 0);
 	}
 };

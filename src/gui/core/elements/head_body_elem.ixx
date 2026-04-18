@@ -68,11 +68,13 @@ public:
 		return layout_policy_;
 	}
 
-	void set_layout_policy(const layout::layout_policy layout_policy){
+	bool set_layout_policy(const layout::layout_policy layout_policy){
 		//TODO ban none
 		if(util::try_modify(layout_policy_, layout_policy)){
 			on_layout_policy_changed(layout_policy);
+			return true;
 		}
+		return false;
 	}
 
 	[[nodiscard]] float get_pad() const noexcept{

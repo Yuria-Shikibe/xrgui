@@ -170,7 +170,7 @@ private:
 public:
 	[[nodiscard]] table(scene& scene, elem* parent)
 		: universal_group(scene, parent){
-		layout_state.intercept_lower_to_isolated = true;
+		// layout_state.intercept_lower_to_isolated = true;
 	}
 
 	void set_entire_align(const align::pos align){

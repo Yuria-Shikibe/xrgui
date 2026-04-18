@@ -45,6 +45,42 @@ template <typename InitFunc>
 using elem_init_func_create_t = typename elem_init_func_trait<InitFunc>::elem_type;
 
 export
+template <typename Fn, typename... Args>
+struct element_create_pacakge{
+	using create_type = elem_init_func_create_t<Fn>;
+	static constexpr bool is_const_invoke_op = std::invocable<const std::remove_cvref_t<Fn>&, create_type&>;
+
+	Fn fn;
+	std::tuple<Args ...> args;
+
+	void operator()(this std::conditional_t<is_const_invoke_op, const element_create_pacakge, element_create_pacakge>& self, create_type& e){
+		std::invoke(self.fn, e);
+	}
+
+	template <typename F, typename... Ts>
+	explicit(false) constexpr element_create_pacakge(F&& f, Ts&&... ts)
+		: fn(std::forward<F>(f)),
+		  args(std::forward<Ts>(ts)...) {}
+};
+
+template <typename Fn, typename... Args>
+decltype(auto) get_args_of_package(element_create_pacakge<Fn, Args...>&& p) noexcept{
+	return std::move(p).args;
+}
+
+template <typename Fn, typename... Args>
+decltype(auto) get_args_of_package(const element_create_pacakge<Fn, Args...>& p) noexcept{
+	return p.args;
+}
+
+template <typename F, typename... Ts>
+element_create_pacakge(F&&, Ts&&...) -> element_create_pacakge<std::decay_t<F>, std::decay_t<Ts>...>;
+
+export
+template <typename T>
+concept elem_create_pacakge = invocable_elem_init_func<T> && spec_of<std::remove_cvref_t<T>, element_create_pacakge>;
+
+export
 struct elem_ptr{
 
 	[[nodiscard]] elem_ptr() = default;
@@ -53,15 +89,37 @@ struct elem_ptr{
 		: element{element}{
 	}
 
-	template <typename InitFunc, typename ...Args>
+	template <typename  InitFunc, typename... Args>
 		requires (!spec_of<InitFunc, std::in_place_type_t> && invocable_elem_init_func<InitFunc>)
-	[[nodiscard]] elem_ptr(scene& scene, elem* parent, InitFunc&& initFunc, Args&& ...args)
+	[[nodiscard]] elem_ptr(scene& scene, elem* parent, InitFunc&& initFunc, Args&&... args)
 		: elem_ptr{
 			scene, parent, std::in_place_type<elem_init_func_create_t<InitFunc>>, std::forward<Args>(args)...
 		}{
-		std::invoke(initFunc,
-		            static_cast<std::add_lvalue_reference_t<elem_init_func_create_t<InitFunc>>>(*
-			            element));
+		try{
+			std::invoke(initFunc,
+			            static_cast<std::add_lvalue_reference_t<elem_init_func_create_t<InitFunc>>>(*
+				            element));
+		} catch(...){
+			delete_elem(element);
+			throw;
+		}
+	}
+
+
+	template <typename P>
+		requires (!spec_of<P, std::in_place_type_t> && elem_create_pacakge<P>)
+	[[nodiscard]] elem_ptr(scene& scene, elem* group, P&& pacakge){
+		using create_t = elem_init_func_create_t<P>;
+		element = std::apply([&]<typename ...T>(T&& ...args){
+			return elem_ptr::new_elem<create_t>(scene, group, std::forward<T>(args)...);
+		}, gui::get_args_of_package(std::forward<P>(pacakge)));
+		try{
+			pacakge(static_cast<create_t&>(*element));
+		}catch(...){
+			delete_elem(element);
+			throw;
+		}
+
 	}
 
 	template <typename T, typename... Args>

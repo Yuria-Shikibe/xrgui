@@ -1,18 +1,12 @@
--- 设置项目基本信息
 set_project("xrgui")
 set_version("0.1.0")
 
--- 允许 C++ 模块构建与 LTO 策略
 set_policy("build.c++.modules", true)
-
--- 定义基础编译模式
 add_rules("mode.debug", "mode.release")
 
--- 获取当前路径与根路径
 local current_dir = os.scriptdir()
 local root_dir = os.projectdir()
 
--- 全局基础配置
 if current_dir == root_dir then
     set_arch("x64")
     set_encodings("utf-8")
@@ -27,15 +21,11 @@ if current_dir == root_dir then
     end
 end
 
--- 保留特定的配置路径
+-- used for react flow redirect
 set_config("spec_mo_yanxi_utility_path", path.join(current_dir, "./external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"))
 
--- 包含外部依赖的 xmake 脚本
 includes("external/**/xmake.lua")
 
--- ---------------------------------------------------------
--- 依赖包定义
--- ---------------------------------------------------------
 add_requires("msdfgen", { configs = { openmp = true, extensions = true } })
 add_requires("freetype")
 add_requires("harfbuzz", { configs = { cxflags = "-DHB_NO_MT" } })
@@ -43,9 +33,6 @@ add_requires("nanosvg", "spirv-reflect", "gtl", "glfw")
 add_requires("mimalloc v3.2.8")
 add_requires("simdutf", { optional = true })
 
--- ---------------------------------------------------------
--- 自定义规则：SVG 资源处理 (生成 .h)
--- ---------------------------------------------------------
 rule("media.svg_to_bin")
     set_extensions(".svg")
     on_build_file(function (target, sourcefile, opt)
@@ -65,37 +52,35 @@ rule("media.svg_to_bin")
     end)
 rule_end()
 
--- ---------------------------------------------------------
--- 依赖配置辅助函数 (保留原始 add_packages 结构)
--- ---------------------------------------------------------
 function set_xrgui_deps()
     add_deps("mo_yanxi.utility", "mo_yanxi.vulkan_wrapper", "mo_yanxi.react_flow")
 
-    -- 保留原始的 add_packages 列表
-    add_packages("msdfgen", {public = true})
-    add_packages("freetype", {public = true})
-    add_packages("harfbuzz", {public = true})
-    add_packages("mimalloc", {public = true})
-    add_packages("nanosvg", {public = true})
-    add_packages("gtl", {public = true})
-    add_packages("spirv-reflect", {public = true})
-    add_packages("simdutf", {public = true})
+    add_packages("msdfgen")
+    add_packages("freetype")
+    add_packages("harfbuzz")
+    add_packages("mimalloc")
+    add_packages("nanosvg")
+    add_packages("gtl")
+    add_packages("spirv-reflect")
+    add_packages("simdutf")
 
-    -- 包含目录与宏定义
-    add_includedirs("./external/VulkanMemoryAllocator/include", {public = true})
-    add_includedirs("./external/stb", {public = true})
-    add_includedirs("./external/include", {public = true})
-    add_includedirs("./external/plf_hive", {public = true})
-    add_includedirs("./external/small_vector/source/include", {public = true})
+    add_includedirs("./external/VulkanMemoryAllocator/include")
+    add_includedirs("./external/stb")
+    add_includedirs("./external/include")
+    add_includedirs("./external/plf_hive")
+    add_includedirs("./external/small_vector/source/include")
 
     add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2", {public = true})
     add_defines("MO_YANXI_DATA_FLOW_DISABLE_THREAD_CHECK", {public = true})
+
+    -- msvc 新版好像没这问题了，哪天删了，，，
     add_defines("XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE", {public = true})
 
-    -- 源文件
     add_files("./external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
     add_files("./src/**.cpp")
     add_files("./src/**.ixx", {public = true})
+
+    add_cxflags("/wd4267", "/wd4244", "/wd4305", {tools = {"cl", "clang_cl"}})
 
 --     on_config(function (target)
 --         local flags = nil
@@ -123,7 +108,6 @@ end
 target("xrgui")
     set_kind("object")
     set_languages("c++latest")
-    add_cxflags("/wd4267", "/wd4244", "/wd4305", {tools = {"cl", "clang_cl"}})
     set_warnings("all", "pedantic")
     set_xrgui_deps()
 
@@ -133,21 +117,9 @@ target("xrgui")
     if is_plat("windows") then
         add_syslinks("imm32", {public = true})
     end
-target_end()
 
-target("xrgui.lib")
-    set_kind("static")
-    set_extension(".exe")
-    set_languages("c++latest")
-
-    set_warnings("all", "pedantic")
-
-    if is_mode("release") then
-        set_policy("build.optimization.lto", true)
-    end
-
-    add_deps("xrgui")
     set_enabled(false)
+
 target_end()
 
 target("xrgui.example")
@@ -165,6 +137,7 @@ target("xrgui.example")
     end
 
     set_xrgui_deps()
+-- 似乎有bug使得msvc总说找不到模块，暂时直接添加代码
 --     add_deps("xrgui")
     add_packages("glfw")
 
@@ -235,14 +208,12 @@ target("xrgui.example")
             end
 
             local new_content = table.concat(summary_lines, "\n")
-            -- 只有内容变化才写入，避免触发全量重编
             if io.readfile(summary_header_path) ~= new_content then
                 print("updating " .. summary_header_path)
                 io.writefile(summary_header_path, new_content)
             end
         end)
 
-    -- 编译后资源同步
     after_build(function (target)
         local dst_dir = target:targetdir()
         os.cp(path.join(os.projectdir(), "properties/assets"), dst_dir)
@@ -271,6 +242,16 @@ task("gen_slang")
     })
 task_end()
 
+task("gen_icon")
+    on_run(function ()
+        os.exec("py ./properties/assets_raw/svg_normalize.py -i ./properties/assets_raw/icons -o ./properties/assets/images/icons")
+    end)
+
+    set_menu({
+            usage = "generate path normalized icons for msdfgen"
+    })
+task_end()
+
 task("switch_mode")
     set_menu({
         usage = "xmake switch_mode [mode]",
@@ -283,7 +264,6 @@ task("switch_mode")
     on_run(function ()
         import("core.project.config")
         import("core.base.option")
-        -- 引入 task 模块，用于调用内置任务或插件
         import("core.base.task")
 
         local target_mode = option.get("mode")
@@ -302,14 +282,8 @@ task("switch_mode")
 
         cprint("${yellow}正在将模式从 '%s' 切换至 '%s'...${clear}", tostring(current_mode), target_mode)
 
-        -- 1. 等价于 xmake f --mode=...
         task.run("config", {mode = target_mode})
-
-        -- 2. 等价于 xmake clean
         task.run("clean")
-
-        -- 3. 等价于 xmake project -k compile_commands
-        -- 注意：命令行的短选项 -k 对应底层参数长选项 kind
         task.run("project", {kind = "compile_commands"})
 
         cprint("${color.success}模式切换与清理配置完成！${clear}")

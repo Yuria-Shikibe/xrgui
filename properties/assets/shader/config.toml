@@ -46,6 +46,12 @@ file = "ui/merge.slang"
 file = "ui/instruction_resolve_comp.slang"
 
 
+# [[shaders]]
+# file = "ui/instruction_resolve_comp.slang"
+# alias = "ui/gen"
+# [shaders.options]
+# "-target" = "cpp"
+
 [[shaders]]
 file = "ui/draw/vert.slang"
 

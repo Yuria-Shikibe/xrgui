@@ -28,7 +28,7 @@ void collapser::update_collapse(float delta) noexcept{
 	// 4. 处理过渡动画期间（expanding / exiting_expand）需要执行的渲染更新
 	const auto state = animator_.get_state();
 	if (state == util::anim_state::entering || state == util::anim_state::exiting) {
-		notify_layout_changed(propagate_mask::force_upper);
+		notify_layout_changed(propagate_mask::local | propagate_mask::force_upper);
 		require_scene_cursor_update();
 
 		if (update_opacity_during_expand_) {

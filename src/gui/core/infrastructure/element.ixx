@@ -509,7 +509,7 @@ public:
 
 		this->style = std::move(style);
 		get_scene().notify_display_state_changed(get_channel());
-		if(util::try_modify(style_boarder_cache_, style->get_boarder())){
+		if(util::try_modify(style_boarder_cache_, style ? style->get_boarder() : gui::boarder{})){
 			notify_isolated_layout_changed();
 		}
 	}

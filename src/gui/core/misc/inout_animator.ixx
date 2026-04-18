@@ -158,7 +158,7 @@ public:
         }
     }
 
-    constexpr void set_target(bool target_active) noexcept {
+    constexpr bool set_target(bool target_active) noexcept {
         if (target_active) {
             if (state == anim_state::exiting || state == anim_state::waiting_to_exit) {
                 state = anim_state::entering;
@@ -169,6 +169,8 @@ public:
                 } else {
                     state = anim_state::entering;
                 }
+            }else{
+	            return false;
             }
         } else {
             if (state == anim_state::entering || state == anim_state::waiting_to_enter) {
@@ -180,8 +182,12 @@ public:
                 } else {
                     state = anim_state::exiting;
                 }
+            }else{
+	            return false;
             }
         }
+
+    	return true;
     }
 
     [[nodiscard]] constexpr bool is_updating() const noexcept {

@@ -56,6 +56,7 @@ import mo_yanxi.gui.compound.color_picker;
 import mo_yanxi.gui.compound.named_slider;
 import mo_yanxi.gui.compound.file_selector;
 import mo_yanxi.gui.compound.data_table;
+import mo_yanxi.gui.compound.click_collapser;
 
 import mo_yanxi.gui.style.round_square;
 import mo_yanxi.gui.style.progress_bars;
@@ -1290,12 +1291,27 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 									cell.set_size({layout::size_category::scaling});
 
 									for(unsigned i = 0; i < 12; ++i){
-										seq.create_back([&](label& l){
-											l.set_text(std::format("{}", i));
-											l.set_fit();
-											l.set_style(l.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
-											l.interactivity = interactivity_flag::enabled;
-										});
+										seq.create_back(
+											[](cpd::click_collapser& c){
+												c.set_style();
+												c.head().set_pad(8);
+												c.set_pad(8);
+												c.set_body_size(200);
+												c.set_head_size({layout::size_category::scaling});
+											},
+											layout::layout_policy::vert_major,
+											gui::element_create_pacakge{
+												[](elem& l){
+													l.set_style();
+												}
+											},
+											gui::element_create_pacakge{
+												[i](gui::label& l){
+													l.set_style();
+													l.set_fit_type(label_fit_type::fix);
+													l.set_text(std::format("{}", i));
+												}
+											}).cell().set_pending();
 									}
 									seq.set_split_index(2);
 								});
@@ -1303,6 +1319,27 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								sep.cell().margin.set_vert(4);
 								sep.cell().set_end_line();
 							}
+
+							table.emplace_back<elem>().cell().set_width(120).set_pending({false, true});
+							table.create_back([](cpd::click_collapser& c){
+								c.head().set_pad(8);
+								c.set_pad(8);
+								c.set_body_size({layout::size_category::pending});
+								c.set_head_size(80);
+							},
+								layout::layout_policy::hori_major,
+								gui::element_create_pacakge{[](gui::label& l){
+									l.set_style();
+									l.text_entire_align = align::pos::center;
+									l.set_text("Collapser");
+								}},
+								gui::element_create_pacakge{[](gui::label& l){
+									l.set_style();
+									l.set_text("楼下的上来搞核算");
+								}})
+							     .cell().set_pending({false, true}).set_width_passive();
+
+							table.end_line();
 
 							for(int i = 0; i < 4; ++i){
 								table.emplace_back<elem>().cell().set_size({120, 120});
