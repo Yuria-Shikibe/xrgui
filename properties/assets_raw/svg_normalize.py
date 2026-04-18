@@ -62,6 +62,11 @@ def main():
         print(f"❌ 错误: 输入目录 '{input_dir}' 不存在。")
         sys.exit(1)
 
+    # 检查并自动创建目标文件夹
+    if not output_dir.exists():
+        output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"📁 目标文件夹不存在，已自动创建: '{output_dir}'")
+
     # 初始化缓存
     cache_dir = Path.cwd() / CACHE_DIR_NAME
     cache_file = cache_dir / CACHE_FILE_NAME
