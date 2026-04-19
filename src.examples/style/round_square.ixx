@@ -20,6 +20,102 @@ export import mo_yanxi.gui.fx.instruction_extension;
 export import mo_yanxi.gui.fx.fringe;
 
 namespace mo_yanxi::gui::style{
+// export using palette_terminal = react_flow::terminal_cached<palette>;
+
+struct palette_terminal : react_flow::terminal<palette>{
+	palette value;
+
+public:
+	const palette& get_value() const noexcept{
+		return value;
+	}
+
+	bool has_provenance() const noexcept{
+		return get_inputs().front() == nullptr;
+	}
+
+	bool set_value(const palette& pal) noexcept{
+		if(!has_provenance()){
+			value = pal;
+			return true;
+		}else{
+			return false;
+		}
+	}
+
+	bool set_value(node& node_prov){
+		connect_predecessor(node_prov);
+		return pull_and_push(false);
+	}
+
+	[[nodiscard]] palette_terminal() = default;
+
+	[[nodiscard]] explicit(false) palette_terminal(node& node_prov){
+		set_value(node_prov);
+	}
+
+	[[nodiscard]] explicit(false) palette_terminal(const palette& value)
+		: value(value){
+	}
+
+	const palette* operator->() const noexcept{
+		return &value;
+	}
+
+	const palette& operator*() const noexcept{
+		return value;
+	}
+
+	palette_terminal(const palette_terminal& other) : value{other.value}{
+		copy_inputs(other);
+	}
+
+	palette_terminal(palette_terminal&& other) noexcept = default;
+
+	palette_terminal& operator=(const palette_terminal& other){
+		if(this == &other) return *this;
+		disconnect_self_from_context();
+		copy_inputs(other);
+		value = other.value;
+		return *this;
+	}
+
+	palette_terminal& operator=(palette_terminal&& other) noexcept = default;
+
+protected:
+	void on_update(react_flow::data_carrier<palette>& data) override{
+		value = data.get();
+	}
+};
+
+struct terminal_holder : react_flow::node_holder<palette_terminal>{
+	using node_holder::node_holder;
+
+	terminal_holder(const terminal_holder& other) : node_holder(other.node){
+	}
+
+	terminal_holder& operator=(const terminal_holder& other){
+		if(this == &other) return *this;
+		node.disconnect_self_from_context();
+		node = other.node;
+		return *this;
+	}
+};
+
+export
+template <typename T>
+struct paletted_value{
+	T val;
+	terminal_holder pal;
+
+	auto* operator->(this auto& self) noexcept{
+		return &self.val;
+	}
+
+	auto operator*(this auto& self) noexcept{
+		return self.val;
+	}
+};
 
 export
 struct round_scroll_bar_style : scroll_pane_bar_drawer{
@@ -249,8 +345,8 @@ struct basic_elem_style_drawer : elem_style_drawer{
 
 export
 struct round_style_base_only : basic_elem_style_drawer{
-	palette_with<image_nine_region> base{};
-	palette_with<image_nine_region> back{};
+	paletted_value<image_nine_region> base{};
+	paletted_value<image_nine_region> back{};
 
 
 	explicit round_style_base_only(const tags::persistent_tag_t& persistent_tag)
@@ -266,18 +362,18 @@ struct round_style_base_only : basic_elem_style_drawer{
 	}
 protected:
 	void draw_base(const elem& element, math::frect region, float opacityScl) const{
-		auto color_base = base.pal.on_instance(element).mul_a(opacityScl);
+		auto color_base = base.pal.node->on_instance(element).mul_a(opacityScl);
 		element.renderer() << fx::nine_patch_draw<>{
-			.patch = &base,
+			.patch = &base.val,
 			.region = region,
 			.color = color_base,
 		};
 	}
 
 	void draw_back(const elem& element, math::frect region, float opacityScl) const{
-		auto color = back.pal.on_instance(element).mul_a(opacityScl);
+		auto color = back.pal.node->on_instance(element).mul_a(opacityScl);
 		element.renderer() << fx::nine_patch_draw<>{
-			.patch = &back,
+			.patch = &back.val,
 			.region = region,
 			.color = color,
 		};
@@ -285,12 +381,12 @@ protected:
 
 	void draw_layer_impl(const elem& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override{
 		if(layer_param == 0){
-			if(base.image_view){
+			if(base->image_view){
 				element.renderer().update_state(fx::batch_draw_mode::msdf);
 				draw_base(element, region, opacityScl);
 			}
 		}else if(layer_param == 1){
-			if(back.image_view){
+			if(back->image_view){
 				element.renderer().update_state(fx::batch_draw_mode::msdf);
 				draw_back(element, region, opacityScl);
 			}
@@ -301,7 +397,7 @@ protected:
 
 export
 struct round_style : round_style_base_only{
-	palette_with<image_nine_region> edge{};
+	paletted_value<image_nine_region> edge{};
 
 	using round_style_base_only::round_style_base_only;
 
@@ -315,24 +411,24 @@ protected:
 		if(layer_param == 0){
 
 
-			if(base.image_view || edge.image_view){
+			if(base->image_view || edge->image_view){
 				element.renderer().update_state(fx::batch_draw_mode::msdf);
 
-				if(base.image_view){
+				if(base->image_view){
 					draw_base(element, region, opacityScl);
 				}
 
-				if(edge.image_view){
-					auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
+				if(edge->image_view){
+					auto color_edge = edge.pal.node->on_instance(element).mul_a(opacityScl);
 					element.renderer() << fx::nine_patch_hollow_draw<>{
-							.patch = &edge,
+							.patch = &edge.val,
 							.region = region,
 							.color = color_edge,
 						};
 				}
 			}
 		} else if(layer_param == 1){
-			if(back.image_view){
+			if(back->image_view){
 				element.renderer().update_state(fx::batch_draw_mode::msdf);
 				draw_back(element, region, opacityScl);
 			}
@@ -342,7 +438,7 @@ protected:
 
 export
 struct round_style_edge_only : basic_elem_style_drawer{
-	palette_with<image_nine_region> edge{};
+	paletted_value<image_nine_region> edge{};
 
 	explicit round_style_edge_only(const tags::persistent_tag_t& persistent_tag)
 			: basic_elem_style_drawer(persistent_tag, {{0b1}}){
@@ -361,9 +457,9 @@ protected:
 		if(layer_param.is_top()){
 			element.renderer().update_state(fx::batch_draw_mode::msdf);
 
-			auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
+			auto color_edge = edge.pal.node->on_instance(element).mul_a(opacityScl);
 			element.renderer() << fx::nine_patch_hollow_draw<>{
-				.patch = &edge,
+				.patch = &edge.val,
 				.region = region,
 				.color = color_edge,
 			};
@@ -413,10 +509,10 @@ protected:
 	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
 		fx::layer_param layer_param) const override{
 		if(layer_param == 0){
-			if(base.image_view || bar.get_image_view()){
+			if(base->image_view || bar.get_image_view()){
 				element.renderer().update_state(fx::batch_draw_mode::msdf);
 
-				if(base.image_view){
+				if(base->image_view){
 					draw_base(element, region, opacityScl);
 				}
 
@@ -454,7 +550,7 @@ protected:
 				}
 			}
 		} else if(layer_param == 1){
-			if(back.image_view){
+			if(back->image_view){
 				element.renderer().update_state(fx::batch_draw_mode::msdf);
 				draw_back(element, region, opacityScl);
 			}

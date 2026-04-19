@@ -151,29 +151,10 @@ protected:
 				// 	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
 				// 	r.update_state(fx::batch_draw_mode::msdf);
 			}
-
-			if(base.image_view || edge.image_view){
-				element.renderer().update_state(fx::batch_draw_mode::msdf);
-
-				if(base.image_view){
-					draw_base(element, region, opacityScl);
-				}
-
-				if(edge.image_view){
-					auto color_edge = edge.pal.on_instance(element).mul_a(opacityScl);
-					element.renderer() << fx::nine_patch_hollow_draw<>{
-						.patch = &edge,
-						.region = region,
-						.color = color_edge,
-					};
-				}
-			}
-		} else if(layer_param == 1){
-			if(back.image_view){
-				element.renderer().update_state(fx::batch_draw_mode::msdf);
-				draw_back(element, region, opacityScl);
-			}
 		}
+
+		style::round_style::draw_layer_impl(element, region, opacityScl, layer_param);
+
 	}
 };
 
@@ -525,7 +506,7 @@ struct vp : gui::viewport{
 			s.viewport_begin();
 
 			{
-				s.renderer().update_state(fx::pipeline_config{.pipeline_index = gpip_idx::coordinate});
+				s.renderer().update_state(fx::pipeline_config{.pipeline_index = gpip::idx::coordinate});
 
 				auto region = s.camera.get_viewport();
 
@@ -535,8 +516,8 @@ struct vp : gui::viewport{
 					.vert_color = {graphic::colors::white}
 				};
 
-				s.renderer().update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
-				s.renderer().update_state(fx::push_constant{0U});
+				s.renderer().update_state(fx::pipeline_config{.pipeline_index = gpip::idx::def});
+				s.renderer().update_state(fx::push_constant{gpip::default_draw_constants{fx::batch_draw_mode::msdf}});
 			}
 
 			s.draw_system();
@@ -568,9 +549,26 @@ void set_cursors(scene& scene){
 		style::cursor_arrow_direction::down);
 }
 
-void make_styles(scene& scene){
+struct make_style_result{
+	using node_type = react_flow::provider_cached<style::palette>;
+	node_type& front;
+	node_type& back;
+};
+
+make_style_result make_styles(scene& scene){
 	auto& sm = scene.resources().style_manager;
 
+
+	auto& pal_front_distributor = scene.request_embedded_react_node(scene.root(), react_flow::provider_cached<style::palette>{});
+	auto& pal_back_distributor = scene.request_embedded_react_node(scene.root(), react_flow::provider_cached<style::palette>{});
+	pal_front_distributor.update_value(math::lerp(style::pal::white, style::pal::dark, .155f));
+	pal_back_distributor.update_value(style::pal::dark);
+
+	react_flow::node_pointer pal_front_distributor_cursor_ignored{react_flow::make_transformer([](style::palette palette){
+		return palette.set_cursor_ignored();
+	})};
+
+	pal_front_distributor_cursor_ignored->connect_predecessor(pal_front_distributor);
 
 	{
 		using namespace style;
@@ -580,18 +578,16 @@ void make_styles(scene& scene){
 			return c.set_value(.12f).shift_saturation(-.05f);
 		};
 
-		templt.edge.pal = math::lerp(pal::white, pal::dark, .155f);
-		templt.edge = assets::builtin::default_round_square_boarder_thin;
-		templt.back.pal = pal::dark;
-		templt.back = assets::builtin::default_round_square_base;
+		templt.edge = {assets::builtin::default_round_square_boarder_thin, {pal_front_distributor}};
+		templt.back = {assets::builtin::default_round_square_base, {pal_back_distributor}};
 
 		auto [itr, suc] = sm.register_style<elem_style_drawer>(referenced_ptr<r_style>{std::in_place, templt});
 		auto& default_family = itr->second.get_default();
 
 		{
 			auto gst = templt;
-			gst.edge.pal.set_cursor_ignored();
-			gst.back.pal.set_cursor_ignored();
+			gst.edge.pal->set_value(*pal_front_distributor_cursor_ignored);
+			gst.back.pal->set_value(gst.back.pal->get_value().copy().set_cursor_ignored());
 			default_family.set(family_variant::general_static, referenced_ptr<round_style>{std::in_place, gst});
 		}
 
@@ -630,7 +626,7 @@ void make_styles(scene& scene){
 		{
 			auto gst = templt;
 			gst.base = gst.back;
-			gst.base.pal.mul_alpha(.6f).mul_rgb(2.f);
+			gst.base.pal.node.set_value(gst.base.pal.node.get_value().copy().mul_rgb(2.f));
 			default_family.set(family_variant::solid, referenced_ptr<round_style>{std::in_place, gst});
 		}
 
@@ -695,7 +691,7 @@ void make_styles(scene& scene){
 		style.bar.pal = style::pal::white;
 		style.bar = image_row_patch{region, region->uv.get_region(), 18, 18, 4};
 		style.back.pal = style::pal::dark;
-		style.back = assets::builtin::default_round_square_base;
+		style.back.val = assets::builtin::default_round_square_base;
 
 
 		{
@@ -736,6 +732,7 @@ void make_styles(scene& scene){
 
 	sm.register_style<style::slider2d_drawer>(referenced_ptr<style::default_slider2d_drawer>{std::in_place});
 
+	return {pal_front_distributor, pal_back_distributor};
 }
 
 #pragma endregion
@@ -749,7 +746,7 @@ void example_scene::draw_at(math::frect clipspace, draw_call_stack& call_stack){
 
 	for(unsigned i = 0; i < cfg.size(); ++i){
 		renderer().update_state(cfg[i].begin_config);
-		renderer().update_state(fx::push_constant{fx::batch_draw_mode::def});
+		renderer().update_state(fx::push_constant{gpip::default_draw_constants{}});
 
 		call_stack.each({
 			.current_subject = this,
@@ -800,7 +797,7 @@ void example_scene::draw_impl(rect clip){
 
 	}
 
-	renderer().init_projection();
+	renderer().init_timeline_variable();
 
 
 	{
@@ -825,7 +822,7 @@ void example_scene::draw_impl(rect clip){
 
 	if(input_handler_.inputs_.is_cursor_inbound()){
 		renderer().update_state(fx::pipeline_config{
-			.pipeline_index = gpip_idx::cursor_outline,
+			.pipeline_index = gpip::idx::cursor_outline,
 			.draw_targets = {0b1}
 		});
 
@@ -855,7 +852,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 	scene.enable_elem_async_task_post(true);
 	scene.drop_and_reset_communicate_async_task_queue_size(1);
 
-	make_styles(scene);
+	auto style_pal_prov = make_styles(scene);
 	set_cursors(scene);
 
 	scene.pass_config = {
@@ -1474,22 +1471,27 @@ Edge Cases:
 					}
 				},
 				test_entry{
-					"color picker", [](table& table){
-						table.set_expand_policy(layout::expand_policy::prefer);
+					"color picker", [&](table& table){
+						table.template_cell.set_pad(32);
+						table.set_expand_policy(layout::expand_policy::passive);
 						struct picker : cpd::rgb_picker{
+							std::add_pointer_t<make_style_result::node_type> prov;
 							using rgb_picker::rgb_picker;
+
 
 						protected:
 							void on_color_changed(graphic::color color) override{
-								auto ptr = get_style_manager().get_default<style::elem_style_drawer>();
-								if(auto p = dynamic_cast<style::round_style*>(ptr.get())){
-									p->edge.pal = style::make_theme_palette(color);
-								}
+								prov->update_value(style::make_theme_palette(color));
 							}
 
 						};
-						table.create_back([](picker& picker){
-						}).cell().set_size({600, 600});
+						table.create_back([&](picker& p){
+							p.prov = &style_pal_prov.front;
+						});
+
+						table.create_back([&](picker& p){
+							p.prov = &style_pal_prov.back;
+						});
 					}
 				},
 				test_entry{

@@ -54,7 +54,7 @@ public:
 				value.text_entire_align = align::pos::center_left;
 				value.set_opacity(.5f);
 				value.set_text("Test");
-				display_text_recv_ = {value};
+				display_text_recv_->set_label(value);
 			});
 
 		});

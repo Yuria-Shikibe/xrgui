@@ -5,6 +5,8 @@ module;
 
 export module mo_yanxi.gui.renderer.frontend;
 
+export import :color_stack;
+
 export import mo_yanxi.gui.fx.config;
 
 
@@ -188,7 +190,8 @@ struct alignas(16) ubo_layer_info{
 #pragma endregion
 
 export
-using gui_reserved_user_data_tuple = std::tuple<ubo_screen_info, ubo_layer_info>;
+using gui_reserved_user_data_tuple = std::tuple<ubo_screen_info, ubo_layer_info, accumulated_state>;
+
 export
 struct state_guard;
 
@@ -206,15 +209,13 @@ private:
 	graphic::draw::instruction::batch_backend_interface batch_backend_interface_{};
 	math::frect region_{};
 
+	color_stack color_stack_{};
 
 	//screen space to uniform space viewport
 	mr::vector<layer_viewport> viewports_{};
 	math::mat3 uniform_proj_{};
 
 	std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>> cache_instr_buffer_inner_usage_{};
-	std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>> cache_instr_buffer_external_usage_{};
-
-
 
 	binary_config_trace state_trace_{};
 
@@ -476,12 +477,13 @@ public:
 		region_ = region;
 	}
 
-	void init_projection(){
+	void init_timeline_variable(){
 		viewports_.clear();
 		viewports_.push_back(layer_viewport{region_, {{region_}}, nullptr, math::mat3_idt});
 		uniform_proj_ = math::mat3{}.set_orthogonal(region_.get_src(), region_.extent());
 
 		push(ubo_screen_info{uniform_proj_});
+		push(color_stack_.top());
 		notify_viewport_changed();
 	}
 
@@ -505,6 +507,10 @@ public:
 			{viewport});
 
 		viewports_.push_back(layer_viewport{viewport, {scissor_raw}, nullptr, last.get_element_to_root_screen() * trs});
+	}
+
+	[[nodiscard]] color_stack& get_color_stack() noexcept{
+		return color_stack_;
 	}
 
 	void push_viewport(const math::frect viewport){
@@ -661,6 +667,42 @@ public:
 		guard_base(renderer){
 		renderer.push_scissor(scissor_raw);
 		renderer.notify_viewport_changed();
+	}
+};
+
+export
+struct color_guard : guard_base<color_guard>{
+private:
+	friend guard_base;
+
+	void pop() const{
+		renderer_->get_color_stack().pop();
+		renderer_->push(renderer_->get_color_stack().top());
+	}
+
+public:
+	[[nodiscard]] color_guard(renderer_frontend& renderer, const color_modifier& m) :
+		guard_base(renderer){
+		renderer.get_color_stack().push(m);
+		renderer.push(renderer.get_color_stack().top());
+	}
+
+	[[nodiscard]] color_guard(renderer_frontend& renderer, const graphic::color& blend_c, float influence) :
+		guard_base(renderer){
+		renderer.get_color_stack().push_color(blend_c, influence);
+		renderer.push(renderer.get_color_stack().top());
+	}
+
+	[[nodiscard]] color_guard(renderer_frontend& renderer, const graphic::color& mul_c) :
+		guard_base(renderer){
+		renderer.get_color_stack().push_multiply_color(mul_c);
+		renderer.push(renderer.get_color_stack().top());
+	}
+
+	[[nodiscard]] color_guard(renderer_frontend& renderer, const float luma_intensity, float influence) :
+		guard_base(renderer){
+		renderer.get_color_stack().push_intensity(luma_intensity, influence);
+		renderer.push(renderer.get_color_stack().top());
 	}
 };
 

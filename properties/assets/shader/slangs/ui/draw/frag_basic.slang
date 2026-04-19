@@ -15,9 +15,13 @@ struct FragOut {
     float4 out_base : SV_Target0;
 }
 
+struct Constants {
+    gui::global_draw_mode_type draw_mode;
+    float draw_defilade;
+};
 
 [[vk::push_constant]]
-gui::pipeline_flags constant_flags;
+Constants constant;
 
 [shader("fragment")]
 FragOut main_frag(
@@ -25,9 +29,10 @@ FragOut main_frag(
     uint primitiveID: SV_PrimitiveID,
 ) {
     var primit = gui::get_current_primitive(primitiveID, dispatch_config_ubo, global_primitives);
-    var final_color = gui::evaluate_primitive_base_color(primit, vtx, textures, constant_flags.mode);
+    var final_color = gui::evaluate_primitive_base_color(primit, vtx, textures, constant.draw_mode);
     gui::apply_slide_line_effect(final_color, primit, vtx.position.xy, slide_line_style, ui_state.time);
 
+    final_color.a *= (1 - constant.draw_defilade);
     final_color.rgb *= final_color.a;
     FragOut out;
     out.out_base = final_color;

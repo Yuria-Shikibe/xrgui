@@ -119,17 +119,20 @@ public struct Vertex
 
 public struct Primitive
 {
-    nointerpolation public uint texture_index : PmtTexID;
+    nointerpolation public uint texture_index : PmtTexID = {};
 
-    nointerpolation public draw_mode mode : PmtMode;
+    nointerpolation public draw_mode mode : PmtMode = {};
 
-    nointerpolation public float sdf_expand : PmtParam;
+    nointerpolation public float sdf_expand : PmtParam = {};
 
     [ForceInline]
     __init(primitive_generic generic, resolve_param param) {
         this.texture_index = uint(generic.image.index);
         this.mode = generic.mode;
-        this.sdf_expand = 0.f;
+    }
+
+    public __init() {
+        this.texture_index = ~0U;
     }
 };
 

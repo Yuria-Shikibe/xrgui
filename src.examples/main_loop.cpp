@@ -22,15 +22,18 @@ void main_loop::main_loop_exec(){
 	));
 	renderer.batch_host.get_data_group_non_vertex_info().push_default(fx::slide_line_config{});
 
-	r.init_projection();
+	r.init_timeline_variable();
 
 
 	r.update_state(r.get_full_screen_scissor());
 	r.update_state(r.get_full_screen_viewport());
-	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
-	r.update_state(fx::batch_draw_mode::def);
+	r.update_state(fx::pipeline_config{.pipeline_index = gpip::idx::def});
+	r.update_state(fx::push_constant{gpip::default_draw_constants{}});
+
 	r.update_state(fx::blend::pma::standard);
 	r.update_state(fx::make_blend_write_mask(true), 0);
+
+	// current_focus.draw();
 
 	if(true){
 		using namespace graphic::draw::instruction;
@@ -141,7 +144,7 @@ void main_loop::main_loop_exec(){
 		if constexpr (false){
 			r.update_state(fx::push_mask{});
 
-			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_draw});
+			r.update_state(fx::pipeline_config{.pipeline_index = gpip::idx::mask_draw});
 			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_write_type::ignore_last});
 
 			r << fx::nine_patch_draw_vert_color{
@@ -164,8 +167,9 @@ void main_loop::main_loop_exec(){
 				};
 
 
-			r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_apply});
-			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_read_mode::def});
+			r.update_state(fx::pipeline_config{.pipeline_index = gpip::idx::mask_apply});
+			r.update_state(fx::push_constant{gpip::mask_apply_draw_constants{{fx::batch_draw_mode::msdf}, fx::mask_read_mode::def}});
+
 
 			r << fx::circle{
 				.pos = {current_focus.get_cursor_pos()},
@@ -184,14 +188,11 @@ void main_loop::main_loop_exec(){
 						.inout_define_index = cpip_bind_idx::to_background
 					}
 				});
-		r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
-		r.update_state(fx::batch_draw_mode::def);
+		r.update_state(fx::pipeline_config{.pipeline_index = gpip::idx::def});
+		r.update_state(fx::push_constant{gpip::default_draw_constants{}});
 
 
-		// r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
-		// r.update_state(fx::batch_draw_mode::def);
-
-		{
+		if(true){
 			struct trail_node_data : graphic::trail::node_type{
 				float idx_scale;
 				graphic::color color;
@@ -297,7 +298,6 @@ void main_loop::main_loop_exec(){
 				{.pipeline_index = cpip_idx::blend}
 			});
 	}
-
 
 	current_focus.draw();
 	renderer.batch_host.end_rendering();

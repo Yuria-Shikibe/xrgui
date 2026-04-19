@@ -238,5 +238,10 @@ public:
 	[[nodiscard]] std::vector<VkPushConstantRange> get_result() && noexcept{
 		return std::move(result_);
 	}
+
+	void clear() noexcept{
+		result_.clear();
+		cache_.clear();
+	}
 };
 }

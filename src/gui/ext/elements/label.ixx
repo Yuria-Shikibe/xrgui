@@ -63,6 +63,10 @@ export struct label_text_prov : react_flow::terminal<std::string>{
 		: terminal(react_flow::propagate_type::eager), label(&label){
 	}
 
+	void set_label(label& l){
+		label = std::addressof(l);
+	}
+
 protected:
 	label* label;
 	void on_update(react_flow::data_carrier<std::string>& data) override;

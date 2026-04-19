@@ -25,6 +25,8 @@ public enum mask_mode : uint32_t {
 
 struct Constants {
     gui::global_draw_mode_type draw_mode;
+    float draw_defilade;
+
     mask_mode mode;
 };
 
@@ -39,7 +41,8 @@ FragOut main_frag(
     var primit = gui::get_current_primitive(primitiveID, dispatch_config_ubo, global_primitives);
     var final_color = gui::evaluate_primitive_base_color(primit, vtx, textures, constants.draw_mode);
     gui::apply_slide_line_effect(final_color, primit, vtx.position.xy, slide_line_style, ui_state.time);
-
+    final_color.a *= constants.draw_defilade;
+    
     FragOut out;
     out.out_base = final_color;
     

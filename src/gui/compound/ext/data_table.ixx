@@ -546,6 +546,7 @@ struct interface : scroll_adaptor_apply_interface_schema<data_table_desc>{
 	void draw_layer(const element_type& element, const scroll_adaptor_base& scroll_adaptor_base, rect clipSpace,
 	                fx::layer_param_pass_t param) const{
 		if(!param.is_top()) return;
+		gui::color_guard g_{scroll_adaptor_base.renderer(), graphic::colors::white.copy_set_a(scroll_adaptor_base.get_draw_opacity())};
 		element.draw(scroll_adaptor_base.renderer(), clipSpace, scroll_adaptor_base.content_src_pos_abs());
 	}
 };

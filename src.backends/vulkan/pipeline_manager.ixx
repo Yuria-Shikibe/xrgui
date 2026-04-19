@@ -350,6 +350,19 @@ struct graphic_pipeline_create_config{
 	config& operator[](std::size_t index) noexcept{
 		return configurator[index];
 	}
+
+	auto generate_push_constants(){
+		return configurator | std::views::transform([psh_ctx = graphic::push_constant_merge_context{}](const config& c) mutable {
+			   psh_ctx.clear();
+			   for (const auto& bundle : c.shader_bundles) {
+				   psh_ctx.append(bundle.bytecode, bundle.create_info.stage);
+			   }
+
+			   auto result_ranges = std::move(psh_ctx).get_result();
+			   std::ranges::sort(result_ranges, byte_less{});
+			   return result_ranges;
+		   });
+	}
 };
 
 #pragma endregion
@@ -584,7 +597,6 @@ public:
 		return custom_descriptors.size();
 	}
 };
-
 export
 class graphic_pipeline_manager : public pipeline_manager_base<graphic_pipeline_data>{
 private:
@@ -595,6 +607,9 @@ private:
 	// 增加此容器，确保自动生成的 Dummy Layout 在管理器销毁前保持存活
 	std::vector<input_attachment_descriptor_mock> input_attachment_descriptor_settings_{};
 	vk::descriptor_layout mask_descriptor_set_layout_{};
+
+	// 新增：Push Constant 兼容性表 (N * N 平铺的一维数组)
+	std::vector<bool> push_constant_compatibility_table_{};
 
 public:
 	[[nodiscard]] graphic_pipeline_manager() = default;
@@ -616,7 +631,34 @@ public:
 				    builder.push_seq(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
 			    }
 		    ){
-		pipelines.resize(create_group.size());
+
+		std::size_t n = create_group.size();
+		pipelines.resize(n);
+
+		{//push constant compatibility check
+
+			// 1. 预先提取所有管线的 Push Constants 用于对比 (结合了之前的排序优化)
+
+
+			// 2. 初始化兼容性表 (仅下三角，大小：N * (N - 1) / 2)
+			if (n > 1) {
+				auto all_push_constants = create_group.generate_push_constants() | std::ranges::to<std::vector>();
+
+				push_constant_compatibility_table_.resize(n * (n - 1) / 2);
+				// 从第1行开始，因为第0行没有下三角元素
+				for (std::size_t i = 1; i < n; ++i) {
+					// 列索引 j 永远小于 行索引 i
+					for (std::size_t j = 0; j < i; ++j) {
+						bool is_compatible = std::ranges::equal(
+							all_push_constants[i], all_push_constants[j], byte_equal{}
+						);
+						// 使用等差数列求和公式映射一维索引
+						push_constant_compatibility_table_[i * (i - 1) / 2 + j] = is_compatible;
+					}
+				}
+			}
+
+		}
 
 		mr::vector<VkDescriptorSetLayout> layouts_buffer;
 
@@ -631,12 +673,12 @@ public:
 				layouts_buffer.push_back(custom_descriptors.at(src).descriptor_set_layout());
 			}
 
-			if(unsigned input_attachments_count = option.input_attachments_mask.popcount()){
+			if(std::uint32_t input_attachments_count = option.input_attachments_mask.popcount()){
 				input_attachment_descriptor_mock mock{vk::descriptor_layout{
 					allocator.get_device(),
 					VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 					[&](vk::descriptor_layout_builder& builder){
-						for(unsigned i = 0; i < input_attachments_count; ++i){
+						for(std::uint32_t i = 0; i < input_attachments_count; ++i){
 							builder.push_seq(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
 						}
 					}
@@ -644,7 +686,6 @@ public:
 				mock.buffer = vk::descriptor_buffer{
 					allocator, mock.layout, mock.layout.binding_count()
 				};
-
 				layouts_buffer.push_back(mock.layout);
 				input_attachment_descriptor_settings_.push_back(std::move(mock));
 			}else{
@@ -653,13 +694,6 @@ public:
 
 			if(option.mask_usage_type != mask_usage::ignore){
 				layouts_buffer.push_back(mask_descriptor_set_layout_);
-				// if(option.uses_mask == mask_usage::write){
-				// 	group.general.push_constants.push_back({
-				// 		.stageFlags = ,
-				// 		.offset = group.general.get_used_cap(),
-				// 		.size = 4
-				// 	});
-				// }
 			}
 
 			create_group.create(idx, pipe, create_param{
@@ -682,6 +716,14 @@ public:
 
 	[[nodiscard]] std::span<input_attachment_descriptor_mock> get_input_attachment_mock_descriptor() {
 		return input_attachment_descriptor_settings_;
+	}
+
+	[[nodiscard]] bool is_push_constant_compatible(std::uint32_t pipeline_a, std::uint32_t pipeline_b) const noexcept {
+		if (pipeline_a == pipeline_b) return true;
+
+		auto [col, row] = std::minmax(pipeline_a, pipeline_b);
+
+		return push_constant_compatibility_table_[row * (row - 1) / 2 + col];
 	}
 };
 

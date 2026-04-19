@@ -9,6 +9,21 @@ namespace gui {
 
 public static const float2 msdf_image_extent = { 4096.f, 4096.f };
 
+public struct timeline<uint N> : IArray<uint> {
+    uint[N] timeline;
+
+    int getCount() {
+        return N;
+    }
+
+    public __subscript(int index) -> uint
+    {
+        get {
+            return timeline[index] - 1;
+        }
+    }
+}
+
 public struct ubo_screen_info {
     public float3x3 screen_to_uniform;
 };
@@ -29,6 +44,29 @@ public struct ubo_ui_state {
     public float2 screen_extent;
     public float time;
     uint32_t _cap;
+};
+
+public struct color_accumulated_state {
+    float4 overlay_color;
+    float4 base_mult;
+
+    public float4 apply(float4 original_color, float original_intensity) {
+        // 由于 C++ 端已经把强度倍率烘焙进了 RGB，这里直接按常规乘加处理即可
+        // 记得将顶点的 original_intensity 分配给它对应的输入项
+        float3 orig_rgb_with_intensity = original_color.rgb * original_intensity;
+
+        float4 blended_color;
+        // Alpha 通道保持原样，不受发光强度影响
+        blended_color.a = fma(original_color.a, base_mult.a, overlay_color.a);
+        // RGB 通道应用折叠后的数学逻辑 (注意 overlay_color.rgb 依然要乘以原始强度)
+        blended_color.rgb = fma(orig_rgb_with_intensity, base_mult.rgb, overlay_color.rgb * original_intensity);
+
+        return blended_color;
+    }
+
+    public float4 apply(float4 original_color) {
+        return apply(original_color, 1.0);
+    }
 };
 
 namespace io {
@@ -121,6 +159,7 @@ public mesh_instr::Primitive get_current_primitive(
     ConstantBuffer<mesh_instr::dispatch_config> config,
     StructuredBuffer<mesh_instr::Primitive> primitives
 ) {
+    // return  {};
     uint global_prm_idx = config.global_primitive_offset + primitiveID;
     return primitives[global_prm_idx];
 }

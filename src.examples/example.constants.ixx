@@ -5,11 +5,28 @@
 export module mo_yanxi.gui.examples.constants;
 
 import std;
+import mo_yanxi.gui.fx.config;
 
 namespace mo_yanxi::gui::example{
 using pipeline_index = std::uint32_t;
-namespace gpip_idx{
 
+
+
+namespace gpip{
+export
+struct default_draw_constants{
+	fx::batch_draw_mode mode;
+	float draw_defilade;
+};
+
+export
+struct mask_apply_draw_constants{
+	default_draw_constants draw;
+	fx::mask_read_mode mode;
+};
+
+
+namespace idx{
 export enum : pipeline_index{
 	def,
 	cursor_outline,
@@ -17,6 +34,8 @@ export enum : pipeline_index{
 	mask_draw,
 	mask_apply,
 };
+
+}
 
 }
 

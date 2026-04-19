@@ -720,6 +720,15 @@ FORCE_INLINE constexpr color& set_hue(const float target_h) noexcept{
 	[[nodiscard]] FORCE_INLINE constexpr color copy() const noexcept{
 		return *this;
 	}
+
+	FORCE_INLINE CONST_FN constexpr friend color fma(color a, color b, color c) noexcept{
+		return {{
+			.r = math::cpo::fma(a.r, b.r, c.r),
+			.g = math::cpo::fma(a.g, b.g, c.g),
+			.b = math::cpo::fma(a.b, b.b, c.b),
+			.a = math::cpo::fma(a.a, b.a, c.a)
+		}};
+	}
 };
 
 namespace colors{
