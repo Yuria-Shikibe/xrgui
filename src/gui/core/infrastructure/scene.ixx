@@ -49,14 +49,6 @@ import mo_yanxi.call_stream;
 namespace mo_yanxi::gui{
 std::thread::id exchange_scene_thread(scene& s, std::thread::id id);
 
-export enum struct elem_tree_channel : std::uint8_t{
-	deduced = 0,
-	regular = 0b001,
-	tooltip = 0b010,
-	overlay = 0b100,
-	all = regular | tooltip | overlay,
-};
-
 BITMASK_OPS(export, elem_tree_channel);
 
 

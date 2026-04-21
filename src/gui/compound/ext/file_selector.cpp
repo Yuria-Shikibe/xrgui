@@ -4,7 +4,7 @@ import mo_yanxi.gui.fx.compound;
 import mo_yanxi.gui.fx.fringe;
 import mo_yanxi.math.interpolation;
 import mo_yanxi.gui.elem.table;
-import mo_yanxi.gui.elem.double_side;
+import mo_yanxi.gui.elem.flipper;
 import mo_yanxi.gui.elem.check_box;
 
 import mo_yanxi.gui.elem.scroll_pane;
@@ -23,22 +23,16 @@ void set_elem_style_(elem& e, std::string_view name){
 	});
 }
 
-void set_elem_style_(elem& e, style::family_variant v){
-	e.sync_run([v](elem& el){
-		el.set_style(el.get_style_manager().get_slice<style::elem_style_drawer>()->default_style(v));
-	});
-}
-
 void set_style_side_bar(elem& e){
-	set_elem_style_(e, style::family_variant::base_only);
+	util::sync_set_elem_style(e, style::family_variant::base_only);
 }
 
 void set_style_edge_only(elem& e){
-	set_elem_style_(e, style::family_variant::edge_only);
+	util::sync_set_elem_style(e, style::family_variant::edge_only);
 }
 
 void set_style_base_only(elem& e){
-	set_elem_style_(e, style::family_variant::base_only);
+	util::sync_set_elem_style(e, style::family_variant::base_only);
 }
 
 template <typename Func>
@@ -139,7 +133,7 @@ public:
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		elem::on_click(event, aboves);
-		if(event.within_elem(*this) && event.key.on_release()){
+		if(!is_disabled() && event.within_elem(*this) && event.key.on_release()){
 			arrow_flip([](arrow_button& b){
 				           if(!b.has_tooltip() && !b.invisible) b.create_tooltip();
 			           }, [](arrow_button& b){
@@ -447,7 +441,7 @@ file_selector::file_entry::file_entry(scene& scene, elem* parent, file_selector&
 
 events::op_afterwards file_selector::file_entry::on_click(const events::click event, std::span<elem* const> aboves){
 	elem::on_click(event, aboves);
-	if(event.key.on_release() && event.within_elem(*this)){
+	if(!is_disabled() && event.key.on_release() && event.within_elem(*this)){
 		auto& menu = get_file_selector();
 		if(std::filesystem::is_directory(path)){
 			menu.visit_directory(path);

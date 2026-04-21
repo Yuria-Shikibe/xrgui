@@ -7,9 +7,15 @@ export module mo_yanxi.gui.compound.color_picker;
 import std;
 
 export import mo_yanxi.gui.infrastructure;
-export import mo_yanxi.gui.elem.head_body_elem;
-export import mo_yanxi.gui.elem.slider;
 export import mo_yanxi.graphic.color;
+
+import mo_yanxi.gui.elem.head_body_elem;
+import mo_yanxi.gui.elem.slider;
+import mo_yanxi.gui.elem.grid;
+import mo_yanxi.gui.elem.label;
+import mo_yanxi.gui.elem.sequence;
+import mo_yanxi.gui.compound.numeric_input_area;
+
 
 import mo_yanxi.gui.util.observable_value;
 import mo_yanxi.graphic.draw.instruction;
@@ -84,6 +90,8 @@ protected:
 	void draw_layer_impl(const target_type& element, math::frect region, float opacityScl,
 	                     fx::layer_param layer_param) const override{
 		if(layer_param.is_top()){
+
+
 			using namespace graphic::draw;
 
 			constexpr auto color_base = graphic::colors::light_gray.create_lerp(graphic::colors::gray, .75f);
@@ -180,11 +188,11 @@ elem_ptr make_obv_slider(elem& parent, FnTys&&... fns){
 }
 
 export
-struct rgb_picker : head_body{
+struct hsv_picker : head_body{
 private:
 	struct sv_selection : slider2d{
-		rgb_picker& get_picker() const noexcept{
-			return parent_ref<rgb_picker>();
+		hsv_picker& get_picker() const noexcept{
+			return parent_ref<hsv_picker>();
 		}
 
 		sv_selection(scene& scene, elem* parent)
@@ -309,7 +317,7 @@ public:
 		return slider_alpha_;
 	}
 
-	rgb_picker(scene& scene, elem* parent, layout::layout_policy layout_policy, bool has_alpha)
+	hsv_picker(scene& scene, elem* parent, layout::layout_policy layout_policy, bool has_alpha)
 		: head_body(scene, parent, layout_policy){
 		interactivity = interactivity_flag::children_only;
 		set_expand_policy(layout::expand_policy::passive);
@@ -359,8 +367,34 @@ public:
 		}
 	}
 
-	rgb_picker(scene& scene, elem* parent)
-		: rgb_picker(scene, parent, layout::layout_policy::vert_major, true){
+	hsv_picker(scene& scene, elem* parent)
+		: hsv_picker(scene, parent, layout::layout_policy::vert_major, true){
+	}
+
+	graphic::color get_current_color() const noexcept{
+		return result_color_;
+	}
+
+	bool set_current_color_no_propagate(graphic::color color) noexcept{
+		if(!util::try_modify(result_color_, color))return false;
+
+		hsv_ = result_color_.to_hsv();
+
+		if(slider_HUE_){
+			slider_HUE_->bar.set_progress(0, hsv_.h);
+		}
+
+		if(slider_alpha_){
+			slider_alpha_->bar.set_progress(0, 1.0f - result_color_.a);
+		}
+
+		auto& sv_slider = elem_cast<sv_selection, true>(head());
+		sv_slider.bar.set_progress({hsv_.s, 1.0f - hsv_.v});
+		return true;
+	}
+	void set_current_color(graphic::color color) noexcept{
+		if(!set_current_color_no_propagate(color))return;
+		on_color_changed(result_color_);
 	}
 
 protected:
@@ -396,5 +430,148 @@ private:
 		}
 	}
 };
+
+export
+struct precise_color_picker : head_body{
+private:
+	struct rgba_input final : cpd::numeric_input_area<std::uint8_t>{
+		using numeric_input_area::numeric_input_area;
+		precise_color_picker& get_picker() const noexcept{
+			return parent_ref<elem>().parent_ref<precise_color_picker, true>();
+		}
+
+		unsigned get_rgba_channel() const noexcept{
+			auto& cs = get_picker().rgba_channel_inputs;
+			return std::ranges::find(cs, static_cast<const numeric_input_area*>(this)) - cs.begin();
+		}
+
+		void on_changed(value_type val) override{
+			auto& picker = get_picker();
+			auto& hsv_picker = picker.head();
+			auto c = hsv_picker.get_current_color();
+			switch(get_rgba_channel()){
+			case 0 : c.r = float(val) / 255.5f; break;
+			case 1 : c.g = float(val) / 255.5f; break;
+			case 2 : c.b = float(val) / 255.5f; break;
+			case 3 : c.a = float(val) / 255.5f; break;
+			default : std::unreachable();
+			}
+			if(hsv_picker.set_current_color_no_propagate(c)){
+				picker.on_color_changed(c);
+			}
+		}
+	};
+
+	std::array<rgba_input*, 4> rgba_channel_inputs{};
+
+protected:
+	virtual void on_color_changed(graphic::color color){
+
+	}
+public:
+
+	struct precise_hsv_picker final : hsv_picker{
+		precise_color_picker& parent_ref() const noexcept{
+			return elem::parent_ref<precise_color_picker, true>();
+		}
+
+		using hsv_picker::hsv_picker;
+
+		void on_color_changed(graphic::color color) override{
+			std::println(std::cerr, "{:a}", color);
+			auto rgba = color.to_rgba8888();
+
+			if constexpr (std::endian::native == std::endian::little){
+				rgba = std::byteswap(rgba);
+			}
+
+			auto arr = std::bit_cast<std::array<std::uint8_t, 4>>(rgba);
+
+			auto& p = parent_ref();
+			for(int i = 0; i < arr.size(); ++i){
+				if(auto c = p.rgba_channel_inputs[i])c->set_value_no_propagate(arr[i]);
+			}
+			p.on_color_changed(color);
+		}
+	};
+
+	precise_hsv_picker& head() const{
+		return elem_cast<precise_hsv_picker, true>(head_body::head());
+	}
+
+	[[nodiscard]] precise_color_picker(scene& scene, elem* parent, layout::layout_policy layout_policy, float input_area_height, bool has_alpha)
+	: head_body(scene, parent, layout_policy){
+		using namespace std::literals;
+		static constexpr std::u32string_view titles[]{U"R: "sv, U"G: "sv, U"B: "sv, U"A: "sv};
+
+		create_head([](precise_hsv_picker& s){
+			s.set_style();
+		});
+		set_expand_policy(layout::expand_policy::passive);
+
+		if(layout_policy == layout::layout_policy::vert_major){
+			create_body([&](sequence& s){
+				s.set_expand_policy(layout::expand_policy::passive);
+				s.template_cell.set_pad({4, 4});
+				s.set_style();
+
+				for(int i = 0; i < 3 + has_alpha; ++i){
+					s.create_back([i](gui::direct_label& e){
+						e.set_style();
+						e.set_self_boarder({.left = 4});
+						e.set_fit_type(label_fit_type::scl);
+						e.set_tokenized_text({titles[i]});
+					}).cell().set_passive(1);
+					s.create_back([&](rgba_input& e){
+						e.set_style();
+						rgba_channel_inputs[i] = &e;
+					}).cell().set_passive(1.7f).set_pad({4, 20});
+				}
+			}, layout::layout_policy::hori_major);
+
+			set_body_size(input_area_height);
+		}else{
+			if(has_alpha){
+				create_body(
+					[](grid& table){
+						table.set_style();
+						table.emplace_back<elem>().cell().extent = {
+								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
+								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
+							};
+						table.emplace_back<elem>().cell().extent = {
+								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
+								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
+							};
+						table.emplace_back<elem>().cell().extent = {
+								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
+								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
+							};
+						table.emplace_back<elem>().cell().extent = {
+								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
+								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
+							};
+					}, math::vector2<grid_dim_spec>{
+						grid_uniformed_passive{2, {4, 4}},
+						grid_uniformed_mastering{2, input_area_height, {4, 4}}
+					});
+			} else{
+				create_body([](sequence& s){
+					s.set_style();
+				});
+			}
+
+			set_body_size({layout::size_category::pending});
+		}
+		for(int i = 0; i < rgba_channel_inputs.size(); ++i){
+			if(auto c = rgba_channel_inputs[i])c->set_value_no_propagate(std::numeric_limits<std::uint8_t>::max());
+		}
+	}
+
+	[[nodiscard]] precise_color_picker(scene& scene, elem* parent)
+		: precise_color_picker(scene, parent, layout::layout_policy::vert_major, 240, true){
+	}
+};
+
 }
 }

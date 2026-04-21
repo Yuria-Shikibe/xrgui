@@ -35,6 +35,14 @@ void elem::post_task(this E& e, Fn&& fn){
 }
 
 namespace util{
+
+export
+void sync_set_elem_style(elem& e, style::family_variant v){
+	e.sync_run([v](elem& el){
+		el.set_style(el.get_style_manager().get_slice<style::elem_style_drawer>()->default_style(v));
+	});
+}
+
 export
 template <std::derived_from<elem> E, std::invocable<E&> Prov>
 void post_elem_async_task(E& e, Prov&& prov){

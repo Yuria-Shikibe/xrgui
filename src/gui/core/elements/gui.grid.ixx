@@ -477,28 +477,43 @@ private:
 		const auto col_extent_span = std::span{offset}.first(columns + 1);
 		const auto row_extent_span = std::span{offset}.last(rows + 1);
 
-		for(unsigned col = 0; col < columns; ++col){
+		for(std::uint32_t col = 0; col < columns; ++col){
 			col_extent_span[col + 1] = col_extent_span[col] + grid_table_head_[col];
 		}
 
-		for(unsigned row = 0; row < rows; ++row){
+		for(std::uint32_t row = 0; row < rows; ++row){
 			row_extent_span[row + 1] = row_extent_span[row] + grid_table_head_[row + columns];
 		}
 
-		for(unsigned i = 0; i < cells_.size(); ++i){
+		for(std::uint32_t i = 0; i < cells_.size(); ++i){
 			auto& cell = cells_[i];
 			auto& state = cell_layout_state_[i];
 
+			// 修复 3：如果在最左/最上边缘，则忽略 pre padding（因为头部大小已扣除）
+			const float x_pre = (state.actual.get_src_x() == 0) ? 0.0f :
+				extent_spec_.x.pad_at(state.actual.get_src_x()).pre;
+			const float y_pre = (state.actual.get_src_y() == 0) ? 0.0f :
+				extent_spec_.y.pad_at(state.actual.get_src_y()).pre;
+
+			// 修复 1 & 3：
+			// 1. 如果在最右/最下边缘，忽略 post padding（因为头部大小已扣除）
+			// 2. 否则，获取结束列/行的前一个索引的 post（修复 get_end 排他性带来的数组越界）
+			const float x_post = (state.actual.get_end_x() == columns) ? 0.0f :
+				extent_spec_.x.pad_at(state.actual.get_end_x() - 1).post;
+			const float y_post = (state.actual.get_end_y() == rows) ? 0.0f :
+				extent_spec_.y.pad_at(state.actual.get_end_y() - 1).post;
+
 			const math::vec2 src{
-				col_extent_span[state.actual.get_src_x()] + extent_spec_.x.pad_at(state.actual.get_src_x()).pre,
-				row_extent_span[state.actual.get_src_y()] + extent_spec_.y.pad_at(state.actual.get_src_y()).pre
+				col_extent_span[state.actual.get_src_x()] + x_pre,
+				row_extent_span[state.actual.get_src_y()] + y_pre
 			};
 			const math::vec2 dst{
-				col_extent_span[state.actual.get_end_x()] - extent_spec_.x.pad_at(state.actual.get_end_x()).post,
-				row_extent_span[state.actual.get_end_y()] - extent_spec_.y.pad_at(state.actual.get_end_y()).post
+				col_extent_span[state.actual.get_end_x()] - x_post,
+				row_extent_span[state.actual.get_end_y()] - y_post
 			};
 
 			if(state.actual.is_zero_area()){
+				//TODO change display state here?
 				//TODO move this to update?
 				cell.element->invisible = true;
 			}
@@ -507,7 +522,6 @@ private:
 			cell.cell.allocated_region = rect{tags::unchecked, tags::from_extent, src, ext};
 			cell.apply(*this, cell.cell.allocated_region.extent());
 			if(!is_pos_smooth())cell.cell.update_relative_src(*cell.element, content_src_pos_abs());
-
 		}
 	}
 

@@ -11,7 +11,7 @@ import mo_yanxi.gui.elem.sequence;
 import mo_yanxi.gui.elem.overflow_sequence;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.label;
-import mo_yanxi.gui.elem.text_edit_v2;
+import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.head_body_elem;
 import mo_yanxi.gui.elem.button;
 

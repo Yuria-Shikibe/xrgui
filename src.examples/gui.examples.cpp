@@ -32,10 +32,10 @@ import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.drag_split;
 import mo_yanxi.gui.elem.label;
-import mo_yanxi.gui.elem.text_edit_v2;
+import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.viewport;
 import mo_yanxi.gui.elem.check_box;
-import mo_yanxi.gui.elem.double_side;
+import mo_yanxi.gui.elem.flipper;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.font;
@@ -57,6 +57,7 @@ import mo_yanxi.gui.compound.named_slider;
 import mo_yanxi.gui.compound.file_selector;
 import mo_yanxi.gui.compound.data_table;
 import mo_yanxi.gui.compound.click_collapser;
+import mo_yanxi.gui.compound.numeric_input_area;
 
 import mo_yanxi.gui.style.round_square;
 import mo_yanxi.gui.style.progress_bars;
@@ -106,7 +107,7 @@ struct image_cursor : style::cursor{
 		std::span<const elem* const> inbound_stack) const override{
 		region.src -= region.extent * .5f;
 
-		region.expand({mo_yanxi::graphic::msdf::sdf_image_boarder, mo_yanxi::graphic::msdf::sdf_image_boarder});
+		region.expand({mo_yanxi::graphic::msdf::sdf_image_boarder + 6, mo_yanxi::graphic::msdf::sdf_image_boarder + 6});
 		state_guard g{renderer, gui::fx::batch_draw_mode::msdf};
 		renderer << graphic::draw::instruction::rect_aabb{
 				.generic = {icon_region->view},
@@ -841,9 +842,9 @@ void example_scene::draw_impl(rect clip){
 #pragma endregion
 
 ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend renderer){
-	auto& ui_root = gui::global::manager;
+	auto& ui_root = global::manager;
 	auto& res = ui_root.add_scene_resources("main");
-	const auto scene_add_rst = ui_root.add_scene<example_scene, gui::loose_group>("main", res, true, std::move(renderer));
+	const auto scene_add_rst = ui_root.add_scene<example_scene, loose_group>("main", res, true, std::move(renderer));
 
 	// scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
 	auto& scene = scene_add_rst.scene;
@@ -898,7 +899,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						pane.create([&](sequence& sequence){
 							sequence.template_cell.set_pad({4, 4});
 
-							auto slider = sequence.emplace_back<gui::slider1d_with_output>();
+							auto slider = sequence.emplace_back<slider1d_with_output>();
 							slider->set_smooth_scroll(true);
 							slider->set_smooth_jump(false);
 							slider->set_smooth_drag(true);
@@ -923,6 +924,10 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								auto& t = prog.request_receiver();
 								react_flow::connect_chain(progNode, t);
 							}).cell().set_size(60);
+
+							sequence.create_back([&](cpd::numeric_input_area<int>& area){
+
+							}).cell().set_size(80);
 
 							{
 								auto label = sequence.create_back([&](direct_label& l){
@@ -1284,7 +1289,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 									auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
 										i.set_style(i.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
 										i.interactivity = interactivity_flag::enabled;
-									}, gui::assets::builtin::shape_id::more);
+									}, assets::builtin::shape_id::more);
 									cell.set_size({layout::size_category::scaling});
 
 									for(unsigned i = 0; i < 12; ++i){
@@ -1297,13 +1302,13 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 												c.set_head_size({layout::size_category::scaling});
 											},
 											layout::layout_policy::vert_major,
-											gui::element_create_pacakge{
+											element_create_pacakge{
 												[](elem& l){
 													l.set_style();
 												}
 											},
-											gui::element_create_pacakge{
-												[i](gui::label& l){
+											element_create_pacakge{
+												[i](label& l){
 													l.set_style();
 													l.set_fit_type(label_fit_type::fix);
 													l.set_text(std::format("{}", i));
@@ -1325,14 +1330,14 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								c.set_head_size(80);
 							},
 								layout::layout_policy::hori_major,
-								gui::element_create_pacakge{[](gui::label& l){
+								element_create_pacakge{[](label& l){
 									l.set_style();
 									l.text_entire_align = align::pos::center;
 									l.set_text("Collapser");
 								}},
-								gui::element_create_pacakge{[](gui::label& l){
+								element_create_pacakge{[](label& l){
 									l.set_style();
-									l.set_text("楼下的上来搞核算");
+									l.set_text("Collapser Showcase");
 								}})
 							     .cell().set_pending({false, true}).set_width_passive();
 
@@ -1474,9 +1479,9 @@ Edge Cases:
 					"color picker", [&](table& table){
 						table.template_cell.set_pad(32);
 						table.set_expand_policy(layout::expand_policy::passive);
-						struct picker : cpd::rgb_picker{
+						struct picker : cpd::precise_color_picker{
 							std::add_pointer_t<make_style_result::node_type> prov;
-							using rgb_picker::rgb_picker;
+							using precise_color_picker::precise_color_picker;
 
 
 						protected:
@@ -1533,19 +1538,39 @@ Edge Cases:
 	});
 	mroot.set_style();
 
-	const auto menu_hdl = mroot.emplace_back<menu>(layout::layout_policy::vert_major, [](gui::direct_label& l){
-		l.set_fit_type(label_fit_type::scl);
-		l.set_style();
-		l.text_entire_align = align::pos::center;
-		l.set_tokenized_text(typesetting::tokenized_text{
-			U"{i}{f:code}"
-			U"{#8999F9}{+#223344}X{//}"
-			U"{#F0969D}{b}r{//}"
-			U"{#9DE6D1aa}g{/}"
-			U"{u}u{/}"
-			U"i{/i}"
-			U"{s:*.4} {/}{w:r}{s:*.9}Test"
+	const auto menu_hdl = mroot.emplace_back<menu>(layout::layout_policy::vert_major, [](head_body_no_invariant& m){
+		m.set_expand_policy(layout::expand_policy::passive);
+		m.set_style();
+
+		m.create_head([](direct_label& l){
+			l.set_expand_policy(layout::expand_policy::passive);
+			l.set_fit_type(label_fit_type::scl);
+			l.set_style();
+			l.text_entire_align = align::pos::center;
+			l.set_tokenized_text(typesetting::tokenized_text{
+				U"{i}{f:code}"
+				U"{#8999F9}{+#223344}X{//}"
+				U"{#F0969D}{b}r{//}"
+				U"{#9DE6D1aa}g{/}"
+				U"{u}u{/}"
+				U"i{/i}"
+				U"{s:*.4} {/}{w:r}{s:*.9}Test"
+			});
 		});
+
+		m.create_body([](image_frame_single<drawable_image<component::vertex_color>>& l){
+			if(auto d = assets::builtin::get_page()[assets::builtin::shape_id::logo]){
+				l.set_drawable(drawable_image{
+						*d,
+						component::combined_components{component::vertex_color{
+							.color = {graphic::colors::light_gray}
+						}}
+					});
+			}
+			l.style.scaling = align::scale::fit;
+			l.set_style();
+		});
+
 	});
 	menu_hdl->set_expand_policy(layout::expand_policy::passive);
 	menu_hdl->set_head_size({layout::size_category::mastering, 100});

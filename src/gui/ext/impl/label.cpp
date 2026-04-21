@@ -69,6 +69,7 @@ void direct_label::draw_text() const {
 	mat_local.c3.x += (src_local.x - src_abs.x);
 	mat_local.c3.y += (src_local.y - src_abs.y);
 
+	color_guard g_{renderer(), get_draw_scl_color().copy_set_a(get_draw_opacity())};
 	state_guard guard{renderer(), fx::batch_draw_mode::msdf};
 	transform_guard _t{renderer(), mat_abs};
 	render_cache_.push_to_renderer(renderer());

@@ -28,8 +28,8 @@ public:
 		return elem_cast<head_body, false>(collapser::head());
 	}
 
-	arrow_button& get_arrow() const{
-		return elem_cast<arrow_button, false>(head().head());
+	arrow_rotor& get_arrow() const{
+		return elem_cast<arrow_rotor, false>(head().head());
 	}
 
 	[[nodiscard]] click_collapser(scene& scene, elem* parent, layout::layout_policy layout_policy)
@@ -55,7 +55,7 @@ public:
 				e.set_style(e.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
 			});
 
-			hb.create_head([&](arrow_button& a){
+			hb.create_head([&](arrow_rotor& a){
 				a.rotate_angle = get_rot_angle();
 				a.set_style();
 			});

@@ -10,7 +10,7 @@ import mo_yanxi.gui.alloc;
 import mo_yanxi.math;
 import mo_yanxi.typesetting;
 import mo_yanxi.gui.elem.scroll_pane;
-import mo_yanxi.gui.text_render_cache;
+import mo_yanxi.gui.text_render;
 
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.graphic.draw.instruction.recorder;

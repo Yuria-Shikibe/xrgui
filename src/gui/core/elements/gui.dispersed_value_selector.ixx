@@ -84,7 +84,7 @@ public:
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		base_type::on_click(event, aboves);
-		if(event.key.on_release() && event.within_elem(*this)){
+		if(!this->is_disabled() && event.key.on_release() && event.within_elem(*this)){
 			if(event.key.as_mouse() == input_handle::mouse::LMB){
 				incr_selected_value();
 			}

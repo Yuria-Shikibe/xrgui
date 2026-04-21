@@ -1,4 +1,4 @@
-module mo_yanxi.gui.text_render_cache;
+module mo_yanxi.gui.text_render;
 
 import mo_yanxi.gui.image_regions;
 import mo_yanxi.graphic.draw.instruction;
@@ -8,38 +8,19 @@ import mo_yanxi.gui.fx.instruction_extension;
 namespace mo_yanxi::gui{
 void record_elems(graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
                   const typesetting::glyph_layout_draw_only& glyph_layout,
-                  graphic::color color_scl, typesetting::line_alignment line_align,
+                  typesetting::line_alignment line_align,
                   typesetting::layout_direction direction
 ){
 	using namespace mo_yanxi::graphic::draw::instruction;
 
-	for(const auto& current_line : glyph_layout.lines){
-		auto [line_src, spacing] = current_line.calculate_alignment(glyph_layout.extent, line_align,
-			direction);
-
-		for(const auto& [idx, val] : std::span{
-				glyph_layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size
-			} | std::views::enumerate){
-			if(!val.texture->view) continue;
-			auto start = math::fma(idx, spacing, line_src + val.aabb.src);
-			buffer.push(rect_aabb{
-					.generic = {val.texture->view},
-					.v00 = start,
-					.v11 = start + val.aabb.extent(),
-					.uv00 = val.texture->uv.v00(),
-					.uv11 = val.texture->uv.v11(),
-					.vert_color = {val.color * color_scl},
-					.slant_factor_asc = val.slant_factor_asc,
-					.slant_factor_desc = val.slant_factor_desc,
-					.sdf_expand = -val.weight_offset
-				});
-			}
-	}
+	record_elems(glyph_layout, line_align, direction, [&](rect_aabb&& r){
+		buffer.push(r);
+	});
 }
 
 void record_glyph_draw_instructions(
 	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
-	const typesetting::glyph_layout& glyph_layout, graphic::color color_scl, typesetting::line_alignment line_align){
+	const typesetting::glyph_layout& glyph_layout, typesetting::line_alignment line_align){
 	using namespace mo_yanxi::graphic;
 	using namespace mo_yanxi::graphic::draw::instruction;
 
@@ -81,7 +62,7 @@ void record_glyph_draw_instructions(
 
 	}
 
-	record_elems(buffer, glyph_layout, color_scl, line_align, glyph_layout.direction);
+	record_elems(buffer, glyph_layout, line_align, glyph_layout.direction);
 
 	for (const auto & underlines : glyph_layout.underlines | std::views::chunk_by(&typesetting::sub_line_decoration::chunk_by_line)){
 		auto [line_src, spacing] = glyph_layout.lines[underlines.front().line_index].calculate_alignment(glyph_layout.extent, line_align, glyph_layout.direction);
@@ -93,7 +74,7 @@ void record_glyph_draw_instructions(
 			buffer.push(line{
 					.src = start,
 					.dst = end,
-					.color = {val.color * color_scl, val.color * color_scl},
+					.color = {val.color, val.color},
 					.stroke = val.thickness,
 				});
 		}
@@ -102,7 +83,7 @@ void record_glyph_draw_instructions(
 
 void record_glyph_draw_instructions_draw_only(
 	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
-	const typesetting::glyph_layout_draw_only& glyph_layout, graphic::color color_scl,
+	const typesetting::glyph_layout_draw_only& glyph_layout,
 	typesetting::line_alignment line_align, typesetting::layout_direction direction){
 	using namespace mo_yanxi::graphic;
 	using namespace mo_yanxi::graphic::draw::instruction;
@@ -111,6 +92,6 @@ void record_glyph_draw_instructions_draw_only(
 	buffer.reserve_heads(glyph_layout.elems.size());
 	buffer.reserve_bytes(glyph_layout.elems.size() * sizeof(rect_aabb));
 
-	record_elems(buffer, glyph_layout, color_scl, line_align, direction);
+	record_elems(buffer, glyph_layout, line_align, direction);
 }
 }

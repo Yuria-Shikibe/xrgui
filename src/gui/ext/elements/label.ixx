@@ -10,7 +10,7 @@ export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.font;
 export import mo_yanxi.typesetting.rich_text;
 export import mo_yanxi.graphic.draw.instruction.recorder;
-export import mo_yanxi.gui.text_render_cache;
+export import mo_yanxi.gui.text_render;
 import mo_yanxi.concurrent.atomic_shared_mutex;
 import mo_yanxi.math;
 import mo_yanxi.math.matrix3;
@@ -115,8 +115,13 @@ private:
 public:
 	align::pos text_entire_align{align::pos::top_left};
 	math::vec2 max_fit_scale_bound{math::vectors::constant2<float>::inf_positive_vec2};
+	graphic::color text_color_scl{graphic::colors::white};
 
 	using elem::elem;
+
+	[[nodiscard]] graphic::color get_draw_scl_color() const noexcept{
+		return text_color_scl.copy().mul_a((is_disabled() ? .5f : 1.f) * get_draw_opacity());
+	}
 
 	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
 		return expand_policy_;
@@ -153,7 +158,7 @@ public:
 
 	void set_line_align(typesetting::line_alignment line_alignment){
 		if(render_cache_.set_line_align(line_alignment)){
-			render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()), layout_config_.direction);
+			render_cache_.update_buffer(glyph_layout_, layout_config_.direction);
 		}
 	}
 
@@ -174,16 +179,6 @@ public:
 
 	void set_tokenized_text_quiet(typesetting::tokenized_text&& tokenized_text){
 		tokenized_text_ = std::move(tokenized_text);
-	}
-
-	[[nodiscard]] std::optional<graphic::color> get_text_color_scl() const noexcept{
-		return render_cache_.get_text_color_scl();
-	}
-
-	void set_text_color_scl(const std::optional<graphic::color>& text_color_scl){
-		if(render_cache_.set_text_color_scl(text_color_scl)){
-			render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
-		}
 	}
 
 	[[nodiscard]] text_transform_config get_transform_config() const noexcept{
@@ -237,14 +232,6 @@ public:
 		}
 	}
 
-	bool set_disabled(bool isDisabled) override{
-		if(elem::set_disabled(isDisabled)){
-			render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
-			return true;
-		}
-		return false;
-	}
-
 	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 
@@ -257,9 +244,6 @@ public:
 	}
 
 protected:
-	void on_opacity_changed(float previous) override{
-		render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
-	}
 
 	bool resize_impl(const math::vec2 size) override{
 		if(elem::resize_impl(size)){
@@ -386,8 +370,7 @@ protected:
 					((change_mark_ & change_type::config) != change_type{}) || ((change_mark_ & change_type::text) !=
 						change_type{})){
 					get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
-					render_cache_.update_buffer(glyph_layout_,
-						render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
+					render_cache_.update_buffer(glyph_layout_);
 					change_mark_ = change_type::none;
 
 					return {process_result_ext(), true};
@@ -396,7 +379,7 @@ protected:
 			}
 		} else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
 			get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
-			render_cache_.update_buffer(glyph_layout_, render_cache_.get_draw_color(get_draw_opacity(), is_disabled()));
+			render_cache_.update_buffer(glyph_layout_);
 			change_mark_ = change_type::none;
 
 			return {process_result_ext(), true};

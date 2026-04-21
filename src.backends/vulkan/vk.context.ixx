@@ -6,6 +6,7 @@ module;
 export module mo_yanxi.backend.vulkan.context;
 
 import mo_yanxi.vk;
+import mo_yanxi.vk.swap_chain_info;
 import mo_yanxi.vk.util;
 import mo_yanxi.vk.cmd;
 

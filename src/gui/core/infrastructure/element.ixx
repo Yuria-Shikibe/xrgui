@@ -460,10 +460,7 @@ public:
 	}
 
 	virtual events::op_afterwards on_drag(const events::drag event){
-		if(!is_interactable()){
-			return events::op_afterwards::fall_through;
-		}
-		return events::op_afterwards::intercepted;
+		return events::op_afterwards::fall_through;
 	}
 
 
@@ -1034,7 +1031,7 @@ public:
 	[[nodiscard]] FORCE_INLINE inline bool is_interactable() const noexcept{
 		if(invisible) return false;
 		if(disabled) return false;
-		if(interactivity == interactivity_flag::disabled)return false;
+		if((interactivity & interactivity_flag::self_interactable) == interactivity_flag{})return false;
 		return true;
 	}
 
@@ -1042,8 +1039,8 @@ public:
 		return is_transparent_in_inbound_filter;
 	}
 
-	[[nodiscard]] FORCE_INLINE inline bool touch_blocked() const noexcept{
-		return interactivity == interactivity_flag::disabled || interactivity == interactivity_flag::intercept;
+	[[nodiscard]] FORCE_INLINE inline bool touch_propagate_blocked() const noexcept{
+		return (interactivity & interactivity_flag::ppgt_interactable) == interactivity_flag{};
 	}
 
 	[[nodiscard]] FORCE_INLINE inline float get_draw_opacity() const noexcept{
@@ -1189,7 +1186,7 @@ void dfs_record_inbound_element(
 	math::vec2 cursorPos,
 	Container& selected,
 	elem* current){
-	if(current->is_disabled() || current->interactivity == interactivity_flag::disabled)return;
+	if(current->interactivity == interactivity_flag::disabled)return;
 
 	if(!current->contains_self(cursorPos, 0)){
 		return;
@@ -1197,7 +1194,7 @@ void dfs_record_inbound_element(
 
 	selected.push_back(current);
 
-	if(current->touch_blocked() || !current->has_exposed_children()) return;
+	if(current->touch_propagate_blocked() || !current->has_exposed_children()) return;
 
 	auto transformed = current->transform_to_content_space(cursorPos);
 

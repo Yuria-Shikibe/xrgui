@@ -25,146 +25,157 @@ import std;
 namespace mo_yanxi::graphic::draw::instruction{
 export
 struct image_view_history_dynamic{
-	using handle_t = void*;
-	static_assert(sizeof(handle_t) == sizeof(std::uint64_t));
+    using handle_t = void*;
+    static_assert(sizeof(handle_t) == sizeof(std::uint64_t));
 
-	struct use_record{
-		handle_t handle;
-		std::uint32_t use_count;
-	};
+    struct use_record{
+       handle_t handle;
+       std::uint32_t use_count;
+    };
 
 private:
-	std::vector<handle_t, aligned_allocator<handle_t, 32>> images{};
-	std::vector<use_record> use_count{};
-	handle_t latest{};
-	std::uint32_t latest_index{};
-	std::uint32_t count_{};
-	bool changed{};
+    std::vector<handle_t, aligned_allocator<handle_t, 32>> images{};
+    std::vector<use_record> use_count{};
+    handle_t latest{};
+    std::uint32_t latest_index{};
+    std::uint32_t count_{};
+    bool changed{};
 
 public:
-	[[nodiscard]] image_view_history_dynamic() = default;
+    [[nodiscard]] image_view_history_dynamic() = default;
 
-	[[nodiscard]] explicit image_view_history_dynamic(std::uint32_t capacity){
-		set_capacity(capacity);
-	}
+    [[nodiscard]] explicit image_view_history_dynamic(std::uint32_t capacity){
+       set_capacity(capacity);
+    }
 
-	void set_capacity(std::size_t new_capacity){
-		images.resize(4 + (new_capacity + 3) / 4 * 4);
-		use_count.resize(4 + (new_capacity + 3) / 4 * 4);
-	}
+    void set_capacity(std::size_t new_capacity){
+       images.resize(4 + (new_capacity + 3) / 4 * 4);
+       use_count.resize(4 + (new_capacity + 3) / 4 * 4);
+    }
 
-	void extend(handle_t handle){
-		auto lastSz = images.size();
-		images.resize(images.size() + 4);
-		images[lastSz] = handle;
-	}
+    void extend(handle_t handle){
+       auto lastSz = images.size();
+       images.resize(images.size() + 4);
+       // 修复：必须同步扩展 use_count，否则在 try_push 中必定越界
+       use_count.resize(images.size());
+       images[lastSz] = handle;
+    }
 
-	bool check_changed() noexcept{
-		return std::exchange(changed, false);
-	}
+    bool check_changed() noexcept{
+       return std::exchange(changed, false);
+    }
 
-	auto size() const noexcept{
-		return images.size();
-	}
+    auto size() const noexcept{
+       return images.size();
+    }
 
-	FORCE_INLINE void clear(this image_view_history_dynamic& self) noexcept{
-		self = {};
-	}
+    FORCE_INLINE void clear(this image_view_history_dynamic& self) noexcept{
+       self = {};
+    }
 
-	FORCE_INLINE void reset() noexcept{
-		images.clear();
-		use_count.clear();
-		latest = nullptr;
-		latest_index = 0;
-		count_ = 0;
-		changed = false;
-	}
+    FORCE_INLINE void reset() noexcept{
+       images.clear();
+       use_count.clear();
+       latest = nullptr;
+       latest_index = 0;
+       count_ = 0;
+       changed = false;
+    }
 
-	FORCE_INLINE void optimize_and_reset() noexcept{
-		for(unsigned i = 0; i < images.size(); ++i){
-			use_count[i].handle = images[i];
-		}
-		std::ranges::sort(use_count, std::ranges::greater{}, &use_record::use_count);
-		unsigned i = 0;
-		for(; i < images.size(); ++i){
-			if(use_count[i].use_count == 0){
-				break;
-			}
-			images[i] = use_count[i].handle;
-		}
-		images.erase(images.begin() + i, images.end());
-		use_count.assign(images.size(), use_record{});
+    FORCE_INLINE void optimize_and_reset() noexcept{
+       for(std::size_t i = 0; i < images.size(); ++i){
+          use_count[i].handle = images[i];
+       }
+       std::ranges::sort(use_count, std::ranges::greater{}, &use_record::use_count);
 
-		latest = nullptr;
-		latest_index = 0;
-		count_ = 0;
-		changed = false;
-	}
+       std::size_t i = 0;
+       for(; i < images.size(); ++i){
+          if(use_count[i].use_count == 0){
+             break;
+          }
+          images[i] = use_count[i].handle;
+       }
 
-	template <typename T>
-		requires (sizeof(T) == sizeof(void*))
-	[[nodiscard]] FORCE_INLINE std::span<const T> get() const noexcept{
-		return {reinterpret_cast<const T*>(images.data()), count_};
-	}
+       // 擦除无效元素
+       images.erase(images.begin() + i, images.end());
+       // 修复：强制对齐到 4 的整数倍，以保证 SIMD 指令的绝对安全
+       // vector 的 resize 针对新增的元素会自动执行 zero-initialization，也就是 nullptr
+       images.resize((images.size() + 3) / 4 * 4);
 
-	[[nodiscard]] FORCE_INLINE std::uint32_t try_push(handle_t image) noexcept{
-		if(!image) return std::numeric_limits<std::uint32_t>::max();
-		if(image == latest) return latest_index;
+       use_count.assign(images.size(), use_record{});
+
+       latest = nullptr;
+       latest_index = 0;
+       count_ = 0;
+       changed = false;
+    }
+
+    template <typename T>
+       requires (sizeof(T) == sizeof(void*))
+    [[nodiscard]] FORCE_INLINE std::span<const T> get() const noexcept{
+       return {reinterpret_cast<const T*>(images.data()), count_};
+    }
+
+    [[nodiscard]] FORCE_INLINE std::uint32_t try_push(handle_t image) noexcept{
+       if(!image) return std::numeric_limits<std::uint32_t>::max();
+       if(image == latest) return latest_index;
 #ifndef __AVX2__
-		for(std::size_t idx = 0; idx < images.size(); ++idx){
-			auto& cur = images[idx];
-			if(image == cur){
-				latest = image;
-				latest_index = idx;
-				++use_count[idx].use_count;
-				return idx;
-			}
+       for(std::size_t idx = 0; idx < images.size(); ++idx){
+          auto& cur = images[idx];
+          if(image == cur){
+             latest = image;
+             latest_index = static_cast<std::uint32_t>(idx);
+             ++use_count[idx].use_count;
+             return static_cast<std::uint32_t>(idx);
+          }
 
-			if(cur == nullptr){
-				latest = cur = image;
-				latest_index = idx;
-				count_ = idx + 1;
-				++use_count[idx].use_count;
-				changed = true;
-				return idx;
-			}
-		}
+          if(cur == nullptr){
+             latest = cur = image;
+             latest_index = static_cast<std::uint32_t>(idx);
+             count_ = static_cast<std::uint32_t>(idx + 1);
+             ++use_count[idx].use_count;
+             changed = true;
+             return static_cast<std::uint32_t>(idx);
+          }
+       }
 #else
-		const __m256i target = _mm256_set1_epi64x(std::bit_cast<std::int64_t>(image));
-		const __m256i zero = _mm256_setzero_si256();
-		for(std::uint32_t group_idx = 0; group_idx != images.size(); group_idx += 4){
-			const auto group = _mm256_load_si256(reinterpret_cast<const __m256i*>(images.data() + group_idx));
-			const auto eq_mask = _mm256_cmpeq_epi64(group, target);
-			if(const auto eq_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(eq_mask))){
-				const auto idx = group_idx + std::countr_zero(eq_bits) / 8;
-				latest = image;
-				latest_index = idx;
-				count_ = std::max(count_, idx + 1);
-				++use_count[idx].use_count;
-				return idx;
-			}
+       const __m256i target = _mm256_set1_epi64x(std::bit_cast<std::int64_t>(image));
+       const __m256i zero = _mm256_setzero_si256();
+       // 修复：将判断条件从 != 修改为 <，增强在非完全对齐情况下的鲁棒性
+       for(std::uint32_t group_idx = 0; group_idx < images.size(); group_idx += 4){
+          const auto group = _mm256_load_si256(reinterpret_cast<const __m256i*>(images.data() + group_idx));
+          const auto eq_mask = _mm256_cmpeq_epi64(group, target);
+          if(const auto eq_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(eq_mask))){
+             const auto idx = group_idx + std::countr_zero(eq_bits) / 8;
+             latest = image;
+             latest_index = idx;
+             count_ = std::max(count_, idx + 1);
+             ++use_count[idx].use_count;
+             return idx;
+          }
 
-			const auto null_mask = _mm256_cmpeq_epi64(group, zero);
-			if(const auto null_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(null_mask))){
-				const auto idx = group_idx + std::countr_zero(null_bits) / 8;
-				images[idx] = image;
-				latest = image;
-				latest_index = idx;
-				count_ = idx + 1;
-				++use_count[idx].use_count;
-				changed = true;
-				return idx;
-			}
-		}
+          const auto null_mask = _mm256_cmpeq_epi64(group, zero);
+          if(const auto null_bits = std::bit_cast<std::uint32_t>(_mm256_movemask_epi8(null_mask))){
+             const auto idx = group_idx + std::countr_zero(null_bits) / 8;
+             images[idx] = image;
+             latest = image;
+             latest_index = idx;
+             count_ = idx + 1;
+             ++use_count[idx].use_count;
+             changed = true;
+             return idx;
+          }
+       }
 #endif
-		const auto idx = static_cast<std::uint32_t>(images.size());
-		set_capacity(idx * 2);
-		images[idx] = image;
-		++use_count[idx].use_count;
-		latest = image;
-		latest_index = idx;
-		return idx;
-	}
+       // 当空间不足时：由于前面的逻辑无法找到可用的 nullptr 槽位，说明已满，进行自动追加扩展
+       const auto idx = static_cast<std::uint32_t>(images.size());
+       set_capacity(idx * 2); // set_capacity 保证会将其大小扩大至足够，且同步应用到 images 和 use_count
+       images[idx] = image;
+       ++use_count[idx].use_count;
+       latest = image;
+       latest_index = idx;
+       return idx;
+    }
 };
 }
 

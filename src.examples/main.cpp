@@ -32,7 +32,7 @@ import mo_yanxi.gui.fx.config;
 import mo_yanxi.gui.fx.fringe;
 import mo_yanxi.gui.fx.instruction_extension;
 import mo_yanxi.gui.elem.label;
-import mo_yanxi.gui.elem.text_edit_v2;
+import mo_yanxi.gui.elem.text_edit;
 
 import mo_yanxi.gui.assets;
 import mo_yanxi.gui.image_regions;
@@ -322,6 +322,20 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		font_manager.set_default_family(&default_family);
 
 		font::default_font_manager = &font_manager;
+	}
+
+	{
+		auto& icon_p = image_atlas.create_image_page("tex.logo", {
+			.extent = {1920, 1080},
+			.margin = 0
+		});
+		const auto image_path = std::filesystem::current_path().append("assets/images").make_preferred();
+
+		auto rst = icon_p.register_named_region("logo", image_load_description{
+			bitmap_path_load{(image_path / "logo.png").string()}
+		}, true);
+
+		gui::assets::builtin::get_page().insert(gui::assets::builtin::shape_id::logo, gui::constant_image_region_borrow{rst.region});
 	}
 
 	{

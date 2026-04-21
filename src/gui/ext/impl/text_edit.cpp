@@ -1,4 +1,4 @@
-module mo_yanxi.gui.elem.text_edit_v2;
+module mo_yanxi.gui.elem.text_edit;
 
 import mo_yanxi.unicode;
 import mo_yanxi.math.matrix3;
@@ -120,7 +120,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
     	if(is_layout_expired_()){
     		layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2);
     		get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
-    		render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
+    		render_cache_.update_buffer(glyph_layout_);
     		change_mark_ = text_edit_change_type::none;
 
     		update_caret_cache();
@@ -142,7 +142,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
                 ((change_mark_ & text_edit_change_type::config) != text_edit_change_type::none) || ((change_mark_ &
                     text_edit_change_type::text) != text_edit_change_type::none)){
             	get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
-            	render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
+            	render_cache_.update_buffer(glyph_layout_);
             	change_mark_ = text_edit_change_type::none;
 
             	update_caret_cache();
@@ -166,7 +166,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
             set_input_invalid();
             get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
         }
-        render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
+        render_cache_.update_buffer(glyph_layout_);
         change_mark_ = text_edit_change_type::none;
         update_caret_cache();
 
@@ -268,6 +268,7 @@ void text_edit::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 				fx::batch_draw_mode::msdf
 			};
 			transform_guard _t{r, mat};
+			color_guard g_{r, e.get_draw_scl_color()};
 
 			e.render_cache_.push_to_renderer(r);
 		}
@@ -686,13 +687,6 @@ events::op_afterwards text_edit::on_esc(){
 	}
 
 	return events::op_afterwards::fall_through;
-}
-
-graphic::color text_edit::get_text_draw_color() const noexcept{
-	if(is_idle_){
-		return graphic::colors::light_gray.copy().mul_a(0.65f * get_draw_opacity());
-	}
-	return render_cache_.get_draw_color(get_draw_opacity(), is_disabled());
 }
 
 void text_edit::set_text_internal(std::u32string_view str){

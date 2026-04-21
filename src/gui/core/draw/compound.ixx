@@ -51,6 +51,7 @@ constexpr void dash_line(math::section<PointTy> segment, const Range& pattern, F
 	}
 }
 
+export
 struct arrow_info{
 	std::array<math::vec2, 3> vertices;
 	float thick;

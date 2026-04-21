@@ -4,11 +4,11 @@ module;
 #include <mo_yanxi/enum_operator_gen.hpp>
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.gui.elem.text_edit_v2;
+export module mo_yanxi.gui.elem.text_edit;
 
 import std;
 export import mo_yanxi.gui.text_edit_core;
-export import mo_yanxi.gui.text_render_cache;
+export import mo_yanxi.gui.text_render;
 import mo_yanxi.typesetting.rich_text;
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.graphic.color;
@@ -157,6 +157,8 @@ protected:
 
 	void check_paste_();
 public:
+	graphic::color text_color_scl{graphic::colors::white};
+
 	[[nodiscard]] text_edit(scene& scene, elem* parent)
 		: elem(scene, parent){
 		interactivity = interactivity_flag::enabled;
@@ -228,19 +230,17 @@ public:
 		}
 	}
 
-	[[nodiscard]] std::optional<graphic::color> get_text_color_scl() const noexcept{
-		return render_cache_.get_text_color_scl();
-	}
-
-	void set_text_color_scl(const std::optional<graphic::color>& text_color_scl){
-		if(render_cache_.set_text_color_scl(text_color_scl)){
-			render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
+	[[nodiscard]] graphic::color get_draw_scl_color() const noexcept{
+		auto scl = (is_disabled() ? .5f : 1.f) * get_draw_opacity();
+		if(is_idle_){
+			return graphic::colors::light_gray.copy().mul_a(0.65f * scl);
 		}
+		return text_color_scl.copy().mul_a(scl);
 	}
 
 	void set_line_align(typesetting::line_alignment align){
 		if(render_cache_.set_line_align(align)){
-			render_cache_.update_buffer(glyph_layout_, get_text_draw_color());
+			render_cache_.update_buffer(glyph_layout_);
 		}
 	}
 #pragma endregion
@@ -385,7 +385,6 @@ public:
 protected:
 	void update_caret_cache();
 
-	graphic::color get_text_draw_color() const noexcept;
 
 	bool is_layout_expired_() const noexcept{
 		return change_mark_ != text_edit_change_type::none;

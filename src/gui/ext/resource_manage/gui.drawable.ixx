@@ -121,6 +121,10 @@ struct EMPTY_BASE combined_components : Comps..., base<Comps...>{
 };
 
 
+template <typename ...Components>
+combined_components(Components&&...) -> combined_components<std::decay_t<Components>...>;
+
+
 }
 
 

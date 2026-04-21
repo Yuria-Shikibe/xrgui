@@ -1,4 +1,4 @@
-export module mo_yanxi.gui.elem.double_side;
+export module mo_yanxi.gui.elem.flipper;
 
 import std;
 import mo_yanxi.gui.infrastructure;

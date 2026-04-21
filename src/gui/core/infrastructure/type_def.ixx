@@ -19,4 +19,12 @@ export using altitude_t = unsigned;
 
 export constexpr std::size_t draw_pass_max_capacity = 8;
 
+export enum struct elem_tree_channel : std::uint8_t{
+	deduced = 0,
+	regular = 0b001,
+	tooltip = 0b010,
+	overlay = 0b100,
+	all = regular | tooltip | overlay,
+};
+
 }

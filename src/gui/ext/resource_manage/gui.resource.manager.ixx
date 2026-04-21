@@ -274,6 +274,9 @@ export inline constexpr std::string_view page_name = {page_name_str_array.data()
 export
 enum struct shape_id{
 	white,
+
+	logo,
+
 	row_separator,
 	round_square_edge,
 	round_square_edge_thin,

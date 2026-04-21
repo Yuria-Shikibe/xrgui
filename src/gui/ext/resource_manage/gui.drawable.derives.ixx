@@ -35,7 +35,15 @@ struct drawable_image final : drawable_base{
 
 	void draw(renderer_frontend& renderer, const math::raw_frect& region,
 		const graphic::color& color_scl) const override;
+
+
+	math::optional_vec2<float> get_preferred_extent() const noexcept override{
+		return {image_region->uv.get_region_size<float>()};
+	}
 };
+
+template <typename RegionTy, typename ...Components>
+drawable_image(RegionTy&&, const component::combined_components<Components...>&) -> drawable_image<Components...>;
 
 export
 template <typename ...Components>
@@ -127,6 +135,14 @@ void drawable_image<Components...>::draw(renderer_frontend& renderer, const math
 	const fx::primitive_draw_mode mode = components;
 	graphic::draw::quad_group<graphic::color> vcolor = components;
 	vcolor *= color_scl;
+
+	[[maybe_unused]] state_guard guard{};
+	if constexpr(mo_yanxi::is_any_of<component::batch_draw_mode, Components...>){
+		fx::batch_draw_mode bm = components;
+		guard = {renderer, bm};
+	}else{
+		guard = {renderer, fx::batch_draw_mode::def};
+	}
 
 	renderer.push(rect_aabb{
 		.generic = {

@@ -2,7 +2,6 @@ module;
 
 #include <cassert>
 
-#include "../../../../external/mo_yanxi_vulkan_wrapper/external/VulkanMemoryAllocator/src/Common.h"
 
 export module mo_yanxi.gui.compound.named_slider;
 
