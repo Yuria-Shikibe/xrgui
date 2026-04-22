@@ -1,6 +1,7 @@
 name: Build XRGUI with Preview MSVC
 
 env:
+  PYTHONUTF8: 1
   VULKAN_VER: 1.4.341.1
 
 on:
