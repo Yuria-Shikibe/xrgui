@@ -1,6 +1,7 @@
 name: Build XRGUI with Preview MSVC
 
 env:
+  PYTHONUTF8: 1
   VULKAN_VER: 1.4.341.1
 
 on:
@@ -103,10 +104,10 @@ jobs:
       # ==========================================
 
       - name: Configure xmake
-        run: xmake f -m release --toolchain=msvc -y
+        run: xmake f -m release --toolchain=msvc --vs=2026 --vs_toolset=14.5 -cyv
 
       - name: Build xrgui.example
-        run: xmake build xrgui.example
+        run: xmake -v xrgui.example
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
