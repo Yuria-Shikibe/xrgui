@@ -203,7 +203,7 @@ private:
 	unsigned get_index_of() const{
 		static constexpr auto idx = unstable_type_identity_of<T>();
 		const auto* ientry = table[idx];
-		const auto i = ientry - table.begin();
+		const std::size_t i = ientry - table.begin();
 		if(i >= table.size()){
 			throw std::out_of_range{std::format("Unknown type: {}", idx->name())};
 		}

@@ -41,8 +41,8 @@ protected:
     float sweep_angle = 0.0f;
 
 
-    color vertex_color_start = element.draw_config.color.src;
-    color vertex_color_end = element.draw_config.color.dst;
+    color vertex_color_start = element.draw_config.color.src.copy().mul_a(opacityScl);
+    color vertex_color_end = element.draw_config.color.dst.copy().mul_a(opacityScl);
 
     if (state == progress_state::rough) {
 

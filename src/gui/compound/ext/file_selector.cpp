@@ -7,12 +7,15 @@ import mo_yanxi.gui.elem.table;
 import mo_yanxi.gui.elem.flipper;
 import mo_yanxi.gui.elem.check_box;
 
+import mo_yanxi.gui.elem.progress_bar;
+
 import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.elem.drag_split;
 import mo_yanxi.gui.action.elem;
 
 import mo_yanxi.core.platform;
 import mo_yanxi.gui.util.animator;
+import mo_yanxi.gui.style.progress_bars;
 
 
 namespace mo_yanxi::gui::cpd{
@@ -840,24 +843,57 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 		b.set_style();
 		b.set_split_pos(.3f);
 
-		b.create_head([this](scroll_pane& p){
+		b.create_head([this](scroll_adaptor<sequence>& p){
 			set_style_edge_only(p);
 			p.set_layout_policy(layout::layout_policy::hori_major);
-			p.create([this](sequence& seq){
-				seq.set_style();
-				seq.template_cell.set_size(60);
-				seq.template_cell.set_pad({3, 3});
-				for(auto& quick_access_folder : platform::get_quick_access_folders()){
-					if(!std::filesystem::is_directory(quick_access_folder)) continue;
-					seq.create_back([&, pth = quick_access_folder](button<direct_label>& l){
-						set_style_side_bar(l);
-						l.set_fit(true);
-						l.set_tokenized_text({pth.u32string(), typesetting::tokenize_tag::raw});
-						l.set_button_callback([this, pth]{
-							visit_directory(pth);
-						});
-					});
-				}
+			auto& seq = p.get_elem();
+
+			seq.set_style();
+			seq.set_expand_policy(layout::expand_policy::prefer);
+			seq.template_cell.set_size(60);
+			seq.template_cell.set_pad({3, 3});
+
+
+			seq.create_back([&](progress_bar& prog){
+				prog.set_style();
+				prog.progress.set_state(progress_state::approach_smooth);
+				prog.progress.set_speed(.0001f);
+				referenced_ptr<style::ring_progress> drawer{std::in_place};
+				drawer->thickness = 32;
+				prog.draw_config.color = {graphic::colors::light_gray, graphic::colors::light_gray};
+
+				prog.set_self_boarder(gui::boarder{}.set(32));
+				prog.set_drawer(std::move(drawer));
+				prog.set_progress_state(progress_state::rough);
+			}).cell().set_passive();
+
+			util::post_elem_async_task(*this, [&](file_selector& r){
+				return elem_async_yield_task{
+						r, [](file_selector& r, gui::scene& s){
+							return platform::get_quick_access_folders()
+								| std::views::filter([](const std::filesystem::path& p){
+									std::error_code ec{};
+									auto rst = std::filesystem::is_directory(p, ec);
+									return rst;
+								})
+								| std::views::transform(&std::filesystem::path::u32string)
+								| std::ranges::to<std::vector>();
+						},
+						[&seq](file_selector& r, gui::scene& s, std::vector<std::u32string>&& fast_aceesses){
+							seq.clear();
+
+							for(auto& quick_access_folder : fast_aceesses){
+								seq.create_back([&, &pth = quick_access_folder](button<direct_label>& l){
+									set_style_side_bar(l);
+									l.set_fit(true);
+									l.set_tokenized_text({std::move(pth), typesetting::tokenize_tag::raw});
+									l.set_button_callback([&, sv = l.get_tokenized_text().get_text()]{
+										r.visit_directory(sv);
+									});
+								});
+							}
+						}
+					};
 			});
 		});
 
