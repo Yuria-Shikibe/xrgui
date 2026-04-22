@@ -5,9 +5,9 @@ env:
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -19,6 +19,10 @@ jobs:
         with:
           submodules: recursive
 
+      # ==========================================
+      # 第一阶段：轻量级环境与资产生成（Fail-fast）
+      # ==========================================
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -28,14 +32,56 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip' # 自动缓存 pip 下载的包，加快后续 CI 速度
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # 请根据你的 Python 脚本实际需求，在这里补全需要安装的包
+          # 如果你项目里有 requirements.txt，可以直接换成: pip install -r requirements.txt
+          pip install tomli # 假设解析 config.toml 需要此包，请按需修改
+
+      - name: Setup Slang Compiler
+        run: |
+          # 1. 通过 GitHub API 获取最新的 Release 信息
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/shader-slang/slang/releases/latest"
+          $tag = $release.tag_name
+          
+          # 2. 剥离可能存在的 'v' 前缀以获取纯数字版本号 (例如将 v2026.7 转换为 2026.7)
+          $version = $tag -replace '^v', ''
+          
+          # 3. 拼接真实的下载链接
+          $downloadUrl = "https://github.com/shader-slang/slang/releases/download/$tag/slang-$version-windows-x86_64.zip"
+          Write-Host "Downloading Slang Compiler from: $downloadUrl"
+          
+          # 4. 下载并解压
+          Invoke-WebRequest -Uri $downloadUrl -OutFile slang.zip
+          Expand-Archive slang.zip -DestinationPath C:\slang
+          
+          # 5. 注入环境变量
+          echo "C:\slang\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Generate Assets (Icon & Slang)
+        run: |
+          # 由于是全局 task，无需 MSVC 和 xmake f 即可直接运行
+          xmake gen_slang
+          xmake gen_icon
+
+      # ==========================================
+      # 第二阶段：重度编译环境配置（耗时较长）
+      # ==========================================
 
       - name: Install Vulkan SDK
         run: |
-          Write-Host "Downloading Vulkan SDK ..."
+          Write-Host "Downloading Vulkan SDK ${{ env.VULKAN_VER }}..."
           Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/${{ env.VULKAN_VER }}/windows/vulkansdk-windows-X64-${{ env.VULKAN_VER }}.exe" -OutFile VulkanSDK.exe
           
           Write-Host "Installing Vulkan SDK (Headers and Loader)..."
-          # LunarG 安装器支持通过命令行静默安装
           Start-Process -FilePath .\VulkanSDK.exe -ArgumentList "--root C:\VulkanSDK --accept-licenses --default-answer --confirm-command install" -Wait -NoNewWindow
           
           Write-Host "Configuring Environment Variables..."
@@ -53,25 +99,15 @@ jobs:
           Write-Host "Adding Tools to PATH..."
           echo "C:\BuildTools\Common7\Tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Setup Slang Compiler
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/shader-slang/slang/releases/latest/download/slang-windows-x86_64.zip" -OutFile slang.zip
-          Expand-Archive slang.zip -DestinationPath C:\slang
-          echo "C:\slang\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      # ==========================================
+      # 第三阶段：核心编译与产物上传
+      # ==========================================
 
-      - name: Setup xmake
-        uses: xmake-io/github-action-setup-xmake@v1
-        with:
-          xmake-version: latest
-
-      - name: Configure and Generate Assets
-        run: |
-          xmake f -m release --toolchain=msvc -yv
-          xmake gen_slang
-          xmake gen_icon
+      - name: Configure xmake
+        run: xmake f -m release --toolchain=msvc -y
 
       - name: Build xrgui.example
-        run: xmake -v xrgui.example
+        run: xmake build xrgui.example
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
