@@ -10,7 +10,14 @@ local root_dir = os.projectdir()
 if current_dir == root_dir then
     set_arch("x64")
     set_encodings("utf-8")
-    set_symbols("debug")
+
+    if os.getenv("GITHUB_ACTIONS") == "true" then
+
+    else
+        set_symbols("debug")
+        set_strip("debug")
+    end
+
     add_vectorexts("avx", "avx2")
     set_policy("build.warning", true)
 
@@ -152,7 +159,7 @@ target("xrgui.example")
 
 
     add_rules("media.svg_to_bin")
-    add_files("properties/assets/images/**.svg")
+    add_files("properties/assets_raw/gen/**.svg")
 
     on_config(function (target)
         import("core.project.config")
@@ -180,7 +187,7 @@ target("xrgui.example")
 
             local summary_lines = { "#pragma once\n" }
 
-            local src_basedir = path.join(os.projectdir(), "properties/assets/images")
+            local src_basedir = path.join(os.projectdir(), "properties/assets_raw/gen")
             local svg_files = os.files(path.join(src_basedir, "**.svg"))
 
             for _, file in ipairs(svg_files) do
@@ -228,8 +235,9 @@ task("gen_slang")
         local path_builder = path.join(current_dir, "./properties/build_util/slang_builder.py");
         local path_config = path.join(current_dir, option.get("config"));
         local path_slangc = option.get("complier");
+        local pass = option.get("pass");
 
-        os.exec("py " .. path_builder .. " " .. path_slangc .. " " .. option.get("output") .. " " .. path_config .. " -j 30")
+        os.exec("py " .. path_builder .. " " .. path_slangc .. " " .. option.get("output") .. " " .. path_config .. " -j 30 " .. pass)
     end)
 
     set_menu({
@@ -238,13 +246,14 @@ task("gen_slang")
             {'c', "complier", "kv", "./slang/bin/slangc.exe", "Path to slangc.exe"},
             {'o', "output", "kv", "./properties/assets/shader/spv", "Spirv Output Dir Relative To Directory Root"},
             {'f', "config", "kv", "./properties/assets/shader/config.toml", "Shader Build Config"},
+            {'p', "pass", "kv", "", "Pass through args to py"},
         }
     })
 task_end()
 
 task("gen_icon")
     on_run(function ()
-        os.exec("py ./properties/assets_raw/svg_normalize.py -i ./properties/assets_raw/icons -o ./properties/assets/images/icons")
+        os.exec("py ./properties/assets_raw/svg_normalize.py -i ./properties/assets_raw/icons -o ./properties/assets_raw/gen/icons")
     end)
 
     set_menu({

@@ -214,7 +214,7 @@ def compile_shader(
         print(f"\n✗ 编译过程中发生异常: {e}")
         return False, str(e)
 
-def compile_and_hash_task(slangc_path: str, task: dict, show_cmds: bool) -> Tuple[bool, str, dict, Optional[List[str]], Optional[Dict[str, List]]]:
+def compile_and_hash_task(slangc_path: str, task: dict, show_cmds: bool, is_oneshot: bool) -> Tuple[bool, str, dict, Optional[List[str]], Optional[Dict[str, List]]]:
     """子进程工作任务：包含编译自身以及后置的依赖解析和指纹采集"""
     success, msg = compile_shader(
         slangc_path,
@@ -227,6 +227,10 @@ def compile_and_hash_task(slangc_path: str, task: dict, show_cmds: bool) -> Tupl
 
     if not success:
         return False, msg, task, None, None
+
+    # 如果是全量且不保留状态的 oneshot 模式，跳过依赖解析和指纹收集
+    if is_oneshot:
+        return True, msg, task, None, None
 
     # 解析依赖文件，传入 input 路径以便于进行相对路径求值
     depfile_path = Path(task['depfile'])
@@ -253,6 +257,7 @@ def main() -> None:
     default_jobs = multiprocessing.cpu_count()
     parser.add_argument('-j', '--jobs', type=int, default=default_jobs, help=f'允许并行执行的任务数 (默认: {default_jobs})')
     parser.add_argument('--show-cmds', action='store_true', help='输出实际执行的编译命令')
+    parser.add_argument('--oneshot', action='store_true', help='指示只进行一次全量编译，不记录缓存和依赖，并自动清理中间文件')
 
     args = parser.parse_args()
 
@@ -270,6 +275,8 @@ def main() -> None:
     print(f"输出目录: {output_dir}")
     print(f"配置文件: {config_file}")
     print(f"期望并行度 (-j): {args.jobs}")
+    if args.oneshot:
+        print("运行模式: 单次全量编译 (不记录缓存与依赖，自动清理)")
     print("-" * 60)
 
     if not slangc_path.exists():
@@ -299,24 +306,28 @@ def main() -> None:
 
     # --- 增量编译：加载缓存 ---
     cache_dir = working_dir / ".slang_build_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_dir / "build_cache.json"
 
     build_cache = {}
-    if cache_file.exists():
-        try:
-            with open(cache_file, 'r', encoding='utf-8') as f:
-                build_cache = json.load(f)
-        except Exception:
-            print("⚠ 缓存文件损坏，将执行全量编译。")
-            build_cache = {}
+    if not args.oneshot:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    build_cache = json.load(f)
+            except Exception:
+                print("⚠ 缓存文件损坏，将执行全量编译。")
+                build_cache = {}
 
     new_cache = {}
     success_count = 0
     fail_count = 0
     skip_count = 0
 
-    print("\n开始快速检查着色器依赖树...")
+    if args.oneshot:
+        print("\n跳过依赖检查，准备全量编译着色器...")
+    else:
+        print("\n开始快速检查着色器依赖树...")
     print("-" * 60)
 
     tasks_to_run = []
@@ -342,29 +353,30 @@ def main() -> None:
         full_options = common_options + shader_options
         opts_hash = get_options_hash(full_options)
 
-        # 检查是否可以跳过编译（基于 mtime+size 指纹快速预筛）
-        cached_data = build_cache.get(shader_alias, {})
-        cached_deps = cached_data.get('deps', [])
-
         can_skip = False
-        if output_file_path.exists() and cached_deps:
-            # 先检查编译选项（零 I/O，最快）
-            if opts_hash == cached_data.get('options_hash'):
-                # 再检查主文件指纹（单次 stat 调用）
-                main_fp = get_file_fingerprint(full_shader_path)
-                cached_main_fp = cached_data.get('main_file_fingerprint')
-                if main_fp and cached_main_fp and main_fp == cached_main_fp:
-                    # 最后检查所有依赖文件指纹
-                    cached_deps_fps = cached_data.get('deps_fingerprints', {})
-                    if cached_deps_fps:
-                        all_deps_ok = True
-                        for dep in cached_deps:
-                            dep_fp = get_file_fingerprint(dep)
-                            cached_dep_fp = cached_deps_fps.get(dep)
-                            if dep_fp is None or cached_dep_fp is None or dep_fp != cached_dep_fp:
-                                all_deps_ok = False
-                                break
-                        can_skip = all_deps_ok
+        if not args.oneshot:
+            # 检查是否可以跳过编译（基于 mtime+size 指纹快速预筛）
+            cached_data = build_cache.get(shader_alias, {})
+            cached_deps = cached_data.get('deps', [])
+
+            if output_file_path.exists() and cached_deps:
+                # 先检查编译选项（零 I/O，最快）
+                if opts_hash == cached_data.get('options_hash'):
+                    # 再检查主文件指纹（单次 stat 调用）
+                    main_fp = get_file_fingerprint(full_shader_path)
+                    cached_main_fp = cached_data.get('main_file_fingerprint')
+                    if main_fp and cached_main_fp and main_fp == cached_main_fp:
+                        # 最后检查所有依赖文件指纹
+                        cached_deps_fps = cached_data.get('deps_fingerprints', {})
+                        if cached_deps_fps:
+                            all_deps_ok = True
+                            for dep in cached_deps:
+                                dep_fp = get_file_fingerprint(dep)
+                                cached_dep_fp = cached_deps_fps.get(dep)
+                                if dep_fp is None or cached_dep_fp is None or dep_fp != cached_dep_fp:
+                                    all_deps_ok = False
+                                    break
+                            can_skip = all_deps_ok
 
         if can_skip:
             print(f"⏭️ 增量跳过: {shader_alias} (主文件与依赖树未修改)")
@@ -372,20 +384,28 @@ def main() -> None:
             skip_count += 1
             new_cache[shader_alias] = cached_data
         else:
+            # 无论是否oneshot模式，编译前如果遇到遗留的.d文件都先清理
             if dep_file_path.exists():
                 try:
                     dep_file_path.unlink()
                 except Exception:
                     pass
 
-            task_options = full_options + ['-depfile', str(dep_file_path)]
+            # 如果是 oneshot，则不向 slangc 传递生成 depfile 的选项
+            if args.oneshot:
+                task_options = full_options
+                depfile_str = None
+            else:
+                task_options = full_options + ['-depfile', str(dep_file_path)]
+                depfile_str = str(dep_file_path)
+
             main_fp = get_file_fingerprint(full_shader_path)
 
             tasks_to_run.append({
                 'alias': shader_alias,
                 'input': str(full_shader_path),
                 'output': str(output_file_path),
-                'depfile': str(dep_file_path),
+                'depfile': depfile_str,
                 'options': task_options,
                 'opts_hash': opts_hash,
                 'main_file_fingerprint': main_fp
@@ -403,24 +423,26 @@ def main() -> None:
                     compile_and_hash_task,
                     str(slangc_path),
                     task,
-                    args.show_cmds
+                    args.show_cmds,
+                    args.oneshot
                 )
                 futures[future] = task
 
-            # 主进程此时只需极速合并结果字典
+            # 主进程此时只需合并结果字典
             for future in as_completed(futures):
                 try:
                     success, message, task_info, new_deps, deps_fingerprints = future.result()
                     if success:
                         success_count += 1
 
-                        # 直接写入缓存，零计算成本
-                        new_cache[task_info['alias']] = {
-                            'main_file_fingerprint': task_info['main_file_fingerprint'],
-                            'deps': new_deps,
-                            'deps_fingerprints': deps_fingerprints,
-                            'options_hash': task_info['opts_hash']
-                        }
+                        if not args.oneshot:
+                            # 仅在非 oneshot 模式写入缓存对象
+                            new_cache[task_info['alias']] = {
+                                'main_file_fingerprint': task_info['main_file_fingerprint'],
+                                'deps': new_deps,
+                                'deps_fingerprints': deps_fingerprints,
+                                'options_hash': task_info['opts_hash']
+                            }
                     else:
                         fail_count += 1
                 except Exception as e:
@@ -429,12 +451,21 @@ def main() -> None:
                     print(f"✗ 运行编译任务 '{failed_task['alias']}' 时发生意外错误: {e}")
                     fail_count += 1
 
-    # 保存新的缓存
-    try:
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump(new_cache, f, indent=4)
-    except Exception as e:
-        print(f"⚠ 写入缓存文件失败: {e}")
+    # 保存新的缓存 (仅非 oneshot 模式)
+    if not args.oneshot:
+        try:
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(new_cache, f, indent=4)
+        except Exception as e:
+            print(f"⚠ 写入缓存文件失败: {e}")
+    else:
+        # 脚本退出前清理中间文件，确保只保留 .spv
+        print("\n[Oneshot 模式] 正在清理无用的中间依赖文件...")
+        for p in output_dir.glob("*.d"):
+            try:
+                p.unlink()
+            except Exception:
+                pass
 
     # 输出总结
     print("\n" + "=" * 60)

@@ -3,6 +3,7 @@ name: Build XRGUI with Preview MSVC
 env:
   PYTHONUTF8: 1
   VULKAN_VER: 1.4.341.1
+  MSVC_VER: 14.52
 
 on:
   push:
@@ -82,17 +83,16 @@ jobs:
       - name: Generate Assets (Icon & Slang)
         run: |
           # 由于是全局 task，无需 MSVC 和 xmake f 即可直接运行
-          xmake gen_slang
-          xmake gen_icon
+          xmake gen_slang -p "--oneshot --show-cmds"
+          xmake gen_icon 
 
       # ==========================================
       # 第二阶段：重度编译环境配置（耗时较长）
       # ==========================================
 
-      - name: Download and Install VS 2026 Insider Build Tools (Preview MSVC)
+      - name: Download and Install VS 2026 Insider Build Tools (Preview MSVC ${{ env.MSVC_VER }})
         shell: pwsh
         run: |
-          # 使用正确的 Insider 通道链接（原 /pre/ 已不可靠）
           $installerUrl = "https://aka.ms/vs/18/insiders/vs_BuildTools.exe"
           Write-Host "Downloading VS 2026 Insider Build Tools from: $installerUrl"
           Invoke-WebRequest -Uri $installerUrl -OutFile "vs_buildtools_insider.exe"
@@ -100,39 +100,40 @@ jobs:
           $installArgs = @(
             "--quiet", "--wait", "--norestart", "--nocache",
             "--installPath", "C:\VS2026Insider",
-            "--add", "Microsoft.VisualStudio.Workload.VCTools",
-            "--add", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "--add", "Microsoft.VisualStudio.Workload.VCTools",           # 基础 C++ 工作负载
+            "--add", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", # Latest（兼容 vcpkg 等）
+            "--add", "Microsoft.VisualStudio.Component.VC.Preview.Tools.x86.x64", # ← 关键：${{ env.MSVC_VER }} Preview
             "--includeRecommended"
           )
 
-          Write-Host "Installing VS 2026 Insider Preview MSVC..."
+          Write-Host "Installing VS 2026 Insider + MSVC ${{ env.MSVC_VER }} Preview..."
           $process = Start-Process -FilePath ".\vs_buildtools_insider.exe" -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
 
           if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
-              Write-Host "Installation completed successfully."
+              Write-Host "Installation completed successfully (MSVC ${{ env.MSVC_VER }} Preview included)."
           } else {
               Write-Error "Installation failed with exit code: $($process.ExitCode)"
               exit 1
           }
           
-      - name: Export VS 2026 Insider Environment to GITHUB_ENV
+      - name: Export VS 2026 Insider Environment (MSVC ${{ env.MSVC_VER }} Preview)
         shell: pwsh
         run: |
-          # 使用 vswhere 可靠查找 Insider/Preview 实例（必须加 -prerelease）
+          # 使用 vswhere 可靠定位 Insider 实例
           $installPath = & vswhere.exe -latest -prerelease -products * `
             -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
             -property installationPath
-      
+
           if (-not $installPath) {
-              Write-Error "VS 2026 Insider not found! Installation may have failed."
+              Write-Error "VS 2026 Insider not found!"
               exit 1
           }
-      
+
           Write-Host "Found VS 2026 Insider at: $installPath"
           $vcvarsall = Join-Path $installPath "VC\Auxiliary\Build\vcvarsall.bat"
-      
-          # 导出完整环境变量
-          $envLines = cmd /c "call `"$vcvarsall`" x64 >nul && set"
+
+          $envLines = cmd /c "call `"$vcvarsall`" x64 -vcvars_ver=${{ env.MSVC_VER }} >nul && set"
+
           foreach ($line in $envLines) {
               if ($line -match "^(.*?)=(.*)$") {
                   $key = $matches[1]
@@ -142,14 +143,14 @@ jobs:
                   }
               }
           }
-          Write-Host "MSVC Insider environment exported successfully."
+          Write-Host "MSVC ${{ env.MSVC_VER }} Preview environment exported successfully."
 
       # ==========================================
       # 第三阶段：核心编译与产物上传
       # ==========================================
 
       - name: Configure xmake
-        run: xmake f -m release --toolchain=msvc --vs=2026 --vs_toolset=14.52 -cyv
+        run: xmake f -m release --toolchain=msvc --vs=2026 --vs_toolset=${{ env.MSVC_VER }} -cyv
 
       - name: Build xrgui.example
         run: xmake -v xrgui.example
