@@ -32,7 +32,7 @@ jobs:
       - name: Install Vulkan SDK
         run: |
           Write-Host "Downloading Vulkan SDK ..."
-          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/${{ env.VULKAN_VER }}/windows/VulkanSDK-${{ env.VULKAN_VER }}-Installer.exe" -OutFile VulkanSDK.exe
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/${{ env.VULKAN_VER }}/windows/vulkansdk-windows-X64-${{ env.VULKAN_VER }}.exe" -OutFile VulkanSDK.exe
           
           Write-Host "Installing Vulkan SDK (Headers and Loader)..."
           # LunarG 安装器支持通过命令行静默安装
