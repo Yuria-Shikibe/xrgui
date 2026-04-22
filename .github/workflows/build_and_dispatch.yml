@@ -26,11 +26,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Setup Vulkan SDK
-        uses: humbletim/setup-vulkan-sdk@v1.2.0
-        with:
-          vulkan-query-version: 1.4.x
-          vulkan-components: Vulkan-Headers, Vulkan-Loader
+      - name: Install Vulkan SDK
+        run: |
+          Write-Host "Downloading Vulkan SDK ..."
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/1.4.304.0/windows/VulkanSDK-1.4.341.1-Installer.exe" -OutFile VulkanSDK.exe
+          
+          Write-Host "Installing Vulkan SDK (Headers and Loader)..."
+          # LunarG 安装器支持通过命令行静默安装
+          Start-Process -FilePath .\VulkanSDK.exe -ArgumentList "--root C:\VulkanSDK --accept-licenses --default-answer --confirm-command install" -Wait -NoNewWindow
+          
+          Write-Host "Configuring Environment Variables..."
+          echo "VULKAN_SDK=C:\VulkanSDK" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "C:\VulkanSDK\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Visual Studio Preview Build Tools (Minimal)
         run: |
