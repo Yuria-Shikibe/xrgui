@@ -13,7 +13,7 @@ on:
 jobs:
   build:
     # === 关键修改1：切换到预装 VS 2026 的 runner ===
-    runs-on: windows-2025-vs2026   # ← 原来是 windows-latest
+    runs-on: windows-latest   # ← 原来是 windows-latest
 
     steps:
       - name: Checkout repository
@@ -88,6 +88,61 @@ jobs:
       # ==========================================
       # 第二阶段：重度编译环境配置（耗时较长）
       # ==========================================
+
+      - name: Download and Install VS 2026 Insider Build Tools (Preview MSVC)
+        shell: pwsh
+        run: |
+          # 使用正确的 Insider 通道链接（原 /pre/ 已不可靠）
+          $installerUrl = "https://aka.ms/vs/18/insiders/vs_BuildTools.exe"
+          Write-Host "Downloading VS 2026 Insider Build Tools from: $installerUrl"
+          Invoke-WebRequest -Uri $installerUrl -OutFile "vs_buildtools_insider.exe"
+
+          $installArgs = @(
+            "--quiet", "--wait", "--norestart", "--nocache",
+            "--installPath", "C:\VS2026Insider",
+            "--add", "Microsoft.VisualStudio.Workload.VCTools",
+            "--add", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "--includeRecommended"
+          )
+
+          Write-Host "Installing VS 2026 Insider Preview MSVC..."
+          $process = Start-Process -FilePath ".\vs_buildtools_insider.exe" -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
+
+          if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
+              Write-Host "Installation completed successfully."
+          } else {
+              Write-Error "Installation failed with exit code: $($process.ExitCode)"
+              exit 1
+          }
+          
+      - name: Export VS 2026 Insider Environment to GITHUB_ENV
+        shell: pwsh
+        run: |
+          # 使用 vswhere 可靠查找 Insider/Preview 实例（必须加 -prerelease）
+          $installPath = & vswhere.exe -latest -prerelease -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+      
+          if (-not $installPath) {
+              Write-Error "VS 2026 Insider not found! Installation may have failed."
+              exit 1
+          }
+      
+          Write-Host "Found VS 2026 Insider at: $installPath"
+          $vcvarsall = Join-Path $installPath "VC\Auxiliary\Build\vcvarsall.bat"
+      
+          # 导出完整环境变量
+          $envLines = cmd /c "call `"$vcvarsall`" x64 >nul && set"
+          foreach ($line in $envLines) {
+              if ($line -match "^(.*?)=(.*)$") {
+                  $key = $matches[1]
+                  $value = $matches[2]
+                  if ($key -notin "PROMPT", "ComSpec") {
+                      echo "$key=$value" >> $env:GITHUB_ENV
+                  }
+              }
+          }
+          Write-Host "MSVC Insider environment exported successfully."
 
       # ==========================================
       # 第三阶段：核心编译与产物上传
