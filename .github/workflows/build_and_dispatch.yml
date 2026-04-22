@@ -32,7 +32,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip' # 自动缓存 pip 下载的包，加快后续 CI 速度
 
       - name: Install Python Dependencies
         run: |
