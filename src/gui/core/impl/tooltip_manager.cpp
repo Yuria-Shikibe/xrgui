@@ -106,34 +106,30 @@ void tooltip_manager::update(
 	}
 
 	if(!is_mouse_pressed){
-
-		const auto lastNotInBound = std::ranges::find_if_not(actives_, [&, this](const tooltip_instance& toolTip){
-			if(toolTip.owner->tooltip_should_drop(cursor_pos))return false;
+		const auto r_last_hovered = std::ranges::find_if(actives_ | std::views::reverse, [&, this](const tooltip_instance& toolTip){
+			if(toolTip.owner->tooltip_should_drop(cursor_pos)) return false;
 
 			const auto follow = toolTip.owner->tooltip_get_align_config().follow;
-
 			const bool selfContains = follow != anchor_type::cursor && toolTip.element->contains_self(cursor_pos, MarginSize);
-
 			const bool ownerContains = follow != anchor_type::initial_pos && toolTip.owner->tooltip_spawner_contains(cursor_pos);
+
 			return selfContains || ownerContains || toolTip.owner->tooltip_should_maintain(cursor_pos);
 		});
 
+		auto keep_end = r_last_hovered.base();
 
-		for(auto it = actives_.begin(); it != lastNotInBound; ++it) {
+		for(auto it = actives_.begin(); it != keep_end; ++it) {
 			it->drop_timer = 0.f;
 		}
 
-
 		auto drop_it = actives_.end();
-		for(auto it = lastNotInBound; it != actives_.end(); ++it) {
+		for(auto it = keep_end; it != actives_.end(); ++it) {
 			it->drop_timer += delta_in_time;
-
 
 			if (it->drop_timer >= DropDelayTime && drop_it == actives_.end()) {
 				drop_it = it;
 			}
 		}
-
 
 		if (drop_it != actives_.end()) {
 			drop_since(drop_it);

@@ -477,8 +477,8 @@ public:
 
 		using hsv_picker::hsv_picker;
 
+	protected:
 		void on_color_changed(graphic::color color) override{
-			std::println(std::cerr, "{:a}", color);
 			auto rgba = color.to_rgba8888();
 
 			if constexpr (std::endian::native == std::endian::little){
@@ -515,7 +515,8 @@ public:
 				s.template_cell.set_pad({4, 4});
 				s.set_style();
 
-				for(int i = 0; i < 3 + has_alpha; ++i){
+				auto total = 3 + has_alpha;
+				for(int i = 0; i < total; ++i){
 					s.create_back([i](gui::direct_label& e){
 						e.set_style();
 						e.set_self_boarder({.left = 4});
@@ -525,7 +526,12 @@ public:
 					s.create_back([&](rgba_input& e){
 						e.set_style();
 						rgba_channel_inputs[i] = &e;
-					}).cell().set_passive(1.7f).set_pad({4, 20});
+					}).cell().set_passive(1.7f);
+					if(i != total - 1){
+						s.create_back([](elem& e){
+							e.set_style();
+						}).cell().set_passive(.3f);
+					}
 				}
 			}, layout::layout_policy::hori_major);
 

@@ -306,9 +306,11 @@ public:
 			display.set_style();
 			display.set_expand_policy(layout::expand_policy::passive);
 			display.create_back([this](arrow& a){
-				a.set_self_boarder(gui::boarder{}.set_hori(4));
+				a.set_min_extent({40, 0});
+				a.config.margin = 2;
+				a.set_self_boarder(gui::boarder{.left = 2}.set_vert(2));
 				util::sync_set_elem_style(a, style::family_variant::base_only);
-			}, true).cell().set_size({layout::size_category::scaling, .5f});
+			}, true).cell().set_size({layout::size_category::scaling, .56f});
 			display.create_back([this](direct_label& label){
 				label_ = &label;
 				label.text_entire_align = align::pos::center;
@@ -317,9 +319,11 @@ public:
 				label.set_fit_type(label_fit_type::scl);
 			});
 			display.create_back([this](arrow& a){
-				a.set_self_boarder(gui::boarder{}.set_hori(4));
+				a.set_min_extent({40, 0});
+				a.config.margin = 2;
+				a.set_self_boarder(gui::boarder{.right = 2}.set_vert(2));
 				util::sync_set_elem_style(a, style::family_variant::base_only);
-			}, false).cell().set_size({layout::size_category::scaling, .5f});
+			}, false).cell().set_size({layout::size_category::scaling, .56f});
 		});
 
 		this->create(1, [this](numeric_text_edit& edit){

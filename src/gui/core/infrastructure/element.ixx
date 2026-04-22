@@ -927,6 +927,10 @@ public:
 		return size_.get_size();
 	}
 
+	[[nodiscard]] FORCE_INLINE inline const clamped_fsize& extent_raw() const noexcept{
+		return size_;
+	}
+
 	FORCE_INLINE inline bool set_max_extent(math::vec2 ext) noexcept{
 		if(size_.set_maximum_size(ext)){
 			this->resize(extent());

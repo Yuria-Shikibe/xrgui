@@ -12,7 +12,8 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # === 关键修改1：切换到预装 VS 2026 的 runner ===
+    runs-on: windows-2025-vs2026   # ← 原来是 windows-latest
 
     steps:
       - name: Checkout repository
@@ -87,49 +88,6 @@ jobs:
       # ==========================================
       # 第二阶段：重度编译环境配置（耗时较长）
       # ==========================================
-
-      - name: Download and Install MSVC Preview (VS 2026 Insider)
-        shell: pwsh
-        run: |
-          # 下载 VS 2026 Preview 的 Build Tools 引导程序
-          Invoke-WebRequest -Uri "https://aka.ms/vs/18/pre/vs_buildtools.exe" -OutFile "vs_buildtools_pre.exe"
-          
-          # 设定静默安装参数（仅安装 C++ 核心编译组件以节省时间）
-          $installArgs = @(
-            "--quiet",
-            "--wait",
-            "--norestart",
-            "--nocache",
-            "--installPath", "C:\VS2026Preview",
-            "--add", "Microsoft.VisualStudio.Workload.VCTools",
-            "--includeRecommended"
-          )
-          
-          Write-Host "Starting MSVC Insider installation..."
-          $process = Start-Process -FilePath ".\vs_buildtools_pre.exe" -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
-          
-          if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
-              Write-Host "Installation completed successfully."
-          } else {
-              Write-Error "Installation failed with exit code: $($process.ExitCode)"
-              exit 1
-          }
-          
-      - name: Export MSVC Insider Environment to GITHUB_ENV
-        shell: pwsh
-        run: |
-          # 借用 cmd 执行 bat 并打印环境变量，筛选出变化后写入 GitHub 全局环境
-          $envLines = cmd /c "call `"C:\VS2026Preview\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && set"
-          foreach ($line in $envLines) {
-              if ($line -match "^(.*?)=(.*)$") {
-                  $key = $matches[1]
-                  $value = $matches[2]
-                  # 排除一些无用的基础变量防止冲突
-                  if ($key -notin "PROMPT", "ComSpec") {
-                      echo "$key=$value" >> $env:GITHUB_ENV
-                  }
-              }
-          }
 
       # ==========================================
       # 第三阶段：核心编译与产物上传

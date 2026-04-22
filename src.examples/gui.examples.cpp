@@ -627,7 +627,8 @@ make_style_result make_styles(scene& scene){
 		{
 			auto gst = templt;
 			gst.base = gst.back;
-			gst.base.pal.node.set_value(gst.base.pal.node.get_value().copy().mul_rgb(2.f));
+			gst.base.pal->disconnect_self_from_context();
+			gst.base.pal.node.set_value(gst.base.pal.node.get_value().copy().mul_alpha(2.f));
 			default_family.set(family_variant::solid, referenced_ptr<round_style>{std::in_place, gst});
 		}
 

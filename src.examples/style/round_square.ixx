@@ -31,7 +31,7 @@ public:
 	}
 
 	bool has_provenance() const noexcept{
-		return get_inputs().front() == nullptr;
+		return get_inputs().front() != nullptr;
 	}
 
 	bool set_value(const palette& pal) noexcept{

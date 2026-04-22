@@ -1,8 +1,41 @@
 # 注：你可以自己重写style来提供比默认样式更好的效果
 
-#### 注：当前展示页不包含所有元素，且也无法展示动画效果
+## 动画展示
+
+### 文件选择器
+![file_selector.avif](screen_shots/animation/file_selector.avif)
 
 ---
+### 表格和Collapser
+![table.avif](screen_shots/animation/table.avif)
+
+
+---
+### 文本输入框和富文本
+![text_input.avif](screen_shots/animation/text_input.avif)
+
+
+
+---
+### CSV表格
+![csv_table.avif](screen_shots/animation/csv_table.avif)
+
+
+---
+### 滑动条
+![sliders.avif](screen_shots/animation/sliders.avif)
+
+
+---
+### 拾色器
+![color_picker.avif](screen_shots/animation/color_picker.avif)
+
+---
+### Viewport/样条线/MSDF字体抗锯齿
+![viewport.avif](screen_shots/animation/viewport.avif)
+
+## 静态展示
+
 ### 启动页
 ![img.png](screen_shots/img.png)
 

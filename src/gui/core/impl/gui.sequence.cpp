@@ -27,6 +27,8 @@ namespace mo_yanxi::gui{
 	const float minorScaling = list.get_scaling().*minorTarget;
 
 	for (auto && cell : cells){
+		auto minor_min = cell.element->extent_raw().get_minimum_size().*minorTarget;
+		auto minor_max = cell.element->extent_raw().get_maximum_size().*minorTarget;
 		masterings_capture += cell.cell.pad.length();
 		switch(cell.cell.stated_size.type){
 		case layout::size_category::pending:{
@@ -41,6 +43,7 @@ namespace mo_yanxi::gui{
 		}
 		case layout::size_category::mastering:{
 			float value = cell.cell.stated_size.value * minorScaling;
+			value = math::clamp(value, minor_min, minor_max);
 			if(cache)cache->push_back(value);
 			masterings_capture += value;
 			break;
@@ -52,6 +55,7 @@ namespace mo_yanxi::gui{
 		}
 		case layout::size_category::scaling:{
 			float value = cell.cell.stated_size.value * layout_major_size;
+			value = math::clamp(value, minor_min, minor_max);
 
 			if(cache)cache->push_back(value);
 			masterings_capture += value;
