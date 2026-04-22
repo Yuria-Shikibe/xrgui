@@ -88,10 +88,10 @@ jobs:
       # 第二阶段：重度编译环境配置（耗时较长）
       # ==========================================
 
-      - name: Install Visual Studio Preview Build Tools (Minimal)
+      - name: Install Visual Studio 18 Preview Build Tools (Minimal)
         run: |
-          Write-Host "Downloading VS Build Tools Preview..."
-          Invoke-WebRequest -Uri "https://aka.ms/vs/17/pre/vs_buildtools.exe" -OutFile vs_buildtools.exe
+          Write-Host "Downloading VS 18 Build Tools Preview..."
+          Invoke-WebRequest -Uri "https://aka.ms/vs/18/pre/vs_buildtools.exe" -OutFile vs_buildtools.exe
           
           Write-Host "Installing Minimal C++ Toolchain (MSVC + WinSDK only)..."
           Start-Process -FilePath .\vs_buildtools.exe -ArgumentList "--quiet --wait --norestart --nocache --installPath C:\BuildTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621" -Wait -NoNewWindow
@@ -104,7 +104,7 @@ jobs:
       # ==========================================
 
       - name: Configure xmake
-        run: xmake f -m release --toolchain=msvc --vs=2026 --vs_toolset=14.5 -cyv
+        run: xmake f -m release --toolchain=msvc --vs=2026 --vs_toolset=14.52 -cyv
 
       - name: Build xrgui.example
         run: xmake -v xrgui.example
