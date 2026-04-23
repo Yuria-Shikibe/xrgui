@@ -96,6 +96,7 @@ struct main_loop {
 
 private:
 	thread_sync_controller sync_ctrl{};
+	std::exception_ptr captured_exception_{nullptr};
 
 	graphic::uniformed_trail trail{60, .75f};
 
@@ -143,20 +144,32 @@ public:
 		sync_ctrl.allow_b();
 	}
 
-	void wait_term() const noexcept {
+public:
+	void wait_term() { // 移除 const 和 noexcept
 		sync_ctrl.wait_for_b_done();
+		propagate_exception();
 	}
 
-	void wait_until_idle() const noexcept {
+	void wait_until_idle() { // 移除 const 和 noexcept
 		if(sync_ctrl.not_permitted_yet()) {
 			return;
 		}
 		wait_term();
 	}
 
-	void wait_term_and_reset() noexcept {
+	void wait_term_and_reset() { // 移除 noexcept
 		sync_ctrl.wait_for_b_done_and_reset();
+		propagate_exception();
 	}
+
+private:
+	void propagate_exception() {
+		if (captured_exception_) {
+			std::rethrow_exception(std::exchange(captured_exception_, nullptr));
+		}
+	}
+
+public:
 
 	void reset_term() noexcept {
 		sync_ctrl.reset_done();
@@ -174,20 +187,20 @@ public:
 		if constexpr (std::is_void_v<ret_ty>) {
 			try {
 				fn();
-			} catch(const std::exception& e) {
+			} catch(...) {
+				captured_exception_ = std::current_exception();
 				sync_ctrl.set_done();
-				std::println(std::cerr, "{}", e.what());
-				throw;
+				return;
 			}
 			sync_ctrl.set_done();
 		} else {
-			ret_ty ret;
+			ret_ty ret{};
 			try {
 				ret = fn();
-			} catch(const std::exception& e) {
+			} catch(...) {
+				captured_exception_ = std::current_exception();
 				sync_ctrl.set_done();
-				std::println(std::cerr, "{}", e.what());
-				throw;
+				return ret;
 			}
 			sync_ctrl.set_done();
 			return ret;
@@ -205,7 +218,7 @@ public:
 	void main_loop_exec();
 
 	bool sync_main_loop(const std::stop_token& stoptoken) {
-		return term([&, this] {
+		bool should_stop = term([&, this] {
 			if(stoptoken.stop_requested()) {
 				clear_main_ui();
 				return true;
@@ -213,6 +226,8 @@ public:
 			main_loop_exec();
 			return false;
 		});
+
+		return should_stop || captured_exception_ != nullptr;
 	}
 
 	void done_(){

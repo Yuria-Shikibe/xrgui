@@ -891,7 +891,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 				test_entry{
 					"csv", [](cpd::data_table& table){
 						table._debug_identity = 114;
-						table.get_item() = cpd::data_table_desc::from_csv(LR"(D:\projects\untitled\shader info.csv)");
+						table.get_item() = cpd::data_table_desc::from_csv(LR"(assets/test.csv)");
 						table.notify_isolated_layout_changed();
 					}
 				},

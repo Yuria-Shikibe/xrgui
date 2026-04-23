@@ -1,0 +1,8 @@
+id,name,description,remark
+1,Normal Item,普通商品,无
+2,"Apple, Inc.",带有逗号的名称,正常
+3,"Super ""Deluxe""",带有内部转义双引号,解析器保留原始格式
+4,"Multi-line
+Description",带有换行符的字段,测试跨行
+5,Empty Test,,中间有空字段
+6,Trailing Empty,结尾有空字段,
