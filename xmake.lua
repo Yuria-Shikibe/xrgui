@@ -47,7 +47,7 @@ rule("media.svg_to_bin")
         import("utils.binary.bin2c")
 
         local my_res_inc = path.join(config.builddir(), ".assets", "includes")
-        local src_basedir = path.join(os.projectdir(), "properties/assets/images")
+        local src_basedir = path.join(os.projectdir(), "properties/assets_raw/gen")
         local rel_path = path.relative(sourcefile, src_basedir)
         local headerfile = path.join(my_res_inc, rel_path .. ".h")
 
