@@ -245,7 +245,7 @@ task("gen_slang")
         options = {
             {'c', "complier", "kv", "./slang/bin/slangc.exe", "Path to slangc.exe"},
             {'o', "output", "kv", "./properties/assets/shader/spv", "Spirv Output Dir Relative To Directory Root"},
-            {'f', "config", "kv", "./properties/assets/shader/config.toml", "Shader Build Config"},
+            {'f', "config", "kv", "./properties/assets_raw/shader/config.toml", "Shader Build Config"},
             {'p', "pass", "kv", "", "Pass through args to py"},
         }
     })
