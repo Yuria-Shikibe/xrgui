@@ -148,6 +148,8 @@ public:
 	void wait_term() { // 移除 const 和 noexcept
 		sync_ctrl.wait_for_b_done();
 		propagate_exception();
+
+
 	}
 
 	void wait_until_idle() { // 移除 const 和 noexcept
@@ -165,7 +167,12 @@ public:
 private:
 	void propagate_exception() {
 		if (captured_exception_) {
-			std::rethrow_exception(std::exchange(captured_exception_, nullptr));
+			try{
+				std::rethrow_exception(std::exchange(captured_exception_, nullptr));
+			}catch(const std::exception& e){
+				std::println(std::cerr, "{}", e.what());
+				throw;
+			}
 		}
 	}
 

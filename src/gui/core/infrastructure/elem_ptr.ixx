@@ -90,19 +90,14 @@ struct elem_ptr{
 	}
 
 	template <typename  InitFunc, typename... Args>
-		requires (!spec_of<InitFunc, std::in_place_type_t> && invocable_elem_init_func<InitFunc>)
-	[[nodiscard]] elem_ptr(scene& scene, elem* parent, InitFunc&& initFunc, Args&&... args)
-		: elem_ptr{
-			scene, parent, std::in_place_type<elem_init_func_create_t<InitFunc>>, std::forward<Args>(args)...
-		}{
-		try{
-			std::invoke(initFunc,
-			            static_cast<std::add_lvalue_reference_t<elem_init_func_create_t<InitFunc>>>(*
-				            element));
-		} catch(...){
-			delete_elem(element);
-			throw;
-		}
+	requires (!spec_of<InitFunc, std::in_place_type_t> && invocable_elem_init_func<InitFunc>)
+[[nodiscard]] elem_ptr(scene& scene, elem* parent, InitFunc&& initFunc, Args&&... args)
+	: elem_ptr{
+		scene, parent, std::in_place_type<elem_init_func_create_t<InitFunc>>, std::forward<Args>(args)...
+	}{
+		std::invoke(initFunc,
+					static_cast<std::add_lvalue_reference_t<elem_init_func_create_t<InitFunc>>>(*
+						element));
 	}
 
 
