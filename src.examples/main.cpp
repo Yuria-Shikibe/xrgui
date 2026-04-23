@@ -339,6 +339,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		std::println("[GUI] Load Logo Image");
 		auto& icon_p = image_atlas.create_image_page("tex.logo", {
 			.extent = {1920, 1080},
+			.format = VK_FORMAT_R8G8B8A8_SRGB,
 			.margin = 0
 		});
 		const auto image_path = std::filesystem::current_path().append("assets/images").make_preferred();

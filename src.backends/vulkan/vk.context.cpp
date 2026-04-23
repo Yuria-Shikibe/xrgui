@@ -10,8 +10,8 @@ constexpr inline std::array device_extensions{
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 		VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
 
-		VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
-		VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
+		// VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
+		// VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
 		VK_KHR_MAINTENANCE_9_EXTENSION_NAME,
 		// VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
 
@@ -143,16 +143,16 @@ const extension_chain extChain{
 		PhysicalDeviceVulkan11Features,
 		PhysicalDeviceVulkan12Features,
 		PhysicalDeviceVulkan13Features,
-		PhysicalDeviceVulkan14Features,
+		// PhysicalDeviceVulkan14Features,
 
-		UntypedPointer,
+		// UntypedPointer,
 
 		PhysicalDeviceExtendedDynamicState3Features,
 
 		DescriptorBufferFeatures,
 		// DescriptorHeapFeatures,
 
-		MeshShaderFeatures,
+		// MeshShaderFeatures,
 	};
 }
 
@@ -409,42 +409,52 @@ void context::record_post_command(bool no_fence_wait){
 		bf.end();
 	}
 }
-
-void context::create_device(){
+void context::create_device() {
 	auto [devices, rst] = enumerate(vkEnumeratePhysicalDevices, static_cast<VkInstance>(instance));
 
-	if(devices.empty()){
+	if (devices.empty()) {
 		throw std::runtime_error("Failed to find GPUs with Vulkan support!");
 	}
 
 	std::multimap<std::uint32_t, struct physical_device, std::greater<std::uint32_t>> candidates{};
 
-	for(const auto& device : devices){
+	std::println("[Vulkan] Found {} physical device(s), starting evaluation...", devices.size());
+
+	for (const auto& device : devices) {
 		auto d = vk::physical_device{device};
-		candidates.insert(std::make_pair(d.rate_device(), d));
+		std::uint32_t score = d.rate_device();
+		std::println("-> Found device: {} (Initial score: {})", d.get_name(), score);
+		candidates.insert(std::make_pair(score, d));
 	}
 
-	for(const auto& [score, device] : candidates){
-		if(score && device.valid(surface, device_extensions)){
+	for (const auto& [score, device] : candidates) {
+		std::println("Evaluating candidate: {} (Score: {})", device.get_name(), score);
+
+		if (score == 0) {
+			std::println("  [Skip] Device score is 0, rejected.");
+			continue;
+		}
+
+		if (device.valid(surface, device_extensions)) {
 			physical_device = device;
 			break;
 		}
 	}
 
-	if(!physical_device){
+	if (!physical_device) {
 		std::println(std::cerr, "[Vulkan] Failed to find a suitable GPU");
 		throw unqualified_error("Failed to find a suitable GPU!");
-	} else{
-		std::println("[Vulkan] On Physical Device: {}", physical_device.get_name());
+	} else {
+		std::println("[Vulkan] Final selection: {}", physical_device.get_name());
 	}
 
 	physical_device.cache_properties(surface);
 
 	device = logical_device{
-			physical_device, physical_device.queues,
-			device_extensions,
-			RequiredFeatures::RequiredFeatures, RequiredFeatures::extChain
-		};
+		physical_device, physical_device.queues,
+		device_extensions,
+		RequiredFeatures::RequiredFeatures, RequiredFeatures::extChain
+	};
 }
 
 void context::recreate(bool no_fence_wait){
