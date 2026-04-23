@@ -79,7 +79,7 @@ void app_run(
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
 	auto& current_focus = main_loop.get_scene();;
-
+	std::println("[App] Entering Main Loop");
 	main_loop.wait_term_and_reset();
 	while(!ctx.window().should_close()){
 		ctx.window().poll_events();
@@ -106,11 +106,15 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	const auto shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
 
-	vk::register_default_requirements(ctx.get_device(), ctx.get_physical_device());
+
+
+	std::println("[GUI] Core Initialize ");
 	gui::global::initialize();
 	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
+	std::println("[GUI] Core Initialize Done");
 
 #pragma region InitRenderer
+	std::println("[GUI] Renderer Initialize");
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 	//renderer should belong to main loop actually
 	auto renderer = [&]() -> backend::vulkan::renderer{
@@ -284,15 +288,21 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 				}
 			};
 	}();
+	std::println("[GUI] Renderer Initialize Done");
+
 #pragma endregion
 
 #pragma region LoadResource
+	std::println("[GUI] Image Atlas Initialize ");
 	image_atlas image_atlas{
 			ctx,
 			ctx.graphic_family(),
 			ctx.get_device().graphic_queue(1),
 			renderer.get_heap_dynamic_image_section()
 		};
+	std::println("[GUI] Image Atlas Initialize Done ");
+
+	std::println("[GUI] Font Manager Initialize");
 	font::font_manager font_manager{};
 	font_manager.set_page(image_atlas.create_image_page("font"));
 
@@ -323,8 +333,10 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 		font::default_font_manager = &font_manager;
 	}
+	std::println("[GUI] Font Manager Initialize Done");
 
 	{
+		std::println("[GUI] Load Logo Image");
 		auto& icon_p = image_atlas.create_image_page("tex.logo", {
 			.extent = {1920, 1080},
 			.margin = 0
@@ -339,12 +351,16 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	}
 
 	{
+		std::println("[GUI] Generate Icons and Shapes");
+
 		gui::example::generate_default_shapes(image_atlas);
 		gui::example::load_default_icons(image_atlas);
 	}
 #pragma endregion
 
 #pragma region SetupRenderGraph
+	std::println("[Compositor] Initialize");
+
 	compositor::manager manager{ctx.get_allocator()};
 	vk::shader_module shader_filter_high_light = {
 			ctx.get_device(), shader_spv_path / "post_process.highlight_extract.spv"
@@ -453,7 +469,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	pass_blur.data.set_scale(1.25f);
 	pass_blur.data.set_mix_factor(.025f);
 	pass_blur.data.set_strength(1.f, 1.f);
-
+	std::println("[Compositor] Initialize Done");
 #pragma endregion
 
 #pragma region GuiBindingFn
@@ -545,9 +561,11 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	};
 #pragma endregion
 
+	std::println("[GUI] Async Scene Setup");
 	gui::example::main_loop main_loop{renderer, ctx, init_fn};
 	main_loop.permit_burst();
 	main_loop.wait_term();
+	std::println("[GUI] Async Scene Setup Done");
 
 	auto post_process_cmd = ctx.get_compute_command_pool().obtain();
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
@@ -592,6 +610,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	ctx.record_post_command(true);
 
 	app_run(main_loop, ctx, renderer, post_process_cmd);
+
+	std::println("[GUI] Exiting...");
 
 	main_loop.join();
 
@@ -730,6 +750,7 @@ int main(){
 	{
 		backend::vulkan::context ctx{appInfo};
 		vk::load_ext(ctx.get_instance());
+		vk::register_default_requirements(ctx.get_device(), ctx.get_physical_device());
 
 		prepare(ctx);
 	}

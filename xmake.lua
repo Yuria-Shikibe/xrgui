@@ -109,7 +109,7 @@ function set_xrgui_deps()
 --         end
 --     end)
 
-    add_links("shaderc_shared")
+--     add_links("shaderc_shared")
 end
 
 target("xrgui")
