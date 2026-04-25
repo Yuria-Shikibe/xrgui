@@ -307,13 +307,13 @@ protected:
 			    };
 	    }
 
-    	fx::fringe::poly(renderer, fx::circle{
+	    	renderer << fx::fringe::poly(fx::circle{
 			.pos = region.src + curr_off,
 			.radius = {math::fdim(radius, 1.25f), radius + 1.25f},
 			.color = {color, color}
 		}, .7f);
 
-    	fx::fringe::poly(renderer, fx::circle{
+	    	renderer << fx::fringe::poly(fx::circle{
 			.pos = region.src + base_off,
 			.radius = {0, radius},
 			.color = {color, color}

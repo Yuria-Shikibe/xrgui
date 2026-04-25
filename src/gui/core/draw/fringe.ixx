@@ -39,16 +39,110 @@ FORCE_INLINE CONST_FN bool is_nearly_zero_assume_positive(T f) noexcept{
 export
 inline constexpr float fringe_size = 1.12f;
 
+enum struct edge_position : bool{
+	from,
+	to,
+};
+
+enum struct stroke_band : bool{
+	inner,
+	outer,
+};
+
+[[nodiscard]] FORCE_INLINE instruction::poly make_poly_fringe_instr(
+	const instruction::poly& instr,
+	float fringe,
+	edge_position edge
+) noexcept{
+	auto fringe_instr = instr;
+
+	if(edge == edge_position::from){
+		fringe_instr.radius.to = fringe_instr.radius.from - fringe;
+		fringe_instr.color.to = fringe_instr.color.from.make_transparent();
+	} else{
+		fringe_instr.radius.from = fringe_instr.radius.to + fringe;
+		fringe_instr.color.from = fringe_instr.color.to.make_transparent();
+	}
+
+	return fringe_instr;
+}
+
+[[nodiscard]] FORCE_INLINE instruction::poly_partial make_poly_partial_fringe_instr(
+	const instruction::poly_partial& instr,
+	float fringe,
+	edge_position edge
+) noexcept{
+	auto fringe_instr = instr;
+
+	if(edge == edge_position::from){
+		fringe_instr.radius.to = fringe_instr.radius.from - fringe;
+		fringe_instr.color.v10 = fringe_instr.color.v00.make_transparent();
+		fringe_instr.color.v11 = fringe_instr.color.v01.make_transparent();
+	} else{
+		fringe_instr.radius.from = fringe_instr.radius.to + fringe;
+		fringe_instr.color.v00 = fringe_instr.color.v10.make_transparent();
+		fringe_instr.color.v01 = fringe_instr.color.v11.make_transparent();
+	}
+
+	return fringe_instr;
+}
+
+[[nodiscard]] FORCE_INLINE instruction::poly_partial make_poly_partial_cap_instr(
+	const instruction::poly_partial& instr,
+	float cap_fringe,
+	edge_position edge
+) noexcept{
+	auto cap_instr = instr;
+	const auto radius = instr.radius.mid();
+	const auto rad_scale = cap_fringe / radius / math::pi_2;
+
+	if(edge == edge_position::from){
+		cap_instr.range.extent = std::copysign(rad_scale, -instr.range.extent);
+		cap_instr.color.v01 = cap_instr.color.v00.make_transparent();
+		cap_instr.color.v11 = cap_instr.color.v10.make_transparent();
+	} else{
+		const auto off = std::copysign(rad_scale, instr.range.extent);
+		cap_instr.range.base = instr.range.dst() + off;
+		cap_instr.range.extent = -off;
+		cap_instr.color.v00 = cap_instr.color.v01.make_transparent();
+		cap_instr.color.v10 = cap_instr.color.v11.make_transparent();
+	}
+
+	cap_instr.segments = 1;
+	return cap_instr;
+}
+
+[[nodiscard]] FORCE_INLINE instruction::parametric_curve make_curve_fringe_instr(
+	const instruction::parametric_curve& instr,
+	float fringe,
+	stroke_band band
+) noexcept{
+	auto fringe_instr = instr;
+	const math::range half_stroke{instr.stroke.from * .5f, instr.stroke.to * .5f};
+
+	if(band == stroke_band::inner){
+		fringe_instr.offset += half_stroke;
+		fringe_instr.offset += fringe / 2;
+		fringe_instr.color.v00 = fringe_instr.color.v10.make_transparent();
+		fringe_instr.color.v01 = fringe_instr.color.v11.make_transparent();
+	} else{
+		fringe_instr.offset -= half_stroke;
+		fringe_instr.offset -= fringe / 2;
+		fringe_instr.color.v10 = fringe_instr.color.v10.make_transparent();
+		fringe_instr.color.v11 = fringe_instr.color.v11.make_transparent();
+	}
+
+	fringe_instr.stroke = {fringe, fringe};
+	return fringe_instr;
+}
+
 export
 struct poly_fringe_at_from_draw{
 	instruction::poly instr;
 	float fringe = fringe_size;
 
-	void operator()(graphic::draw::emit_t emit, auto& sink) const {
-		auto instr_inner = instr;
-		instr_inner.radius.to = instr_inner.radius.from - fringe;
-		instr_inner.color.to = instr_inner.color.from.make_transparent();
-		emit(sink, instr_inner);
+	FORCE_INLINE void operator()(emit_t emit, auto& sink) const {
+		emit(sink, make_poly_fringe_instr(instr, fringe, edge_position::from));
 	}
 };
 
@@ -57,11 +151,8 @@ struct poly_fringe_at_to_draw{
 	instruction::poly instr;
 	float fringe = fringe_size;
 
-	void operator()(graphic::draw::emit_t emit, auto& sink) const {
-		auto instr_outer = instr;
-		instr_outer.radius.from = instr_outer.radius.to + fringe;
-		instr_outer.color.from = instr_outer.color.to.make_transparent();
-		emit(sink, instr_outer);
+	void operator()(emit_t emit, auto& sink) const {
+		emit(sink, make_poly_fringe_instr(instr, fringe, edge_position::to));
 	}
 };
 
@@ -70,7 +161,7 @@ struct poly_fringe_only_draw{
 	instruction::poly instr;
 	float fringe = fringe_size;
 
-	void operator()(graphic::draw::emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const {
 		if(is_draw_meaningful(instr.radius.from)){
 			emit(sink, poly_fringe_at_from_draw{instr, fringe});
 		}
@@ -86,7 +177,7 @@ struct poly_draw{
 	instruction::poly instr;
 	float fringe = fringe_size;
 
-	void operator()(graphic::draw::emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const {
 		emit(sink, instr);
 		emit(sink, poly_fringe_only_draw{instr, fringe});
 	}
@@ -97,23 +188,15 @@ struct poly_partial_draw{
 	instruction::poly_partial instr;
 	float fringe = fringe_size;
 
-	void operator()(graphic::draw::emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const {
 		emit(sink, instr);
 
 		if(is_draw_meaningful(instr.radius.from)){
-			auto instr_inner = instr;
-			instr_inner.radius.to = instr_inner.radius.from - fringe;
-			instr_inner.color.v10 = instr.color.v00.make_transparent();
-			instr_inner.color.v11 = instr.color.v01.make_transparent();
-			emit(sink, instr_inner);
+			emit(sink, make_poly_partial_fringe_instr(instr, fringe, edge_position::from));
 		}
 
 		if(is_draw_meaningful(instr.radius.to)){
-			auto instr_outer = instr;
-			instr_outer.radius.from = instr_outer.radius.to + fringe;
-			instr_outer.color.v00 = instr.color.v10.make_transparent();
-			instr_outer.color.v01 = instr.color.v11.make_transparent();
-			emit(sink, instr_outer);
+			emit(sink, make_poly_partial_fringe_instr(instr, fringe, edge_position::to));
 		}
 	}
 };
@@ -125,31 +208,15 @@ struct poly_partial_with_cap_draw{
 	float dst_cap_fringe = fringe_size;
 	float fringe = fringe_size;
 
-	void operator()(graphic::draw::emit_t emit, auto& sink) const {
-		auto instr_src = instr;
-		auto instr_dst = instr;
-		const auto radius = instr.radius.mid();
-
+	void operator()(emit_t emit, auto& sink) const {
 		emit(sink, poly_partial_draw{instr, fringe});
 
 		if(is_draw_meaningful(src_cap_fringe)) [[likely]] {
-			const auto radscl_src = src_cap_fringe / radius / math::pi_2;
-			instr_src.range.extent = std::copysign(radscl_src, -instr.range.extent);
-			instr_src.color.v01 = instr_src.color.v00.make_transparent();
-			instr_src.color.v11 = instr_src.color.v10.make_transparent();
-			instr_src.segments = 1;
-			emit(sink, poly_partial_draw{instr_src, fringe});
+			emit(sink, poly_partial_draw{make_poly_partial_cap_instr(instr, src_cap_fringe, edge_position::from), fringe});
 		}
 
 		if(is_draw_meaningful(dst_cap_fringe)) [[likely]] {
-			const auto radscl_dst = dst_cap_fringe / radius / math::pi_2;
-			const auto off = std::copysign(radscl_dst, instr.range.extent);
-			instr_dst.range.base = instr.range.dst() + off;
-			instr_dst.range.extent = -off;
-			instr_dst.color.v00 = instr_dst.color.v01.make_transparent();
-			instr_dst.color.v10 = instr_dst.color.v11.make_transparent();
-			instr_dst.segments = 1;
-			emit(sink, poly_partial_draw{instr_dst, fringe});
+			emit(sink, poly_partial_draw{make_poly_partial_cap_instr(instr, dst_cap_fringe, edge_position::to), fringe});
 		}
 	}
 };
@@ -159,26 +226,54 @@ struct curve_draw{
 	instruction::parametric_curve instr;
 	float fringe = fringe_size;
 
-	void operator()(graphic::draw::emit_t emit, auto& sink) const {
-		auto instr_inner = instr;
-		instr_inner.offset += instr.stroke / 2;
-		instr_inner.offset += fringe / 2;
-		instr_inner.stroke = {fringe, fringe};
-		instr_inner.color.v00 = instr_inner.color.v10.make_transparent();
-		instr_inner.color.v01 = instr_inner.color.v11.make_transparent();
-
-		auto instr_outer = instr;
-		instr_outer.offset -= instr.stroke / 2;
-		instr_outer.offset -= fringe / 2;
-		instr_outer.stroke = {fringe, fringe};
-		instr_outer.color.v10 = instr_inner.color.v00.make_transparent();
-		instr_outer.color.v11 = instr_inner.color.v01.make_transparent();
-
+	void operator()(emit_t emit, auto& sink) const {
 		emit(sink, instr);
-		emit(sink, instr_outer);
-		emit(sink, instr_inner);
+		emit(sink, make_curve_fringe_instr(instr, fringe, stroke_band::outer));
+		emit(sink, make_curve_fringe_instr(instr, fringe, stroke_band::inner));
 	}
 };
+
+template <typename Sink>
+FORCE_INLINE void emit_curve_cap(
+	emit_t emit,
+	Sink& sink,
+	const instruction::parametric_curve& instr,
+	float cap_length,
+	float fringe,
+	edge_position edge
+){
+	if(cap_length <= 0.0f) return;
+
+	static constexpr std::uint32_t CAP_SEGMENTS = 1;
+	const auto t = edge == edge_position::from ? instr.margin.from : instr.margin.to;
+	const auto vel = instr.param.calculate_derivative(t);
+	const auto speed = math::sqrt(vel.length2());
+
+	if(speed <= std::numeric_limits<float>::epsilon()) return;
+
+	const auto dt = cap_length / speed;
+	auto cap_instr = instr;
+	cap_instr.segments = CAP_SEGMENTS;
+
+	if(edge == edge_position::from){
+		cap_instr.margin.from = instr.margin.from - dt;
+		cap_instr.margin.to = 1.0f - instr.margin.from;
+		cap_instr.stroke.to = cap_instr.stroke.from;
+		cap_instr.color.v00 = cap_instr.color.v01;
+		cap_instr.color.v10 = cap_instr.color.v11;
+		cap_instr.color.v00.a = {};
+		cap_instr.color.v10.a = {};
+	} else{
+		cap_instr.margin.from = 1.f - t;
+		cap_instr.margin.to = instr.margin.to - dt;
+		cap_instr.color.v01 = cap_instr.color.v00;
+		cap_instr.color.v11 = cap_instr.color.v10;
+		cap_instr.color.v01.a = {};
+		cap_instr.color.v11.a = {};
+	}
+
+	emit(sink, curve_draw{cap_instr, fringe});
+}
 
 export
 struct curve_with_cap_draw{
@@ -187,55 +282,13 @@ struct curve_with_cap_draw{
 	float cap_length_dst = fringe_size;
 	float fringe = fringe_size;
 
-	void operator()(graphic::draw::emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const {
 		emit(sink, curve_draw{instr, fringe});
 
 		if(cap_length_src <= 0.0f && cap_length_dst <= 0.0f) return;
 
-		static constexpr std::uint32_t CAP_SEGMENTS = 1;
-
-		if(cap_length_src > 0.0f) {
-			const auto t_start = instr.margin.from;
-			const auto vel = instr.param.calculate_derivative(t_start);
-			const auto speed = math::sqrt(vel.length2());
-
-			if(speed > std::numeric_limits<float>::epsilon()) {
-				const auto dt = cap_length_src / speed;
-
-				auto cap_start = instr;
-				cap_start.segments = CAP_SEGMENTS;
-				cap_start.margin.from = instr.margin.from - dt;
-				cap_start.margin.to = 1.0f - instr.margin.from;
-				cap_start.stroke.to = cap_start.stroke.from;
-				cap_start.color.v00 = cap_start.color.v01;
-				cap_start.color.v10 = cap_start.color.v11;
-				cap_start.color.v00.a = {};
-				cap_start.color.v10.a = {};
-
-				emit(sink, curve_draw{cap_start, fringe});
-			}
-		}
-
-		if(cap_length_dst > 0.0f) {
-			const auto t_end = instr.margin.to;
-			const auto vel = instr.param.calculate_derivative(t_end);
-			const auto speed = math::sqrt(vel.length2());
-
-			if(speed > std::numeric_limits<float>::epsilon()) {
-				const auto dt = cap_length_dst / speed;
-
-				auto cap_end = instr;
-				cap_end.segments = CAP_SEGMENTS;
-				cap_end.margin.from = 1.f - t_end;
-				cap_end.margin.to = instr.margin.to - dt;
-				cap_end.color.v01 = cap_end.color.v00;
-				cap_end.color.v11 = cap_end.color.v10;
-				cap_end.color.v01.a = {};
-				cap_end.color.v11.a = {};
-
-				emit(sink, curve_draw{cap_end, fringe});
-			}
-		}
+		emit_curve_cap(emit, sink, instr, cap_length_src, fringe, edge_position::from);
+		emit_curve_cap(emit, sink, instr, cap_length_dst, fringe, edge_position::to);
 	}
 };
 
@@ -277,46 +330,6 @@ FORCE_INLINE auto curve(const instruction::parametric_curve& instr, float fringe
 export
 FORCE_INLINE auto curve_with_cap(const instruction::parametric_curve& instr, float cap_length_src = fringe_size, float cap_length_dst = fringe_size, float fringe = fringe_size){
 	return curve_with_cap_draw{instr, cap_length_src, cap_length_dst, fringe};
-}
-
-export
-FORCE_INLINE void poly_fringe_at_from(renderer_frontend& r, const instruction::poly& instr, float fringe = fringe_size){
-	graphic::draw::emit(r, poly_fringe_at_from(instr, fringe));
-}
-
-export
-FORCE_INLINE void poly_fringe_at_to(renderer_frontend& r, const instruction::poly& instr, float fringe = fringe_size){
-	graphic::draw::emit(r, poly_fringe_at_to(instr, fringe));
-}
-
-export
-FORCE_INLINE void poly_fringe_only(renderer_frontend& r, const instruction::poly& instr, float fringe = fringe_size){
-	graphic::draw::emit(r, poly_fringe_only(instr, fringe));
-}
-
-export
-FORCE_INLINE void poly(renderer_frontend& r, const instruction::poly& instr, float fringe = fringe_size){
-	graphic::draw::emit(r, poly(instr, fringe));
-}
-
-export
-FORCE_INLINE void poly_partial(renderer_frontend& r, const instruction::poly_partial& instr, float fringe = fringe_size){
-	graphic::draw::emit(r, poly_partial(instr, fringe));
-}
-
-export
-FORCE_INLINE void poly_partial_with_cap(renderer_frontend& r, const instruction::poly_partial& instr, float src_cap_fringe = fringe_size, float dst_cap_fringe = fringe_size, float fringe = fringe_size){
-	graphic::draw::emit(r, poly_partial_with_cap(instr, src_cap_fringe, dst_cap_fringe, fringe));
-}
-
-export
-FORCE_INLINE void curve(renderer_frontend& r, const instruction::parametric_curve& instr, float fringe = fringe_size){
-	graphic::draw::emit(r, curve(instr, fringe));
-}
-
-export
-FORCE_INLINE void curve_with_cap(renderer_frontend& r, const instruction::parametric_curve& instr, float cap_length_src = fringe_size, float cap_length_dst = fringe_size, float fringe = fringe_size) {
-	graphic::draw::emit(r, curve_with_cap(instr, cap_length_src, cap_length_dst, fringe));
 }
 
 template <typename T>
@@ -367,7 +380,7 @@ public:
 		line_context* ctx;
 		HeadType head;
 
-		void operator()(graphic::draw::emit_t, auto& sink) const {
+		void operator()(emit_t, auto& sink) const {
 			sink(head, ctx->get_nodes());
 		}
 	};
@@ -379,7 +392,7 @@ public:
 		float stroke;
 		bool is_inner;
 
-		void operator()(graphic::draw::emit_t, auto& sink) const {
+		void operator()(emit_t, auto& sink) const {
 			ctx->emit_fringe_impl(sink, head, stroke, is_inner);
 		}
 	};
@@ -416,14 +429,6 @@ public:
 
 	FORCE_INLINE void push(const math::vec2 pos, float stroke, graphic::color color){
 		push({pos, stroke, 0, {color, color}});
-	}
-
-	FORCE_INLINE void dump_mid(renderer_frontend& renderer, const instruction::line_segments& head){
-		graphic::draw::emit(renderer, mid(head));
-	}
-
-	FORCE_INLINE void dump_mid(renderer_frontend& renderer, const instruction::line_segments_closed& head){
-		graphic::draw::emit(renderer, mid(head));
 	}
 
 	FORCE_INLINE instruction::line_node& add_cap_src(float stroke){
@@ -507,22 +512,6 @@ public:
 		auto [src, dst] = add_cap(cap_stroke_src, cap_stroke_dst);
 		src.color.invoke(&graphic::color::set_a, 0);
 		dst.color.invoke(&graphic::color::set_a, 0);
-	}
-
-	FORCE_INLINE void dump_fringe_inner(renderer_frontend& renderer, const instruction::line_segments_closed& head, float stroke){
-		graphic::draw::emit(renderer, fringe_inner(head, stroke));
-	}
-
-	FORCE_INLINE void dump_fringe_outer(renderer_frontend& renderer, const instruction::line_segments_closed& head, float stroke){
-		graphic::draw::emit(renderer, fringe_outer(head, stroke));
-	}
-
-	FORCE_INLINE void dump_fringe_inner(renderer_frontend& renderer, const instruction::line_segments& head, float stroke = fringe_size){
-		graphic::draw::emit(renderer, fringe_inner(head, stroke));
-	}
-
-	FORCE_INLINE void dump_fringe_outer(renderer_frontend& renderer, const instruction::line_segments& head, float stroke = fringe_size){
-		graphic::draw::emit(renderer, fringe_outer(head, stroke));
 	}
 
 	FORCE_INLINE std::size_t size() const noexcept{

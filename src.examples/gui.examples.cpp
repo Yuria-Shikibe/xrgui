@@ -141,7 +141,7 @@ protected:
 				// 	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_apply});
 				// 	r.update_state(fx::push_constant{fx::batch_draw_mode::def, fx::mask_read_mode::def});
 				//
-				// 	fx::fringe::poly(r, fx::circle{
+				// 	r << fx::fringe::poly(fx::circle{
 				// 		.pos = {element.get_scene().get_cursor_pos()},
 				// 		.radius = {0, 60},
 				// 		.color = {graphic::colors::aqua.copy_set_a(.5f), graphic::colors::pale_green.copy_set_a(.5f)}
@@ -404,7 +404,7 @@ struct vp : gui::viewport{
 					.radius = {0, render_radius * .75f},
 					.color = {col * 1.2f, col}
 				};
-			fx::fringe::poly(renderer(), c, (i == 0 ? 12 : fx::fringe::fringe_size) / camera.get_scale());
+			renderer() << fx::fringe::poly(c, (i == 0 ? 12 : fx::fringe::fringe_size) / camera.get_scale());
 		}
 
 		renderer().top_viewport().push_local_transform();
@@ -440,7 +440,7 @@ struct vp : gui::viewport{
 
 		// 提交给 fringe 进行边缘抗锯齿绘制
 		// 假设 renderer() 返回 renderer_frontend 的引用
-		fx::fringe::poly(renderer(), my_circle, fringe_s);
+		renderer() << fx::fringe::poly(my_circle, fringe_s);
 
 		instruction::poly_partial my_arc{
 				.pos = {},
@@ -453,12 +453,12 @@ struct vp : gui::viewport{
 				}
 			};
 
-		fx::fringe::poly_partial_with_cap(renderer(), my_arc, fringe_s, fringe_s, fringe_s);
+		renderer() << fx::fringe::poly_partial_with_cap(my_arc, fringe_s, fringe_s, fringe_s);
 
 		{
 			state_guard _{renderer(), fx::blend::pma::additive};
 			for(unsigned i = 0; i < curve_points.size(); ++i){
-				fx::fringe::curve(renderer(), {
+				renderer() << fx::fringe::curve(instruction::parametric_curve{
 					                  .param = instruction::curve_trait_mat::b_spline.apply_to(
 						                  curve_points[i], curve_points[(i + 1) % curve_points.size()],
 						                  curve_points[(i + 2) % curve_points.size()],
@@ -486,9 +486,9 @@ struct vp : gui::viewport{
 			instruction::line_segments line_head{};
 
 			// 依次提交主体、内侧边缘、外侧边缘
-			ctx.dump_mid(renderer(), line_head);
-			ctx.dump_fringe_inner(renderer(), line_head, fringe_s);
-			ctx.dump_fringe_outer(renderer(), line_head, fringe_s);
+			renderer() << ctx.mid(line_head);
+			renderer() << ctx.fringe_inner(line_head, fringe_s);
+			renderer() << ctx.fringe_outer(line_head, fringe_s);
 		}
 
 		renderer() << instruction::rect_aabb{

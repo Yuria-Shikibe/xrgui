@@ -79,7 +79,7 @@ struct hue_gradient_drawer final : gui::style::default_slider1d_drawer{
 			}
 
 			context.add_cap(0.1, 0.1);
-			context.dump_mid(element.renderer(), graphic::draw::instruction::line_segments{});
+			element.renderer() << context.mid(graphic::draw::instruction::line_segments{});
 		}
 
 		default_slider1d_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
@@ -279,16 +279,16 @@ private:
 								.color = {colors::white.copy_set_a(opacity), colors::white.copy_set_a(opacity)}
 							};
 
-						r << instr1;
-						fx::fringe::poly_fringe_at_to(r, instr1, 1.f);
-						fx::fringe::poly(r, {
-							                 .pos = pos,
-							                 .segments = 12u + (expand ? 4u : 0u),
-							                 .radius = {radius - .25f, radius + .25f},
-							                 .color = {
-								                 colors::black.copy_set_a(opacity), colors::black.copy_set_a(opacity)
-							                 }
-						                 }, 1.f);
+					r << instr1;
+					r << fx::fringe::poly_fringe_at_to(instr1, 1.f);
+					r << fx::fringe::poly(poly{
+					                 .pos = pos,
+					                 .segments = 12u + (expand ? 4u : 0u),
+					                 .radius = {radius - .25f, radius + .25f},
+					                 .color = {
+						                 colors::black.copy_set_a(opacity), colors::black.copy_set_a(opacity)
+					                 }
+					         }, 1.f);
 					};
 					draw_at(math::vec2{s.bar.get_progress()[0], s.bar.get_progress()[1]}, .5f, false);
 					draw_at(math::vec2{s.bar.get_temp_progress()[0], s.bar.get_temp_progress()[1]}, 1.f,

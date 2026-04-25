@@ -433,7 +433,7 @@ public:
 
 	[[nodiscard]] explicit image_page(
 		async_image_loader& loader,
-		image_page_config config = {})
+		const image_page_config& config = {})
 	:
 	loader_(&loader),
 	config_(config){

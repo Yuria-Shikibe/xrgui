@@ -165,9 +165,9 @@ public:
 
 			context.add_cap();
 			context.add_fringe_cap();
-			context.dump_mid(s.renderer(), graphic::draw::instruction::line_segments{});
-			context.dump_fringe_inner(s.renderer(), graphic::draw::instruction::line_segments{});
-			context.dump_fringe_outer(s.renderer(), graphic::draw::instruction::line_segments{});
+			s.renderer() << context.mid(graphic::draw::instruction::line_segments{});
+			s.renderer() << context.fringe_inner(graphic::draw::instruction::line_segments{});
+			s.renderer() << context.fringe_outer(graphic::draw::instruction::line_segments{});
 		});
 	}
 };

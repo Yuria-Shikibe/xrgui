@@ -463,7 +463,7 @@ export
 struct emit_t{
 	template <typename Sink, typename Instr>
 		requires (instruction::known_instruction<std::remove_cvref_t<Instr>> && directly_emittable_draw_instruction<Sink, Instr>)
-	FORCE_INLINE constexpr decltype(auto) static operator()(Sink& sink, Instr&& instr)
+	FORCE_INLINE constexpr decltype(auto) operator()(Sink& sink, Instr&& instr) const
 		noexcept(noexcept(sink(std::forward<Instr>(instr)))){
 		ATTR_FORCEINLINE_SENTENCE
 		ADAPTED_MUST_TAIL
@@ -472,11 +472,11 @@ struct emit_t{
 
 	template <typename Sink, typename Instr>
 		requires (!instruction::known_instruction<std::remove_cvref_t<Instr>> && cpo_emittable_draw_instruction<Sink, Instr>)
-	FORCE_INLINE constexpr decltype(auto) static operator()(Sink& sink, Instr&& instr)
-		noexcept(noexcept(std::forward<Instr>(instr)(emit_t{}, sink))){
+	FORCE_INLINE constexpr decltype(auto) operator()(Sink& sink, Instr&& instr) const
+		noexcept(noexcept(std::forward<Instr>(instr)(*this, sink))){
 		ATTR_FORCEINLINE_SENTENCE
 		ADAPTED_MUST_TAIL
-		return std::forward<Instr>(instr)(emit_t{}, sink);
+		return std::forward<Instr>(instr)(*this, sink);
 	}
 };
 

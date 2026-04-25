@@ -270,7 +270,7 @@ void text_edit::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 			transform_guard _t{r, mat};
 			color_guard g_{r, e.get_draw_scl_color()};
 
-			graphic::draw::emit(r, e.render_cache_);
+			r << e.render_cache_;
 		}
 
 		if (e.is_scrollable_mode()) {

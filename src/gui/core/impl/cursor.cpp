@@ -85,9 +85,9 @@ rect default_cursor_arrow::draw(gui::renderer_frontend& renderer, math::raw_frec
 	context.push(rst.p3, 1.8f, graphic::colors::white);
 	context.add_cap();
 	context.add_fringe_cap(fringe_range, fringe_range);
-	context.dump_mid(renderer, line_segments{});
-	context.dump_fringe_inner(renderer, line_segments{}, fringe_range);
-	context.dump_fringe_outer(renderer, line_segments{}, fringe_range);
+	renderer << context.mid(line_segments{});
+	renderer << context.fringe_inner(line_segments{}, fringe_range);
+	renderer << context.fringe_outer(line_segments{}, fringe_range);
 
 	return style::calculate_arrow_aabb(rst);
 }
@@ -104,7 +104,7 @@ rect default_cursor_drag::draw(gui::renderer_frontend& renderer, math::raw_frect
 	};
 	for (const auto & p : ps){
 		circle.pos = p;
-		graphic::draw::emit(renderer, fx::fringe::poly(circle, fringe_range));
+		renderer << fx::fringe::poly(circle, fringe_range);
 	}
 
 	return get_bound(region);

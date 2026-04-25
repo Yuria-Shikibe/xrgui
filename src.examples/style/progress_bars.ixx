@@ -85,7 +85,7 @@ protected:
 
 
 	if (state != progress_state::rough && prog >= 1.0f) {
-		graphic::draw::emit(element.renderer(), fx::fringe::poly(draw::instruction::poly{
+		element.renderer() << fx::fringe::poly(draw::instruction::poly{
 			.pos = center,
 			.segments = count,
 			.initial_angle = start_angle,
@@ -93,12 +93,12 @@ protected:
 			.color = {
 				vertex_color_start, vertex_color_end
 			}
-		}, 1.5f));
+		}, 1.5f);
 		return;
 	}
 
 
-	graphic::draw::emit(element.renderer(), fx::fringe::poly_partial_with_cap(draw::instruction::poly_partial{
+	element.renderer() << fx::fringe::poly_partial_with_cap(draw::instruction::poly_partial{
 			.pos = center,
 			.segments = count,
 			.range = {start_angle, sweep_angle},
@@ -107,7 +107,7 @@ protected:
 				vertex_color_start, vertex_color_start,
 				vertex_color_end, vertex_color_end
 			}
-		}, 1.5f * cap_size, 1.5f * cap_size, 1.5f));
+		}, 1.5f * cap_size, 1.5f * cap_size, 1.5f);
     }
 };
 }

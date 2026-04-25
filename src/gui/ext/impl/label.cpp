@@ -72,7 +72,7 @@ void direct_label::draw_text() const {
 	color_guard g_{renderer(), get_draw_scl_color().copy_set_a(get_draw_opacity())};
 	state_guard guard{renderer(), fx::batch_draw_mode::msdf};
 	transform_guard _t{renderer(), mat_abs};
-	graphic::draw::emit(renderer(), render_cache_);
+	renderer() << render_cache_;
 }
 
 }

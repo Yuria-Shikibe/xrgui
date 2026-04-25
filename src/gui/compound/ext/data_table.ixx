@@ -360,7 +360,7 @@ public:
 
 		auto instr_idx = get_col_count() * coord.y + coord.x;
 		auto instr = glyph_instructions[instr_idx];
-		graphic::draw::emit(renderer, instr);
+		renderer << instr;
 	};
 
     bool col_cell_seen = false;

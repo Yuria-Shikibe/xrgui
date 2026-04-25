@@ -89,9 +89,9 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 			ctx.push(s.to, 1, colors::LIME.copy().set_a(.8f));
 			static constexpr float stroke = .5f;
 			ctx.add_fringe_cap(stroke, stroke);
-			ctx.dump_fringe_inner(element.renderer(), line_segments{}, stroke);
-			ctx.dump_fringe_outer(element.renderer(), line_segments{}, stroke);
-			ctx.dump_mid(element.renderer(), line_segments{});
+			element.renderer() << ctx.fringe_inner(line_segments{}, stroke);
+			element.renderer() << ctx.fringe_outer(line_segments{}, stroke);
+			element.renderer() << ctx.mid(line_segments{});
 			ctx.clear();
 		});
 	}
