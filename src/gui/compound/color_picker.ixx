@@ -435,9 +435,13 @@ export
 struct precise_color_picker : head_body{
 private:
 	struct rgba_input final : cpd::numeric_input_area<std::uint8_t>{
-		using numeric_input_area::numeric_input_area;
+		precise_color_picker* picker_{};
+		[[nodiscard]] rgba_input(scene& scene, elem* parent, precise_color_picker& picker)
+			: numeric_input_area<unsigned char>(scene, parent), picker_{&picker} {
+		}
+
 		precise_color_picker& get_picker() const noexcept{
-			return parent_ref<elem>().parent_ref<precise_color_picker, true>();
+			return *picker_;
 		}
 
 		unsigned get_rgba_channel() const noexcept{
@@ -499,7 +503,7 @@ public:
 		return elem_cast<precise_hsv_picker, true>(head_body::head());
 	}
 
-	[[nodiscard]] precise_color_picker(scene& scene, elem* parent, layout::layout_policy layout_policy, float input_area_height, bool has_alpha)
+	[[nodiscard]] precise_color_picker(scene& scene, elem* parent, layout::layout_policy layout_policy, float input_area_height, bool has_alpha = true)
 	: head_body(scene, parent, layout_policy){
 		using namespace std::literals;
 		static constexpr std::u32string_view titles[]{U"R: "sv, U"G: "sv, U"B: "sv, U"A: "sv};
@@ -526,7 +530,7 @@ public:
 					s.create_back([&](rgba_input& e){
 						e.set_style();
 						rgba_channel_inputs[i] = &e;
-					}).cell().set_passive(1.7f);
+					}, *this).cell().set_passive(1.7f);
 					if(i != total - 1){
 						s.create_back([](elem& e){
 							e.set_style();
@@ -536,24 +540,44 @@ public:
 			}, layout::layout_policy::hori_major);
 
 			set_body_size(input_area_height);
-		}else{
+		} else {
+			// 提取一个通用的 Lambda，用于创建单个通道（Label + Input）的横向结构
+			auto create_channel_view = [&](head_body_no_invariant& s, int i) {
+				s.set_expand_policy(layout::expand_policy::passive);
+				s.create_head([i](gui::direct_label& e) {
+					e.set_style();
+					e.set_self_boarder({.left = 4});
+					e.set_fit_type(label_fit_type::scl);
+					e.set_tokenized_text({titles[i]});
+				});
+				s.create_body([&, i](rgba_input& e) {
+					e.set_style();
+					rgba_channel_inputs[i] = &e;
+				}, *this);
+				s.set_head_size({layout::size_category::passive, 1.f});
+				s.set_body_size({layout::size_category::passive, 1.7f});
+				s.set_pad(4);
+			};
+
 			if(has_alpha){
 				create_body(
-					[](grid& table){
+					[&](grid& table){
+						table.set_expand_policy(layout::expand_policy::resize_to_fit);
 						table.set_style();
-						table.emplace_back<elem>().cell().extent = {
+
+						table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 0); }, layout::layout_policy::hori_major).cell().extent = {
 								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
 								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
 							};
-						table.emplace_back<elem>().cell().extent = {
+						table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 1); }, layout::layout_policy::hori_major).cell().extent = {
 								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
 								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
 							};
-						table.emplace_back<elem>().cell().extent = {
+						table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 2); }, layout::layout_policy::hori_major).cell().extent = {
 								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
 								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
 							};
-						table.emplace_back<elem>().cell().extent = {
+						table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 3); }, layout::layout_policy::hori_major).cell().extent = {
 								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
 								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
 							};
@@ -562,9 +586,16 @@ public:
 						grid_uniformed_mastering{2, input_area_height, {4, 4}}
 					});
 			} else{
-				create_body([](sequence& s){
+				create_body([&](sequence& s){
 					s.set_style();
-				});
+					s.set_expand_policy(layout::expand_policy::passive);
+					s.template_cell.set_pad({4, 4});
+					for(int i = 0; i < 3; ++i){
+						s.create_back([&, i](head_body_no_invariant& row){
+							create_channel_view(row, i);
+						}, layout::layout_policy::hori_major).cell().set_size(input_area_height);
+					}
+				}, layout::layout_policy::vert_major);
 			}
 
 			set_body_size({layout::size_category::pending});

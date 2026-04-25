@@ -390,7 +390,7 @@ private:
 	layout::expand_policy expand_policy_{};
 
 	mr::heap_vector<cell_grid_state> cell_layout_state_{};
-	bool need_relayout_head_{false};
+	bool need_relayout_head_{true};
 
 public:
 	//TODO entire align when there are spare space
@@ -413,23 +413,58 @@ public:
 
 	void on_element_add(adaptor_type& adaptor) override{
 		generate_layouts(cell_layout_state_, cells_, {extent_spec_.x.size(), extent_spec_.y.size()});
+
+		need_relayout_head_ = true;
+		notify_isolated_layout_changed();
+
 		universal_group::on_element_add(adaptor);
 	}
 
+	void clear() noexcept override {
+		universal_group::clear();
+		need_relayout_head_ = true;
+	}
 
+	void erase_afterward(std::size_t where) override{
+		universal_group::erase_afterward(where);
+		need_relayout_head_ = true;
+	}
+
+	void erase_instantly(std::size_t where) override{
+		universal_group::erase_instantly(where);
+		need_relayout_head_ = true;
+	}
 
 	void layout_elem() override{
-		auto rst = need_relayout_head_ ? update_table_head_size(content_extent()) + boarder_extent() : extent();
-		switch(expand_policy_){
-		case layout::expand_policy::passive : break;
-		case layout::expand_policy::prefer : if(auto ext = get_prefer_extent()){
-				rst.max(ext.value());
-			}
-			resize(rst, propagate_mask::force_upper);
+		math::vec2 target_extent = extent();
 
-			break;
-		default : resize(rst, propagate_mask::force_upper);
-			break;
+		if(expand_policy_ != layout::expand_policy::passive){
+			math::vec2 calc_extent = target_extent;
+
+			if(need_relayout_head_){
+				
+				auto rst = update_table_head_size(content_extent());
+				need_relayout_head_ = true; 
+				calc_extent = rst.mastering_size + boarder_extent();
+
+				
+				if(rst.has_passive_x) calc_extent.x = std::max(calc_extent.x, target_extent.x);
+				if(rst.has_passive_y) calc_extent.y = std::max(calc_extent.y, target_extent.y);
+			}
+
+			
+			if(expand_policy_ == layout::expand_policy::prefer){
+				if(auto ext = get_prefer_extent()){
+					calc_extent.max(ext.value());
+				}
+			}
+
+			resize(calc_extent, propagate_mask::force_upper);
+		}
+
+		
+		if(need_relayout_head_){
+			update_table_head_size(content_extent());
 		}
 
 		place_cells();
@@ -447,8 +482,15 @@ public:
 	}
 
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
-		if(expand_policy_ == layout::expand_policy::passive)return std::nullopt;
-		auto req = need_relayout_head_ ? update_table_head_size(extent.potential_extent().inf_to0()) : content_extent();
+		if(expand_policy_ == layout::expand_policy::passive) return std::nullopt;
+
+		math::vec2 req = content_extent();
+
+		if(need_relayout_head_){
+			auto rst = update_table_head_size(extent.potential_extent().inf_to0());
+			need_relayout_head_ = true; 
+			req = rst.mastering_size;
+		}
 
 		if(expand_policy_ == layout::expand_policy::prefer){
 			if(auto ext = get_prefer_content_extent()){
@@ -489,15 +531,15 @@ private:
 			auto& cell = cells_[i];
 			auto& state = cell_layout_state_[i];
 
-			// 修复 3：如果在最左/最上边缘，则忽略 pre padding（因为头部大小已扣除）
+			
 			const float x_pre = (state.actual.get_src_x() == 0) ? 0.0f :
 				extent_spec_.x.pad_at(state.actual.get_src_x()).pre;
 			const float y_pre = (state.actual.get_src_y() == 0) ? 0.0f :
 				extent_spec_.y.pad_at(state.actual.get_src_y()).pre;
 
-			// 修复 1 & 3：
-			// 1. 如果在最右/最下边缘，忽略 post padding（因为头部大小已扣除）
-			// 2. 否则，获取结束列/行的前一个索引的 post（修复 get_end 排他性带来的数组越界）
+			
+			
+			
 			const float x_post = (state.actual.get_end_x() == columns) ? 0.0f :
 				extent_spec_.x.pad_at(state.actual.get_end_x() - 1).post;
 			const float y_post = (state.actual.get_end_y() == rows) ? 0.0f :
@@ -525,7 +567,13 @@ private:
 		}
 	}
 
-	math::vec2 update_table_head_size(
+	struct table_layout_result{
+		math::vec2 mastering_size;
+		bool has_passive_x;
+		bool has_passive_y;
+	};
+
+	table_layout_result update_table_head_size(
 		math::vec2 valid_extent
 	){
 		need_relayout_head_ = false;
@@ -533,7 +581,7 @@ private:
 		const auto rows = extent_spec_.y.size();
 		if(columns == 0 || rows == 0){
 			grid_table_head_.clear();
-			return {};
+			return {{}, false, false};
 		}
 		mr::vector<layout::stated_size> table_head{columns + rows};
 		const auto col_span = std::span{table_head}.first(columns);
@@ -608,50 +656,44 @@ private:
 			default: std::unreachable();
 			}
 		};
+
 		const math::vector2 result{
 			collapse_scaling_by_master(valid_extent.x / valid_extent.y, w, h, col_span, row_span),
 			collapse_scaling_by_master(valid_extent.y / valid_extent.x, h, w, row_span, col_span)
 		};
-		//After above, illegals are culled, remain masterings and passives
 
 		math::vec2 mastering_size = {result.x.mastering, result.y.mastering};
-
-		for(unsigned i = 0; i < columns; ++i){
+		for(std::uint32_t i = 0; i < columns; ++i){
 			mastering_size.x += extent_spec_.x.pad_at(i).length();
 		}
-
-		for(unsigned i = 0; i < rows; ++i){
+		for(std::uint32_t i = 0; i < rows; ++i){
 			mastering_size.y += extent_spec_.y.pad_at(i).length();
 		}
 
 		const auto cPrev = extent_spec_.x.pad_at(0).pre;
 		const auto cPost = extent_spec_.x.pad_at(columns - 1).post;
-
 		const auto rPrev = extent_spec_.y.pad_at(0).pre;
 		const auto rPost = extent_spec_.y.pad_at(rows - 1).post;
-
 		mastering_size.x -= cPrev + cPost;
 		mastering_size.y -= rPrev + rPost;
-
 
 		auto passives_usable = valid_extent.copy().fdim(mastering_size);
 		auto passive_unit = (passives_usable / math::vec2{result.x.passive, result.y.passive}).nan_to0();
 
 		grid_table_head_.resize(table_head.size());
-
-		for(unsigned i = 0; i < columns; ++i){
+		for(std::uint32_t i = 0; i < columns; ++i){
 			grid_table_head_[i] = (col_span[i].mastering() ? col_span[i].value : col_span[i].value * passive_unit.x) + extent_spec_.x.pad_at(i).length();
 		}
 		grid_table_head_.front() -= cPrev;
 		grid_table_head_[columns - 1] -= cPost;
 
-		for(unsigned i = 0; i < rows; ++i){
+		for(std::uint32_t i = 0; i < rows; ++i){
 			grid_table_head_[columns + i] = (row_span[i].mastering() ? row_span[i].value : row_span[i].value * passive_unit.y) + extent_spec_.y.pad_at(i).length();
 		}
 		grid_table_head_[columns] -= rPrev;
 		grid_table_head_.back() -= rPost;
 
-		return mastering_size;
+		return {mastering_size, result.x.passive > 0.0f, result.y.passive > 0.0f};
 	}
 };
 }

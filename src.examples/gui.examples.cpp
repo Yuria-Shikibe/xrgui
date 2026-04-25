@@ -889,6 +889,48 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 	auto make_create_table = [&] -> std::vector<test_entry> {
 		std::vector<test_entry> tests{
 				test_entry{
+				"layout test", [](scroll_adaptor<table>& pane){
+					pane.set_style();
+					pane.set_overlay_bar(true);
+					auto& t = pane.get_elem();
+					t.set_expand_policy(layout::expand_policy::prefer);
+					t.set_style();
+					t.template_cell.set_pad(4);
+
+					t.create_back([](gui::elem& e){
+					}).cell().set_size({60, 60});
+
+					t.create_back([](gui::sequence& e){
+						e.set_expand_policy(layout::expand_policy::passive);
+						e.template_cell.set_size({layout::size_category::scaling});
+						e.template_cell.set_pad({4, 4});
+						e.emplace_back<elem>();
+						e.emplace_back<elem>();
+						e.emplace_back<elem>();
+						e.emplace_back<elem>();
+					}, layout::layout_policy::vert_major).cell().set_width(400);
+					t.end_line();
+
+					t.emplace_back<elem>().cell().set_height(120);
+					t.emplace_back<elem>().cell().set_width(200).unsaturate_cell_align = align::pos::right;
+					t.end_line();
+
+					{
+						auto sep = t.emplace_back<row_separator>();
+						sep.cell().set_height(20).set_width_passive(.85f).saturate = true;
+						sep.cell().margin.set_vert(4);
+						sep.cell().set_end_line();
+					}
+
+					t.emplace_back<elem>();
+					t.create_back([](gui::label& e){
+						e.set_fit_type(label_fit_type::fix);
+						e.set_text("Test Test Test Test Test Test Test Test Test Test ");
+					}).cell().set_pending({false, true});
+
+
+				}},
+				test_entry{
 					"csv", [](cpd::data_table& table){
 						table._debug_identity = 114;
 						table.get_item() = cpd::data_table_desc::from_csv(LR"(assets/test.csv)");
@@ -1477,8 +1519,11 @@ Edge Cases:
 					}
 				},
 				test_entry{
-					"color picker", [&](table& table){
-						table.template_cell.set_pad(32);
+					"color picker", [&](sequence& table){
+						table.set_style();
+						table.set_self_boarder(gui::boarder{}.set(16));
+						table.set_layout_policy(layout::layout_policy::vert_major);
+						table.template_cell.set_pad({16, 16});
 						table.set_expand_policy(layout::expand_policy::passive);
 						struct picker : cpd::precise_color_picker{
 							std::add_pointer_t<make_style_result::node_type> prov;
@@ -1493,11 +1538,11 @@ Edge Cases:
 						};
 						table.create_back([&](picker& p){
 							p.prov = &style_pal_prov.front;
-						});
+						}, layout::layout_policy::hori_major, 120);
 
 						table.create_back([&](picker& p){
 							p.prov = &style_pal_prov.back;
-						});
+						}, layout::layout_policy::hori_major, 120);
 					}
 				},
 				test_entry{

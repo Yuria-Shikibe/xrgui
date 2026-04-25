@@ -5,3 +5,7 @@
 /properties/legacy/
 /.slang_build_cache/
 /.svg_normalize_cache/
+/properties/assets_raw/.svg_normalize_cache/
+/properties/assets_raw/gen/
+/properties/assets_raw/shader/spv/
+/compile_commands.json
