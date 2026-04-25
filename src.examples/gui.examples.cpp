@@ -76,7 +76,6 @@ import mo_yanxi.gui.examples.constants;
 
 
 namespace mo_yanxi::gui::example{
-
 struct test_entry{
 	std::string name;
 	std::function<elem_ptr(scene&, elem*)> creator;
@@ -96,7 +95,6 @@ struct test_entry{
 };
 
 struct image_cursor : style::cursor{
-
 	gui::constant_image_region_borrow icon_region;
 
 	[[nodiscard]] explicit image_cursor(const gui::constant_image_region_borrow& icon_region)
@@ -104,7 +102,7 @@ struct image_cursor : style::cursor{
 	}
 
 	rect draw(gui::renderer_frontend& renderer, math::raw_frect region,
-		std::span<const elem* const> inbound_stack) const override{
+	          std::span<const elem* const> inbound_stack) const override{
 		region.src -= region.extent * .5f;
 
 		region.expand({mo_yanxi::graphic::msdf::sdf_image_boarder + 6, mo_yanxi::graphic::msdf::sdf_image_boarder + 6});
@@ -125,7 +123,7 @@ struct image_cursor : style::cursor{
 struct r_style : style::round_style{
 protected:
 	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
-		fx::layer_param layer_param) const override{
+	                     fx::layer_param layer_param) const override{
 		if(layer_param == 0){
 			auto inbounds = element.get_scene().get_inbounds();
 			if(!inbounds.empty() && inbounds.back() == &element){
@@ -155,7 +153,6 @@ protected:
 		}
 
 		style::round_style::draw_layer_impl(element, region, opacityScl, layer_param);
-
 	}
 };
 
@@ -172,23 +169,28 @@ struct csv_file_reader : head_body{
 	protected:
 		void on_update(react_flow::data_carrier<std::span<const std::filesystem::path>>& data) override{
 			auto sp = data.get();
-			if(sp.empty())return;
+			if(sp.empty()) return;
 			auto& path = sp.front();
 
 			carrier->get_scene().close_overlay(std::exchange(overlay, nullptr)->element.get());
 
 			util::post_elem_async_task(*carrier, [&](csv_file_reader& r){
-				return elem_async_yield_task{r, [&](csv_file_reader& r, scene& s){
-					return elem_ptr{s, &r, [p = path](cpd::data_table& table){
-						table.set_style();
-						table.get_item() = cpd::data_table_desc::from_csv(p, '|');
-						table.get_item().try_update_glyph_layouts();
-						table.notify_isolated_layout_changed();
-					}};
-				}, [](csv_file_reader& r, scene& s, elem_ptr&& ptr){
-					util::sync_elem_tree(*ptr, r.get_scene());
-					r.set_body_elem(std::move(ptr));
-				}};
+				return elem_async_yield_task{
+						r, [&](csv_file_reader& r, scene& s){
+							return elem_ptr{
+									s, &r, [p = path](cpd::data_table& table){
+										table.set_style();
+										table.get_item() = cpd::data_table_desc::from_csv(p, '|');
+										table.get_item().try_update_glyph_layouts();
+										table.notify_isolated_layout_changed();
+									}
+								};
+						},
+						[](csv_file_reader& r, scene& s, elem_ptr&& ptr){
+							util::sync_elem_tree(*ptr, r.get_scene());
+							r.set_body_elem(std::move(ptr));
+						}
+					};
 			});
 
 			carrier->create_body([&](progress_bar& prog){
@@ -203,7 +205,6 @@ struct csv_file_reader : head_body{
 				prog.set_drawer(std::move(drawer));
 				prog.set_progress_state(progress_state::rough);
 			});
-
 		}
 	};
 
@@ -232,7 +233,6 @@ struct csv_file_reader : head_body{
 			});
 		});
 		create_body([](cpd::data_table& data_table){
-
 		});
 
 		set_head_size(80);
@@ -275,7 +275,7 @@ struct vp : gui::viewport{
 		auto ctx = get_scene().resources().object_pool.acquire<typesetting::layout_context>();
 		typesetting::tokenized_text txt;
 		typesetting::glyph_layout layout;
-		for (const auto & [tidx, body_info] : body_infos | std::views::enumerate){
+		for(const auto& [tidx, body_info] : body_infos | std::views::enumerate){
 			txt.reset(body_info.name);
 			ctx->layout(txt, {}, layout);
 
@@ -284,8 +284,8 @@ struct vp : gui::viewport{
 					layout.extent, typesetting::line_alignment::start, typesetting::layout_direction::ltr);
 
 				for(const auto& [idx, val] : std::span{
-						layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size
-					} | std::views::enumerate){
+					    layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size
+				    } | std::views::enumerate){
 					if(!val.texture->view) continue;
 					auto start = math::fma(idx, spacing, line_src + val.aabb.src);
 					text_render_cache.push(graphic::draw::instruction::rect_aabb{
@@ -299,7 +299,7 @@ struct vp : gui::viewport{
 							.slant_factor_desc = val.slant_factor_desc,
 							.sdf_expand = -val.weight_offset
 						});
-					}
+				}
 			}
 
 			text_render_cache.split(true);
@@ -311,7 +311,7 @@ struct vp : gui::viewport{
 	bool update(float delta_in_ticks) override{
 		if(viewport::update(delta_in_ticks)){
 			update_time += delta_in_ticks * update_speed;
-			if(update_speed > 0)system.update(update_time);
+			if(update_speed > 0) system.update(update_time);
 			return true;
 		}
 		return false;
@@ -325,7 +325,7 @@ struct vp : gui::viewport{
 		// 建议：先渲染所有轨迹，再渲染所有星体，这样星体会覆盖在轨迹上方
 
 		// 绘制轨迹
-		for (std::size_t i = 0; i < states.size(); ++i) {
+		for(std::size_t i = 0; i < states.size(); ++i){
 			const auto& state = states[i];
 			const auto& constant = constants[i];
 			auto col = constant.get_hdr_color();
@@ -389,27 +389,26 @@ struct vp : gui::viewport{
 								},
 							});
 					});
-
 			}
 		}
 
 		// 绘制星体球形
-		for (std::size_t i = 0; i < states.size(); ++i) {
+		for(std::size_t i = 0; i < states.size(); ++i){
 			const auto& state = states[i];
 			const auto& constant = constants[i];
 			float render_radius = body_infos[i].render_radius;
 			auto col = constant.get_hdr_color();
 			// 调用底层的画圆或画球函数，传入HDR发光颜色
 			fx::circle c{
-				.pos = state.global_position,
-				.radius = {0, render_radius * .75f},
-				.color = {col * 1.2f, col}
-			};
+					.pos = state.global_position,
+					.radius = {0, render_radius * .75f},
+					.color = {col * 1.2f, col}
+				};
 			fx::fringe::poly(renderer(), c, (i == 0 ? 12 : fx::fringe::fringe_size) / camera.get_scale());
 		}
 
 		renderer().top_viewport().push_local_transform();
-		for (std::size_t i = 0; i < states.size(); ++i) {
+		for(std::size_t i = 0; i < states.size(); ++i){
 			const auto& state = states[i];
 			const auto& constant = constants[i];
 			float render_radius = body_infos[i].render_radius;
@@ -421,7 +420,7 @@ struct vp : gui::viewport{
 			auto scl = auto{math::mat3_idt}.from_scaling(body_infos[i].text_scale);
 			renderer().top_viewport().set_local_transform(mov * scl);
 			renderer().notify_viewport_changed();
-			renderer().push(chunk.heads, chunk.data.data());
+			renderer() << graphic::draw::batch_push(chunk.heads, chunk.data);
 		}
 		renderer().top_viewport().pop_local_transform();
 		renderer().notify_viewport_changed();
@@ -502,8 +501,8 @@ struct vp : gui::viewport{
 	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
 		viewport::record_draw_layer(call_stack_builder);
 		call_stack_builder.push_call_noop(*this, [](const vp& s, const draw_call_param& p){
-			if(!p.layer_param.is_top())return;
-			if(!util::is_draw_param_valid(s, p))return;
+			if(!p.layer_param.is_top()) return;
+			if(!util::is_draw_param_valid(s, p)) return;
 			s.viewport_begin();
 
 			{
@@ -512,10 +511,10 @@ struct vp : gui::viewport{
 				auto region = s.camera.get_viewport();
 
 				s.renderer() << graphic::draw::instruction::rect_aabb{
-					.v00 = region.vert_00(),
-					.v11 = region.vert_11(),
-					.vert_color = {graphic::colors::white}
-				};
+						.v00 = region.vert_00(),
+						.v11 = region.vert_11(),
+						.vert_color = {graphic::colors::white}
+					};
 
 				s.renderer().update_state(fx::pipeline_config{.pipeline_index = gpip::idx::def});
 				s.renderer().update_state(fx::push_constant{gpip::default_draw_constants{fx::batch_draw_mode::msdf}});
@@ -527,7 +526,6 @@ struct vp : gui::viewport{
 			s.viewport_end();
 		});
 	}
-
 };
 #pragma endregion
 
@@ -538,16 +536,17 @@ void set_cursors(scene& scene){
 
 	cm.add_cursor<assets::builtin::cursor::default_cursor_regular>(style::cursor_type::regular);
 	cm.add_cursor<assets::builtin::cursor::default_cursor_drag>(style::cursor_type::drag);
-	cm.add_cursor<image_cursor>(style::cursor_type::textarea, assets::builtin::get_page()[assets::builtin::shape_id::textarea].value_or({}));
+	cm.add_cursor<image_cursor>(style::cursor_type::textarea,
+	                            assets::builtin::get_page()[assets::builtin::shape_id::textarea].value_or({}));
 
 	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_left,
-		style::cursor_arrow_direction::left);
+	                                                             style::cursor_arrow_direction::left);
 	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_right,
-		style::cursor_arrow_direction::right);
+	                                                             style::cursor_arrow_direction::right);
 	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_up,
-		style::cursor_arrow_direction::up);
+	                                                             style::cursor_arrow_direction::up);
 	cm.add_cursor<assets::builtin::cursor::default_cursor_arrow>(style::cursor_decoration_type::to_down,
-		style::cursor_arrow_direction::down);
+	                                                             style::cursor_arrow_direction::down);
 }
 
 struct make_style_result{
@@ -560,14 +559,18 @@ make_style_result make_styles(scene& scene){
 	auto& sm = scene.resources().style_manager;
 
 
-	auto& pal_front_distributor = scene.request_embedded_react_node(scene.root(), react_flow::provider_cached<style::palette>{});
-	auto& pal_back_distributor = scene.request_embedded_react_node(scene.root(), react_flow::provider_cached<style::palette>{});
+	auto& pal_front_distributor = scene.request_embedded_react_node(scene.root(),
+	                                                                react_flow::provider_cached<style::palette>{});
+	auto& pal_back_distributor = scene.request_embedded_react_node(scene.root(),
+	                                                               react_flow::provider_cached<style::palette>{});
 	pal_front_distributor.update_value(math::lerp(style::pal::white, style::pal::dark, .155f));
 	pal_back_distributor.update_value(style::pal::dark);
 
-	react_flow::node_pointer pal_front_distributor_cursor_ignored{react_flow::make_transformer([](style::palette palette){
-		return palette.set_cursor_ignored();
-	})};
+	react_flow::node_pointer pal_front_distributor_cursor_ignored{
+			react_flow::make_transformer([](style::palette palette){
+				return palette.set_cursor_ignored();
+			})
+		};
 
 	pal_front_distributor_cursor_ignored->connect_predecessor(pal_front_distributor);
 
@@ -610,7 +613,8 @@ make_style_result make_styles(scene& scene){
 
 		{
 			auto gst = templt;
-			static constexpr auto baseColor = graphic::color::from_rgba8888(0XDBBB6AFF).create_lerp(graphic::colors::pale_yellow, .5f);
+			static constexpr auto baseColor = graphic::color::from_rgba8888(0XDBBB6AFF).create_lerp(
+				graphic::colors::pale_yellow, .5f);
 			gst.edge.pal = make_theme_palette(baseColor);
 			gst.back.pal = make_theme_palette(color_to_dark(baseColor));
 			default_family.set(family_variant::warning, referenced_ptr<round_style>{std::in_place, gst});
@@ -727,9 +731,7 @@ make_style_result make_styles(scene& scene){
 			round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
 			round_scroll_bar_style->bar_palette = style::pal::white.copy().mul_rgb(.8f);
 			sm.register_style<style::scroll_pane_bar_drawer>(std::move(round_scroll_bar_style));
-
 		}
-
 	}
 
 	sm.register_style<style::slider2d_drawer>(referenced_ptr<style::default_slider2d_drawer>{std::in_place});
@@ -751,11 +753,11 @@ void example_scene::draw_at(math::frect clipspace, draw_call_stack& call_stack){
 		renderer().update_state(fx::push_constant{gpip::default_draw_constants{}});
 
 		call_stack.each({
-			.current_subject = this,
-			.draw_bound = c,
-			.opacity_scl = 1,
-			.layer_param = {i}
-		});
+				.current_subject = this,
+				.draw_bound = c,
+				.opacity_scl = 1,
+				.layer_param = {i}
+			});
 
 		if(cfg[i].end_config)
 			renderer().update_state(fx::blit_config{
@@ -782,7 +784,7 @@ void example_scene::draw_impl(rect clip){
 		if((flags & elem_tree_channel::tooltip) != elem_tree_channel{}){
 			auto seq = tooltip_manager_.get_draw_sequence();
 			call_stack_tooltip_.resize(seq.size());
-			for (auto&& [idx, elem] : seq | std::views::enumerate){
+			for(auto&& [idx, elem] : seq | std::views::enumerate){
 				draw_call_stack_recorder rec{call_stack_tooltip_[idx]};
 				elem.element->record_draw_layer(rec);
 			}
@@ -791,12 +793,11 @@ void example_scene::draw_impl(rect clip){
 		if((flags & elem_tree_channel::overlay) != elem_tree_channel{}){
 			auto seq = overlay_manager_.get_draw_sequence();
 			call_stack_overlay_.resize(seq.size());
-			for (auto&& [idx, elem] : seq | std::views::enumerate){
+			for(auto&& [idx, elem] : seq | std::views::enumerate){
 				draw_call_stack_recorder rec{call_stack_overlay_[idx]};
 				elem->record_draw_layer(rec);
 			}
 		}
-
 	}
 
 	renderer().init_timeline_variable();
@@ -805,39 +806,43 @@ void example_scene::draw_impl(rect clip){
 	{
 		viewport_guard _{renderer(), get_region()};
 
-		for (const auto & [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(), call_stack_tooltip_)){
-			if(!tooltip.belowScene)continue;
+		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(),
+		                                                           call_stack_tooltip_)){
+			if(!tooltip.belowScene) continue;
 			draw_at(tooltip.element->bound_abs(), stack);
 		}
 
 		draw_at(root().bound_abs(), call_stack_regular_);
 
-		for (const auto & [overlay, stack] : std::ranges::views::zip(overlay_manager_.get_draw_sequence(), call_stack_overlay_)){
+		for(const auto& [overlay, stack] : std::ranges::views::zip(overlay_manager_.get_draw_sequence(),
+		                                                           call_stack_overlay_)){
 			draw_at(overlay->bound_abs(), stack);
 		}
 
-		for (const auto & [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(), call_stack_tooltip_)){
-			if(tooltip.belowScene)continue;
+		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(),
+		                                                           call_stack_tooltip_)){
+			if(tooltip.belowScene) continue;
 			draw_at(tooltip.element->bound_abs(), stack);
 		}
 	}
 
 	if(input_handler_.inputs_.is_cursor_inbound()){
 		renderer().update_state(fx::pipeline_config{
-			.pipeline_index = gpip::idx::cursor_outline,
-			.draw_targets = {0b1}
-		});
+				.pipeline_index = gpip::idx::cursor_outline,
+				.draw_targets = {0b1}
+			});
 
 		renderer().update_state(fx::push_constant{1.f});
 
-		auto region = current_cursor_drawers_.draw(static_cast<scene&>(*this), resources_->cursor_collection_manager.get_cursor_size());
+		auto region = current_cursor_drawers_.draw(*this, resources_->cursor_collection_manager.get_cursor_size());
 
 		renderer().update_state(fx::blit_config{
-			{
-				.src = region.src.as<int>(),
-				.extent = region.extent().as<int>()
-			},
-			{.pipeline_index = cpip_idx::blend}});
+				{
+					.src = region.src.as<int>(),
+					.extent = region.extent().as<int>()
+				},
+				{.pipeline_index = cpip_idx::blend}
+			});
 	}
 }
 #pragma endregion
@@ -886,50 +891,49 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 	ui_outputs result{&scene};
 
 
-	auto make_create_table = [&] -> std::vector<test_entry> {
+	auto make_create_table = [&] -> std::vector<test_entry>{
 		std::vector<test_entry> tests{
 				test_entry{
-				"layout test", [](scroll_adaptor<table>& pane){
-					pane.set_style();
-					pane.set_overlay_bar(true);
-					auto& t = pane.get_elem();
-					t.set_expand_policy(layout::expand_policy::prefer);
-					t.set_style();
-					t.template_cell.set_pad(4);
+					"layout test", [](scroll_adaptor<table>& pane){
+						pane.set_style();
+						pane.set_overlay_bar(true);
+						auto& t = pane.get_elem();
+						t.set_expand_policy(layout::expand_policy::prefer);
+						t.set_style();
+						t.template_cell.set_pad(4);
 
-					t.create_back([](gui::elem& e){
-					}).cell().set_size({60, 60});
+						t.create_back([](gui::elem& e){
+						}).cell().set_size({60, 60});
 
-					t.create_back([](gui::sequence& e){
-						e.set_expand_policy(layout::expand_policy::passive);
-						e.template_cell.set_size({layout::size_category::scaling});
-						e.template_cell.set_pad({4, 4});
-						e.emplace_back<elem>();
-						e.emplace_back<elem>();
-						e.emplace_back<elem>();
-						e.emplace_back<elem>();
-					}, layout::layout_policy::vert_major).cell().set_width(400);
-					t.end_line();
+						t.create_back([](gui::sequence& e){
+							e.set_expand_policy(layout::expand_policy::passive);
+							e.template_cell.set_size({layout::size_category::scaling});
+							e.template_cell.set_pad({4, 4});
+							e.emplace_back<elem>();
+							e.emplace_back<elem>();
+							e.emplace_back<elem>();
+							e.emplace_back<elem>();
+						}, layout::layout_policy::vert_major).cell().set_width(400);
+						t.end_line();
 
-					t.emplace_back<elem>().cell().set_height(120);
-					t.emplace_back<elem>().cell().set_width(200).unsaturate_cell_align = align::pos::right;
-					t.end_line();
+						t.emplace_back<elem>().cell().set_height(120);
+						t.emplace_back<elem>().cell().set_width(200).unsaturate_cell_align = align::pos::right;
+						t.end_line();
 
-					{
-						auto sep = t.emplace_back<row_separator>();
-						sep.cell().set_height(20).set_width_passive(.85f).saturate = true;
-						sep.cell().margin.set_vert(4);
-						sep.cell().set_end_line();
+						{
+							auto sep = t.emplace_back<row_separator>();
+							sep.cell().set_height(20).set_width_passive(.85f).saturate = true;
+							sep.cell().margin.set_vert(4);
+							sep.cell().set_end_line();
+						}
+
+						t.emplace_back<elem>();
+						t.create_back([](gui::label& e){
+							e.set_fit_type(label_fit_type::fix);
+							e.set_text("Test Test Test Test Test Test Test Test Test Test ");
+						}).cell().set_pending({false, true});
 					}
-
-					t.emplace_back<elem>();
-					t.create_back([](gui::label& e){
-						e.set_fit_type(label_fit_type::fix);
-						e.set_text("Test Test Test Test Test Test Test Test Test Test ");
-					}).cell().set_pending({false, true});
-
-
-				}},
+				},
 				test_entry{
 					"csv", [](cpd::data_table& table){
 						table._debug_identity = 114;
@@ -969,7 +973,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 							}).cell().set_size(60);
 
 							sequence.create_back([&](cpd::numeric_input_area<int>& area){
-
 							}).cell().set_size(80);
 
 							{
@@ -1171,10 +1174,11 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 				},
 				test_entry{
 					"collapsers", [&](scroll_adaptor<sequence>& pane){
-					pane.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
+						pane.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 
 						sequence& s = pane.get_elem();
-					s.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)));
+						s.set_layout_spec(
+							layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 
 						s.set_style();
 						s.set_expand_policy(layout::expand_policy::prefer);
@@ -1189,7 +1193,9 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								c.emplace_head<elem>().set_style();
 								c.set_head_size(50);
 								c.create_body([](table& e){
-									e.set_style(e.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
+									e.set_style(
+										e.get_style_manager().get_default<style::elem_style_drawer>(
+											style::family_variant::base_only));
 									e.interactivity = interactivity_flag::enabled;
 									e.template_cell.pad.set_vert(4);
 									e.set_tooltip_state(
@@ -1261,7 +1267,9 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 							auto hdl = menu.create_back(
 								[&](label& e){
 									e.set_fit_type(label_fit_type::scl);
-									e.set_style(e.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
+									e.set_style(
+										e.get_style_manager().get_default<style::elem_style_drawer>(
+											style::family_variant::base_only));
 									e.set_text(std::format("chunk by {}", i));
 								}, [&](sequence& e){
 									e.set_has_smooth_pos_animation(true);
@@ -1293,7 +1301,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 									style::family_variant::invalid,
 								};
 
-							for (auto family_variant : family_variants){
+							for(auto family_variant : family_variants){
 								auto check_box = table.emplace_back<gui::check_box>(std::in_place);
 								check_box->icons[1].components.color = {graphic::colors::pale_green};
 								check_box.cell().set_size({60, 60});
@@ -1301,7 +1309,9 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 
 								auto receiver = table.emplace_back<label>();
 								receiver->set_fit();
-								receiver->set_style(receiver->get_style_manager().get_default<style::elem_style_drawer>(family_variant));
+								receiver->set_style(
+									receiver->get_style_manager().get_default<style::elem_style_drawer>(
+										family_variant));
 								receiver->interactivity = interactivity_flag::enabled;
 
 								auto& listener = receiver->request_embedded_react_node(react_flow::make_listener(
@@ -1327,10 +1337,13 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 
 							{
 								auto sep = table.create_back([](overflow_sequence& seq){
-									seq.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)));
+									seq.set_layout_spec(
+										layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 									seq.template_cell.set_size(120).set_pad({2, 2});
 									auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
-										i.set_style(i.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
+										i.set_style(
+											i.get_style_manager().get_default<style::elem_style_drawer>(
+												style::family_variant::base_only));
 										i.interactivity = interactivity_flag::enabled;
 									}, assets::builtin::shape_id::more);
 									cell.set_size({layout::size_category::scaling});
@@ -1367,21 +1380,25 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 
 							table.emplace_back<elem>().cell().set_width(120).set_pending({false, true});
 							table.create_back([](cpd::click_collapser& c){
-								c.head().set_pad(8);
-								c.set_pad(8);
-								c.set_body_size({layout::size_category::pending});
-								c.set_head_size(80);
-							},
-								layout::layout_policy::hori_major,
-								element_create_pacakge{[](label& l){
-									l.set_style();
-									l.text_entire_align = align::pos::center;
-									l.set_text("Collapser");
-								}},
-								element_create_pacakge{[](label& l){
-									l.set_style();
-									l.set_text("Collapser Showcase");
-								}})
+								                  c.head().set_pad(8);
+								                  c.set_pad(8);
+								                  c.set_body_size({layout::size_category::pending});
+								                  c.set_head_size(80);
+							                  },
+							                  layout::layout_policy::hori_major,
+							                  element_create_pacakge{
+								                  [](label& l){
+									                  l.set_style();
+									                  l.text_entire_align = align::pos::center;
+									                  l.set_text("Collapser");
+								                  }
+							                  },
+							                  element_create_pacakge{
+								                  [](label& l){
+									                  l.set_style();
+									                  l.set_text("Collapser Showcase");
+								                  }
+							                  })
 							     .cell().set_pending({false, true}).set_width_passive();
 
 							table.end_line();
@@ -1432,7 +1449,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								grid_uniformed_mastering{6, 300.f, {4, 4}},
 								grid_uniformed_passive{8, {4, 4}}
 							});
-					pane.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
+						pane.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 					}
 				},
 				test_entry{
@@ -1485,7 +1502,6 @@ Edge Cases:
 								p.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 							});
 							inner.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
-
 						});
 
 
@@ -1513,10 +1529,10 @@ Edge Cases:
 										});
 									l.set_text(test_text);
 								});
-								label.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
+								label.set_layout_spec(
+									layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 							});
 							inner.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
-
 						});
 					}
 				},
@@ -1524,19 +1540,18 @@ Edge Cases:
 					"color picker", [&](sequence& table){
 						table.set_style();
 						table.set_self_boarder(gui::boarder{}.set(16));
-					table.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)));
+						table.set_layout_spec(
+							layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 						table.template_cell.set_pad({16, 16});
 						table.set_expand_policy(layout::expand_policy::passive);
 						struct picker : cpd::precise_color_picker{
 							std::add_pointer_t<make_style_result::node_type> prov;
 							using precise_color_picker::precise_color_picker;
 
-
 						protected:
 							void on_color_changed(graphic::color color) override{
 								prov->update_value(style::make_theme_palette(color));
 							}
-
 						};
 						table.create_back([&](picker& p){
 							p.prov = &style_pal_prov.front;
@@ -1551,12 +1566,15 @@ Edge Cases:
 					"view port", [](scaling_stack& stack){
 						auto vphld = stack.emplace_back<vp>();
 						vphld.cell().region_scale = {.0f, .0f, 1.f, 1.f};
-						auto hdl = stack.emplace_back<cpd::named_slider>(layout::layout_policy::hori_major, "Speed", 50.f);
+						auto hdl = stack.emplace_back<cpd::named_slider>(
+							layout::layout_policy::hori_major, "Speed", 50.f);
 						hdl->get_slider().set_smooth_drag(true);
 						hdl->get_slider().set_progress(math::map(1.f, 0.f, 3.f, 0.f, 1.f));
 						hdl->set_expand_policy(layout::expand_policy::passive);
 						hdl->set_max_extent({std::numeric_limits<float>::infinity(), 140});
-						hdl->set_style(hdl->get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::solid));
+						hdl->set_style(
+							hdl->get_style_manager().get_default<
+								style::elem_style_drawer>(style::family_variant::solid));
 
 						hdl.cell().region_scale = {.0f, .0f, .5f, .5f};
 						hdl.cell().region_align = align::pos::bottom_left;
@@ -1568,9 +1586,10 @@ Edge Cases:
 						hdl->add_formatter_func([](float val){
 							return std::format("{:.2f}", val);
 						});
-						auto& n = hdl->request_embedded_react_node(react_flow::make_listener([&vp = vphld.elem()](float val){
-							vp.update_speed = val;
-						}));
+						auto& n = hdl->request_embedded_react_node(react_flow::make_listener(
+							[&vp = vphld.elem()](float val){
+								vp.update_speed = val;
+							}));
 						trans.connect_successor(n);
 						hdl->get_slider_provider().pull_and_push(false);
 					}
@@ -1596,29 +1615,30 @@ Edge Cases:
 			l.set_style();
 			l.text_entire_align = align::pos::center;
 			l.set_tokenized_text(typesetting::tokenized_text{
-				U"{i}{f:code}"
-				U"{#8999F9}{+#223344}X{//}"
-				U"{#F0969D}{b}r{//}"
-				U"{#9DE6D1aa}g{/}"
-				U"{u}u{/}"
-				U"i{/i}"
-				U"{s:*.4} {/}{w:r}{s:*.9}Test"
-			});
+					U"{i}{f:code}"
+					U"{#8999F9}{+#223344}X{//}"
+					U"{#F0969D}{b}r{//}"
+					U"{#9DE6D1aa}g{/}"
+					U"{u}u{/}"
+					U"i{/i}"
+					U"{s:*.4} {/}{w:r}{s:*.9}Test"
+				});
 		});
 
 		m.create_body([](image_frame_single<drawable_image<component::vertex_color>>& l){
 			if(auto d = assets::builtin::get_page()[assets::builtin::shape_id::logo]){
 				l.set_drawable(drawable_image{
 						*d,
-						component::combined_components{component::vertex_color{
-							.color = {graphic::colors::light_gray}
-						}}
+						component::combined_components{
+							component::vertex_color{
+								.color = {graphic::colors::light_gray}
+							}
+						}
 					});
 			}
 			l.style.scaling = align::scale::fit;
 			l.set_style();
 		});
-
 	});
 	menu_hdl->set_expand_policy(layout::expand_policy::passive);
 	menu_hdl->set_head_size({layout::size_category::mastering, 100});
@@ -1635,7 +1655,9 @@ Edge Cases:
 				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
 					label.set_self_boarder(boarder{}.set_vert(6));
 					label.sync_run([](elem& el){
-						el.set_style(el.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
+						el.set_style(
+							el.get_style_manager().get_default<style::elem_style_drawer>(
+								style::family_variant::base_only));
 					});
 					label.set_fit_type(label_fit_type::scl);
 					label.set_text(std::format("[{}]-{}", idx, creator.name));
@@ -1657,4 +1679,3 @@ void clear_main_ui(){
 	ui_root.erase_resource("main");
 }
 }
-

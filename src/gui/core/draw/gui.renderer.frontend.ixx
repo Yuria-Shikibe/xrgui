@@ -196,7 +196,7 @@ export
 struct state_guard;
 
 export
-struct renderer_frontend{
+struct renderer_frontend : graphic::draw::emit_stream_sink<renderer_frontend>{
 	friend state_guard;
 
 private:
@@ -453,10 +453,18 @@ public:
 		batch_backend_interface_.push(heads, payload);
 	}
 
-	template <graphic::draw::instruction::known_instruction T>
-	friend renderer_frontend& operator<<(renderer_frontend& renderer, const T& instr){
-		renderer.push(instr);
-		return renderer;
+	template <graphic::draw::instruction::known_instruction Instr>
+	void operator()(const Instr& instr){
+		this->push(instr);
+	}
+
+	template <graphic::draw::instruction::known_instruction Instr, typename... Args>
+	void operator()(const Instr& instr, const Args&... args){
+		this->push(instr, args...);
+	}
+
+	void operator()(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
+		push(heads, payload);
 	}
 
 	template <graphic::draw::instruction::known_meta_instruction<renderer_frontend> T>

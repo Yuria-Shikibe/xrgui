@@ -156,7 +156,7 @@ void style::progress_drawer_arc::draw_layer_impl(const progress_bar& element, ma
 	auto count = GetSmoothCircleVertexCount(radius, math::abs(prog * angle_range.extent), .35f);
 
 	if(prog == 1.f && angle_range.extent >= 1.f){
-		fx::fringe::poly(element.renderer(), draw::instruction::poly{
+		graphic::draw::emit(element.renderer(), fx::fringe::poly(draw::instruction::poly{
 			.pos = center + off,
 			.segments = count,
 			.initial_angle = angle_range.base,
@@ -164,11 +164,11 @@ void style::progress_drawer_arc::draw_layer_impl(const progress_bar& element, ma
 			.color = {
 				element.draw_config.color.src, element.draw_config.color[prog],
 			}
-		}, 1.5f);
+		}, 1.5f));
 		return;
 	}
 
-	fx::fringe::poly_partial_with_cap(element.renderer(), draw::instruction::poly_partial{
+	graphic::draw::emit(element.renderer(), fx::fringe::poly_partial_with_cap(draw::instruction::poly_partial{
 			.pos = center + off,
 			.segments = count,
 			.range = {angle_range.base, angle_range.extent * prog},
@@ -177,6 +177,6 @@ void style::progress_drawer_arc::draw_layer_impl(const progress_bar& element, ma
 				element.draw_config.color.src, element.draw_config.color.src,
 				element.draw_config.color[prog], element.draw_config.color[prog]
 			}
-		}, 1.5f * cap_size, 1.5f* cap_size, 1.5f);
+		}, 1.5f * cap_size, 1.5f* cap_size, 1.5f));
 }
 }

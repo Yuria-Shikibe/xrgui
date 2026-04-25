@@ -442,6 +442,116 @@ FORCE_INLINE [[nodiscard]] instruction_head place_ubo_update_at(
 export
 using state_tag = binary_diff_trace::tag;
 
+}
+
+export
+struct emit_t;
+
+export
+template <typename Sink, typename Instr>
+concept directly_emittable_draw_instruction = requires(Sink& sink, Instr&& instr){
+	sink(std::forward<Instr>(instr));
+};
+
+export
+template <typename Sink, typename Instr>
+concept cpo_emittable_draw_instruction = requires(Instr&& instr, Sink& sink){
+	std::forward<Instr>(instr)(std::declval<const emit_t&>(), sink);
+};
+
+export
+struct emit_t{
+	template <typename Sink, typename Instr>
+		requires (instruction::known_instruction<std::remove_cvref_t<Instr>> && directly_emittable_draw_instruction<Sink, Instr>)
+	FORCE_INLINE constexpr decltype(auto) static operator()(Sink& sink, Instr&& instr)
+		noexcept(noexcept(sink(std::forward<Instr>(instr)))){
+		ATTR_FORCEINLINE_SENTENCE
+		ADAPTED_MUST_TAIL
+		return sink(std::forward<Instr>(instr));
+	}
+
+	template <typename Sink, typename Instr>
+		requires (!instruction::known_instruction<std::remove_cvref_t<Instr>> && cpo_emittable_draw_instruction<Sink, Instr>)
+	FORCE_INLINE constexpr decltype(auto) static operator()(Sink& sink, Instr&& instr)
+		noexcept(noexcept(std::forward<Instr>(instr)(emit_t{}, sink))){
+		ATTR_FORCEINLINE_SENTENCE
+		ADAPTED_MUST_TAIL
+		return std::forward<Instr>(instr)(emit_t{}, sink);
+	}
+};
+
+export inline constexpr emit_t emit{};
+
+export
+template <typename Derived>
+struct emit_stream_sink{
+	template <typename Instr>
+		requires requires(Derived& sink, Instr&& instr){
+		emit(sink, std::forward<Instr>(instr));
+		}
+	FORCE_INLINE friend Derived& operator<<(Derived& sink, Instr&& instr)
+		noexcept(noexcept(emit(sink, std::forward<Instr>(instr)))){
+		ATTR_FORCEINLINE_SENTENCE
+		emit(sink, std::forward<Instr>(instr));
+		return sink;
+	}
+};
+
+template <typename Rng, typename T>
+concept batch_push_range_of =
+	std::ranges::contiguous_range<Rng> &&
+	std::ranges::sized_range<Rng> &&
+	std::same_as<std::remove_cv_t<std::ranges::range_value_t<Rng>>, T>;
+
+export
+struct batch_push_view{
+	std::span<const instruction::instruction_head> heads{};
+
+	//TODO directly pass raw pointer??
+	std::span<const std::byte> payload{};
+
+	void operator()(emit_t, auto& sink) const {
+		sink(heads, payload.data());
+	}
+};
+
+export
+[[nodiscard]] FORCE_INLINE constexpr batch_push_view batch_push(
+	const std::span<const instruction::instruction_head> heads,
+	const std::span<const std::byte> payload
+) noexcept{
+	return {heads, payload};
+}
+
+export
+[[nodiscard]] FORCE_INLINE constexpr batch_push_view batch_push(
+	const std::span<const instruction::instruction_head> heads,
+	const std::byte* payload
+) noexcept{
+	const auto byte_size = std::ranges::fold_left(heads, std::size_t{}, [](std::size_t size, const instruction::instruction_head& head) {
+		return size + head.payload_size;
+	});
+	return {heads, {payload, byte_size}};
+}
+
+export
+template <batch_push_range_of<instruction::instruction_head> HeadRng, batch_push_range_of<std::byte> PayloadRng>
+	requires std::ranges::borrowed_range<HeadRng&&> && std::ranges::borrowed_range<PayloadRng&&>
+
+[[nodiscard]] FORCE_INLINE constexpr batch_push_view batch_push(
+	HeadRng&& heads,
+	PayloadRng&& payload
+) noexcept{
+	return {
+		std::span<const instruction::instruction_head>{
+			std::ranges::data(std::forward<HeadRng>(heads)), std::ranges::size(std::forward<HeadRng>(heads))},
+		std::span<const std::byte>{
+			std::ranges::data(std::forward<PayloadRng>(payload)), std::ranges::size(std::forward<PayloadRng>(payload))}
+	};
+}
+
+namespace instruction{
+
 export
 template <typename L, typename R = std::uint32_t>
 	requires (sizeof(L) == sizeof(state_tag::major) && sizeof(R) == sizeof(state_tag::minor))

@@ -354,14 +354,14 @@ public:
 
        const math::vec2 offset = src_offset + get_align_off(e.line_alignment, target_size, cell_size);
 
-       mat3.set_rect_transform({}, e.glyph_layout.extent, offset, target_size);
-       renderer.top_viewport().set_local_transform(mat3);
-       renderer.notify_viewport_changed();
+		mat3.set_rect_transform({}, e.glyph_layout.extent, offset, target_size);
+		renderer.top_viewport().set_local_transform(mat3);
+		renderer.notify_viewport_changed();
 
-       auto instr_idx = get_col_count() * coord.y + coord.x;
-       auto instr = glyph_instructions[instr_idx];
-       renderer.push(instr.heads, instr.data.data());
-    };
+		auto instr_idx = get_col_count() * coord.y + coord.x;
+		auto instr = glyph_instructions[instr_idx];
+		graphic::draw::emit(renderer, instr);
+	};
 
     bool col_cell_seen = false;
     current_offset = {};

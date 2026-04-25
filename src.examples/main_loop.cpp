@@ -128,13 +128,13 @@ void main_loop::main_loop_exec(){
 		}
 
 		r.update_state(fx::batch_draw_mode::msdf);
-		r << fx::nine_patch_draw_vert_color{
+		graphic::draw::emit(r, fx::nine_patch_draw_vert_color{
 				.patch = &assets::builtin::default_round_square_boarder,
 				.region = {200, 200, 600, 600},
 				.color = {
 					graphic::colors::white, graphic::colors::CYAN, graphic::colors::ROYAL, graphic::colors::GREEN
 				}
-			};
+			});
 
 		r.update_state(fx::blit_config{
 				fx::blit_config::full_screen_region,
@@ -147,24 +147,24 @@ void main_loop::main_loop_exec(){
 			r.update_state(fx::pipeline_config{.pipeline_index = gpip::idx::mask_draw});
 			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_write_type::ignore_last});
 
-			r << fx::nine_patch_draw_vert_color{
+			graphic::draw::emit(r, fx::nine_patch_draw_vert_color{
 				.patch = &assets::builtin::default_round_square_base,
 				.region = {200, 200, 600, 600},
 				.color = {
 					graphic::colors::white, graphic::colors::gray, graphic::colors::gray, graphic::colors::black
 				}
-			};
+			});
 
 			r.update_state(fx::push_mask{});
 			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_write_type::mul_last});
 
-				r << fx::nine_patch_draw_vert_color{
-					.patch = &assets::builtin::default_round_square_base,
-					.region = {300, 300, 600, 600},
-					.color = {
-						graphic::colors::white, graphic::colors::gray, graphic::colors::gray, graphic::colors::black
-					}
-				};
+			r << fx::nine_patch_draw_vert_color{
+				.patch = &assets::builtin::default_round_square_base,
+				.region = {300, 300, 600, 600},
+				.color = {
+					graphic::colors::white, graphic::colors::gray, graphic::colors::gray, graphic::colors::black
+				}
+			};
 
 
 			r.update_state(fx::pipeline_config{.pipeline_index = gpip::idx::mask_apply});

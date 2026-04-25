@@ -66,7 +66,7 @@ void record_glyph_draw_instructions_draw_only(
 
 template <typename Alloc>
 void push(renderer_frontend& r, const graphic::draw::instruction::draw_record_storage<Alloc>& buf){
-	r.push(buf.heads(), buf.data().data());
+	graphic::draw::emit(r, buf);
 }
 
 export struct text_render_cache {
@@ -100,8 +100,12 @@ public:
 		record_glyph_draw_instructions_draw_only(draw_instr_buffer_, layout, line_align_, direction);
 	}
 
+	void operator()(graphic::draw::emit_t emit, auto& sink) const {
+		emit(sink, draw_instr_buffer_);
+	}
+
 	void push_to_renderer(renderer_frontend& r) const {
-		push(r, draw_instr_buffer_);
+		graphic::draw::emit(r, *this);
 	}
 };
 

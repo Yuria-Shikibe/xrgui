@@ -13,7 +13,7 @@ namespace mo_yanxi::graphic::draw::instruction {
 
 export
 template <typename Alloc = std::allocator<std::byte>>
-struct draw_record_storage {
+struct draw_record_storage : emit_stream_sink<draw_record_storage<Alloc>> {
 private:
     std::vector<instruction_head, typename std::allocator_traits<Alloc>::template rebind_alloc<instruction_head>> heads_{};
     std::vector<std::byte, typename std::allocator_traits<Alloc>::template rebind_alloc<std::byte>> data_{};
@@ -27,6 +27,12 @@ private:
     void push_bytes(const auto& val) {
         this->push_bytes(std::addressof(val), sizeof(val));
     }
+
+	template <std::ranges::contiguous_range Rng>
+		requires (std::ranges::sized_range<Rng> && std::is_trivially_copyable_v<std::ranges::range_value_t<Rng>>)
+	void push_range_bytes(const Rng& rng) {
+		this->push_bytes(std::ranges::data(rng), sizeof(std::ranges::range_value_t<Rng>) * std::ranges::size(rng));
+	}
 
 public:
     [[nodiscard]] constexpr draw_record_storage() = default;
@@ -51,10 +57,38 @@ public:
         this->push_bytes(instr);
     }
 
+	template <known_instruction Instr, typename... Args>
+		requires (sizeof...(Args) > 0 && valid_consequent_argument<Instr, Args...>)
+	void push(const Instr& instr, const Args&... args) {
+		heads_.push_back(instruction::make_instruction_head(instr, args...));
+		this->push_bytes(instr);
+		([&] {
+			if constexpr (std::ranges::contiguous_range<Args>) {
+				this->push_range_bytes(args);
+			} else {
+				this->push_bytes(args);
+			}
+		}(), ...);
+	}
+
+	template <known_instruction Instr>
+	void operator()(const Instr& instr) {
+		this->push(instr);
+	}
+
+	template <known_instruction Instr, typename... Args>
+		requires(sizeof...(Args) > 0)
+	void operator()(const Instr& instr, const Args&... args) {
+		this->push(instr, args...);
+	}
+
+	void operator()(emit_t, auto& sink) const {
+		draw::emit(sink, batch_push(heads(), data()));
+	}
+
     std::span<const instruction_head> heads() const noexcept {
         return heads_;
     }
-
 
     std::span<const std::byte> data() const noexcept {
         return data_;
@@ -71,11 +105,15 @@ export
 struct instr_chunk {
     std::span<const instruction_head> heads;
     std::span<const std::byte> data;
+
+	void operator()(emit_t, auto& sink) const {
+		draw::emit(sink, batch_push(heads, data));
+	}
 };
 
 export
 template <typename Alloc = std::allocator<std::byte>>
-struct draw_record_chunked_storage {
+struct draw_record_chunked_storage : graphic::draw::emit_stream_sink<draw_record_chunked_storage<Alloc>> {
 private:
     draw_record_storage<Alloc> storage_{};
 
@@ -107,6 +145,23 @@ public:
     void push(const Instr& instr) {
         storage_.push(instr);
     }
+
+	template <known_instruction Instr, typename... Args>
+		requires(sizeof...(Args) > 0)
+	void push(const Instr& instr, const Args&... args) {
+		storage_.push(instr, args...);
+	}
+
+	template <known_instruction Instr>
+	void operator()(const Instr& instr) {
+		push(instr);
+	}
+
+	template <known_instruction Instr, typename... Args>
+		requires(sizeof...(Args) > 0)
+	void operator()(const Instr& instr, const Args&... args) {
+		push(instr, args...);
+	}
 
     void split(bool allow_empty) {
         std::uint32_t head_total = static_cast<std::uint32_t>(storage_.heads().size());

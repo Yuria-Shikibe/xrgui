@@ -14,6 +14,7 @@ export import mo_yanxi.graphic.draw.instruction;
 export import mo_yanxi.graphic.color;
 
 namespace mo_yanxi::gui::fx{
+
 export
 struct circle{
 	math::vec2 pos;
@@ -26,14 +27,11 @@ struct circle{
 			 .segments = (std::uint32_t)get_smooth_circle_vertex_count(radius.abs_max(), 1),
 			 .radius = radius,
 			 .color = color
-		 };
+	 	 };
 	 }
 
-	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const circle& instr) {
-		using namespace graphic::draw::instruction;
-		renderer.push(poly(instr));
-
-		return renderer;
+	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
+		emit(sink, graphic::draw::instruction::poly(*this));
 	}
 };
 
@@ -44,20 +42,18 @@ struct row_patch_draw{
 	graphic::color color;
 	graphic::draw::instruction::row_patch_flags flags;
 
-	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const row_patch_draw& instr) {
+	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
 		using namespace graphic::draw::instruction;
-		assert(instr.patch != nullptr);
-		renderer.push(row_patch{
-				.generic = {.image = instr.patch->get_image_view()},
-				.coords = (instr.flags & row_patch_flags::transposed) == row_patch_flags{}
-					          ? instr.patch->get_ortho_draw_coords_axis_scaled(instr.region)
-					          : instr.patch->get_ortho_draw_coords_axis_scaled_transsrced(instr.region),
-				.uvs = instr.patch->get_uvs(),
-				.vert_color = {instr.color},
-				.flags = instr.flags
+		assert(patch != nullptr);
+		emit(sink, row_patch{
+				.generic = {.image = patch->get_image_view()},
+				.coords = (flags & row_patch_flags::transposed) == row_patch_flags{}
+					          ? patch->get_ortho_draw_coords_axis_scaled(region)
+					          : patch->get_ortho_draw_coords_axis_scaled_transsrced(region),
+				.uvs = patch->get_uvs(),
+				.vert_color = {color},
+				.flags = flags
 			});
-
-		return renderer;
 	}
 };
 
@@ -85,11 +81,10 @@ struct nine_patch_draw{
 		}
 	}
 
-	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const nine_patch_draw& instr) {
-		instr.for_each([&] FORCE_INLINE (graphic::draw::instruction::row_patch&& patch){
-			renderer.push(patch);
+	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
+		for_each([&] FORCE_INLINE (graphic::draw::instruction::row_patch&& patch){
+			emit(sink, patch);
 		});
-		return renderer;
 	}
 };
 
@@ -139,11 +134,10 @@ struct nine_patch_hollow_draw{
 		});
 	}
 
-	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const nine_patch_hollow_draw& instr) {
-		instr.for_each([&]<typename Instr> FORCE_INLINE (Instr&& patch){
-			renderer.push(std::forward<Instr>(patch));
+	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
+		for_each([&]<typename Instr> FORCE_INLINE (Instr&& patch){
+			emit(sink, std::forward<Instr>(patch));
 		});
-		return renderer;
 	}
 };
 
@@ -154,34 +148,33 @@ struct nine_patch_draw_vert_color{
 	math::raw_frect region;
 	graphic::draw::instruction::quad_vert_color color;
 
-	FORCE_INLINE friend renderer_frontend& operator<<(renderer_frontend& renderer, const nine_patch_draw_vert_color& instr) {
-		assert(instr.patch != nullptr);
-		auto& patch = *instr.patch;
-		auto coords = patch.get_row_coords(instr.region);
-		auto uvs = patch.get_row_uvs();
+	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
+		assert(patch != nullptr);
+		auto& img_patch = *patch;
+		auto coords = img_patch.get_row_coords(region);
+		auto uvs = img_patch.get_row_uvs();
 
-		auto [CLB, CLT] = patch.interpolate_middle_row_values(instr.color.v00, instr.color.v01, instr.region.extent.y);
-		auto [CRB, CRT] = patch.interpolate_middle_row_values(instr.color.v10, instr.color.v11, instr.region.extent.y);
+		auto [CLB, CLT] = img_patch.interpolate_middle_row_values(color.v00, color.v01, region.extent.y);
+		auto [CRB, CRT] = img_patch.interpolate_middle_row_values(color.v10, color.v11, region.extent.y);
 
-		renderer.push(graphic::draw::instruction::row_patch{
-			.generic = {.image = patch.image_view->view},
+		emit(sink, graphic::draw::instruction::row_patch{
+			.generic = {.image = img_patch.image_view->view},
 			.coords = coords[0],
 			.uvs = uvs[0],
-			.vert_color = graphic::draw::instruction::quad_vert_color{instr.color.v00, instr.color.v10, CLB, CRB}
+			.vert_color = graphic::draw::instruction::quad_vert_color{color.v00, color.v10, CLB, CRB}
 		});
-		renderer.push(graphic::draw::instruction::row_patch{
-			.generic = {.image = patch.image_view->view},
+		emit(sink, graphic::draw::instruction::row_patch{
+			.generic = {.image = img_patch.image_view->view},
 			.coords = coords[1],
 			.uvs = uvs[1],
 			.vert_color = graphic::draw::instruction::quad_vert_color{CLB, CRB, CLT, CRT}
 		});
-		renderer.push(graphic::draw::instruction::row_patch{
-			.generic = {.image = patch.image_view->view},
+		emit(sink, graphic::draw::instruction::row_patch{
+			.generic = {.image = img_patch.image_view->view},
 			.coords = coords[2],
 			.uvs = uvs[2],
-			.vert_color = graphic::draw::instruction::quad_vert_color{CLT, CRT, instr.color.v01, instr.color.v11}
+			.vert_color = graphic::draw::instruction::quad_vert_color{CLT, CRT, color.v01, color.v11}
 		});
-		return renderer;
 	}
 };
 

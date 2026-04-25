@@ -84,30 +84,30 @@ protected:
     const auto cap_size = math::curve(std::abs(sweep_angle), 0.0f, 0.05f);
 
 
-    if (state != progress_state::rough && prog >= 1.0f) {
-        fx::fringe::poly(element.renderer(), draw::instruction::poly{
-            .pos = center,
-            .segments = count,
-            .initial_angle = start_angle,
-            .radius = {inner, outer},
-            .color = {
-                vertex_color_start, vertex_color_end
-            }
-        }, 1.5f);
-        return;
-    }
+	if (state != progress_state::rough && prog >= 1.0f) {
+		graphic::draw::emit(element.renderer(), fx::fringe::poly(draw::instruction::poly{
+			.pos = center,
+			.segments = count,
+			.initial_angle = start_angle,
+			.radius = {inner, outer},
+			.color = {
+				vertex_color_start, vertex_color_end
+			}
+		}, 1.5f));
+		return;
+	}
 
 
-    fx::fringe::poly_partial_with_cap(element.renderer(), draw::instruction::poly_partial{
-            .pos = center,
-            .segments = count,
-            .range = {start_angle, sweep_angle},
-            .radius = {inner, outer},
-            .color = {
-                vertex_color_start, vertex_color_start,
-                vertex_color_end, vertex_color_end
-            }
-        }, 1.5f * cap_size, 1.5f * cap_size, 1.5f);
+	graphic::draw::emit(element.renderer(), fx::fringe::poly_partial_with_cap(draw::instruction::poly_partial{
+			.pos = center,
+			.segments = count,
+			.range = {start_angle, sweep_angle},
+			.radius = {inner, outer},
+			.color = {
+				vertex_color_start, vertex_color_start,
+				vertex_color_end, vertex_color_end
+			}
+		}, 1.5f * cap_size, 1.5f * cap_size, 1.5f));
     }
 };
 }

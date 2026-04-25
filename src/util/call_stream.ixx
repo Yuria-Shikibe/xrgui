@@ -23,9 +23,10 @@ import :call_stream_buffer;
 #elifdef __clang__
 #define MUST_TAIL [[clang::musttail]]
 #elifdef __GNUC__
-MUST_TAIL [[gnu::musttail]]
+#define MUST_TAIL [[gnu::musttail]]
 #else
-#error "Your compiler does not support the musttail attribute, which is strictly required for this VM engine."
+#define MUST_TAIL
+#undef USE_TAIL_DISPATCH
 #endif
 #endif
 
