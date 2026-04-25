@@ -162,8 +162,8 @@ private:
 	std::uint32_t max_major_size_{0};
 
 	align::pos entire_align_{align::pos::center};
-	layout::directional_layout_policy layout_policy_{
-		layout::directional_layout_policy::identity().cache_from(search_parent_layout_policy(true).value_or(layout::layout_policy::none))
+	layout::directional_layout_specifier layout_policy_{
+		layout::directional_layout_specifier::identity().cache_from(search_parent_layout_policy(true).value_or(layout::layout_policy::none))
 	};
 	layout::expand_policy expand_policy_{layout::expand_policy::resize_to_fit};
 
@@ -187,7 +187,7 @@ public:
 		return layout_policy_.self();
 	}
 
-	[[nodiscard]] layout::directional_layout_policy get_layout_specifier() const noexcept{
+	[[nodiscard]] layout::directional_layout_specifier get_layout_specifier() const noexcept{
 		return layout_policy_;
 	}
 
@@ -294,7 +294,7 @@ protected:
 	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
 		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
 		const auto candidate = setting.is_specifier()
-			? layout::directional_layout_policy{setting.as_specifier()}.cache_from(parent_policy)
+			? layout::directional_layout_specifier{setting.as_specifier()}.cache_from(parent_policy)
 			: layout_policy_.cache_from(setting.as_policy());
 
 		if(util::try_modify(layout_policy_, candidate)){

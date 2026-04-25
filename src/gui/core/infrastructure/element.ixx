@@ -227,7 +227,8 @@ public:
 	template <std::invocable<elem&> Fn>
 	constexpr void for_each(Fn&& fn) const noexcept(std::is_nothrow_invocable_v<Fn>){
 		if(is_span_()){
-			for (auto&& elem : span){
+			for (auto* elem : span){
+				assert(elem != nullptr);
 				std::invoke(std::forward<Fn>(fn), *elem);
 			}
 		}else if(etry.e){

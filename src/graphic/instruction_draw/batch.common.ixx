@@ -111,14 +111,23 @@ public:
 };
 
 export
-struct state_transition{
+struct section_event{
 	unsigned break_before_index{};
-	std::vector<std::uint32_t> uniform_buffer_marching_indices{};
-	state_transition_config config{};
+	std::vector<std::uint32_t> per_draw_uniform_bumps{};
+	state_transition_config state_deltas{};
 
-	[[nodiscard]] state_transition() = default;
-	[[nodiscard]] explicit state_transition(unsigned break_before_index)
+	[[nodiscard]] section_event() = default;
+	[[nodiscard]] explicit section_event(unsigned break_before_index)
 		: break_before_index(break_before_index){
+	}
+
+	bool empty() const noexcept{
+		return per_draw_uniform_bumps.empty() && state_deltas.empty();
+	}
+
+	void append(const section_event& other){
+		per_draw_uniform_bumps.append_range(other.per_draw_uniform_bumps);
+		state_deltas.append(other.state_deltas);
 	}
 };
 

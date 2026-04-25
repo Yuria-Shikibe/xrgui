@@ -286,7 +286,7 @@ public:
 };
 
 export
-struct binary_config_trace{
+struct tagged_range_store{
 	using tag = binary_diff_trace::tag;
 	using sub_span = binary_diff_trace::sub_span;
 	using record = binary_diff_trace::record;
@@ -296,7 +296,7 @@ struct binary_config_trace{
 		unsigned logical_offset;
 		sub_span data;
 
-		std::span<const std::byte> to_span(const binary_config_trace& trace) const noexcept{
+		std::span<const std::byte> to_span(const tagged_range_store& trace) const noexcept{
 			return data.to_span(trace.buffer_.data());
 		}
 	};
@@ -317,6 +317,17 @@ private:
 	}
 
 public:
+	std::span<const std::byte> data() const noexcept{
+		return record_data_;
+	}
+
+	const record* try_find_record(tag t) const noexcept{
+		if(auto it = find_record_iter(t); it != records_.end()){
+			return std::to_address(it);
+		}
+		return nullptr;
+	}
+
 	constexpr void clear_mask(const std::bitset<32>& mask) noexcept {
 		if (mask.none()) return;
 		std::erase_if(records_, [&](const record& rec) {
@@ -528,6 +539,16 @@ public:
 };
 
 export
+struct binary_config_trace : tagged_range_store{
+	using tagged_range_store::tagged_range_store;
+	using tag = tagged_range_store::tag;
+	using sub_span = tagged_range_store::sub_span;
+	using record = tagged_range_store::record;
+	using export_record = tagged_range_store::export_record;
+	using record_fix = tagged_range_store::record_fix;
+};
+
+export
 struct binary_config_guard{
 private:
 	binary_config_trace* trace_;
@@ -587,7 +608,7 @@ constexpr void assert_true(bool cond){
 	if(!cond) throw "Assertion failed";
 }
 
-consteval bool test_optimized_trace(){
+	consteval bool test_optimized_trace(){
 	binary_diff_trace trace;
 	using Tag = binary_diff_trace::tag;
 	Tag tagA{1, 1};

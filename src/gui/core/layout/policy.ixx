@@ -134,7 +134,7 @@ public:
 	};
 
 export
-struct directional_layout_policy{
+struct directional_layout_specifier{
 private:
 	std::uint8_t value_{static_cast<std::uint8_t>(layout_specifier::fixed(layout_policy::hori_major))};
 
@@ -150,16 +150,16 @@ private:
 	}
 
 public:
-	[[nodiscard]] constexpr directional_layout_policy() noexcept = default;
+	[[nodiscard]] constexpr directional_layout_specifier() noexcept = default;
 
-	[[nodiscard]] directional_layout_policy(const layout_policy value)
+	[[nodiscard]] directional_layout_specifier(const layout_policy value)
 		: value_(static_cast<std::uint8_t>(layout_specifier::fixed(
 			require_directional_policy(value, "directional_layout_policy only accepts horizontal/vertical major fixed values")
 		))){
 	}
 
-	[[nodiscard]] explicit directional_layout_policy(const layout_specifier specifier)
-		: directional_layout_policy{
+	[[nodiscard]] explicit directional_layout_specifier(const layout_specifier specifier)
+		: directional_layout_specifier{
 			specifier.self(),
 			specifier.map_none(),
 			specifier.map_hori_major(),
@@ -167,7 +167,7 @@ public:
 		}{
 	}
 
-	[[nodiscard]] directional_layout_policy(
+	[[nodiscard]] directional_layout_specifier(
 		const layout_policy self,
 		const layout_policy none_map,
 		const layout_policy hori_major_map,
@@ -184,15 +184,15 @@ public:
 		}
 	}
 
-	[[nodiscard]] static directional_layout_policy fixed(const layout_policy value){
-		return directional_layout_policy{value};
+	[[nodiscard]] static directional_layout_specifier fixed(const layout_policy value){
+		return directional_layout_specifier{value};
 	}
 
-	[[nodiscard]] static directional_layout_policy identity(const layout_policy self = layout_policy::none){
+	[[nodiscard]] static directional_layout_specifier identity(const layout_policy self = layout_policy::none){
 		return {self, layout_policy::hori_major, layout_policy::hori_major, layout_policy::vert_major};
 	}
 
-	[[nodiscard]] static directional_layout_policy transpose(const layout_policy self = layout_policy::none){
+	[[nodiscard]] static directional_layout_specifier transpose(const layout_policy self = layout_policy::none){
 		return {self, layout_policy::hori_major, layout_policy::vert_major, layout_policy::hori_major};
 	}
 
@@ -232,7 +232,7 @@ public:
 		return specifier().resolve(parent_policy);
 	}
 
-	[[nodiscard]] directional_layout_policy with_self(const layout_policy policy) const{
+	[[nodiscard]] directional_layout_specifier with_self(const layout_policy policy) const{
 		return {
 			require_directional_policy(policy, "directional_layout_policy cached self must be directional"),
 			map_none(),
@@ -241,11 +241,11 @@ public:
 		};
 	}
 
-	[[nodiscard]] directional_layout_policy cache_from(const layout_policy parent_policy) const{
+	[[nodiscard]] directional_layout_specifier cache_from(const layout_policy parent_policy) const{
 		return with_self(map(parent_policy));
 	}
 
-	[[nodiscard]] constexpr friend bool operator==(const directional_layout_policy&, const directional_layout_policy&) noexcept = default;
+	[[nodiscard]] constexpr friend bool operator==(const directional_layout_specifier&, const directional_layout_specifier&) noexcept = default;
 	[[nodiscard]] constexpr explicit(false) operator layout_policy() const noexcept{
 		return self();
 	}
@@ -270,7 +270,7 @@ public:
 		: value_(static_cast<std::uint8_t>((specifier.packed_value() & 0b11111100u) | 0b11u)){
 	}
 
-	[[nodiscard]] constexpr layout_policy_setting(const directional_layout_policy specifier) noexcept
+	[[nodiscard]] constexpr layout_policy_setting(const directional_layout_specifier specifier) noexcept
 		: layout_policy_setting(static_cast<layout_specifier>(specifier)){
 	}
 
@@ -312,7 +312,7 @@ constexpr layout_specifier transpose_layout(layout_specifier policy) noexcept{
 }
 
 export
-constexpr directional_layout_policy transpose_layout(directional_layout_policy policy) noexcept{
+constexpr directional_layout_specifier transpose_layout(directional_layout_specifier policy) noexcept{
 	return {
 		transpose_layout(policy.self()),
 		transpose_layout(policy.map_none()),

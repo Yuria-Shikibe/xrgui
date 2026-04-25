@@ -53,7 +53,7 @@ public:
 
 	collapser_settings settings{};
 
-	[[nodiscard]] collapser(scene& scene, elem* parent, layout::layout_policy layout_policy)
+	[[nodiscard]] collapser(scene& scene, elem* parent, const layout::directional_layout_specifier layout_policy)
 	: head_body_base(scene, parent, layout_policy){
 		interactivity = gui::interactivity_flag::enabled;
 		layout_state.intercept_lower_to_isolated = true;
@@ -64,7 +64,9 @@ public:
 	}
 
 	[[nodiscard]] collapser(scene& scene, elem* parent)
-		: collapser(scene, parent, elem::search_layout_policy(parent, false).value_or(layout::layout_policy::hori_major)){
+		: collapser(scene, parent, layout::directional_layout_specifier::fixed(
+			elem::search_layout_policy(parent, false).value_or(layout::layout_policy::hori_major)
+		)){
 	}
 
 	using head_body_base::create;

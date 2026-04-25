@@ -1174,7 +1174,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 					pane.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 
 						sequence& s = pane.get_elem();
-					s.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_policy::fixed(layout::layout_policy::vert_major)));
+					s.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)));
 
 						s.set_style();
 						s.set_expand_policy(layout::expand_policy::prefer);
@@ -1327,7 +1327,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 
 							{
 								auto sep = table.create_back([](overflow_sequence& seq){
-									seq.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_policy::fixed(layout::layout_policy::vert_major)));
+									seq.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)));
 									seq.template_cell.set_size(120).set_pad({2, 2});
 									auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
 										i.set_style(i.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
@@ -1524,7 +1524,7 @@ Edge Cases:
 					"color picker", [&](sequence& table){
 						table.set_style();
 						table.set_self_boarder(gui::boarder{}.set(16));
-					table.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_policy::fixed(layout::layout_policy::vert_major)));
+					table.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)));
 						table.template_cell.set_pad({16, 16});
 						table.set_expand_policy(layout::expand_policy::passive);
 						struct picker : cpd::precise_color_picker{

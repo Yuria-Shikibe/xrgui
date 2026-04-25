@@ -32,7 +32,7 @@ public:
 		return elem_cast<arrow_rotor, false>(head().head());
 	}
 
-	[[nodiscard]] click_collapser(scene& scene, elem* parent, layout::layout_policy layout_policy)
+	[[nodiscard]] click_collapser(scene& scene, elem* parent, const layout::directional_layout_specifier layout_policy)
 		: collapser(scene, parent, layout_policy){
 		interactivity = interactivity_flag::children_only;
 		settings.expand_enter_spacing = 0;
@@ -41,11 +41,11 @@ public:
 	}
 
 	[[nodiscard]] click_collapser(scene& scene, elem* parent)
-		: click_collapser(scene, parent, layout::layout_policy::hori_major){
+		: click_collapser(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)){
 	}
 
 	template <elem_create_pacakge HeadPackage, elem_create_pacakge BodyPackage>
-	[[nodiscard]] click_collapser(scene& scene, elem* parent, layout::layout_policy layout_policy,
+	[[nodiscard]] click_collapser(scene& scene, elem* parent, const layout::directional_layout_specifier layout_policy,
 		HeadPackage&& hp, BodyPackage&& bp)
 		: click_collapser(scene, parent, layout_policy){
 		this->create_head([&](head_body_no_invariant& hb){

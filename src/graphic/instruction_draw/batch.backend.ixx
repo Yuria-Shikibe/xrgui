@@ -531,7 +531,7 @@ struct frame_resource{
 		load_timelines(0);
 
 		for(const auto& [chunk_idx, breakpoint] : breakpoints | std::views::enumerate){
-			for(const auto i : breakpoint.uniform_buffer_marching_indices){
+			for(const auto i : breakpoint.per_draw_uniform_bumps){
 				++cached_volatile_timelines[i];
 			}
 			auto where = dispatch_timeline_stamps_.begin() + (chunk_idx + 1) * dispatch_timeline_chunk_size;

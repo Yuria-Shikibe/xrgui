@@ -47,7 +47,7 @@ public:
 		requires (std::constructible_from<elem_ptr, scene&, elem*, Args&&...>)
 	[[nodiscard]] menu(
 		scene& scene, elem* parent,
-		layout::layout_policy layout_policy,
+		layout::directional_layout_specifier layout_policy,
 		Args&&... args
 	)
 	: head_body(scene, parent, layout_policy){

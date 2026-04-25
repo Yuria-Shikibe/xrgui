@@ -258,7 +258,7 @@ private:
 	hardware_limit_config hardware_limit_{};
 
 	std::vector<contiguous_draw_list> submit_groups_{};
-	std::vector<state_transition> submit_transitions_{};
+	std::vector<section_event> submit_transitions_{};
 
 	state_tracker tracker_{};
 
@@ -377,7 +377,7 @@ public:
 		return std::span{submit_groups_.data(), current_group};
 	}
 
-	std::span<const state_transition> get_state_transitions() const noexcept{
+	std::span<const section_event> get_state_transitions() const noexcept{
 		return std::span{submit_transitions_.data(), submit_transitions_.size()};
 	}
 
@@ -402,15 +402,9 @@ public:
 		case state_push_type::idempotent : tracker_.update(tag, payload, offset);
 			break;
 		case state_push_type::non_idempotent :{
-			state_transition_config temp_config;
-			if(tracker_.flush(temp_config)){
-				force_break_and_insert(std::move(temp_config));
-			}
-
-			state_transition_config non_idempotent_config;
-
-			non_idempotent_config.push(tag, payload, offset);
-			force_break_and_insert(std::move(non_idempotent_config));
+			flush_pending_state_deltas_();
+			auto& event = ensure_section_event_();
+			event.state_deltas.push(tag, payload, offset);
 			break;
 		}
 		default : std::unreachable();
@@ -425,50 +419,12 @@ public:
 		assert(std::to_underlying(instr_head.type) < std::to_underlying(instruction::instr_type::SIZE));
 
 		if(instr_head.type == instr_type::uniform_update){
-			const auto payload = std::span{instr, instr_head.payload_size};
-			const auto targetIndex = instr_head.payload.ubo.index;
-
-			if(instr_head.payload.ubo.group_index){
-				data_group_per_draw_call_info_.push(targetIndex, payload);
-			} else{
-				data_group_per_timeline_info_.push(targetIndex, payload);
-			}
+			push_uniform_update_(instr_head, instr);
 			return;
 		}
 
-
-		{
-			state_transition_config diff_config;
-			if(tracker_.flush(diff_config)){
-				force_break_and_insert(std::move(diff_config));
-			}
-		}
-
-
-		for(auto&& [idx, vertex_data_entry] : data_group_per_timeline_info_.entries | std::views::enumerate){
-			if(vertex_data_entry.collapse()){
-				const instruction_head collapse_head{
-						.type = instr_type::uniform_update,
-						.payload = {.marching_data = {static_cast<std::uint32_t>(idx)}}
-					};
-				try_push_(collapse_head);
-			}
-		}
-
-		state_transition* breakpoint{};
-		for(auto&& [idx, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate){
-			if(vertex_data_entry.collapse()){
-				if(!breakpoint){
-					current_group->finalize();
-
-					advance_current_group();
-					const auto cur_idx = static_cast<unsigned>(get_current_submit_group_index());
-					breakpoint = &submit_transitions_.emplace_back(cur_idx);
-				}
-
-				breakpoint->uniform_buffer_marching_indices.push_back(static_cast<std::uint32_t>(idx));
-			}
-		}
+		flush_pending_state_deltas_();
+		flush_pending_uniform_updates_();
 
 		try_push_(instr_head, instr);
 	}
@@ -479,12 +435,7 @@ public:
 		assert(current_group);
 
 
-		{
-			state_transition_config diff_config;
-			if(tracker_.flush(diff_config)){
-				force_break_and_insert(std::move(diff_config));
-			}
-		}
+		flush_pending_state_deltas_();
 
 		const std::byte* cur_payload = payload;
 		const std::size_t count = heads.size();
@@ -494,31 +445,7 @@ public:
 
 		while(idx < count){
 			if(need_collapse_check && heads[idx].type != instr_type::uniform_update){
-				for(auto&& [i, vertex_data_entry] : data_group_per_timeline_info_.entries | std::views::enumerate){
-					if(vertex_data_entry.collapse()){
-						const instruction_head collapse_head{
-								.type = instr_type::uniform_update,
-								.payload = {.marching_data = {static_cast<std::uint32_t>(i)}}
-							};
-						try_push_(collapse_head);
-					}
-				}
-
-
-				state_transition* breakpoint{};
-				for(auto&& [idx, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate){
-					if(vertex_data_entry.collapse()){
-						if(!breakpoint){
-							current_group->finalize();
-
-							advance_current_group();
-							const auto cur_idx = static_cast<unsigned>(get_current_submit_group_index());
-							breakpoint = &submit_transitions_.emplace_back(cur_idx);
-						}
-
-						breakpoint->uniform_buffer_marching_indices.push_back(static_cast<std::uint32_t>(idx));
-					}
-				}
+				flush_pending_uniform_updates_();
 				need_collapse_check = false;
 			}
 
@@ -540,14 +467,7 @@ public:
 				const auto& head = heads[idx];
 				check_size(head.payload_size);
 
-				const auto ubo_payload = std::span{cur_payload, head.payload_size};
-				const auto targetIndex = head.payload.ubo.index;
-
-				if(head.payload.ubo.group_index){
-					data_group_per_draw_call_info_.push(targetIndex, ubo_payload);
-				} else{
-					data_group_per_timeline_info_.push(targetIndex, ubo_payload);
-				}
+				push_uniform_update_(head, cur_payload);
 
 
 				need_collapse_check = true;
@@ -577,7 +497,7 @@ public:
 	}
 
 	const state_transition_config& get_break_config_at(std::size_t index) const noexcept{
-		return submit_transitions_[index].config;
+		return submit_transitions_[index].state_deltas;
 	}
 
 private:
@@ -594,19 +514,55 @@ private:
 		current_group->reset();
 	}
 
-	void force_break_and_insert(state_transition_config&& config){
+	section_event& ensure_section_event_(){
 		current_group->finalize();
 
-
 		if(current_group->empty() && !submit_transitions_.empty()){
-			submit_transitions_.back().config.append(config);
+			return submit_transitions_.back();
+		}
+
+		auto idx = static_cast<unsigned>(get_current_submit_group_index());
+		auto& event = submit_transitions_.emplace_back(idx);
+		advance_current_group();
+		return event;
+	}
+
+	void flush_pending_state_deltas_(){
+		state_transition_config diff_config;
+		if(!tracker_.flush(diff_config)) return;
+		auto& event = ensure_section_event_();
+		event.state_deltas.append(diff_config);
+	}
+
+	void flush_pending_uniform_updates_(){
+		for(auto&& [idx, vertex_data_entry] : data_group_per_timeline_info_.entries | std::views::enumerate){
+			if(vertex_data_entry.collapse()){
+				const instruction_head collapse_head{
+					.type = instr_type::uniform_update,
+					.payload = {.marching_data = {static_cast<std::uint32_t>(idx)}}
+				};
+				try_push_(collapse_head);
+			}
+		}
+
+		section_event* event{};
+		for(auto&& [idx, vertex_data_entry] : data_group_per_draw_call_info_.entries | std::views::enumerate){
+			if(!vertex_data_entry.collapse()) continue;
+			if(!event){
+				event = &ensure_section_event_();
+			}
+			event->per_draw_uniform_bumps.push_back(static_cast<std::uint32_t>(idx));
+		}
+	}
+
+	void push_uniform_update_(const instruction_head instr_head, const std::byte* instr){
+		const auto payload = std::span{instr, instr_head.payload_size};
+		const auto target_index = instr_head.payload.ubo.index;
+
+		if(instr_head.payload.ubo.group_index){
+			data_group_per_draw_call_info_.push(target_index, payload);
 		} else{
-			auto idx = static_cast<unsigned>(get_current_submit_group_index());
-			auto& t = submit_transitions_.emplace_back(idx);
-			t.config = std::move(config);
-
-
-			advance_current_group();
+			data_group_per_timeline_info_.push(target_index, payload);
 		}
 	}
 

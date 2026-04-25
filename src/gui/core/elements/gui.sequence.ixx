@@ -16,25 +16,25 @@ struct sequence_pre_layout_result{
 export
 struct sequence : celled_group<cell_adaptor<layout::partial_mastering_cell>>{
 private:
-	layout::directional_layout_policy policy_{layout::directional_layout_policy::identity().cache_from(search_parent_layout_policy(true).value_or(layout::layout_policy::none))};
+	layout::directional_layout_specifier policy_{layout::directional_layout_specifier::identity().cache_from(search_parent_layout_policy(true).value_or(layout::layout_policy::none))};
 	bool align_to_tail_{false};
 	layout::expand_policy expand_policy_{};
 
 public:
-	[[nodiscard]] sequence(scene& scene, elem* parent, layout::layout_policy policy)
+	[[nodiscard]] sequence(scene& scene, elem* parent, const layout::directional_layout_specifier policy)
 		: universal_group(scene, parent),
-		  policy_(layout::directional_layout_policy::fixed(policy)){
+		  policy_(policy){
 	}
 
 	[[nodiscard]] sequence(scene& scene, elem* parent)
-		: sequence(scene, parent, layout::layout_policy::hori_major){
+		: sequence(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)){
 	}
 
 protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override;
 
 public:
-	[[nodiscard]] layout::directional_layout_policy get_layout_specifier() const noexcept{
+	[[nodiscard]] layout::directional_layout_specifier get_layout_specifier() const noexcept{
 		return policy_;
 	}
 
@@ -76,7 +76,7 @@ protected:
 	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
 		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
 		const auto candidate = setting.is_specifier()
-			? layout::directional_layout_policy{setting.as_specifier()}.cache_from(parent_policy)
+			? layout::directional_layout_specifier{setting.as_specifier()}.cache_from(parent_policy)
 			: policy_.cache_from(setting.as_policy());
 
 		if(util::try_modify(policy_, candidate)){

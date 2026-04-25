@@ -560,7 +560,7 @@ private:
 
 public:
 	[[nodiscard]] data_table(scene& scene, elem* parent)
-		: scroll_adaptor(scene, parent, layout::layout_policy::none){
+		: scroll_adaptor(scene, parent, layout::layout_specifier::fixed(layout::layout_policy::none)){
 	}
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{

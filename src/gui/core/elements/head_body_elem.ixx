@@ -16,7 +16,7 @@ struct head_body_base : elem{
 protected:
 	std::array<elem_ptr, 2> items{};
 	std::array<layout::stated_size, 2> item_size{};
-	layout::layout_specifier layout_policy_{layout::layout_specifier::fixed(layout::layout_policy::none)};
+	layout::directional_layout_specifier layout_policy_{layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)};
 
 	float pad_ = 8;
 	bool transpose_head_and_body_{};
@@ -33,9 +33,9 @@ public:
 		interactivity = interactivity_flag::children_only;
 	}
 
-	[[nodiscard]] head_body_base(scene& scene, elem* parent, layout::layout_policy layout_policy)
+	[[nodiscard]] head_body_base(scene& scene, elem* parent, const layout::directional_layout_specifier layout_policy)
 	: elem(scene, parent),
-	layout_policy_(layout::layout_specifier::fixed(layout_policy)){
+	layout_policy_(layout_policy){
 		interactivity = interactivity_flag::children_only;
 	}
 
@@ -64,7 +64,7 @@ public:
 		set_item_size(true, {layout::size_category::mastering, size});
 	}
 
-	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept override{
+	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept final{
 		return layout_policy_.self();
 	}
 
@@ -135,8 +135,8 @@ protected:
 	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
 		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
 		const auto candidate = setting.is_specifier()
-			? setting.as_specifier().cache_from(parent_policy)
-			: layout_policy_.clear_self().cache_from(setting.as_policy());
+			? layout::directional_layout_specifier{setting.as_specifier()}.cache_from(parent_policy)
+			: layout_policy_.cache_from(setting.as_policy());
 
 		if(util::try_modify(layout_policy_, candidate)){
 			on_layout_policy_changed(candidate.self());

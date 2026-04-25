@@ -179,7 +179,7 @@ struct trace_entry : gui::head_body{
 	[[nodiscard]] trace_entry(scene& scene, elem* parent, file_selector& selector,
 	                          const std::filesystem::path& path_,
 	                          bool is_root = false)
-		: head_body(scene, parent, layout::layout_policy::vert_major), selector(&selector), path(path_){
+		: head_body(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)), selector(&selector), path(path_){
 		set_style();
 		create_head([&](button<direct_label>& l){
 			set_style_base_only(l);
@@ -410,7 +410,7 @@ file_selector& file_selector::file_entry::get_file_selector() const noexcept{
 
 file_selector::file_entry::file_entry(scene& scene, elem* parent, file_selector& selector,
                                       file_selector::path&& entry_path)
-	: head_body(scene, parent, layout::layout_policy::vert_major), selector(&selector), path(std::move(entry_path)){
+	: head_body(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)), selector(&selector), path(std::move(entry_path)){
 	interactivity = interactivity_flag::intercept;
 
 	std::error_code ec;
@@ -743,7 +743,7 @@ void file_selector::toggle_file_selection(file_entry* entry){
 }
 
 file_selector::file_selector(scene& scene, elem* parent) : head_body(
-	scene, parent, layout::layout_policy::hori_major){
+	scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)){
 	prov_path_->update_value_quiet(this);
 	interactivity = interactivity_flag::children_only;
 	this->is_transparent_in_inbound_filter = true;
@@ -755,7 +755,7 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 		s.create_head([this](sequence& seq){
 			menu = &seq;
 			set_style_edge_only(seq);
-			seq.propagate_layout_policy(layout::layout_policy::vert_major);
+			seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 			seq.set_expand_policy(layout::expand_policy::passive);
 			seq.template_cell.set_size({layout::size_category::scaling});
 			seq.template_cell.set_pad({2, 2});
@@ -803,7 +803,7 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 						i.set_style();
 					}, gui::assets::builtin::shape_id::more);
 					cell.set_size({layout::size_category::scaling});
-					ovf_seq.propagate_layout_policy(layout::layout_policy::vert_major);
+					ovf_seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 					ovf_seq.set_split_index(2);
 				});
 
@@ -817,7 +817,7 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 		});
 
 		s.create_body([this](sequence& seq){
-			seq.propagate_layout_policy(layout::layout_policy::vert_major);
+			seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 			set_style_edge_only(seq);
 			seq.template_cell.set_from_ratio().set_pad({2, 2});
 
@@ -839,13 +839,12 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 
 	this->create_body([&](split_pane& b){
 		b.set_expand_policy(layout::expand_policy::passive);
-		b.propagate_layout_policy(layout::layout_policy::vert_major);
 		b.set_style();
 		b.set_split_pos(.3f);
 
 		b.create_head([this](scroll_adaptor<sequence>& p){
 			set_style_edge_only(p);
-			p.propagate_layout_policy(layout::layout_policy::hori_major);
+			p.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
 			auto& seq = p.get_elem();
 
 			seq.set_style();
@@ -897,17 +896,20 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 			});
 		});
 
-		b.create_body([&](scroll_pane& p){
+		b.create_body([&](scroll_adaptor<sequence>& p){
 			set_style_edge_only(p);
-			p.propagate_layout_policy(layout::layout_policy::hori_major);
-			p.create([&](sequence& entries_seq){
-				entries_seq.set_expand_policy(layout::expand_policy::prefer);
-				entries_seq.set_style();
-				entries_seq.template_cell.set_size(60);
-				entries_seq.template_cell.set_pad({3, 3});
-				this->entries = &entries_seq;
-			});
+			p.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
+			sequence& entries_seq = p.get_elem();
+			entries_seq.set_expand_policy(layout::expand_policy::prefer);
+			entries_seq.set_style();
+			entries_seq.template_cell.set_size(60);
+			entries_seq.template_cell.set_pad({3, 3});
+			this->entries = &entries_seq;
+
 		});
+
+		b.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
+
 	});
 
 	set_head_size({layout::size_category::mastering, 160});

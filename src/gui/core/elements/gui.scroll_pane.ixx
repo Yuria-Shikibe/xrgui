@@ -88,8 +88,8 @@ public:
 	float fade_duration_ticks{60.0f * 0.5f};
 
 
-	[[nodiscard]] scroll_adaptor_base(scene& scene, elem* parent, layout::layout_policy policy)
-		: elem(scene, parent), layout_policy_{layout::layout_specifier::fixed(policy)}{
+	[[nodiscard]] scroll_adaptor_base(scene& scene, elem* parent, const layout::layout_specifier policy)
+		: elem(scene, parent), layout_policy_{policy}{
 		interactivity = interactivity_flag::enabled;
 
 		extend_focus_until_mouse_drop = true;
@@ -403,19 +403,19 @@ private:
 	cond_exist<elem*, is_elem_value> children_ptr_cache_{&item_};
 
 public:
-	[[nodiscard]] scroll_adaptor(scene& scene, elem* parent, layout::layout_policy policy) requires (!is_elem_value)
+	[[nodiscard]] scroll_adaptor(scene& scene, elem* parent, const layout::layout_specifier policy) requires (!is_elem_value)
 		: scroll_adaptor_base(scene, parent, policy), item_{}{
 	}
 
 	template <typename... Args>
 		requires std::constructible_from<element_type, scene&, elem*, Args&&...>
-	[[nodiscard]] scroll_adaptor(scene& scene, elem* parent, layout::layout_policy policy, Args&&... args) requires
+	[[nodiscard]] scroll_adaptor(scene& scene, elem* parent, const layout::layout_specifier policy, Args&&... args) requires
 		(is_elem_value)
 		: scroll_adaptor_base(scene, parent, policy), item_(scene, this, std::forward<Args>(args)...){
 	}
 
 	[[nodiscard]] scroll_adaptor(scene& scene, elem* parent)
-		: scroll_adaptor(scene, parent, layout::layout_policy::hori_major){
+		: scroll_adaptor(scene, parent, layout::layout_specifier::fixed(layout::layout_policy::hori_major)){
 	}
 
 	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{

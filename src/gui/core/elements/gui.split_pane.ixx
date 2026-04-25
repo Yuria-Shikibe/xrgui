@@ -48,7 +48,7 @@ private:
 	}
 
 public:
-	split_pane(scene& scene, elem* parent, layout::layout_policy layout_policy)
+	split_pane(scene& scene, elem* parent, const layout::directional_layout_specifier layout_policy)
 		: head_body_no_invariant(scene, parent, layout_policy){
 		extend_focus_until_mouse_drop = true;
 		interactivity = interactivity_flag::enabled;
@@ -57,7 +57,7 @@ public:
 	}
 
 	split_pane(scene& scene, elem* parent)
-		: split_pane(scene, parent, layout::layout_policy::vert_major){
+		: split_pane(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)){
 	}
 
 	bool update(float delta_in_ticks) override{

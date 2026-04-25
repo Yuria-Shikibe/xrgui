@@ -504,7 +504,7 @@ public:
 		return elem_cast<precise_hsv_picker, true>(head_body::head());
 	}
 
-	[[nodiscard]] precise_color_picker(scene& scene, elem* parent, layout::layout_policy layout_policy, float input_area_height, bool has_alpha = true)
+	[[nodiscard]] precise_color_picker(scene& scene, elem* parent, const layout::directional_layout_specifier layout_policy, float input_area_height, bool has_alpha = true)
 	: head_body(scene, parent, layout_policy){
 		using namespace std::literals;
 		static constexpr std::u32string_view titles[]{U"R: "sv, U"G: "sv, U"B: "sv, U"A: "sv};
@@ -514,7 +514,7 @@ public:
 		});
 		set_expand_policy(layout::expand_policy::passive);
 
-		if(layout_policy == layout::layout_policy::vert_major){
+		if(head_body::get_layout_policy() == layout::layout_policy::vert_major){
 			create_body([&](sequence& s){
 				s.set_expand_policy(layout::expand_policy::passive);
 				s.template_cell.set_pad({4, 4});
@@ -607,7 +607,7 @@ public:
 	}
 
 	[[nodiscard]] precise_color_picker(scene& scene, elem* parent)
-		: precise_color_picker(scene, parent, layout::layout_policy::vert_major, 240, true){
+		: precise_color_picker(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major), 240, true){
 	}
 };
 
