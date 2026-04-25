@@ -207,7 +207,7 @@ public:
 
 		if(hit){
 			style::cursor_style rst{style::cursor_type::none};
-			if(layout_policy_ == layout::layout_policy::vert_major){
+			if(get_layout_policy() == layout::layout_policy::vert_major){
 				rst.push_dcor(style::cursor_decoration_type::to_left);
 				rst.push_dcor(style::cursor_decoration_type::to_right);
 			} else{

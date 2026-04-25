@@ -112,8 +112,8 @@ void collapser::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 
 std::optional<math::vec2> collapser::pre_acquire_size_impl(layout::optional_mastering_extent extent){
 	auto pendings = extent.get_pending();
-	auto [pd_major, pd_minor] = layout::get_vec_ptr<bool>(layout_policy_);
-	auto [major, minor] = layout::get_vec_ptr(layout_policy_);
+	auto [pd_major, pd_minor] = layout::get_vec_ptr<bool>(get_layout_policy());
+	auto [major, minor] = layout::get_vec_ptr(get_layout_policy());
 
 	auto potential = extent.potential_extent();
 
@@ -144,7 +144,7 @@ float collapser::get_interped_progress() const noexcept{
 }
 
 rect collapser::get_expand_region() const noexcept{
-	const auto [_, minor] = layout::get_vec_ptr(layout_policy_);
+	const auto [_, minor] = layout::get_vec_ptr(get_layout_policy());
 	const auto prog = get_interped_progress();
 	auto content_src = content_src_pos_abs();
 

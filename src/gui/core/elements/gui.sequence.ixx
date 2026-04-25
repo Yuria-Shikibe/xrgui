@@ -16,14 +16,14 @@ struct sequence_pre_layout_result{
 export
 struct sequence : celled_group<cell_adaptor<layout::partial_mastering_cell>>{
 private:
-	layout::layout_policy policy_{search_parent_layout_policy(false).value_or(layout::layout_policy::hori_major)};
+	layout::directional_layout_policy policy_{layout::directional_layout_policy::identity().cache_from(search_parent_layout_policy(true).value_or(layout::layout_policy::none))};
 	bool align_to_tail_{false};
 	layout::expand_policy expand_policy_{};
 
 public:
 	[[nodiscard]] sequence(scene& scene, elem* parent, layout::layout_policy policy)
 		: universal_group(scene, parent),
-		  policy_(policy){
+		  policy_(layout::directional_layout_policy::fixed(policy)){
 	}
 
 	[[nodiscard]] sequence(scene& scene, elem* parent)
@@ -34,10 +34,8 @@ protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override;
 
 public:
-	void set_layout_policy(layout::layout_policy policy){
-		if(util::try_modify(policy_, policy)){
-			notify_isolated_layout_changed();
-		}
+	[[nodiscard]] layout::directional_layout_policy get_layout_specifier() const noexcept{
+		return policy_;
 	}
 
 	void set_expand_policy(layout::expand_policy policy){
@@ -60,8 +58,8 @@ public:
 		}
 	}
 
-	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept{
-		return policy_;
+	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept override{
+		return policy_.self();
 	}
 
 	[[nodiscard]] bool is_align_to_tail() const noexcept{
@@ -75,8 +73,17 @@ public:
 	void layout_elem() override;
 
 protected:
-	[[nodiscard]] std::optional<layout::layout_policy> search_layout_policy_getter_impl() const noexcept override{
-		return get_layout_policy();
+	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
+		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
+		const auto candidate = setting.is_specifier()
+			? layout::directional_layout_policy{setting.as_specifier()}.cache_from(parent_policy)
+			: policy_.cache_from(setting.as_policy());
+
+		if(util::try_modify(policy_, candidate)){
+			notify_isolated_layout_changed();
+			return true;
+		}
+		return setting.is_policy();
 	}
 };
 }

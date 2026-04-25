@@ -302,7 +302,7 @@ public:
 		set_expand_policy(layout::expand_policy::passive);
 		this->create(0, [this](sequence& display){
 			display.template_cell.set_pad({4, 4});
-			display.set_layout_policy(layout::layout_policy::vert_major);
+			display.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 			display.set_style();
 			display.set_expand_policy(layout::expand_policy::passive);
 			display.create_back([this](arrow& a){

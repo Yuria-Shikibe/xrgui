@@ -755,7 +755,7 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 		s.create_head([this](sequence& seq){
 			menu = &seq;
 			set_style_edge_only(seq);
-			seq.set_layout_policy(layout::layout_policy::vert_major);
+			seq.propagate_layout_policy(layout::layout_policy::vert_major);
 			seq.set_expand_policy(layout::expand_policy::passive);
 			seq.template_cell.set_size({layout::size_category::scaling});
 			seq.template_cell.set_pad({2, 2});
@@ -803,7 +803,7 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 						i.set_style();
 					}, gui::assets::builtin::shape_id::more);
 					cell.set_size({layout::size_category::scaling});
-					ovf_seq.set_layout_policy(layout::layout_policy::vert_major);
+					ovf_seq.propagate_layout_policy(layout::layout_policy::vert_major);
 					ovf_seq.set_split_index(2);
 				});
 
@@ -817,7 +817,7 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 		});
 
 		s.create_body([this](sequence& seq){
-			seq.set_layout_policy(layout::layout_policy::vert_major);
+			seq.propagate_layout_policy(layout::layout_policy::vert_major);
 			set_style_edge_only(seq);
 			seq.template_cell.set_from_ratio().set_pad({2, 2});
 
@@ -839,13 +839,13 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 
 	this->create_body([&](split_pane& b){
 		b.set_expand_policy(layout::expand_policy::passive);
-		b.set_layout_policy(layout::layout_policy::vert_major);
+		b.propagate_layout_policy(layout::layout_policy::vert_major);
 		b.set_style();
 		b.set_split_pos(.3f);
 
 		b.create_head([this](scroll_adaptor<sequence>& p){
 			set_style_edge_only(p);
-			p.set_layout_policy(layout::layout_policy::hori_major);
+			p.propagate_layout_policy(layout::layout_policy::hori_major);
 			auto& seq = p.get_elem();
 
 			seq.set_style();
@@ -899,7 +899,7 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 
 		b.create_body([&](scroll_pane& p){
 			set_style_edge_only(p);
-			p.set_layout_policy(layout::layout_policy::hori_major);
+			p.propagate_layout_policy(layout::layout_policy::hori_major);
 			p.create([&](sequence& entries_seq){
 				entries_seq.set_expand_policy(layout::expand_policy::prefer);
 				entries_seq.set_style();

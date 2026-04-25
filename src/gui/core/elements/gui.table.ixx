@@ -162,8 +162,8 @@ private:
 	std::uint32_t max_major_size_{0};
 
 	align::pos entire_align_{align::pos::center};
-	layout::layout_policy layout_policy_{
-		search_parent_layout_policy(false).value_or(layout::layout_policy::hori_major)
+	layout::directional_layout_policy layout_policy_{
+		layout::directional_layout_policy::identity().cache_from(search_parent_layout_policy(true).value_or(layout::layout_policy::none))
 	};
 	layout::expand_policy expand_policy_{layout::expand_policy::resize_to_fit};
 
@@ -183,12 +183,12 @@ public:
 		return entire_align_;
 	}
 
-	void set_layout_policy(layout::layout_policy policy){
-		assert(policy != layout::layout_policy::none && "Not implemented yet");
-		if(policy != layout_policy_){
-			notify_isolated_layout_changed();
-			layout_policy_ = policy;
-		}
+	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept override{
+		return layout_policy_.self();
+	}
+
+	[[nodiscard]] layout::directional_layout_policy get_layout_specifier() const noexcept{
+		return layout_policy_;
 	}
 
 	void set_expand_policy(layout::expand_policy policy){
@@ -223,7 +223,7 @@ public:
 
 			for(std::uint32_t major = 0; major < row_len; ++major){
 				auto& elem = line[major];
-				switch(layout_policy_){
+				switch(get_layout_policy()){
 				case layout::layout_policy::hori_major :{
 					if(minor == 0){
 						changed |= util::try_modify(elem.cell.pad.top, pad.top);
@@ -291,6 +291,19 @@ public:
 	}
 
 protected:
+	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
+		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
+		const auto candidate = setting.is_specifier()
+			? layout::directional_layout_policy{setting.as_specifier()}.cache_from(parent_policy)
+			: layout_policy_.cache_from(setting.as_policy());
+
+		if(util::try_modify(layout_policy_, candidate)){
+			notify_isolated_layout_changed();
+			return true;
+		}
+		return setting.is_policy();
+	}
+
 	void on_element_add(table_cell_adaptor& adaptor) override {
 		grid_dirty_ = true;
 		universal_group::on_element_add(adaptor);
@@ -302,7 +315,7 @@ protected:
 		update_grid_cache();
 		if(grid_row_counts_.empty()) return std::nullopt;
 
-		table_layout_context context{layout_policy_, max_major_size_, grid_row_counts_};
+		table_layout_context context{get_layout_policy(), max_major_size_, grid_row_counts_};
 
 		auto size = context.allocate_cells(cells_, extent.potential_extent(), get_scaling());
 		if(expand_policy_ == layout::expand_policy::prefer){
@@ -316,8 +329,8 @@ protected:
 	math::vec2 pre_layout(table_layout_context& context, layout::optional_mastering_extent constrain,
 	                      bool size_to_constrain){
 		auto size = context.allocate_cells(cells_, constrain.potential_extent(), get_scaling());
-		const auto [major_target, minor_target] = layout::get_vec_ptr<>(layout_policy_);
-		const auto [dep_major_target, dep_minor_target] = layout::get_vec_ptr<bool>(layout_policy_);
+		const auto [major_target, minor_target] = layout::get_vec_ptr<>(get_layout_policy());
+		const auto [dep_major_target, dep_minor_target] = layout::get_vec_ptr<bool>(get_layout_policy());
 
 		const auto dep = constrain.get_pending();
 		const auto sz = constrain.potential_extent();
@@ -337,7 +350,7 @@ protected:
 		update_grid_cache();
 		if(grid_row_counts_.empty()) return;
 
-		table_layout_context context{layout_policy_, max_major_size_, grid_row_counts_};
+		table_layout_context context{get_layout_policy(), max_major_size_, grid_row_counts_};
 
 		auto extent = restriction_extent;
 		extent.collapse(content_extent());

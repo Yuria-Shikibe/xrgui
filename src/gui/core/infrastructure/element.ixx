@@ -645,6 +645,32 @@ public:
 		});
 	}
 
+	[[nodiscard]] virtual layout::layout_policy get_layout_policy() const noexcept{
+		return layout::layout_policy::none;
+	}
+
+	bool propagate_layout_policy(const layout::layout_policy layout_policy_of_parent){
+		if(!set_layout_policy_impl(layout::layout_policy_setting{layout_policy_of_parent})){
+			return false;
+		}
+
+		auto policy_to_children = get_layout_policy();
+		if(policy_to_children == layout::layout_policy::none){
+			policy_to_children = layout_policy_of_parent;
+		}
+
+		for(auto&& collect_child : collect_children()){
+			collect_child.for_each([policy_to_children](elem& e){
+				e.propagate_layout_policy(policy_to_children);
+			});
+		}
+		return true;
+	}
+
+	bool set_layout_spec(const layout::layout_specifier specifier){
+		return set_layout_policy_impl(layout::layout_policy_setting{specifier});
+	}
+
 	//TODO responsibility chain to notify one?
 
 	void notify_layout_changed(propagate_mask propagation);
@@ -652,8 +678,24 @@ public:
 	void notify_isolated_layout_changed();
 
 protected:
+	virtual bool set_layout_policy_impl(const layout::layout_policy_setting setting){
+		return setting.is_policy();
+	}
+
+	void propagate_layout_policy_to_children() const{
+		auto policy_to_children = get_layout_policy();
+		if(policy_to_children == layout::layout_policy::none){
+			return;
+		}
+		for(auto&& collect_child : collect_children()){
+			collect_child.for_each([policy_to_children](elem& e){
+				e.propagate_layout_policy(policy_to_children);
+			});
+		}
+	}
+
 	virtual std::optional<layout::layout_policy> search_layout_policy_getter_impl() const noexcept{
-		return std::nullopt;
+		return get_layout_policy();
 	}
 
 public:

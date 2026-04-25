@@ -19,6 +19,7 @@ import mo_yanxi.gui.compound.numeric_input_area;
 
 import mo_yanxi.gui.util.observable_value;
 import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.gui.layout.policies;
 import mo_yanxi.gui.fx.fringe;
 
 namespace mo_yanxi::gui{

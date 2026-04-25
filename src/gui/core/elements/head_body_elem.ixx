@@ -16,7 +16,7 @@ struct head_body_base : elem{
 protected:
 	std::array<elem_ptr, 2> items{};
 	std::array<layout::stated_size, 2> item_size{};
-	layout::layout_policy layout_policy_{};
+	layout::layout_specifier layout_policy_{layout::layout_specifier::fixed(layout::layout_policy::none)};
 
 	float pad_ = 8;
 	bool transpose_head_and_body_{};
@@ -35,7 +35,7 @@ public:
 
 	[[nodiscard]] head_body_base(scene& scene, elem* parent, layout::layout_policy layout_policy)
 	: elem(scene, parent),
-	layout_policy_(layout_policy){
+	layout_policy_(layout::layout_specifier::fixed(layout_policy)){
 		interactivity = interactivity_flag::children_only;
 	}
 
@@ -64,17 +64,12 @@ public:
 		set_item_size(true, {layout::size_category::mastering, size});
 	}
 
-	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept{
-		return layout_policy_;
+	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept override{
+		return layout_policy_.self();
 	}
 
-	bool set_layout_policy(const layout::layout_policy layout_policy){
-		//TODO ban none
-		if(util::try_modify(layout_policy_, layout_policy)){
-			on_layout_policy_changed(layout_policy);
-			return true;
-		}
-		return false;
+	[[nodiscard]] layout::layout_specifier get_layout_specifier() const noexcept{
+		return layout_policy_;
 	}
 
 	[[nodiscard]] float get_pad() const noexcept{
@@ -137,6 +132,19 @@ public:
 
 
 protected:
+	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
+		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
+		const auto candidate = setting.is_specifier()
+			? setting.as_specifier().cache_from(parent_policy)
+			: layout_policy_.clear_self().cache_from(setting.as_policy());
+
+		if(util::try_modify(layout_policy_, candidate)){
+			on_layout_policy_changed(candidate.self());
+			return true;
+		}
+		return setting.is_policy();
+	}
+
 	template <std::derived_from<elem> E, typename... Args>
 		requires (std::constructible_from<E, scene&, elem*, Args...>)
 	E& emplace(bool as_body, Args&&... args){
@@ -195,11 +203,6 @@ protected:
 		return set_elem<E>(false, std::move(item));
 	}
 
-
-	[[nodiscard]] std::optional<layout::layout_policy> search_layout_policy_getter_impl() const noexcept final{
-		return get_layout_policy();
-	}
-
 	bool update_abs_src(math::vec2 parent_content_src) noexcept final{
 		if(elem::update_abs_src(parent_content_src)){
 			set_children_src();
@@ -212,7 +215,7 @@ protected:
 	virtual void set_children_src() const{
 		assert(items[0] != nullptr);
 		assert(items[1] != nullptr);
-		auto [_, minor] = layout::get_vec_ptr(layout_policy_);
+		auto [_, minor] = layout::get_vec_ptr(get_layout_policy());
 
 		auto sz = items[transpose_head_and_body_]->extent();
 		math::vec2 relOff{};
@@ -234,7 +237,7 @@ protected:
 	[[nodiscard]] layout_minor_dim_conifg get_layout_minor_dim_config(
 		float layout_major_size
 	) const{
-		auto [majorTarget, minorTarget] = layout::get_vec_ptr(layout_policy_);
+		auto [majorTarget, minorTarget] = layout::get_vec_ptr(get_layout_policy());
 
 		const float minorScaling = get_scaling().*minorTarget;
 		layout_minor_dim_conifg result{};
@@ -281,9 +284,9 @@ protected:
 	}
 
 	void layout_children(layout::expand_policy expand_policy_){
-		auto [majorTarget, minorTarget] = layout::get_vec_ptr(layout_policy_);
+		auto [majorTarget, minorTarget] = layout::get_vec_ptr(get_layout_policy());
 
-		bool majorPending{restriction_extent.get_pending().*layout::get_vec_ptr<bool>(layout_policy_).major};
+		bool majorPending{restriction_extent.get_pending().*layout::get_vec_ptr<bool>(get_layout_policy()).major};
 
 
 		auto content_sz = content_extent();
@@ -318,11 +321,11 @@ protected:
 			item->try_layout();
 
 			if(item_size[idx].pending()){
-				item->restriction_extent.set_minor_pending(layout_policy_);
+				item->restriction_extent.set_minor_pending(get_layout_policy());
 			}
 
 			if(majorPending){
-				item->restriction_extent.set_major_pending(layout_policy_);
+				item->restriction_extent.set_major_pending(get_layout_policy());
 			}
 		}
 
@@ -363,14 +366,14 @@ public:
 
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
 
-		if(layout_policy_ == layout::layout_policy::none){
+		if(get_layout_policy() == layout::layout_policy::none){
 			if(extent.fully_mastering()) return extent.potential_extent();
 			return std::nullopt;
 		}
 
-		auto [majorTargetDep, minorTargetDep] = layout::get_vec_ptr<bool>(layout_policy_);
+		auto [majorTargetDep, minorTargetDep] = layout::get_vec_ptr<bool>(get_layout_policy());
 		const auto dep = extent.get_pending();
-		auto [majorTarget, minorTarget] = layout::get_vec_ptr(layout_policy_);
+		auto [majorTarget, minorTarget] = layout::get_vec_ptr(get_layout_policy());
 
 
 		if(dep.*majorTargetDep){

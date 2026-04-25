@@ -33,11 +33,11 @@ private:
 		interactivity = interactivity_flag::children_only;
 		create_head([&](button_panel_type& pane){
 			sequence& sequence = pane.get_elem();
-			sequence.set_layout_policy(layout::transpose_layout(layout_policy_));
+			sequence.set_layout_spec(layout::transpose_layout(get_layout_specifier()));
 			sequence.interactivity = interactivity_flag::children_only;
 			sequence.set_style();
 			sequence.set_expand_policy(layout::expand_policy::prefer);
-		}, layout::transpose_layout(layout_policy_));
+		}, layout::transpose_layout(get_layout_specifier()));
 		items[1] = std::move(default_content);
 	}
 
@@ -157,8 +157,8 @@ protected:
 		head_body::on_layout_policy_changed(layout_policy);
 
 		const auto trsp = layout::transpose_layout(layout_policy);
-		elem_cast<button_panel_type, true>(*items[0]).set_layout_policy(trsp);
-		get_button_pane().get_elem().set_layout_policy(trsp);
+		elem_cast<button_panel_type, true>(*items[0]).propagate_layout_policy(trsp);
+		get_button_pane().get_elem().propagate_layout_policy(trsp);
 	}
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{

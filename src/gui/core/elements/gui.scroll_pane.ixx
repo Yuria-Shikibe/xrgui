@@ -54,7 +54,7 @@ protected:
 	math::vec2 item_extent_cache_{};
 	math::vec2 saved_scroll_ratio_{};
 
-	layout::layout_policy layout_policy_{layout::layout_policy::hori_major};
+	layout::layout_specifier layout_policy_{layout::layout_specifier::fixed(layout::layout_policy::hori_major)};
 	bool bar_caps_size{true};
 	bool force_hori_scroll_enabled_{false};
 	bool force_vert_scroll_enabled_{false};
@@ -89,7 +89,7 @@ public:
 
 
 	[[nodiscard]] scroll_adaptor_base(scene& scene, elem* parent, layout::layout_policy policy)
-		: elem(scene, parent), layout_policy_{policy}{
+		: elem(scene, parent), layout_policy_{layout::layout_specifier::fixed(policy)}{
 		interactivity = interactivity_flag::enabled;
 
 		extend_focus_until_mouse_drop = true;
@@ -107,7 +107,11 @@ public:
 		return overlay_scroll_bars_ ? bar_animator_.get_progress() : 1.0f;
 	}
 
-	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept{
+	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept override{
+		return layout_policy_.self();
+	}
+
+	[[nodiscard]] layout::layout_specifier get_layout_specifier() const noexcept{
 		return layout_policy_;
 	}
 
@@ -147,11 +151,8 @@ public:
 	events::op_afterwards on_drag(const events::drag e) override;
 #pragma endregion
 
-protected:
 
-	[[nodiscard]] std::optional<layout::layout_policy> search_layout_policy_getter_impl() const noexcept final{
-		return get_layout_policy();
-	}
+
 
 	[[nodiscard]] bool parent_contain_constrain(math::vec2 relative_pos) const noexcept final{
 		return rect{tags::from_extent, content_src_pos_rel(), get_viewport_extent()}.contains_loose(relative_pos) &&
@@ -159,6 +160,19 @@ protected:
 	}
 
 public:
+	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
+		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
+		const auto candidate = setting.is_specifier()
+			? setting.as_specifier().cache_from(parent_policy)
+			: layout_policy_.clear_self().cache_from(setting.as_policy());
+
+		if(util::try_modify(layout_policy_, candidate)){
+			notify_isolated_layout_changed();
+			return true;
+		}
+		return setting.is_policy();
+	}
+
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
 		elem::on_inbound_changed(is_inbounded, changed);
 		set_focused_scroll(is_inbounded);
@@ -404,11 +418,13 @@ public:
 		: scroll_adaptor(scene, parent, layout::layout_policy::hori_major){
 	}
 
-	void set_layout_policy(layout::layout_policy policy){
-		if(layout_policy_ != policy){
-			layout_policy_ = policy;
+	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
+		const auto changed = scroll_adaptor_base::set_layout_policy_impl(setting);
+		if(changed){
 			update_item_layout();
+			return true;
 		}
+		return setting.is_policy();
 	}
 
 	[[nodiscard]] elem_span exposed_children() const noexcept override {
@@ -541,7 +557,7 @@ private:
 		}
 
 		math::bool2 fill_mask{};
-		switch(layout_policy_){
+		switch(get_layout_policy()){
 		case layout::layout_policy::hori_major : fill_mask = {true, false};
 			break;
 		case layout::layout_policy::vert_major : fill_mask = {false, true};
@@ -568,7 +584,7 @@ private:
 				bool need_elem_relayout = false;
 				const float bar_occupied_size = overlay_scroll_bars_ ? 0.0f : scroll_bar_stroke_;
 
-				switch(layout_policy_){
+				switch(get_layout_policy()){
 				case layout_policy::hori_major :{
 					if(sz->y > content_height()){
 						bound.set_width(math::clamp_positive(bound.potential_width() - bar_occupied_size));
@@ -611,7 +627,7 @@ private:
 				auto elemSz = item_extent();
 				const float bar_occupied_size = overlay_scroll_bars_ ? 0.0f : scroll_bar_stroke_;
 
-				switch(layout_policy_){
+				switch(get_layout_policy()){
 				case layout_policy::hori_major :{
 					if(elemSz.x > content_width()){
 						elemSz.y = content_height();
@@ -641,7 +657,7 @@ private:
 	void deduced_set_child_fill_parent(elem& element) const noexcept{
 		using namespace layout;
 		element.restriction_extent = extent_by_external;
-		switch(layout_policy_){
+		switch(get_layout_policy()){
 		case layout_policy::hori_major :{
 			element.set_fill_parent({true, false}, propagate_mask::none);
 			element.restriction_extent.set_width(content_width());

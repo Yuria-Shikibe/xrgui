@@ -1171,10 +1171,10 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 				},
 				test_entry{
 					"collapsers", [&](scroll_adaptor<sequence>& pane){
-						pane.set_layout_policy(layout::layout_policy::vert_major);
+					pane.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 
 						sequence& s = pane.get_elem();
-						s.set_layout_policy(layout::layout_policy::vert_major);
+					s.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_policy::fixed(layout::layout_policy::vert_major)));
 
 						s.set_style();
 						s.set_expand_policy(layout::expand_policy::prefer);
@@ -1327,7 +1327,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 
 							{
 								auto sep = table.create_back([](overflow_sequence& seq){
-									seq.set_layout_policy(layout::layout_policy::vert_major);
+									seq.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_policy::fixed(layout::layout_policy::vert_major)));
 									seq.template_cell.set_size(120).set_pad({2, 2});
 									auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
 										i.set_style(i.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
@@ -1432,7 +1432,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								grid_uniformed_mastering{6, 300.f, {4, 4}},
 								grid_uniformed_passive{8, {4, 4}}
 							});
-						pane.set_layout_policy(layout::layout_policy::vert_major);
+					pane.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 					}
 				},
 				test_entry{
@@ -1467,7 +1467,6 @@ Edge Cases:
 						using namespace std::literals;
 						table.create_head([](split_pane& inner){
 							inner.set_expand_policy(layout::expand_policy::passive);
-							inner.set_layout_policy(layout::layout_policy::hori_major);
 							inner.create_head([](scroll_adaptor<label>& p){
 								auto& l = p.get_elem();
 								l.set_style();
@@ -1483,14 +1482,15 @@ Edge Cases:
 								l.set_expand_policy(layout::expand_policy::prefer);
 								l.set_fit(false);
 								l.set_text(test_text);
-								p.set_layout_policy(layout::layout_policy::vert_major);
+								p.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 							});
+							inner.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
+
 						});
 
 
 						table.create_body([](split_pane& inner){
 							inner.set_expand_policy(layout::expand_policy::passive);
-							inner.set_layout_policy(layout::layout_policy::hori_major);
 							inner.create_head([](scroll_pane& label){
 								label.create([](gui::label& l){
 									l.set_style();
@@ -1513,8 +1513,10 @@ Edge Cases:
 										});
 									l.set_text(test_text);
 								});
-								label.set_layout_policy(layout::layout_policy::vert_major);
+								label.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 							});
+							inner.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
+
 						});
 					}
 				},
@@ -1522,7 +1524,7 @@ Edge Cases:
 					"color picker", [&](sequence& table){
 						table.set_style();
 						table.set_self_boarder(gui::boarder{}.set(16));
-						table.set_layout_policy(layout::layout_policy::vert_major);
+					table.set_layout_spec(static_cast<layout::layout_specifier>(layout::directional_layout_policy::fixed(layout::layout_policy::vert_major)));
 						table.template_cell.set_pad({16, 16});
 						table.set_expand_policy(layout::expand_policy::passive);
 						struct picker : cpd::precise_color_picker{

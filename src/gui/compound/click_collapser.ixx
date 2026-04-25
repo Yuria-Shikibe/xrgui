@@ -69,14 +69,17 @@ public:
 		this->create_body(std::forward<BodyPackage>(bp));
 	}
 
-	bool set_layout_policy(layout::layout_policy layout_policy){
-		if(collapser::set_layout_policy(layout_policy)){
-			head().set_layout_policy(layout::transpose_layout(layout_policy));
+	protected:
+	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
+		if(collapser::set_layout_policy_impl(setting)){
+			head().propagate_layout_policy(layout::transpose_layout(get_layout_policy()));
 			return true;
 		}else{
 			return false;
 		}
 	}
+
+	public:
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		auto rst = collapser::on_click(event, aboves);

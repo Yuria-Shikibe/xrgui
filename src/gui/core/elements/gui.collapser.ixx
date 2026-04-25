@@ -183,7 +183,7 @@ protected:
 
 
 	void set_children_src() const final{
-		auto [_, minor] = layout::get_vec_ptr(layout_policy_);
+		auto [_, minor] = layout::get_vec_ptr(get_layout_policy());
 
 		math::vec2 relOff{};
 
