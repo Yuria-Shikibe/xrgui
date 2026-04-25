@@ -210,6 +210,14 @@ struct texture_allocation_request{
 	std::atomic<vk::texture*>* done_ptr;
 };
 
+struct prepared_image_upload{
+	vk::image_handle texture{};
+	std::uint32_t mip_level{};
+	std::uint32_t layer_index{};
+	math::urect region{};
+	std::vector<std::vector<std::byte>> mip_data{};
+};
+
 struct async_loader_task{
 	using variant_t = std::variant<allocated_image_load_description, texture_allocation_request>;
 	variant_t task;
@@ -298,7 +306,7 @@ private:
 			}
 
 			for (auto && alloc : image_load_queue){
-				self.load(std::move(alloc));
+				self.load(self.prepare(std::move(alloc)));
 			}
 
 			self.loading_flag_.store(false, std::memory_order::release);
@@ -311,7 +319,9 @@ private:
 		throw;
 	}
 
-	void load(allocated_image_load_description&& desc);
+	[[nodiscard]] prepared_image_upload prepare(allocated_image_load_description&& desc) const;
+
+	void load(prepared_image_upload&& desc);
 
 	void load(const texture_allocation_request& desc);
 

@@ -3,6 +3,7 @@ module;
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 #include <cassert>
+#include <cstring>
 
 module mo_yanxi.graphic.image_atlas;
 
@@ -10,11 +11,37 @@ import mo_yanxi.vk.cmd;
 import mo_yanxi.platform.thread;
 
 namespace mo_yanxi::graphic{
-	void async_image_loader::load(allocated_image_load_description&& desc){
-		static constexpr VkDeviceSize cahnnel_size = 4;
+	prepared_image_upload async_image_loader::prepare(allocated_image_load_description&& desc) const{
 		static constexpr std::uint32_t max_prov = 3;
 
 		const auto mipmap_level = std::min(std::min(max_prov, desc.mip_level), desc.desc.get_prov_levels());
+		assert(mipmap_level > 0);
+
+		prepared_image_upload prepared{
+			.texture = std::move(desc.texture),
+			.mip_level = desc.mip_level,
+			.layer_index = desc.layer_index,
+			.region = desc.region,
+		};
+		prepared.mip_data.reserve(mipmap_level);
+
+		for(std::uint32_t mip_lv = 0; mip_lv < mipmap_level; ++mip_lv){
+			const auto scl = 1u << mip_lv;
+			const VkExtent2D extent{desc.region.width() / scl, desc.region.height() / scl};
+			auto bitmap = desc.desc.get(extent.width, extent.height, mip_lv);
+			auto bytes = bitmap.get_bytes();
+			std::vector<std::byte> level_data(bytes.size());
+			std::memcpy(level_data.data(), bytes.data(), bytes.size());
+			prepared.mip_data.push_back(std::move(level_data));
+		}
+
+		return prepared;
+	}
+
+	void async_image_loader::load(prepared_image_upload&& desc){
+		static constexpr VkDeviceSize cahnnel_size = 4;
+
+		const auto mipmap_level = static_cast<std::uint32_t>(desc.mip_data.size());
 		assert(mipmap_level > 0);
 		VkDeviceSize maximumsize = desc.region.area();
 		maximumsize = vk::get_mipmap_pixels(maximumsize, mipmap_level);
@@ -48,11 +75,9 @@ namespace mo_yanxi::graphic{
 			{
 				VkDeviceSize off{};
 				for(std::uint32_t mip_lv = 0; mip_lv < mipmap_level; ++mip_lv){
-					const auto scl = 1u << mip_lv;
-					const VkExtent2D extent{desc.region.width() / scl, desc.region.height() / scl};
-					auto bitmap = desc.desc.get(extent.width, extent.height, mip_lv);
-					(void)vk::buffer_mapper{buffer}.load_range(bitmap.get_bytes(), static_cast<std::ptrdiff_t>(off));
-					off += extent.width * extent.height * cahnnel_size;
+					const auto& level_data = desc.mip_data[mip_lv];
+					(void)vk::buffer_mapper{buffer}.load_range(std::span{level_data}, static_cast<std::ptrdiff_t>(off));
+					off += static_cast<VkDeviceSize>(level_data.size());
 				}
 			}
 

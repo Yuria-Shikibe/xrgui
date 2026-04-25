@@ -525,12 +525,40 @@ export struct font_family {
 private:
 	static constexpr std::size_t Total = std::to_underlying(font_style::bold_italic) + 1;
 	std::vector<const font_face_meta*> flat_metas_{};
+	std::atomic_size_t generation_{0};
 	// 记录各段起始点。对于索引 i，其数据范围为 [ offsets_[i], offsets_[i+1] )
 	// 对于 font_style::bold_italic (即 3)，结束点为 flat_metas_.size()
 	std::array<std::size_t, Total> offsets_{0, 0, 0, 0};
 
 public:
 	[[nodiscard]] font_family() = default;
+	font_family(const font_family& other)
+		: flat_metas_(other.flat_metas_),
+		  generation_(other.generation()),
+		  offsets_(other.offsets_) {
+	}
+
+	font_family(font_family&& other) noexcept
+		: flat_metas_(std::move(other.flat_metas_)),
+		  generation_(other.generation()),
+		  offsets_(other.offsets_) {
+	}
+
+	font_family& operator=(const font_family& other) {
+		if(this == &other) return *this;
+		flat_metas_ = other.flat_metas_;
+		offsets_ = other.offsets_;
+		generation_.store(other.generation(), std::memory_order_release);
+		return *this;
+	}
+
+	font_family& operator=(font_family&& other) noexcept {
+		if(this == &other) return *this;
+		flat_metas_ = std::move(other.flat_metas_);
+		offsets_ = other.offsets_;
+		generation_.store(other.generation(), std::memory_order_release);
+		return *this;
+	}
 
 	// 设置特定样式的回退链，内部自动处理后续数据段的偏移
 	void set_style(font_style style, std::span<const font_face_meta* const> metas) {
@@ -552,6 +580,12 @@ public:
 				offsets_[i] = static_cast<std::size_t>(static_cast<std::ptrdiff_t>(offsets_[i]) + diff);
 			}
 		}
+
+		generation_.fetch_add(1, std::memory_order_release);
+	}
+
+	[[nodiscard]] std::uint32_t generation() const noexcept {
+		return generation_.load(std::memory_order_acquire);
 	}
 
 	// 获取特定样式的数据视图

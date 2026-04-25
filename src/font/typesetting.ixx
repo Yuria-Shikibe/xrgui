@@ -592,11 +592,15 @@ private:
 		}
 
 		if(config_.has_wrap_indicator()){
-			auto [face, index] = base_view.view.find_glyph_of(config_.wrap_indicator_char);
-			if(index){
+			auto resolved = manager_->resolve_codepoint(get_font_view_(config_), font::font_style::normal,
+				config_.wrap_indicator_char);
+			if(resolved.glyph_index){
+				auto* face = resolved.face;
+				auto index = resolved.glyph_index;
 				font::glyph_identity id{index, snapped_base_size};
-				font::glyph g = manager_->get_glyph_exact(*face, id);
-				const auto& m = g.metrics();
+				const auto record = manager_->get_glyph_record(*face, index);
+				const auto m = manager_->get_glyph_metrics_exact(*face, id);
+				font::glyph g = record.drawable ? font::glyph{record.borrow(), m} : font::glyph{m};
 				const auto advance = m.advance * base_scale_factor;
 				math::vec2 adv{};
 				const float fallback_adv = (std::abs(advance.*state_.major_p) > 0.001f)
@@ -815,7 +819,12 @@ private:
 				if(!this->flush_block_impl<IsInf>(config_, results, rs)) return false;
 			}
 
-			const font::glyph loaded_glyph = manager_->get_glyph_exact(face, {gid, metrics.snapped_size});
+			const font::glyph_identity glyph_id{gid, metrics.snapped_size};
+			const auto record = manager_->get_glyph_record(face, gid);
+			const auto exact_metrics = manager_->get_glyph_metrics_exact(face, glyph_id);
+			const font::glyph loaded_glyph = record.drawable
+				? font::glyph{record.borrow(), exact_metrics}
+				: font::glyph{exact_metrics};
 			const math::vec2 run_advance{
 					font::normalize_len(pos[i].x_advance) * metrics.run_scale_factor.x,
 					font::normalize_len(pos[i].y_advance) * metrics.run_scale_factor.y
@@ -1207,14 +1216,11 @@ private:
 		auto resolve_style = [&](char32_t codepoint, bool req_italic, bool req_bold) -> run_style_state{
 			const auto* family = get_font_view_(config_);
 			font::font_style target = font::make_font_style(req_italic, req_bold);
-			
-			auto styled_view = manager_->use_family(family, target);
-			auto [best_face, _] = styled_view.view.find_glyph_of(codepoint);
-
+			auto resolved = manager_->resolve_codepoint(family, target, codepoint);
 			return run_style_state{
-					best_face,
-					req_italic && !styled_view.is_italic_satisfied,
-					req_bold && !styled_view.is_bold_satisfied
+					resolved.face,
+					resolved.synthetic_italic,
+					resolved.synthetic_bold
 				};
 		};
 
