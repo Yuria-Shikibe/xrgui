@@ -26,7 +26,6 @@ struct optional_stack {
 	   : data{std::move(cont)}{
 	}
 
-	// 修改点 4: 针对 vector/deque 的 clear
 	void clear() noexcept{
 		data.clear();
 	}

@@ -280,7 +280,7 @@ public:
 	void clear_redo() noexcept {
 		history_.clear_redo();
 	}
-	// --- 水平及跳跃移动 ---
+	
 
 	void action_move_left(const std::u32string_view text_buffer_, bool select){
 		reset_preferred_cross_pos();
@@ -306,8 +306,8 @@ public:
 			if (std::isalnum(code) || code == U'_') return char_class::word;
 			return char_class::punctuation;
 		}
-		// 对于 CJK 等非 ASCII 字符，将其归为 other
-		// 这样中文字符会连续跳过，如果需要更细粒度的中文分词跳跃，需要接入 ICU 等分词库
+		
+		
 		return char_class::other;
 	}
 
@@ -321,12 +321,12 @@ public:
 
 		unsigned p = caret_.dst;
 
-		// 1. 往左跳过所有尾随的空白字符
+		
 		while (p > 0 && get_char_class(text_buffer_[p - 1]) == char_class::whitespace) {
 			p--;
 		}
 
-		// 2. 如果前面还有字符，记录它的类别，并一直向左跳过所有同类别字符
+		
 		if (p > 0) {
 			char_class target_class = get_char_class(text_buffer_[p - 1]);
 			while (p > 0 && get_char_class(text_buffer_[p - 1]) == target_class) {
@@ -347,15 +347,15 @@ public:
 
 		unsigned p = caret_.dst;
 
-		// 1. 记录当前位置的字符类别，并向右跳过所有同类别字符
-		// （如果当前就是空白符，这里就会直接跳过空白块）
+		
+		
 		char_class target_class = get_char_class(text_buffer_[p]);
 		while (p < text_buffer_.size() && get_char_class(text_buffer_[p]) == target_class) {
 			p++;
 		}
 
-		// 2. 如果刚刚跳过的不是空白符，为了符合日常认知，
-		// 我们接着向右跳过紧跟的空白字符，让光标停在“下一个词的开头”
+		
+		
 		if (target_class != char_class::whitespace) {
 			while (p < text_buffer_.size() && get_char_class(text_buffer_[p]) == char_class::whitespace) {
 				p++;
@@ -387,7 +387,7 @@ public:
 		merge_caret(bounds.visual_end, select, text_buffer_.size());
 	}
 
-	// --- 鼠标点击命中 ---
+	
 	void action_select_all(const std::u32string_view text_buffer_) noexcept {
 		reset_preferred_cross_pos();
 		caret_.src = 0;
@@ -403,7 +403,7 @@ public:
 		}
 
 		auto hit = layout.hit_test(pos, align);
-		// 增加 hit.source 的判空，以防底层引擎对于空行返回了 true 但携带空指针
+		
 		if(hit && hit.source){
 			unsigned new_index = hit.source->cluster_index + hit.span_offset;
 			unsigned line_idx = static_cast<unsigned>(hit.source_line - layout.lines.data());
@@ -414,8 +414,8 @@ public:
 			return true;
 		}
 
-		// Fallback: 用户点击在了没有任何字符的区域（例如幽灵行或文本末尾的纯白区）
-		// 我们需要计算距离鼠标 Y 轴（如果是横排版）最近的行，并将光标吸附过去
+		
+		
 		const bool is_vertical_layout = (layout.direction == typesetting::layout_direction::ttb || layout.direction == typesetting::layout_direction::btt);
 		unsigned closest_line_idx = 0;
 		float min_dist = std::numeric_limits<float>::max();
@@ -429,15 +429,15 @@ public:
 			}
 		}
 
-		// 找到最近的行后，将光标对齐到该行的行尾（由于空行的 start_idx 等于 visual_end，这会自然对齐到行首）
+		
 		auto bounds = get_line_bounds(layout, text_buffer_, closest_line_idx);
 		merge_caret(bounds.visual_end, select, text_buffer_.size());
 
-		// 即使是 fallback 命中，我们也返回 true，以确保 UI 系统能正确保持光标存活
+		
 		return true;
 	}
 
-	// --- 修正后的垂直移动逻辑 ---
+	
 
 	void move_vertical(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool move_down, typesetting::line_alignment align, bool select) {
         if (layout.empty() || layout.lines.empty()) return;
@@ -526,4 +526,4 @@ public:
 		move_vertical(layout, text_buffer_, true, align, select);
 	}
 };
-} // namespace mo_yanxi::gui
+} 

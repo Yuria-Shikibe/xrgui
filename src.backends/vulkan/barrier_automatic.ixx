@@ -67,6 +67,37 @@ private:
 		state = {next_stage, next_access, next_layout};
 	}
 
+	static void ensure_state_for_read_from_fresh_image(
+		vk::cmd::dependency_gen& dep,
+		attachment_state& state,
+		VkImage image,
+		VkPipelineStageFlags2 next_stage,
+		VkAccessFlags2 next_access,
+		VkImageLayout next_layout,
+		std::uint32_t baseArrayLayer = 0){
+		if(state.layout == VK_IMAGE_LAYOUT_UNDEFINED && next_access != VK_ACCESS_2_NONE &&
+		   !(next_access & (VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+		                   VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT |
+		                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT))){
+			VkImageSubresourceRange range = vk::image::default_image_subrange;
+			range.baseArrayLayer = baseArrayLayer;
+			range.layerCount = 1;
+
+			dep.push(image,
+			         state.stage_mask,
+			         state.access_mask,
+			         next_stage,
+			         VK_ACCESS_2_NONE,
+			         state.layout,
+			         VK_IMAGE_LAYOUT_GENERAL,
+			         range);
+
+			state = {next_stage, VK_ACCESS_2_NONE, VK_IMAGE_LAYOUT_GENERAL};
+		}
+
+		ensure_state(dep, state, image, next_stage, next_access, next_layout, baseArrayLayer);
+	}
+
 public:
 	attachment_sync_manager() = default;
 
@@ -94,12 +125,20 @@ public:
 		// 【新增】重置 Mask 状态
 		for(auto& s : mask_attachment_states_){
 			s = {
-				VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-				VK_ACCESS_2_NONE,
-				VK_IMAGE_LAYOUT_UNDEFINED
+				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+				VK_ACCESS_2_SHADER_READ_BIT,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 			};
 		}
 		std::ranges::fill(blit_attachment_sync_states_, blit_sync_state::none);
+	}
+
+	void invalidate_mask_states(std::size_t mask_depth){
+		mask_attachment_states_.assign(mask_depth, {
+			VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+			VK_ACCESS_2_NONE,
+			VK_IMAGE_LAYOUT_UNDEFINED
+		});
 	}
 
 
@@ -123,9 +162,9 @@ public:
 		if (mask_usage_ != mask_usage::ignore) {
 			if (mask_attachment_states_.size() <= mask_depth) {
 				mask_attachment_states_.resize(mask_depth + 1, {
-					VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-					VK_ACCESS_2_NONE,
-					VK_IMAGE_LAYOUT_UNDEFINED
+					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+					VK_ACCESS_2_SHADER_READ_BIT,
+					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 				});
 			}
 		}
@@ -182,7 +221,14 @@ public:
 
 					if(mask_attachment_states_[read_layer].layout != read_layout) layout_transition_required = true;
 
-					this->ensure_state(dep, mask_attachment_states_[read_layer], mask_image, read_stage, read_access, read_layout, read_layer);
+					this->ensure_state_for_read_from_fresh_image(
+						dep,
+						mask_attachment_states_[read_layer],
+						mask_image,
+						read_stage,
+						read_access,
+						read_layout,
+						read_layer);
 				}
 			} else if (mask_usage_ == mask_usage::read) {
 				// 【修复】读取时，应当读取当前正在发生采样的 mask_depth 层。
@@ -193,7 +239,14 @@ public:
 				VkImageLayout read_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
 				if(mask_attachment_states_[read_layer].layout != read_layout) layout_transition_required = true;
-				this->ensure_state(dep, mask_attachment_states_[read_layer], mask_image, read_stage, read_access, read_layout, read_layer);
+				this->ensure_state_for_read_from_fresh_image(
+					dep,
+					mask_attachment_states_[read_layer],
+					mask_image,
+					read_stage,
+					read_access,
+					read_layout,
+					read_layer);
 			}
 		}
 

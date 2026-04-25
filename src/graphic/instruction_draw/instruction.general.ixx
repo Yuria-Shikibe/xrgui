@@ -150,26 +150,6 @@ constexpr std::size_t get_type_size_sum(const Args& ...args) noexcept{
 	return ((instruction::get_size(args)) + ... + 0uz);
 }
 
-// export
-// template <typename T>
-// [[nodiscard]] const T* start_lifetime_as(const void* p) noexcept{
-// 	const auto mp = const_cast<void*>(p);
-// 	const auto bytes = new(mp) std::byte[sizeof(T)];
-// 	const auto ptr = reinterpret_cast<const T*>(bytes);
-// 	(void)*ptr;
-// 	return ptr;
-// }
-//
-// export
-// template <typename T>
-// [[nodiscard]] T* start_lifetime_as(void* p) noexcept{
-// 	const auto mp = p;
-// 	const auto bytes = new(mp) std::byte[sizeof(T)];
-// 	const auto ptr = reinterpret_cast<T*>(bytes);
-// 	(void)*ptr;
-// 	return ptr;
-// }
-
 export
 struct gpu_vertex_data_advance_data{
 	std::uint32_t index;
@@ -202,11 +182,16 @@ struct alignas(instr_required_align) generic_instruction_head{
 };
 
 
+export
+enum struct state_commit_mode : std::uint8_t{
+	accumulate,
+	emit_delta,
+};
 
 export
-enum struct state_push_type : std::uint8_t{
-	idempotent,
-	non_idempotent
+enum struct state_boundary_mode : std::uint8_t{
+	defer,
+	force_section_break,
 };
 
 export
@@ -218,10 +203,23 @@ enum struct depth_op_type : std::uint8_t{
 
 export
 struct state_push_config{
-	state_push_type type;
-	depth_op_type depth_op;
-	std::bitset<32> to_clear;
-};
+	state_commit_mode commit_mode{state_commit_mode::accumulate};
+	state_boundary_mode boundary_mode{state_boundary_mode::defer};
+	depth_op_type depth_op{depth_op_type::noop};
+	std::bitset<32> to_clear{};
+
+	[[nodiscard]] constexpr bool tracks_persistent_state() const noexcept{
+		return commit_mode == state_commit_mode::accumulate;
+	}
+
+	[[nodiscard]] constexpr bool emits_immediate_delta() const noexcept{
+		return commit_mode == state_commit_mode::emit_delta;
+	}
+
+	[[nodiscard]] constexpr bool forces_section_break() const noexcept{
+		return boundary_mode == state_boundary_mode::force_section_break;
+	}
+	};
 
 
 }

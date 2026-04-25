@@ -19,7 +19,8 @@ import mo_yanxi.math.rect_ortho;
 
 namespace mo_yanxi::gui::fx{
 export using state_push_config = graphic::draw::instruction::state_push_config;
-export using state_push_type = graphic::draw::instruction::state_push_type;
+export using state_commit_mode = graphic::draw::instruction::state_commit_mode;
+export using state_boundary_mode = graphic::draw::instruction::state_boundary_mode;
 export using binary_diff_tag = binary_diff_trace::tag;
 export using graphic::draw::instruction::make_state_tag;
 
@@ -265,7 +266,11 @@ enum struct state_type{
 export
 struct push_mask{
 	constexpr explicit(false) operator state_push_config() const noexcept{
-		return {state_push_type::non_idempotent, graphic::draw::instruction::depth_op_type::incr};
+		return {
+			.commit_mode = state_commit_mode::emit_delta,
+			.boundary_mode = state_boundary_mode::force_section_break,
+			.depth_op = graphic::draw::instruction::depth_op_type::incr
+		};
 	}
 
 	constexpr explicit(false) operator binary_diff_tag() const noexcept{
@@ -276,7 +281,10 @@ struct push_mask{
 export
 struct split_draw{
 	constexpr explicit(false) operator state_push_config() const noexcept{
-		return {state_push_type::non_idempotent};
+		return {
+			.commit_mode = state_commit_mode::emit_delta,
+			.boundary_mode = state_boundary_mode::force_section_break
+		};
 	}
 
 	constexpr explicit(false) operator binary_diff_tag() const noexcept{
@@ -287,7 +295,11 @@ struct split_draw{
 export
 struct pop_mask{
 	constexpr explicit(false) operator state_push_config() const noexcept{
-		return {state_push_type::non_idempotent, graphic::draw::instruction::depth_op_type::decr};
+		return {
+			.commit_mode = state_commit_mode::emit_delta,
+			.boundary_mode = state_boundary_mode::force_section_break,
+			.depth_op = graphic::draw::instruction::depth_op_type::decr
+		};
 	}
 
 	constexpr explicit(false) operator binary_diff_tag() const noexcept{
@@ -302,7 +314,7 @@ struct state_fill_color_other_lazy{
 	static consteval void operator()();
 
 	constexpr explicit(false) operator state_push_config() const noexcept{
-		return {state_push_type::idempotent};
+		return {};
 	}
 
 	constexpr explicit(false) operator binary_diff_tag() const noexcept{
@@ -324,7 +336,7 @@ struct pipeline_config{
 
 	explicit(false) constexpr operator state_push_config() const noexcept{
 		static constexpr state_push_config cfg = []{
-			state_push_config cfg{state_push_type::idempotent};
+			state_push_config cfg{};
 			cfg.to_clear.set(std::to_underlying(state_type::push_constant));
 			return cfg;
 		}();
@@ -343,7 +355,7 @@ struct set_mask_mode{
 	mask_read_mode mode;
 
 	explicit(false) constexpr operator state_push_config() const noexcept{
-		return {state_push_type::idempotent};
+		return {};
 	}
 
 	explicit(false) constexpr operator binary_diff_tag() const noexcept{
@@ -368,7 +380,7 @@ struct push_constant : wrap_t<T> ...{
 	explicit(false) push_constant(Ts&&... ts) : wrap_t<T>(std::forward<Ts>(ts)) ... {}
 
 	explicit(false) operator state_push_config() const noexcept{
-		return {state_push_type::idempotent};
+		return {};
 	}
 
 	explicit(false) operator binary_diff_tag() const noexcept{
@@ -379,11 +391,23 @@ struct push_constant : wrap_t<T> ...{
 template <typename ...T>
 push_constant(T&& ...) -> push_constant<std::decay_t<T&&>...>;
 
-template <state_type StateType, bool RequiresMinorTag = false, bool IsIdempotent = true>
+template <
+	state_type StateType,
+	bool RequiresMinorTag = false,
+	state_commit_mode CommitModeV = state_commit_mode::accumulate,
+	state_boundary_mode BoundaryModeV = state_boundary_mode::defer>
 struct state_type_deduce_base{
 	static constexpr state_type type{StateType};
 	static constexpr bool requires_minor_tag{RequiresMinorTag};
-	static constexpr bool is_idempotent{IsIdempotent};
+	static constexpr state_commit_mode commit_mode{CommitModeV};
+	static constexpr state_boundary_mode boundary_mode{BoundaryModeV};
+
+	[[nodiscard]] static constexpr state_push_config make_push_config() noexcept{
+		return {
+			.commit_mode = commit_mode,
+			.boundary_mode = boundary_mode,
+		};
+	}
 };
 
 export
@@ -745,11 +769,21 @@ struct state_type_deduce<viewport> : state_type_deduce_base<state_type::set_view
 };
 
 template <>
-struct state_type_deduce<blit_config> : state_type_deduce_base<state_type::blit, false, false>{
+struct state_type_deduce<blit_config>
+	: state_type_deduce_base<
+		state_type::blit,
+		false,
+		state_commit_mode::emit_delta,
+		state_boundary_mode::force_section_break>{
 };
 
 template <>
-struct state_type_deduce<color_clear_value> : state_type_deduce_base<state_type::fill_color_local, true, false>{
+struct state_type_deduce<color_clear_value>
+	: state_type_deduce_base<
+		state_type::fill_color_local,
+		true,
+		state_commit_mode::emit_delta,
+		state_boundary_mode::force_section_break>{
 };
 
 

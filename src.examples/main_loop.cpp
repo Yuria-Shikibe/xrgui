@@ -141,7 +141,7 @@ void main_loop::main_loop_exec(){
 				{.pipeline_index = cpip_idx::blend, .inout_define_index = cpip_bind_idx::to_background}
 			});
 
-		if constexpr (false){
+		if constexpr (true){
 			r.update_state(fx::push_mask{});
 
 			r.update_state(fx::pipeline_config{.pipeline_index = gpip::idx::mask_draw});
@@ -299,7 +299,7 @@ void main_loop::main_loop_exec(){
 			});
 	}
 
-	current_focus.draw();
+	// current_focus.draw();
 	renderer.batch_host.end_rendering();
 	renderer.upload();
 	renderer.create_command();

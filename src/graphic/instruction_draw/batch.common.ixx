@@ -24,11 +24,11 @@ struct dispatch_group_info{
 };
 
 /**
- * @brief 状态切换配置，用于在 Draw Call 之间注入状态变更
+ * @brief Section 内状态增量集合，用于在 Draw Call 之间注入状态变更
  * 现已简化为 Tag + Payload 的扁平结构
  */
 export
-struct state_transition_config{
+struct section_state_delta_set{
 	using tag_type = mo_yanxi::binary_diff_trace::tag;
 
 	struct entry{
@@ -88,7 +88,7 @@ public:
 		this->push(tag, std::span{reinterpret_cast<const std::byte*>(std::addressof(payload)), sizeof(T)}, logical_offset);
 	}
 
-	void append(const state_transition_config& other){
+	void append(const section_state_delta_set& other){
 		const auto curOff = static_cast<std::uint32_t>(payload_storage.size());
 		const auto curEntrySz = entries_.size();
 
@@ -112,13 +112,13 @@ public:
 
 export
 struct section_event{
-	unsigned break_before_index{};
+	unsigned group_index{};
 	std::vector<std::uint32_t> per_draw_uniform_bumps{};
-	state_transition_config state_deltas{};
+	section_state_delta_set state_deltas{};
 
 	[[nodiscard]] section_event() = default;
-	[[nodiscard]] explicit section_event(unsigned break_before_index)
-		: break_before_index(break_before_index){
+	[[nodiscard]] explicit section_event(unsigned group_index)
+		: group_index(group_index){
 	}
 
 	bool empty() const noexcept{

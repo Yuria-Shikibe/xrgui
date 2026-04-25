@@ -76,7 +76,7 @@ public:
 		}
 	}
 
-	bool flush(state_transition_config& out_config) {
+	bool flush(section_state_delta_set& out_config) {
 		bool has_changes = false;
 		for(const auto& tag : dirty_tags_){
 			if(const auto* rec = records_.try_find_record(tag); rec){

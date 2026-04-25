@@ -96,10 +96,7 @@ public:
           images[i] = use_count[i].handle;
        }
 
-       // 擦除无效元素
        images.erase(images.begin() + i, images.end());
-       // 修复：强制对齐到 4 的整数倍，以保证 SIMD 指令的绝对安全
-       // vector 的 resize 针对新增的元素会自动执行 zero-initialization，也就是 nullptr
        images.resize((images.size() + 3) / 4 * 4);
 
        use_count.assign(images.size(), use_record{});
@@ -258,7 +255,7 @@ private:
 	hardware_limit_config hardware_limit_{};
 
 	std::vector<contiguous_draw_list> submit_groups_{};
-	std::vector<section_event> submit_transitions_{};
+	std::vector<section_event> section_events_{};
 
 	state_tracker tracker_{};
 
@@ -288,7 +285,7 @@ public:
 
 	void clear() noexcept{
 		submit_groups_.clear();
-		submit_transitions_.clear();
+		section_events_.clear();
 		current_group = nullptr;
 		tracker_.reset();
 		data_group_per_timeline_info_.reset();
@@ -309,7 +306,7 @@ public:
 
 		submit_groups_.front().reset();
 		current_group = submit_groups_.data();
-		submit_transitions_.clear();
+		section_events_.clear();
 	}
 
 	void end_rendering() noexcept{
@@ -317,9 +314,9 @@ public:
 		dynamic_image_view_history_.optimize_and_reset();
 
 		if(current_group->empty()){
-			if(!submit_transitions_.empty() && submit_transitions_.back().break_before_index ==
+			if(!section_events_.empty() && section_events_.back().group_index ==
 				get_current_submit_group_index()){
-				submit_transitions_.pop_back();
+				section_events_.pop_back();
 			}
 		} else{
 			advance_current_group();
@@ -377,8 +374,8 @@ public:
 		return std::span{submit_groups_.data(), current_group};
 	}
 
-	std::span<const section_event> get_state_transitions() const noexcept{
-		return std::span{submit_transitions_.data(), submit_transitions_.size()};
+	std::span<const section_event> get_section_events() const noexcept{
+		return std::span{section_events_.data(), section_events_.size()};
 	}
 
 	template <typename T>
@@ -388,7 +385,7 @@ public:
 
 	/**
 	 * @brief 提交状态变更
-	 * @param config 状态配置 (指定是否为幂等)
+	 * @param config 状态提交与分段配置
 	 * @param tag 状态标签 (Major + Minor)
 	 * @param payload 数据
 	 * @param offset 数据偏移
@@ -397,17 +394,18 @@ public:
 		tracker_.clear_mask(config.to_clear);
 		tracker_.update_depth(config.depth_op, tag.major);
 
+		if(config.tracks_persistent_state()){
+			tracker_.update(tag, payload, offset);
+		}
 
-		switch(config.type){
-		case state_push_type::idempotent : tracker_.update(tag, payload, offset);
-			break;
-		case state_push_type::non_idempotent :{
+		if(config.emits_immediate_delta()){
 			flush_pending_state_deltas_();
 			auto& event = ensure_section_event_();
 			event.state_deltas.push(tag, payload, offset);
-			break;
 		}
-		default : std::unreachable();
+
+		if(config.forces_section_break() && !config.emits_immediate_delta()){
+			ensure_section_event_();
 		}
 	}
 
@@ -492,12 +490,12 @@ public:
 		return self.data_group_per_draw_call_info_;
 	}
 
-	std::uint32_t get_submit_sections_count() const noexcept{
-		return static_cast<std::uint32_t>(submit_transitions_.size());
+	std::uint32_t get_section_count() const noexcept{
+		return static_cast<std::uint32_t>(section_events_.size());
 	}
 
-	const state_transition_config& get_break_config_at(std::size_t index) const noexcept{
-		return submit_transitions_[index].state_deltas;
+	const section_state_delta_set& get_section_state_deltas(std::size_t index) const noexcept{
+		return section_events_[index].state_deltas;
 	}
 
 private:
@@ -517,21 +515,21 @@ private:
 	section_event& ensure_section_event_(){
 		current_group->finalize();
 
-		if(current_group->empty() && !submit_transitions_.empty()){
-			return submit_transitions_.back();
+		if(current_group->empty() && !section_events_.empty()){
+			return section_events_.back();
 		}
 
 		auto idx = static_cast<unsigned>(get_current_submit_group_index());
-		auto& event = submit_transitions_.emplace_back(idx);
+		auto& event = section_events_.emplace_back(idx);
 		advance_current_group();
 		return event;
 	}
 
 	void flush_pending_state_deltas_(){
-		state_transition_config diff_config;
-		if(!tracker_.flush(diff_config)) return;
+		section_state_delta_set delta_set;
+		if(!tracker_.flush(delta_set)) return;
 		auto& event = ensure_section_event_();
-		event.state_deltas.append(diff_config);
+		event.state_deltas.append(delta_set);
 	}
 
 	void flush_pending_uniform_updates_(){

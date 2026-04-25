@@ -349,7 +349,7 @@ public:
 			state_trace_.clear_mask(config.to_clear);
 		}
 
-		if(config.type == fx::state_push_type::idempotent){
+		if(config.tracks_persistent_state()){
 			state_trace_.push(tag, data_span, offset);
 		}
 
@@ -380,20 +380,20 @@ public:
 				state_trace_.clear_mask(config.to_clear);
 			}
 
-			if(config.type == fx::state_push_type::idempotent){
+			if(config.tracks_persistent_state()){
 				state_trace_.push(tag, std::span<const std::byte>{}, offset);
 			}
 
 			this->update_state_(config, std::span<const std::byte>{}, tag, offset);
 		}else{
-			auto submit = [&]<typename Ty>(const Ty& s){
-				if(config.to_clear.any()){
-					state_trace_.clear_mask(config.to_clear);
-				}
+				auto submit = [&]<typename Ty>(const Ty& s){
+					if(config.to_clear.any()){
+						state_trace_.clear_mask(config.to_clear);
+					}
 
-				if(config.type == fx::state_push_type::idempotent){
-					state_trace_.push(tag, std::span{reinterpret_cast<const std::byte*>(std::addressof(s)), sizeof(T)}, offset);
-				}
+					if(config.tracks_persistent_state()){
+						state_trace_.push(tag, std::span{reinterpret_cast<const std::byte*>(std::addressof(s)), sizeof(T)}, offset);
+					}
 
 				this->update_state_(config, std::span{reinterpret_cast<const std::byte*>(std::addressof(s)), sizeof(T)}, tag, offset);
 			};
@@ -436,17 +436,13 @@ public:
 
 	template <fx::state_type_deducable T>
 	void update_state(const T& instr){
-		this->update_state(fx::state_push_config{
-			.type = fx::state_type_deduce<T>::is_idempotent ? fx::state_push_type::idempotent : fx::state_push_type::non_idempotent
-		}, instr, fx::make_state_tag(fx::state_type_deduce<T>::type));
+		this->update_state(fx::state_type_deduce<T>::make_push_config(), instr, fx::make_state_tag(fx::state_type_deduce<T>::type));
 	}
 
 	template <fx::state_type_deducable T, typename MinorTag>
 		requires(fx::state_type_deduce<T>::requires_minor_tag)
 	void update_state(const T& instr, MinorTag minor_tag, unsigned offset = 0){
-		this->update_state(fx::state_push_config{
-			.type = fx::state_type_deduce<T>::is_idempotent ? fx::state_push_type::idempotent : fx::state_push_type::non_idempotent
-		}, instr, fx::make_state_tag(fx::state_type_deduce<T>::type, minor_tag), offset);
+		this->update_state(fx::state_type_deduce<T>::make_push_config(), instr, fx::make_state_tag(fx::state_type_deduce<T>::type, minor_tag), offset);
 	}
 
 	void update_state(fx::batch_draw_mode mode){
@@ -735,7 +731,8 @@ private:
 	void pop() const{
 		if(fix_.data){
 			renderer_->update_state_(fx::state_push_config{
-					.type = fx::state_push_type::idempotent
+					.commit_mode = fx::state_commit_mode::accumulate,
+					.boundary_mode = fx::state_boundary_mode::defer
 				}, fix_.to_span(renderer_->state_trace_), tag_, fix_.logical_offset);
 			renderer_->state_trace_.store_tag(tag_, fix_);
 		}
@@ -748,7 +745,8 @@ public:
 		const std::span<const std::byte> data, const graphic::draw::instruction::state_tag tag, unsigned offset = 0) :
 		guard_base(renderer), tag_(tag), fix_(renderer.state_trace_.load_tag(tag)){
 		renderer.update_state(fx::state_push_config{
-				.type = fx::state_push_type::idempotent
+				.commit_mode = fx::state_commit_mode::accumulate,
+				.boundary_mode = fx::state_boundary_mode::defer
 			}, data, tag, offset);
 	}
 

@@ -46,17 +46,17 @@ struct alignas(16) dispatch_config{
 	std::uint32_t _cap[2];                 // [修改] 维持 16 字节对齐
 };
 
-struct state_transition_command_context{
+struct section_upload_command_context{
 	vk::cmd::dependency_gen dependency{};
 	std::vector<std::uint32_t> timelines{};
 	std::vector<VkDeviceSize> buffer_offsets{};
 
 	std::vector<VkBufferCopy> copy_info{};
-	std::uint32_t current_submit_group_index{};
+	std::uint32_t current_section_index{};
 
-	[[nodiscard]] state_transition_command_context() = default;
+	[[nodiscard]] section_upload_command_context() = default;
 
-	[[nodiscard]] explicit state_transition_command_context(std::size_t data_entry_count)
+	[[nodiscard]] explicit section_upload_command_context(std::size_t data_entry_count)
 		: timelines(data_entry_count)
 		  , buffer_offsets(data_entry_count){
 		dependency.buffer_memory_barriers.reserve(data_entry_count);
@@ -510,11 +510,11 @@ struct frame_resource{
 			gfx_descriptor_buffer_per_draw_call.set_chunk_count(dispatch_infos.size() + 1);
 		}
 
-		auto breakpoints = host_ctx.get_state_transitions();
+		auto section_events = host_ctx.get_section_events();
 		cached_volatile_timelines.resize(vtx_info.size(), 0);
 		auto dispatch_timeline_chunk_size = (cached_volatile_timelines.size() + 1);
 
-		dispatch_timeline_stamps_.resize(dispatch_timeline_chunk_size * (breakpoints.size() + 1));
+		dispatch_timeline_stamps_.resize(dispatch_timeline_chunk_size * (section_events.size() + 1));
 
 		vk::descriptor_mapper mapper{gfx_descriptor_buffer_per_draw_call};
 
@@ -530,8 +530,8 @@ struct frame_resource{
 
 		load_timelines(0);
 
-		for(const auto& [chunk_idx, breakpoint] : breakpoints | std::views::enumerate){
-			for(const auto i : breakpoint.per_draw_uniform_bumps){
+		for(const auto& [chunk_idx, event] : section_events | std::views::enumerate){
+			for(const auto i : event.per_draw_uniform_bumps){
 				++cached_volatile_timelines[i];
 			}
 			auto where = dispatch_timeline_stamps_.begin() + (chunk_idx + 1) * dispatch_timeline_chunk_size;

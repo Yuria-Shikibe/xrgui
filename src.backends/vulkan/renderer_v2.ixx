@@ -80,8 +80,8 @@ export struct renderer{
 			bool current_pass_msaa{};
 		};
 
-		struct breakpoint_process_params{
-			const graphic::draw::instruction::state_transition_config::exported_entry& entry;
+		struct section_state_apply_params{
+			const graphic::draw::instruction::section_state_delta_set::exported_entry& entry;
 			graphics_context_trace& context_trace;
 			gui::fx::pipeline_config& draw_cfg;
 			per_record_context_value& ctx_val;
@@ -133,9 +133,9 @@ export struct renderer{
 
 		void blit_(renderer& r, gui::fx::blit_config cfg, VkCommandBuffer cmd);
 
-		bool process_breakpoints_(
+		bool apply_section_state_(
 			renderer& r,
-			const breakpoint_process_params& params,
+			const section_state_apply_params& params,
 			VkCommandBuffer buffer);
 	private:
 		static gui::fx::render_target_mask make_render_target_mask(
@@ -196,6 +196,7 @@ private:
 	std::uint32_t current_frame_index_{};
 
 	vk::command_buffer blit_attachment_clear_and_init_command_buffer{};
+	bool mask_attachment_states_invalidated_{};
 
 	command_recording_context record_ctx_{};
 	VkSampler sampler_{};
@@ -330,6 +331,7 @@ public:
 private:
 	void update_mask_depth_(unsigned mask_depth){
 		if(!attachment_manager_.update_mask_depth(mask_depth))return;
+		mask_attachment_states_invalidated_ = true;
 		mask_descriptor_buffer_ = vk::descriptor_buffer{
 			allocator_usage_,
 			draw_pipeline_manager_.get_mask_descriptor_set_layout(),
@@ -339,7 +341,7 @@ private:
 		vk::descriptor_mapper mapper{mask_descriptor_buffer_};
 		for(unsigned i = 0; i < mask_depth; ++i){
 			mapper.set_image(0,
-				attachment_manager_.get_mask_image_views()[i], i, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+				attachment_manager_.get_mask_image_views()[i], i, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 		}
 	}
 
@@ -379,7 +381,8 @@ private:
 			};
 		vk::cmd::dependency_gen dep;
 
-		// 初始化所有附件到初始布局并清空 Blit 目标
+		// Transfer 仅清空 blit attachments。
+		// Draw/MSAA attachments 仍在这里做一次初始布局准备；mask image 完全走 graphics path。
 		for(const auto& img : attachment_manager_.get_blit_attachments()){
 			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
 			         VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,

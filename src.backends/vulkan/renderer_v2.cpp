@@ -88,7 +88,7 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	cache_descriptor_context_.reset_binding_state();
 
 	vkCmdExecuteCommands(cmd, 1, r.blit_attachment_clear_and_init_command_buffer.as_data());
-	const auto section_count = r.batch_host.get_submit_sections_count();
+	const auto section_count = r.batch_host.get_section_count();
 	if(r.batch_host.get_valid_submit_groups().empty()) return;
 	if(r.batch_device.is_frame_empty()) return;
 
@@ -125,11 +125,15 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	cache_graphic_context_.update_pipeline(draw_cfg.pipeline_index, initial_pipe_opt);
 
 	cache_sync_mgr_.reset_barriers();
+	if(r.mask_attachment_states_invalidated_){
+		cache_sync_mgr_.invalidate_mask_states(r.attachment_manager_.get_mask_image_views().size());
+		r.mask_attachment_states_invalidated_ = false;
+	}
 	std::ranges::fill(cache_attachment_enter_mark_, 0);
 	cache_rendering_config_.clear_color_attachments();
 
-	auto get_bp_params = [&](const graphic::draw::instruction::state_transition_config::exported_entry& e) noexcept{
-		return breakpoint_process_params{
+	auto get_section_params = [&](const graphic::draw::instruction::section_state_delta_set::exported_entry& e) noexcept{
+		return section_state_apply_params{
 				e, cache_graphic_context_, draw_cfg, ctx_val
 			};
 	};
@@ -138,8 +142,8 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 		bool requires_clear = false;
 
 		if(r.batch_device.is_section_empty(i)){
-			for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
-				requires_clear |= process_breakpoints_(r, get_bp_params(entry), cmd);
+			for(const auto& entry : r.batch_host.get_section_state_deltas(i).get_entries()){
+				requires_clear |= apply_section_state_(r, get_section_params(entry), cmd);
 			}
 		} else{
 			ensure_render_pass_(r, cmd, draw_cfg, ctx_val);
@@ -147,8 +151,8 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 			cache_graphic_context_.apply(cmd, r.draw_pipeline_manager_);
 			cmd_draw_(r, cmd, i, draw_cfg, ctx_val);
 
-			for(const auto& entry : r.batch_host.get_break_config_at(i).get_entries()){
-				requires_clear |= process_breakpoints_(r, get_bp_params(entry), cmd);
+			for(const auto& entry : r.batch_host.get_section_state_deltas(i).get_entries()){
+				requires_clear |= apply_section_state_(r, get_section_params(entry), cmd);
 			}
 		}
 
@@ -161,8 +165,8 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	flush_pass_(cmd, ctx_val);
 }
 
-bool renderer::command_recording_context::process_breakpoints_(
-	renderer& r, const breakpoint_process_params& params, VkCommandBuffer buffer){
+bool renderer::command_recording_context::apply_section_state_(
+	renderer& r, const section_state_apply_params& params, VkCommandBuffer buffer){
 	auto& cur_pipe = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index];
 	using namespace gui::fx;
 	switch(static_cast<state_type>(params.entry.tag.major)){
@@ -376,7 +380,10 @@ void renderer::command_recording_context::blit_(renderer& r, gui::fx::blit_confi
 }
 
 void renderer::resize(VkExtent2D extent){
-	attachment_manager_.resize(extent);
+	const bool attachments_recreated = attachment_manager_.resize(extent);
+	if(attachments_recreated && !attachment_manager_.get_mask_image_views().empty()){
+		mask_attachment_states_invalidated_ = true;
+	}
 	update_mask_depth_(1);
 
 	record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
