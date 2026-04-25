@@ -1,3 +1,7 @@
+module;
+
+#include <cassert>
+
 export module mo_yanxi.gui.layout.policies;
 
 export import align;
@@ -22,10 +26,198 @@ export bool is_size_pending(float size) noexcept{
 }
 
 //TODO make it hori/vert/nullopt?
-export enum class layout_policy{
+export enum class layout_policy : std::uint8_t{
 	none,
 	hori_major,
 	vert_major,
+};
+
+export
+struct layout_specifier{
+private:
+	std::uint8_t value_{};
+
+	[[nodiscard]] static constexpr std::uint8_t pack_policy(const layout_policy policy, const unsigned shift) noexcept{
+		return std::to_underlying(policy) << shift;
+	}
+
+	[[nodiscard]] static constexpr layout_policy unpack_policy(const std::uint8_t value, const unsigned shift) noexcept{
+		return static_cast<layout_policy>((value >> shift) & 0b11u);
+	}
+
+public:
+	[[nodiscard]] constexpr layout_specifier() noexcept = default;
+
+	[[nodiscard]] explicit constexpr layout_specifier(const std::uint8_t packed) noexcept
+		: value_(packed){
+	}
+
+	[[nodiscard]] constexpr layout_specifier(
+		const layout_policy self,
+		const layout_policy none_map,
+		const layout_policy hori_major_map,
+		const layout_policy vert_major_map
+	) noexcept
+		: value_(
+			pack_policy(self, 0)
+			| pack_policy(none_map, 2)
+			| pack_policy(hori_major_map, 4)
+			| pack_policy(vert_major_map, 6)
+		){
+	}
+
+	[[nodiscard]] static constexpr layout_specifier fixed(const layout_policy policy) noexcept{
+		return {policy, policy, policy, policy};
+	}
+
+	[[nodiscard]] static constexpr layout_specifier identity(const layout_policy self = layout_policy::none) noexcept{
+		return {self, layout_policy::none, layout_policy::hori_major, layout_policy::vert_major};
+	}
+
+	[[nodiscard]] static constexpr layout_specifier transpose(const layout_policy self = layout_policy::none) noexcept{
+		return {self, layout_policy::none, layout_policy::vert_major, layout_policy::hori_major};
+	}
+
+	[[nodiscard]] constexpr std::uint8_t packed_value() const noexcept{
+		return value_;
+	}
+
+	[[nodiscard]] constexpr layout_policy self() const noexcept{
+		return unpack_policy(value_, 0);
+	}
+
+	[[nodiscard]] constexpr layout_policy map_none() const noexcept{
+		return unpack_policy(value_, 2);
+	}
+
+	[[nodiscard]] constexpr layout_policy map_hori_major() const noexcept{
+		return unpack_policy(value_, 4);
+	}
+
+	[[nodiscard]] constexpr layout_policy map_vert_major() const noexcept{
+		return unpack_policy(value_, 6);
+	}
+
+	[[nodiscard]] constexpr layout_policy map(const layout_policy input) const noexcept{
+		switch(input){
+		case layout_policy::none : return map_none();
+		case layout_policy::hori_major : return map_hori_major();
+		case layout_policy::vert_major : return map_vert_major();
+		default : std::unreachable();
+		}
+	}
+
+	[[nodiscard]] constexpr layout_policy resolve(const layout_policy parent_policy) const noexcept{
+		const auto local = self();
+		return local == layout_policy::none ? map(parent_policy) : local;
+	}
+
+	[[nodiscard]] constexpr friend bool operator==(const layout_specifier&, const layout_specifier&) noexcept = default;
+	[[nodiscard]] constexpr explicit(false) operator std::uint8_t() const noexcept{
+		return value_;
+	}
+	[[nodiscard]] constexpr explicit(false) operator layout_policy() const noexcept{
+		return self();
+	}
+	};
+
+export
+struct directional_layout_policy{
+private:
+	std::uint8_t value_{static_cast<std::uint8_t>(layout_specifier::fixed(layout_policy::hori_major))};
+
+	[[nodiscard]] static constexpr bool is_directional_policy(const layout_policy value) noexcept{
+		return value == layout_policy::hori_major || value == layout_policy::vert_major;
+	}
+
+	[[nodiscard]] static layout_policy require_directional_policy(const layout_policy value, const char* msg){
+		if(!is_directional_policy(value)){
+			throw illegal_layout{msg};
+		}
+		return value;
+	}
+
+public:
+	[[nodiscard]] constexpr directional_layout_policy() noexcept = default;
+
+	[[nodiscard]] directional_layout_policy(const layout_policy value)
+		: value_(static_cast<std::uint8_t>(layout_specifier::fixed(
+			require_directional_policy(value, "directional_layout_policy only accepts horizontal/vertical major fixed values")
+		))){
+	}
+
+	[[nodiscard]] directional_layout_policy(
+		const layout_policy self,
+		const layout_policy none_map,
+		const layout_policy hori_major_map,
+		const layout_policy vert_major_map
+	)
+		: value_(static_cast<std::uint8_t>(layout_specifier{
+			self,
+			require_directional_policy(none_map, "directional_layout_policy requires none mapping to be directional"),
+			require_directional_policy(hori_major_map, "directional_layout_policy requires horizontal mapping to be directional"),
+			require_directional_policy(vert_major_map, "directional_layout_policy requires vertical mapping to be directional")
+		})){
+		if(self != layout_policy::none && !is_directional_policy(self)){
+			throw illegal_layout{"directional_layout_policy self value must be none/hori_major/vert_major"};
+		}
+	}
+
+	[[nodiscard]] static directional_layout_policy fixed(const layout_policy value){
+		return directional_layout_policy{value};
+	}
+
+	[[nodiscard]] static directional_layout_policy identity(const layout_policy self = layout_policy::none){
+		return {self, layout_policy::hori_major, layout_policy::hori_major, layout_policy::vert_major};
+	}
+
+	[[nodiscard]] static directional_layout_policy transpose(const layout_policy self = layout_policy::none){
+		return {self, layout_policy::hori_major, layout_policy::vert_major, layout_policy::hori_major};
+	}
+
+	[[nodiscard]] constexpr std::uint8_t packed_value() const noexcept{
+		return value_;
+	}
+
+	[[nodiscard]] constexpr layout_specifier specifier() const noexcept{
+		return layout_specifier{value_};
+	}
+
+	[[nodiscard]] constexpr layout_policy self() const noexcept{
+		return specifier().self();
+	}
+
+	[[nodiscard]] constexpr layout_policy map_none() const noexcept{
+		return specifier().map_none();
+	}
+
+	[[nodiscard]] constexpr layout_policy map_hori_major() const noexcept{
+		return specifier().map_hori_major();
+	}
+
+	[[nodiscard]] constexpr layout_policy map_vert_major() const noexcept{
+		return specifier().map_vert_major();
+	}
+
+	[[nodiscard]] constexpr layout_policy value() const noexcept{
+		return self();
+	}
+
+	[[nodiscard]] constexpr layout_policy map(const layout_policy input) const noexcept{
+		return specifier().map(input);
+	}
+
+	[[nodiscard]] constexpr layout_policy resolve(const layout_policy parent_policy) const noexcept{
+		return specifier().resolve(parent_policy);
+	}
+
+	[[nodiscard]] constexpr friend bool operator==(const directional_layout_policy&, const directional_layout_policy&) noexcept = default;
+	[[nodiscard]] constexpr explicit(false) operator layout_policy() const noexcept{
+		return self();
+	}
+	[[nodiscard]] constexpr explicit(false) operator layout_specifier() const noexcept{
+		return specifier();
+	}
 };
 
 export
@@ -36,6 +228,16 @@ constexpr layout_policy transpose_layout(layout_policy policy) noexcept{
 	case layout_policy::vert_major : return layout_policy::hori_major;
 	default : std::unreachable();
 	}
+}
+
+export
+constexpr directional_layout_policy transpose_layout(directional_layout_policy policy) noexcept{
+	return {
+		transpose_layout(policy.self()),
+		transpose_layout(policy.map_none()),
+		transpose_layout(policy.map_hori_major()),
+		transpose_layout(policy.map_vert_major())
+	};
 }
 
 export enum class expand_policy{
