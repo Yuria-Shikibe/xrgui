@@ -498,7 +498,7 @@ struct vp : gui::viewport{
 			};
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		viewport::record_draw_layer(call_stack_builder);
 		call_stack_builder.push_call_noop(*this, [](const vp& s, const draw_call_param& p){
 			if(!p.layer_param.is_top()) return;
@@ -777,7 +777,7 @@ void example_scene::draw_at(math::frect clipspace, draw_call_stack& call_stack){
 void example_scene::draw_impl(rect clip){
 	if(auto flags = check_display_state_changed(); flags != elem_tree_channel{}){
 		if((flags & elem_tree_channel::regular) != elem_tree_channel{}){
-			draw_call_stack_recorder rec{call_stack_regular_};
+			draw_recorder rec{call_stack_regular_};
 			root().record_draw_layer(rec);
 		}
 
@@ -785,7 +785,7 @@ void example_scene::draw_impl(rect clip){
 			auto seq = tooltip_manager_.get_draw_sequence();
 			call_stack_tooltip_.resize(seq.size());
 			for(auto&& [idx, elem] : seq | std::views::enumerate){
-				draw_call_stack_recorder rec{call_stack_tooltip_[idx]};
+				draw_recorder rec{call_stack_tooltip_[idx]};
 				elem.element->record_draw_layer(rec);
 			}
 		}
@@ -794,7 +794,7 @@ void example_scene::draw_impl(rect clip){
 			auto seq = overlay_manager_.get_draw_sequence();
 			call_stack_overlay_.resize(seq.size());
 			for(auto&& [idx, elem] : seq | std::views::enumerate){
-				draw_call_stack_recorder rec{call_stack_overlay_[idx]};
+				draw_recorder rec{call_stack_overlay_[idx]};
 				elem->record_draw_layer(rec);
 			}
 		}

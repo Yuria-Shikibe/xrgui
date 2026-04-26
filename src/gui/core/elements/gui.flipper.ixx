@@ -70,7 +70,7 @@ public:
 		return elem_span{get_active_elem_ptr(), elem_ptr::cvt_mptr};
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 		get_active_elem_ptr()->record_draw_layer(call_stack_builder);
 	}

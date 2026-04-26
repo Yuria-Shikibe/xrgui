@@ -158,7 +158,7 @@ public:
 		return events::op_afterwards::intercepted;
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		head_body::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_noop(

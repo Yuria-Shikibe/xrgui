@@ -536,8 +536,8 @@ protected:
 
 
 protected:
-	template <typename S, std::invocable<const S&, draw_call_stack_recorder&> Fn>
-	void record_drawer_draw_context(this const S& self, draw_call_stack_recorder& call_stack_builder, Fn&& fn){
+	template <typename S, std::invocable<const S&, draw_recorder&> Fn>
+	void record_drawer_draw_context(this const S& self, draw_recorder& call_stack_builder, Fn&& fn){
 		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
 			const rect bound = s.bound_abs();
 				return {
@@ -553,8 +553,8 @@ protected:
 		call_stack_builder.push_call_leave();
 	}
 
-	template <typename S, std::invocable<const S&, draw_call_stack_recorder&> Fn>
-	void record_content_drawer_draw_context(this const S& self, draw_call_stack_recorder& call_stack_builder, Fn&& fn){
+	template <typename S, std::invocable<const S&, draw_recorder&> Fn>
+	void record_content_drawer_draw_context(this const S& self, draw_recorder& call_stack_builder, Fn&& fn){
 		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
 			const rect bound = s.content_bound_abs();
 				return {
@@ -571,9 +571,9 @@ protected:
 	}
 
 public:
-	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const{
+	virtual void record_draw_layer(draw_recorder& call_stack_builder) const{
 		if(style){
-			record_drawer_draw_context(call_stack_builder, [](const elem& e, draw_call_stack_recorder& s){
+			record_drawer_draw_context(call_stack_builder, [](const elem& e, draw_recorder& s){
 				e.style->record_draw_layer(s);
 			});
 		}

@@ -47,7 +47,7 @@ void collapser::update_collapse(float delta) noexcept{
 }
 
 
-void collapser::record_draw_layer(draw_call_stack_recorder& call_stack_builder) const{
+void collapser::record_draw_layer(draw_recorder& call_stack_builder) const{
 	elem::record_draw_layer(call_stack_builder);
 
 	call_stack_builder.push_call_enter(

@@ -411,22 +411,22 @@ public:
 
 		template <typename T, typename Fn>
 		void push_call_enter(T& host, Fn /*fn*/){
-			this->push_call_enter(host, mo_yanxi::make_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
+			this->push_call_enter(host, mo_yanxi::make_func_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
 		}
 
 		template <typename T, typename Fn>
 		void push_call_leave(T& host, Fn /*fn*/){
-			this->push_call_leave(host, mo_yanxi::make_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
+			this->push_call_leave(host, mo_yanxi::make_func_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
 		}
 
 		template <typename T, typename Fn>
 		void push_call_replace(T& host, Fn /*fn*/){
-			this->push_call_replace(host, mo_yanxi::make_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
+			this->push_call_replace(host, mo_yanxi::make_func_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
 		}
 
 		template <typename T, typename Fn>
 		void push_call_noop(T& host, Fn /*fn*/){
-			this->push_call_noop(host, mo_yanxi::make_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
+			this->push_call_noop(host, mo_yanxi::make_func_wrapper<T&, const stack_argument_t&, stack_type&>(Fn{}));
 		}
 
 		void push_call_leave(){

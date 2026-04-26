@@ -46,7 +46,7 @@ export
 using draw_call_stack = function_call_stack<draw_call_param>;
 
 export
-using draw_call_stack_recorder = draw_call_stack::function_call_stack_builder;
+using draw_recorder = draw_call_stack::function_call_stack_builder;
 
 export
 struct style_config{
@@ -128,7 +128,7 @@ public:
 		return false;
 	}
 
-	virtual void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const {
+	virtual void record_draw_layer(draw_recorder& call_stack_builder) const {
 		call_stack_builder.push_call_noop(*this, [] FORCE_INLINE (const style_drawer& s, const draw_call_param& p, draw_call_stack& stack){
 			if(p.current_subject)s.draw_layer(*static_cast<const T*>(p.current_subject), p.draw_bound, p.opacity_scl, p.layer_param);
 		});
@@ -137,7 +137,7 @@ public:
 
 protected:
 	template <typename S>
-	FORCE_INLINE void push_draw_func_to_stack_recorder(this const S& self, draw_call_stack_recorder& call_stack_builder){
+	FORCE_INLINE void push_draw_func_to_stack_recorder(this const S& self, draw_recorder& call_stack_builder){
 		call_stack_builder.push_call_noop(self, [] FORCE_INLINE (const S& s, const draw_call_param& p, draw_call_stack& stack){
 			if(p.current_subject){
 				ATTR_FORCEINLINE_SENTENCE
@@ -164,7 +164,7 @@ namespace style{
 
 export
 template <std::derived_from<style_drawer_base> T>
-void record_draw_layer(const T& drawer, draw_call_stack_recorder& call_stack_builder){
+void record_draw_layer(const T& drawer, draw_recorder& call_stack_builder){
 	drawer.record_draw_layer(call_stack_builder);
 }
 

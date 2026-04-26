@@ -84,7 +84,7 @@ public:
 
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 		call_stack_builder.push_call_noop(*this, [](const image_frame& s, const draw_call_param& param){
 			if(param.layer_param == 0){
@@ -217,7 +217,7 @@ public:
 		drawable_ = std::move(icon);
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 		call_stack_builder.push_call_noop(*this, [](const image_frame_single& s, const draw_call_param& param){
 			if(param.layer_param.is_top()){

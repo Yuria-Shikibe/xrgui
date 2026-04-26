@@ -428,7 +428,7 @@ protected:
 
 public:
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override;
+	void record_draw_layer(draw_recorder& call_stack_builder) const override;
 
 	void layout_elem() override;
 	bool update(float delta_in_ticks) override;

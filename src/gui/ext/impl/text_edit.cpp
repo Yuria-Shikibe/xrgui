@@ -232,7 +232,7 @@ std::optional<math::vec2> text_edit::pre_acquire_size_impl(layout::optional_mast
 		get_prefer_content_extent());
 }
 
-void text_edit::record_draw_layer(draw_call_stack_recorder& call_stack_builder) const{
+void text_edit::record_draw_layer(draw_recorder& call_stack_builder) const{
 	elem::record_draw_layer(call_stack_builder);
 	call_stack_builder.push_call_noop(*this, [](const text_edit& e, const draw_call_param& p){
 		if(!p.layer_param.is_top())return;

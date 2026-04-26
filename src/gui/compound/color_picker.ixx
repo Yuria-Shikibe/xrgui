@@ -207,7 +207,7 @@ private:
 		}
 
 	public:
-		void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+		void record_draw_layer(draw_recorder& call_stack_builder) const override{
 			call_stack_builder.push_call_noop(*this, [](const sv_selection& s, const draw_call_param& param){
 				if(!param.layer_param.is_top()) return;
 				if(!util::is_draw_param_valid(s, param)) return;

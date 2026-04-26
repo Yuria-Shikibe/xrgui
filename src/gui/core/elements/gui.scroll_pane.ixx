@@ -326,7 +326,7 @@ public:
 
 protected:
 	void draw_scroll_bar(fx::layer_param_pass_t param) const;
-	void record_draw_scroll_bar(draw_call_stack_recorder& call_stack_builder) const;
+	void record_draw_scroll_bar(draw_recorder& call_stack_builder) const;
 };
 
 export
@@ -440,7 +440,7 @@ public:
 
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_enter(

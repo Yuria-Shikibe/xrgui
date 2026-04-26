@@ -87,7 +87,7 @@ namespace mo_yanxi::gui{
 		if(drawer) drawer->draw_layer(*this, content_bound_abs(), get_bar_opacity() * get_local_draw_opacity(), param);
 	}
 
-	void scroll_adaptor_base::record_draw_scroll_bar(draw_call_stack_recorder& call_stack_builder) const{
+	void scroll_adaptor_base::record_draw_scroll_bar(draw_recorder& call_stack_builder) const{
 		if(!drawer)return;
 		call_stack_builder.push_call_enter(*this, [](const scroll_adaptor_base& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
 			const rect bound = s.content_bound_abs();

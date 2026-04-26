@@ -116,12 +116,12 @@ private:
 
 public:
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 		if(get_drawer()){
 			static_cast<const Derived&>(*this).record_content_drawer_draw_context(
 				call_stack_builder,
-				[](const Derived& self, draw_call_stack_recorder& r){
+				[](const Derived& self, draw_recorder& r){
 					style::record_draw_layer(*self.get_drawer(), r);
 				});
 		}

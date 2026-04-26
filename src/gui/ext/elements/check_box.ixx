@@ -34,7 +34,7 @@ public:
 	}
 
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 		call_stack_builder.push_call_noop(*this, [](const select_box& s, const draw_call_param& param){
 			if(!param.layer_param.is_top()) return;

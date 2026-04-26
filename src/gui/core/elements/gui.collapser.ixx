@@ -170,7 +170,7 @@ public:
 		return true;
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override;
+	void record_draw_layer(draw_recorder& call_stack_builder) const override;
 
 protected:
 	void set_item_size(bool isContent, layout::stated_size size) override{

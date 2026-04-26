@@ -97,7 +97,7 @@ public:
 	}
 
 public:
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 		call_stack_builder.push_call_enter(
 			*this, [](const elem& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{

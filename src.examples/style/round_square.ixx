@@ -357,7 +357,7 @@ struct round_style_base_only : basic_elem_style_drawer{
 
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		this->push_draw_func_to_stack_recorder(call_stack_builder);
 	}
 protected:
@@ -401,7 +401,7 @@ struct round_style : round_style_base_only{
 
 	using round_style_base_only::round_style_base_only;
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		this->push_draw_func_to_stack_recorder(call_stack_builder);
 	}
 
@@ -448,7 +448,7 @@ struct round_style_edge_only : basic_elem_style_drawer{
 
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		this->push_draw_func_to_stack_recorder(call_stack_builder);
 	}
 protected:
@@ -481,7 +481,7 @@ struct side_bar_style : round_style_base_only{
 
 	using round_style_base_only::round_style_base_only;
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		this->push_draw_func_to_stack_recorder(call_stack_builder);
 	}
 

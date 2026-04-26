@@ -256,9 +256,9 @@ public:
 		}
 	}
 
-	void record_draw_layer(draw_call_stack_recorder& call_stack_builder) const override{
+	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
-		if(drawer)record_content_drawer_draw_context(call_stack_builder, [](const progress_bar& s, draw_call_stack_recorder& r){
+		if(drawer)record_content_drawer_draw_context(call_stack_builder, [](const progress_bar& s, draw_recorder& r){
 			s.drawer->record_draw_layer(r);
 		});
 	}
