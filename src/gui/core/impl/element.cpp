@@ -198,7 +198,6 @@ void elem::set_style() noexcept{
 }
 
 bool elem::update(float delta_in_ticks){
-	if(sleep)return false;
 	return true;
 }
 

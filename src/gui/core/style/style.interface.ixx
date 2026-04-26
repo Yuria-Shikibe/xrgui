@@ -34,10 +34,10 @@ struct draw_call_param{
 	fx::layer_param layer_param;
 
 	constexpr bool is_draw_allowed() const noexcept{
-		return current_subject != nullptr && !draw_bound.is_roughly_zero_area(0.01f);
+		return opacity_scl >= 0 && current_subject != nullptr && !draw_bound.is_roughly_zero_area(0.01f);
 	}
 
-	constexpr operator bool() const noexcept{
+	explicit constexpr operator bool() const noexcept{
 		return is_draw_allowed();
 	}
 };

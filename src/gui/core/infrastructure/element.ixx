@@ -294,7 +294,6 @@ protected:
 	bool disabled{};
 public:
 	bool invisible{};
-	bool sleep{};
 
 public:
 	layout_state layout_state{};
@@ -902,8 +901,6 @@ public:
 	[[nodiscard]] FORCE_INLINE inline bool is_toggled() const noexcept{ return toggled; }
 
 	[[nodiscard]] FORCE_INLINE inline bool is_visible() const noexcept{ return !invisible; }
-
-	[[nodiscard]] FORCE_INLINE inline bool is_sleep() const noexcept{ return sleep; }
 
 	[[nodiscard]] FORCE_INLINE inline bool is_disabled() const noexcept{ return disabled; }
 
