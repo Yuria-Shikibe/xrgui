@@ -155,7 +155,7 @@ public:
 			return {
 				.current_subject = &s,
 				.draw_bound = s.content_bound_abs().intersection_with(p.draw_bound),
-				.opacity_scl = s.get_draw_opacity(),
+				.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
 				.layer_param = p.layer_param
 			};
 		});

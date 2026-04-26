@@ -117,8 +117,8 @@ void style::progress_drawer_flat::draw_layer_impl(const progress_bar& element, m
 			.v00 = region.vert_00(),
 			.v11 = region.vert_00() + region.extent().mul_x(prog),
 			.vert_color = {
-				element.draw_config.color.src,element.draw_config.color[prog],
-				element.draw_config.color.src,element.draw_config.color[prog]
+				element.draw_config.color.src.copy().mul_a(opacityScl),element.draw_config.color[prog].copy().mul_a(opacityScl),
+				element.draw_config.color.src.copy().mul_a(opacityScl),element.draw_config.color[prog].copy().mul_a(opacityScl)
 			}
 		});
 	}
@@ -147,7 +147,7 @@ void style::progress_drawer_arc::draw_layer_impl(const progress_bar& element, ma
 		.v11 = off + extent,
 		.stroke = {2},
 		.vert_color = {
-			colors::YELLOW.copy_set_a(.55f)
+			colors::YELLOW.copy_set_a(.55f * opacityScl)
 		}
 	});
 
@@ -162,7 +162,7 @@ void style::progress_drawer_arc::draw_layer_impl(const progress_bar& element, ma
 			.initial_angle = angle_range.base,
 			.radius = {inner, outer},
 			.color = {
-				element.draw_config.color.src, element.draw_config.color[prog],
+				element.draw_config.color.src.copy().mul_a(opacityScl), element.draw_config.color[prog].copy().mul_a(opacityScl),
 			}
 		}, 1.5f);
 		return;
@@ -174,8 +174,8 @@ void style::progress_drawer_arc::draw_layer_impl(const progress_bar& element, ma
 			.range = {angle_range.base, angle_range.extent * prog},
 			.radius = {inner, outer},
 			.color = {
-				element.draw_config.color.src, element.draw_config.color.src,
-				element.draw_config.color[prog], element.draw_config.color[prog]
+				element.draw_config.color.src.copy().mul_a(opacityScl), element.draw_config.color.src.copy().mul_a(opacityScl),
+				element.draw_config.color[prog].copy().mul_a(opacityScl), element.draw_config.color[prog].copy().mul_a(opacityScl)
 			}
 		}, 1.5f * cap_size, 1.5f* cap_size, 1.5f);
 }

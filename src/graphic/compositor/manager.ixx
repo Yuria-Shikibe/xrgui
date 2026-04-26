@@ -907,7 +907,7 @@ private:
 							},
 							[&](const buffer_requirement& r) {
 								state.last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-								state.last_access = VK_ACCESS_2_SHADER_WRITE_BIT;
+								state.last_access = req_opt->get_access_flags(state.last_stage);
 							},
 							[](std::monostate){}
 						}, req_opt->req);
@@ -924,7 +924,7 @@ private:
 							},
 							[&](const buffer_requirement& r) {
 								state.last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-								state.last_access = VK_ACCESS_2_SHADER_READ_BIT;
+								state.last_access = req_opt->get_access_flags(state.last_stage);
 							},
 							[](std::monostate){}
 						}, req_opt->req);
@@ -1135,7 +1135,7 @@ private:
 							.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
 							.srcStageMask = src_stage,
 							.srcAccessMask = src_access,
-							.dstStageMask = dst_access,
+							.dstStageMask = dst_stage,
 							.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 							.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 							.buffer = buffer_handle,
@@ -1223,11 +1223,19 @@ private:
 						                         dst_stage, dst_access, VK_IMAGE_LAYOUT_UNDEFINED,
 						                         nullptr, &r, VK_NULL_HANDLE, entity.handle.buffer);
 
+						const bool is_write = (dst_access & (VK_ACCESS_2_SHADER_WRITE_BIT |
+							VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) != 0;
 						auto& state = res_states[identity];
-						state.last_write_pass_index = i;
-						state.last_stage = dst_stage;
-						state.last_access = dst_access;
-						state.producer_event_index = std::nullopt;
+						if(is_write){
+							state.last_write_pass_index = i;
+							state.last_stage = dst_stage;
+							state.last_access = dst_access;
+							state.producer_event_index = std::nullopt;
+						} else{
+							state.last_stage |= dst_stage;
+							state.last_access |= dst_access;
+							state.last_read_pass_index = i;
+						}
 					}
 				}, req_obj.req, rentity.resource);
 			}
@@ -1286,11 +1294,21 @@ private:
 						state.producer_event_index = std::nullopt;
 					},
 					[&](const buffer_requirement& r, const buffer_entity& entity) {
+						const auto dst_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+						const auto dst_access = req_obj.get_access_flags(dst_stage);
+						const bool is_write = (dst_access & (VK_ACCESS_2_SHADER_WRITE_BIT |
+							VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)) != 0;
 						auto& state = res_states[identity];
-						state.last_write_pass_index = i;
-						state.last_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-						state.last_access = VK_ACCESS_2_SHADER_WRITE_BIT;
-						state.producer_event_index = std::nullopt;
+						if(is_write){
+							state.last_write_pass_index = i;
+							state.last_stage = dst_stage;
+							state.last_access = dst_access;
+							state.producer_event_index = std::nullopt;
+						} else{
+							state.last_stage |= dst_stage;
+							state.last_access |= dst_access;
+							state.last_read_pass_index = i;
+						}
 					}
 				}, req_obj.req, rentity.resource);
 			}
@@ -1523,17 +1541,23 @@ public:
 				           [](std::monostate){
 					           throw std::runtime_error("unknown resource");
 				           },
-				           [&](const image_requirement& r){
-					           const VkImageCreateInfo info = r.get_image_create_info(extent_);
+					           [&](const image_requirement& r){
+						           const VkImageCreateInfo info = r.get_image_create_info(extent_);
 
-					           VkImage img;
-					           vkCreateImage(device, &info, nullptr, &img);
-					           vkGetImageMemoryRequirements(device, img, &interval.requirements);
-					           vkDestroyImage(device, img, nullptr);
-				           },
-				           [&](const buffer_requirement& r){
-				           }
-			           }, req.req);
+						           VkImage img;
+						           vkCreateImage(device, &info, nullptr, &img);
+						           vkGetImageMemoryRequirements(device, img, &interval.requirements);
+						           vkDestroyImage(device, img, nullptr);
+					           },
+					           [&](const buffer_requirement& r){
+						           const VkBufferCreateInfo info = r.get_buffer_create_info(extent_);
+
+						           VkBuffer buf;
+						           vkCreateBuffer(device, &info, nullptr, &buf);
+						           vkGetBufferMemoryRequirements(device, buf, &interval.requirements);
+						           vkDestroyBuffer(device, buf, nullptr);
+					           }
+				           }, req.req);
 
 			intervals.push_back(interval);
 		};
@@ -1564,8 +1588,12 @@ public:
 
 
 
+		VkDeviceSize align = 1;
 		std::uint32_t common_mem_type_bits = 0xFFFF'FFFF;
-		for(auto& interval : intervals) common_mem_type_bits &= interval.requirements.memoryTypeBits;
+		for(auto& interval : intervals){
+			common_mem_type_bits &= interval.requirements.memoryTypeBits;
+			align = std::max(align, interval.requirements.alignment);
+		}
 
 		if(common_mem_type_bits == 0){
 			throw std::runtime_error{"incompatible memory type"};
@@ -1576,7 +1604,6 @@ public:
 
 		std::ranges::sort(intervals, std::ranges::greater{}, &LiveInterval::required_size);
 
-		VkDeviceSize align = 1;
 		VkDeviceSize total_size = 0;
 
 		std::vector<LiveInterval*> assigned;
@@ -1641,11 +1668,10 @@ public:
 		gpu_mem_.allocate(final_req, alloc_create_info);
 
 		auto create_resource = [&, this](const resource_requirement& req, VkDeviceSize offset) -> resource_entity{
-			//TODO support buffer allocation
 			return std::visit(overload_def_noop{
-				                  std::in_place_type<resource_entity>,
-				                  [&](const image_requirement& r){
-					                  const auto info = r.get_image_create_info(extent_);
+					                  std::in_place_type<resource_entity>,
+					                  [&](const image_requirement& r){
+						                  const auto info = r.get_image_create_info(extent_);
 					                  vk::combined_image_type image{
 							                  vk::aliased_image{
 								                  gpu_mem_.get_allocator(), gpu_mem_.get_allocation(), offset, info
@@ -1665,11 +1691,21 @@ public:
 						                  };
 
 
-					                  const resource_entity ent{req, image_entity{image}};
-					                  this->allocated_images_.push_back(std::move(image));
-					                  return ent;
-				                  }
-			                  }, req.req);
+						                  const resource_entity ent{req, image_entity{image}};
+						                  this->allocated_images_.push_back(std::move(image));
+						                  return ent;
+					                  },
+					                  [&](const buffer_requirement& r){
+						                  const auto info = r.get_buffer_create_info(extent_);
+						                  vk::aliased_buffer buffer{
+							                  gpu_mem_.get_allocator(), gpu_mem_.get_allocation(), offset, info
+						                  };
+
+						                  const resource_entity ent{req, buffer_entity{buffer.borrow()}};
+						                  this->allocated_buffers_.push_back(std::move(buffer));
+						                  return ent;
+					                  }
+				                  }, req.req);
 		};
 
 

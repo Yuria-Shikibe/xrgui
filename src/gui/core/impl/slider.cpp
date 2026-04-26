@@ -19,12 +19,12 @@ void style::default_slider1d_drawer::draw_layer_impl(const slider1d& element, ma
     renderer.push(rect_aabb{
         .v00 = pos1,
         .v11 = pos1 + extent,
-        .vert_color = {colors::white}
+		.vert_color = {colors::white.copy().mul_a(opacityScl)}
     });
     renderer.push(rect_aabb{
         .v00 = pos2,
         .v11 = pos2 + extent,
-        .vert_color = {colors::white.copy().mul_a(.5f)}
+		.vert_color = {colors::white.copy().mul_a(.5f * opacityScl)}
     });
 }
 
@@ -40,12 +40,12 @@ void style::default_slider2d_drawer::draw_layer_impl(const slider2d& element, ma
     renderer.push(rect_aabb{
         .v00 = pos1,
         .v11 = pos1 + extent,
-        .vert_color = {colors::white}
+		.vert_color = {colors::white.copy().mul_a(opacityScl)}
     });
     renderer.push(rect_aabb{
         .v00 = pos2,
         .v11 = pos2 + extent,
-        .vert_color = {colors::white.copy().mul_a(.5f)}
+		.vert_color = {colors::white.copy().mul_a(.5f * opacityScl)}
     });
 }
 

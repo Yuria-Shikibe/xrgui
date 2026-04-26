@@ -113,8 +113,8 @@ struct image_extent_spec{
 					if(scale >= 0){
 						return VkExtent3D{context_ext.width >> scale, context_ext.height >> scale, 1};
 					}else{
-						//shift with negative operand is UB
-						return VkExtent3D{context_ext.width << scale, context_ext.height << scale, 1};
+						const auto shift = static_cast<unsigned>(-scale);
+						return VkExtent3D{context_ext.width << shift, context_ext.height << shift, 1};
 					}
 				},
 				[](const VkExtent3D ext){return ext;}
@@ -154,7 +154,10 @@ struct image_extent_spec{
 export
 struct image_requirement{
 
-	VkSampleCountFlags sample_count{};
+	VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};
+
+	bool sampled{};
+	bool storage{};
 
 	VkFormat format{VK_FORMAT_UNDEFINED};
 
@@ -176,7 +179,7 @@ struct image_requirement{
 	image_extent_spec extent{};
 
 	VkSampleCountFlagBits get_sample_count() const noexcept{
-		return VK_SAMPLE_COUNT_1_BIT;
+		return sample_count;
 	}
 
 	VkImageType get_image_type() const noexcept{
@@ -193,9 +196,10 @@ struct image_requirement{
 
 	[[nodiscard]] VkImageUsageFlags get_required_usage() const noexcept{
 		VkImageUsageFlags rst{};
-		if(sample_count){
+		if(sampled){
 			rst |= VK_IMAGE_USAGE_SAMPLED_BIT;
-		} else{
+		}
+		if(storage){
 			rst |= VK_IMAGE_USAGE_STORAGE_BIT;
 		}
 
@@ -212,23 +216,35 @@ struct image_requirement{
 		}
 
 		sample_count = std::max(sample_count, other.sample_count);
+		sampled = sampled || other.sampled;
+		storage = storage || other.storage;
 
 		mip_level = get_optional_max(mip_level, other.mip_level);
 		if(other.format != VK_FORMAT_UNDEFINED && format != VK_FORMAT_UNDEFINED && other.format != format) return false;
-		format = other.format;
+		if(format == VK_FORMAT_UNDEFINED){
+			format = other.format;
+		}
 
-		usage |= other.get_required_usage();
+		usage |= other.usage;
 		aspect_flags |= other.aspect_flags;
 		return true;
 	}
 
 	[[nodiscard]] bool is_sampled_image() const noexcept{
-		return sample_count > 0;
+		return sampled && !storage;
+	}
+
+	[[nodiscard]] bool uses_sampled_descriptor() const noexcept{
+		return sampled;
+	}
+
+	[[nodiscard]] bool uses_storage_descriptor() const noexcept{
+		return storage;
 	}
 
 	[[nodiscard]] VkImageLayout get_expected_layout() const noexcept{
 		if(override_initial_layout) return override_initial_layout;
-		return is_sampled_image()
+		return !uses_storage_descriptor()
 			       ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 			       : VK_IMAGE_LAYOUT_GENERAL;
 	}
@@ -248,7 +264,7 @@ struct image_requirement{
 			default : return VK_ACCESS_2_NONE;
 			}
 
-		default : if(is_sampled_image()) return VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+		default : if(!uses_storage_descriptor() && uses_sampled_descriptor()) return VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 			switch(access){
 			case access_flag::read : return VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
 			case access_flag::write : return VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
@@ -344,6 +360,19 @@ struct buffer_requirement{
 	VkDeviceSize get_required_memory_size(const VkExtent2D context_extent) const noexcept{
 		return size.get_size(context_extent);
 	}
+
+	[[nodiscard]] VkBufferUsageFlags get_required_usage() const noexcept{
+		return usage | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+	}
+
+	[[nodiscard]] VkBufferCreateInfo get_buffer_create_info(const VkExtent2D context_extent) const noexcept{
+		return {
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = get_required_memory_size(context_extent),
+			.usage = get_required_usage(),
+			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		};
+	}
 };
 
 export
@@ -367,12 +396,33 @@ struct resource_requirement{
 			std::in_place_type<VkAccessFlags2>,
 			[&, this](const image_requirement& l){
 				return l.get_image_access(access, append_stages | last_used_stage);
+			},
+			[&, this](const buffer_requirement&){
+				const auto stages = append_stages | last_used_stage;
+				if(stages == VK_PIPELINE_STAGE_2_TRANSFER_BIT){
+					switch(access){
+					case access_flag::read : return VK_ACCESS_2_TRANSFER_READ_BIT;
+					case access_flag::write : return VK_ACCESS_2_TRANSFER_WRITE_BIT;
+					case access_flag::read | access_flag::write :
+						return VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+					default : return VK_ACCESS_2_NONE;
+					}
+				}
+
+				switch(access){
+				case access_flag::read : return VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+				case access_flag::write : return VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+				case access_flag::read | access_flag::write :
+					return VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+				default : return VK_ACCESS_2_NONE;
+				}
 			}
 		}, req);
 	}
 
 	[[nodiscard("false result should be addressed")]] bool promote(const resource_requirement& other) noexcept{
 		access |= other.access;
+		last_used_stage |= other.last_used_stage;
 		return std::visit<bool>(overload_def_noop{
 			std::in_place_type<bool>,
 			[](image_requirement& l, const image_requirement& r) {

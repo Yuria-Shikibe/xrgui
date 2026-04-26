@@ -211,6 +211,7 @@ private:
 			call_stack_builder.push_call_noop(*this, [](const sv_selection& s, const draw_call_param& param){
 				if(!param.layer_param.is_top()) return;
 				if(!util::is_draw_param_valid(s, param)) return;
+				const float opacityScl = util::get_final_draw_opacity(s, param);
 
 
 				using namespace graphic;
@@ -226,7 +227,7 @@ private:
 				s.renderer().push(rect_aabb{
 						.v00 = contentext.vert_00(),
 						.v11 = contentext.vert_11(),
-						.vert_color = {colors::dark_gray}
+						.vert_color = {colors::dark_gray.copy().mul_a(opacityScl)}
 					});
 
 				auto [grid_size_x, grid_size_y] = (contentext.extent() / 64.f).ceil().as<int>().max({1, 1});
@@ -251,7 +252,10 @@ private:
 						s.renderer().push(rect_aabb{
 								.v00 = sub_v00,
 								.v11 = sub_v11,
-								.vert_color = {c_tl, c_tr, c_bl, c_br}
+								.vert_color = {
+									c_tl.mul_a(opacityScl), c_tr.mul_a(opacityScl),
+									c_bl.mul_a(opacityScl), c_br.mul_a(opacityScl)
+								}
 							});
 					}
 
@@ -260,6 +264,7 @@ private:
 
 
 					auto draw_at = [&](math::vec2 progress, float opacity, bool expand){
+						opacity *= opacityScl;
 						auto radius = extent.get_min() + (expand ? 6.f : 0.f);
 
 						const auto pos = region.src + progress * region.extent().fdim(extent) + extent * .5f;

@@ -323,7 +323,7 @@ struct bloom_meta_config{
 
 
 	VkImageLayout get_target_layout() const noexcept{
-		return target_layout != VK_IMAGE_LAYOUT_UNDEFINED ? target_layout : (target_layout == 0 ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		return target_layout != VK_IMAGE_LAYOUT_UNDEFINED ? target_layout : VK_IMAGE_LAYOUT_GENERAL;
 	}
 };
 

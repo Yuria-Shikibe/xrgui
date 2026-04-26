@@ -161,16 +161,20 @@ public:
 
 public:
 	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
-		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
-		const auto candidate = setting.is_specifier()
-			? setting.as_specifier().cache_from(parent_policy)
-			: layout_policy_.clear_self().cache_from(setting.as_policy());
-
-		if(util::try_modify(layout_policy_, candidate)){
-			notify_isolated_layout_changed();
-			return true;
-		}
-		return setting.is_policy();
+		return util::update_layout_policy_setting(
+			setting,
+			layout_policy_,
+			[this]{ return util::layout_policy_or_none(search_parent_layout_policy(true)); },
+			[](const layout::layout_policy parent_policy, const layout::layout_specifier specifier){
+				return specifier.cache_from(parent_policy);
+			},
+			[this](const layout::layout_policy policy){
+				return layout_policy_.clear_self().cache_from(policy);
+			},
+			[this](const auto&){
+				notify_isolated_layout_changed();
+			}
+		);
 	}
 
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
@@ -330,7 +334,7 @@ template <typename T>
 struct scroll_adaptor_apply_interface_schema{
 	using element_type = T;
 	void update(element_type& element, float delta_in_tick) = delete;
-	void draw_layer(const element_type& element, const scroll_adaptor_base& scroll_adaptor_base, rect clipSpace, fx::layer_param_pass_t param) const = delete;
+	void draw_layer(const element_type& element, const scroll_adaptor_base& scroll_adaptor_base, rect clipSpace, float opacityScl, fx::layer_param_pass_t param) const = delete;
 	void layout_elem(element_type& element) = delete;
 	void set_prefer_extent(element_type& element, math::vec2 ext) = delete;
 	void on_context_sync_bind(element_type& element) = delete;
@@ -349,8 +353,8 @@ struct interface_trait{
 		i.update(e, d);
 	};
 
-	static constexpr bool has_draw_layer = requires(const interface_type& i, const scroll_adaptor_base& scroll_adaptor_base, const element_type& e, rect c, fx::layer_param_pass_t p){
-		i.draw_layer(e, scroll_adaptor_base, c, p);
+	static constexpr bool has_draw_layer = requires(const interface_type& i, const scroll_adaptor_base& scroll_adaptor_base, const element_type& e, rect c, float o, fx::layer_param_pass_t p){
+		i.draw_layer(e, scroll_adaptor_base, c, o, p);
 	};
 
 	static constexpr bool has_layout_elem = requires(interface_type& i, element_type& e){
@@ -455,14 +459,14 @@ public:
 					return {
 							.current_subject = &s,
 							.draw_bound = p.draw_bound.copy().move(s.scroll_.temp),
-							.opacity_scl = 1,
+							.opacity_scl = p.opacity_scl,
 							.layer_param = p.layer_param
 						};
 				} else{
 					return {
 							.current_subject = &s,
 							.draw_bound = p.draw_bound,
-							.opacity_scl = 1,
+							.opacity_scl = p.opacity_scl,
 							.layer_param = p.layer_param
 						};
 				}
@@ -471,7 +475,7 @@ public:
 		//TODO when has_draw_layer is specified , the draw call should be inlined...?
 		if constexpr(adaptor_interface_trait::has_draw_layer){
 			call_stack_builder.push_call_noop(*this, [](const scroll_adaptor& s, const draw_call_param& p){
-				s.adaptor_draw_layer(p.draw_bound, p.layer_param);
+				s.adaptor_draw_layer(p.draw_bound, p.opacity_scl, p.layer_param);
 			});
 		} else if constexpr(is_elem_child){
 			get_elem().record_draw_layer(call_stack_builder);
@@ -708,9 +712,9 @@ protected:
 		}
 	}
 
-	void adaptor_draw_layer(rect clipSpace, fx::layer_param_pass_t param) const{
+	void adaptor_draw_layer(rect clipSpace, float opacityScl, fx::layer_param_pass_t param) const{
 		if constexpr(adaptor_interface_trait::has_draw_layer){
-			item_adaptor.draw_layer(item_, *this, clipSpace, param);
+			item_adaptor.draw_layer(item_, *this, clipSpace, opacityScl, param);
 		} else if constexpr(is_elem_child){
 			get_elem().draw_layer(clipSpace, param);
 		}

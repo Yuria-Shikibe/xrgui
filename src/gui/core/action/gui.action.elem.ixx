@@ -42,15 +42,15 @@ public:
 
 protected:
 	void apply(elem& elem, const float progress) override{
-		elem.update_context_opacity(math::lerp(initialAlpha, dst_alpha, progress));
+		elem.set_propagate_opacity(math::lerp(initialAlpha, dst_alpha, progress));
 	}
 
 	void begin(elem& elem) override{
-		initialAlpha = elem.get_draw_opacity();
+		initialAlpha = elem.get_propagate_opacity();
 	}
 
 	void end(elem& elem) override{
-		elem.update_context_opacity(dst_alpha);
+		elem.set_propagate_opacity(dst_alpha);
 	}
 };
 
@@ -70,11 +70,7 @@ public:
 
 protected:
 	void apply(elem& elem, const float progress) override{
-		float targetAbs{1};
-		if(auto p = elem.parent()){
-			targetAbs = p->get_draw_opacity();
-		}
-		elem.update_context_opacity(math::lerp(initialAlpha, targetAbs, progress));
+		elem.set_propagate_opacity(math::lerp(initialAlpha, 1.f, progress));
 	}
 };
 

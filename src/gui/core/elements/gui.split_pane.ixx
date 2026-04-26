@@ -167,6 +167,7 @@ public:
 				bool enable_split_draw = p.draw_bound.overlap_exclusive(bound) && (s.seperator_position_.is_dirty() || s
 					.drag_progress_ > 0.0f);
 				if(!enable_split_draw) return;
+				const float paneOpacity = util::get_final_draw_opacity(s, p);
 				const auto [major_p, minor_p] = layout::get_vec_ptr(s.get_layout_policy());
 				auto src = s.content_src_pos_abs();
 
@@ -189,14 +190,14 @@ public:
 
 				ext.*minor_p -= s.get_pad() / 2.f;
 				if(s.head().style)
-					s.head().style->draw_layer(s.head(), {tags::from_vertex, s.content_src_pos_abs(), src + ext},
-					                           s.drag_progress_ * 4.f, p.layer_param);
+					s.head().draw_style({tags::from_vertex, s.content_src_pos_abs(), src + ext}, p.layer_param,
+					                    paneOpacity * s.drag_progress_ * 4.f);
 				src.*minor_p += s.get_pad() / 2.f;
 				if(s.body().style)
-					s.body().style->draw_layer(s.body(), {
-						                           tags::from_vertex, s.content_src_pos_abs() + s.content_extent(),
-						                           src
-					                           }, s.drag_progress_ * 4.f, p.layer_param);
+					s.body().draw_style({
+					                    tags::from_vertex, s.content_src_pos_abs() + s.content_extent(),
+					                    src
+					                }, p.layer_param, paneOpacity * s.drag_progress_ * 4.f);
 			});
 	}
 

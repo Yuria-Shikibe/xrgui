@@ -16,11 +16,11 @@ void collapser::update_collapse(float delta) noexcept{
 	// 3. 执行状态机推进
 	animator_.update(delta,
 		[this] { // on_enter_complete (对应原 expanded 初始逻辑)
-			if(update_opacity_during_expand_) body().update_context_opacity(get_draw_opacity());
+			if(update_opacity_during_expand_) body().set_propagate_opacity(1.f);
 			body().on_display_state_changed(true, false);
 		},
 		[this] { // on_exit_complete (对应原 un_expand 初始逻辑)
-			if(update_opacity_during_expand_) body().update_context_opacity(0);
+			if(update_opacity_during_expand_) body().set_propagate_opacity(0);
 			body().on_display_state_changed(false, false);
 		}
 	);
@@ -32,7 +32,7 @@ void collapser::update_collapse(float delta) noexcept{
 		require_scene_cursor_update();
 
 		if (update_opacity_during_expand_) {
-			body().update_context_opacity(get_interped_progress() * get_draw_opacity());
+			body().set_propagate_opacity(get_interped_progress());
 		}
 
 		if (transpose_head_and_body_) {
@@ -56,7 +56,7 @@ void collapser::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 			return {
 					.current_subject = &s,
 					.draw_bound = space,
-					.opacity_scl = s.get_draw_opacity(),
+					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
 					.layer_param = p.layer_param
 				};
 		});
@@ -91,7 +91,7 @@ void collapser::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 				return {
 						.current_subject = allow_next_layer ? &s : nullptr,
 						.draw_bound = space,
-						.opacity_scl = s.get_draw_opacity(),
+						.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
 						.layer_param = p.layer_param
 					};
 			});

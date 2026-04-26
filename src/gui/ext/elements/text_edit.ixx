@@ -230,8 +230,8 @@ public:
 		}
 	}
 
-	[[nodiscard]] graphic::color get_draw_scl_color() const noexcept{
-		auto scl = (is_disabled() ? .5f : 1.f) * get_draw_opacity();
+	[[nodiscard]] graphic::color get_draw_scl_color(float opacityScl) const noexcept{
+		auto scl = (is_disabled() ? .5f : 1.f) * opacityScl;
 		if(is_idle_){
 			return graphic::colors::light_gray.copy().mul_a(0.65f * scl);
 		}
@@ -513,7 +513,7 @@ protected:
 		failed_hint_timer_ = 10.f;
 	}
 
-	void draw_selection_and_caret() const;
+	void draw_selection_and_caret(float opacityScl) const;
 	[[nodiscard]] math::frect get_caret_local_aabb() const;
 
 public:

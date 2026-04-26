@@ -105,7 +105,7 @@ public:
 				return {
 						.current_subject = &s,
 						.draw_bound = space,
-						.opacity_scl = s.get_draw_opacity(),
+						.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
 						.layer_param = p.layer_param
 					};
 			});
@@ -133,16 +133,20 @@ public:
 
 protected:
 	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
-		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
-		const auto candidate = setting.is_specifier()
-			? layout::directional_layout_specifier{setting.as_specifier()}.cache_from(parent_policy)
-			: layout_policy_.cache_from(setting.as_policy());
-
-		if(util::try_modify(layout_policy_, candidate)){
-			on_layout_policy_changed(candidate.self());
-			return true;
-		}
-		return setting.is_policy();
+		return util::update_layout_policy_setting(
+			setting,
+			layout_policy_,
+			[this]{ return util::layout_policy_or_none(search_parent_layout_policy(true)); },
+			[](const layout::layout_policy parent_policy, const layout::layout_specifier specifier){
+				return layout::directional_layout_specifier{specifier}.cache_from(parent_policy);
+			},
+			[this](const layout::layout_policy policy){
+				return layout_policy_.cache_from(policy);
+			},
+			[this](const layout::directional_layout_specifier candidate){
+				on_layout_policy_changed(candidate.self());
+			}
+		);
 	}
 
 	template <std::derived_from<elem> E, typename... Args>

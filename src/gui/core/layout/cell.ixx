@@ -57,7 +57,7 @@ namespace mo_yanxi::gui::layout{
 
 
 		constexpr vec2 get_relative_src(vec2 actual_extent) const noexcept{
-			return margin.top_lft() + align::get_offset_of(unsaturate_cell_elem_align, actual_extent, allocated_region);
+			return allocated_region.get_src() + margin.top_lft() + align::get_offset_of(unsaturate_cell_elem_align, actual_extent, rect{tags::unchecked, allocated_region.extent().fdim(margin.extent())});
 		}
 
 		void apply_to(

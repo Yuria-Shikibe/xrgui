@@ -16,7 +16,10 @@ struct sequence_pre_layout_result{
 export
 struct sequence : celled_group<cell_adaptor<layout::partial_mastering_cell>>{
 private:
-	layout::directional_layout_specifier policy_{layout::directional_layout_specifier::identity().cache_from(search_parent_layout_policy(true).value_or(layout::layout_policy::none))};
+	layout::directional_layout_specifier policy_{util::cache_layout_specifier_from_parent(
+		layout::directional_layout_specifier::identity(),
+		search_parent_layout_policy(true)
+	)};
 	bool align_to_tail_{false};
 	layout::expand_policy expand_policy_{};
 
@@ -74,16 +77,20 @@ public:
 
 protected:
 	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
-		const auto parent_policy = search_parent_layout_policy(true).value_or(layout::layout_policy::none);
-		const auto candidate = setting.is_specifier()
-			? layout::directional_layout_specifier{setting.as_specifier()}.cache_from(parent_policy)
-			: policy_.cache_from(setting.as_policy());
-
-		if(util::try_modify(policy_, candidate)){
-			notify_isolated_layout_changed();
-			return true;
-		}
-		return setting.is_policy();
+		return util::update_layout_policy_setting(
+			setting,
+			policy_,
+			[this]{ return util::layout_policy_or_none(search_parent_layout_policy(true)); },
+			[](const layout::layout_policy parent_policy, const layout::layout_specifier specifier){
+				return layout::directional_layout_specifier{specifier}.cache_from(parent_policy);
+			},
+			[this](const layout::layout_policy policy){
+				return policy_.cache_from(policy);
+			},
+			[this](const auto&){
+				notify_isolated_layout_changed();
+			}
+		);
 	}
 };
 }

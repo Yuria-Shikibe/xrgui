@@ -24,7 +24,8 @@ import <spirv_reflect.h>;
 #endif
 
 namespace mo_yanxi::graphic::compositor{
-resource_requirement extract_image_state(const SpvReflectDescriptorBinding* resource){
+namespace{
+access_flag extract_descriptor_access(const SpvReflectDescriptorBinding* resource) noexcept{
 	access_flag decr{};
 
 
@@ -38,6 +39,12 @@ resource_requirement extract_image_state(const SpvReflectDescriptorBinding* reso
 	} else{
 		decr = access_flag::read;
 	}
+	return decr;
+}
+}
+
+resource_requirement extract_image_state(const SpvReflectDescriptorBinding* resource){
+	access_flag decr = extract_descriptor_access(resource);
 
 	if(resource->image.dim == SpvDim1D || resource->image.dim == SpvDim3D){
 		throw std::runtime_error("Unsupported image dimension");
@@ -47,12 +54,24 @@ resource_requirement extract_image_state(const SpvReflectDescriptorBinding* reso
 
 	return resource_requirement{
 			.req = image_requirement{
-				.sample_count = VkSampleCountFlags{isSampled},
+				.sampled = isSampled,
+				.storage = !isSampled,
 
 				.format = convertImageFormatToVkFormat(resource->image.image_format),
 				.extent = isSampled ? image_extent_spec{} : image_extent_spec{0},
 			},
 			.access = decr,
+			.last_used_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		};
+}
+
+resource_requirement extract_buffer_state(const SpvReflectDescriptorBinding* resource){
+	return resource_requirement{
+			.req = buffer_requirement{
+				{static_cast<VkDeviceSize>(get_buffer_size(resource))},
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+			},
+			.access = extract_descriptor_access(resource),
 			.last_used_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 		};
 }
@@ -136,7 +155,7 @@ public:
 
 		for(const auto* input : refl.storage_buffers()){
 			auto binding = refl.binding_info_of(input);
-			resources_.push_back({binding, buffer_requirement{get_buffer_size(input)}});
+			resources_.push_back({binding, extract_buffer_state(input)});
 			if(binding.set != 0) continue;
 			descriptor_layout_builder_.push(binding.binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				VK_SHADER_STAGE_COMPUTE_BIT);
@@ -322,7 +341,7 @@ protected:
 			std::visit(overload_narrow{
 					[&](const image_entity& entity){
 						auto& req = std::get<image_requirement>(requirement.req);
-						if(req.is_sampled_image()){
+						if(req.uses_sampled_descriptor() && !req.uses_storage_descriptor()){
 							VkSampler sampler = VK_NULL_HANDLE;
 
 							VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;

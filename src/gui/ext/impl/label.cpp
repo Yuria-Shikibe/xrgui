@@ -18,7 +18,7 @@ void direct_label_text_prov::on_update(react_flow::data_carrier<typesetting::tok
 	label->set_tokenized_text(data.get());
 }
 
-void direct_label::draw_text() const {
+void direct_label::draw_text(float opacityScl) const {
 	if (!render_cache_.has_drawable_text()) return;
 
 	math::vec2 raw_ext = glyph_layout_.extent;
@@ -69,7 +69,7 @@ void direct_label::draw_text() const {
 	mat_local.c3.x += (src_local.x - src_abs.x);
 	mat_local.c3.y += (src_local.y - src_abs.y);
 
-	color_guard g_{renderer(), get_draw_scl_color().copy_set_a(get_draw_opacity())};
+	color_guard g_{renderer(), get_draw_scl_color(opacityScl)};
 	state_guard guard{renderer(), fx::batch_draw_mode::msdf};
 	transform_guard _t{renderer(), mat_abs};
 	renderer() << render_cache_;

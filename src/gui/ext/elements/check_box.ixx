@@ -39,6 +39,7 @@ public:
 		call_stack_builder.push_call_noop(*this, [](const select_box& s, const draw_call_param& param){
 			if(!param.layer_param.is_top()) return;
 			if(!util::is_draw_param_valid(s, param))return;
+			const float opacityScl = util::get_final_draw_opacity(s, param);
 
 			auto& elem_s = static_cast<const elem&>(s);
 
@@ -54,7 +55,7 @@ public:
 				off = align::get_offset_of(align::pos::center, drawext, bound);
 			}
 
-			i.draw(elem_s.renderer(), {off, drawext}, color.mul_a(elem_s.get_draw_opacity()));
+			i.draw(elem_s.renderer(), {off, drawext}, color.mul_a(opacityScl));
 		});
 	}
 };

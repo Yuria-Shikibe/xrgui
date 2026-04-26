@@ -119,8 +119,8 @@ public:
 
 	using elem::elem;
 
-	[[nodiscard]] graphic::color get_draw_scl_color() const noexcept{
-		return text_color_scl.copy().mul_a((is_disabled() ? .5f : 1.f) * get_draw_opacity());
+	[[nodiscard]] graphic::color get_draw_scl_color(float opacityScl) const noexcept{
+		return text_color_scl.copy().mul_a((is_disabled() ? .5f : 1.f) * opacityScl);
 	}
 
 	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
@@ -239,7 +239,7 @@ public:
 
 			if (!p.layer_param.is_top())return;
 			if (!util::is_draw_param_valid(s, p))return;
-				s.draw_text();
+				s.draw_text(util::get_final_draw_opacity(s, p));
 		});
 	}
 
@@ -388,7 +388,7 @@ protected:
 		return {process_result_ext(), false};
 	}
 
-	void draw_text() const;
+	void draw_text(float opacityScl) const;
 };
 
 export struct label : direct_label {

@@ -145,7 +145,7 @@ struct palette{
 			apply_blend(color, toggled, toggled_blend_mode);
 		}
 
-		return color.mul_a(element.get_draw_opacity());
+		return color;
 	}
 };
 

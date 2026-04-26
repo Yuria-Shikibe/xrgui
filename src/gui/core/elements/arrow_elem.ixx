@@ -21,13 +21,13 @@ struct arrow_elem_config{
 	float stroke = 1.75f;
 };
 
-void draw_arrow(const fx::compound::arrow_info& arrow, float angle, const elem& s){
+void draw_arrow(const fx::compound::arrow_info& arrow, float angle, const elem& s, float opacityScl){
 	fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
 
 	auto [cos, sin] = math::cos_sin(angle);
 	for(auto vertex : arrow.vertices){
 		context.push(vertex.rotate(cos, sin) + s.content_bound_abs().get_center(), arrow.thick,
-					 graphic::colors::white.copy_set_a(s.get_draw_opacity()));
+					 graphic::colors::white.copy_set_a(opacityScl));
 	}
 
 	context.add_cap();
@@ -55,7 +55,7 @@ struct arrow_elem : elem{
 			const arrow_elem& e = s;
 			auto arrow = fx::compound::generate_centered_arrow(
 				e.content_extent().fdim({e.config.margin, e.config.margin}), e.config.stroke, e.config.length);
-			gui::draw_arrow(arrow, s.get_arrow_angle(), s);
+			gui::draw_arrow(arrow, s.get_arrow_angle(), s, util::get_final_draw_opacity(s, p));
 		});
 	}
 };

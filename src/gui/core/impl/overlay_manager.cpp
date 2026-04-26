@@ -9,7 +9,7 @@ overlay_create_result<elem> overlay_manager::push_back(const overlay_layout& lay
 	elem_ptr->element_channel_ = elem_tree_channel::overlay;
 
 	if(fade_in){
-		elem_ptr->update_context_opacity(0.f);
+		elem_ptr->set_propagate_opacity(0.f);
 		elem_ptr->push_action<action::alpha_action>(10, nullptr, 1.);
 	}
 	overlay& dlg = overlays_.emplace_back(overlay{std::move(elem_ptr), layout});
@@ -39,7 +39,7 @@ void overlay_manager::update(float delta_in_tick){
 
 			return true;
 		}else{
-			dialog.element->update_context_opacity(dialog.duration / overlay_fading::fading_time);
+			dialog.element->set_propagate_opacity(dialog.duration / overlay_fading::fading_time);
 			dialog.element->update(delta_in_tick);
 			return false;
 		}

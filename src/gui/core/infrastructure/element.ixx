@@ -295,7 +295,6 @@ protected:
 public:
 	bool invisible{};
 	bool sleep{};
-	bool is_transparent_in_inbound_filter{};
 
 public:
 	layout_state layout_state{};
@@ -303,8 +302,8 @@ public:
 
 
 private:
-	//TODO apply this with draw call param
-	float context_opacity_{1.f};
+	// Local opacity state. Final subtree opacity is composed at draw time via draw_call_param.
+	float propagate_opacity_{1.f};
 	float inherent_opacity_{1.f};
 	altitude_t layer_altitude_{};
 
@@ -545,7 +544,7 @@ protected:
 				return {
 					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
 					.draw_bound = bound,
-					.opacity_scl = s.get_draw_opacity(),
+					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
 					.layer_param = p.layer_param
 				};
 			});
@@ -562,7 +561,7 @@ protected:
 				return {
 					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
 					.draw_bound = bound,
-					.opacity_scl = s.get_draw_opacity(),
+					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
 					.layer_param = p.layer_param
 				};
 			});
@@ -585,11 +584,18 @@ protected:
 	virtual void on_opacity_changed(float previous){
 	}
 
-	FORCE_INLINE void draw_style(fx::layer_param param) const{
-		if(style)style->draw_layer(*this, bound_abs(), get_draw_opacity(), param);
+	FORCE_INLINE void draw_style_impl(math::frect region, fx::layer_param param, float inheritedOpacityScl) const{
+		if(style)style->draw_layer(*this, region, inheritedOpacityScl * get_local_draw_opacity(), param);
 	}
 
 public:
+	FORCE_INLINE void draw_style(math::frect region, fx::layer_param param, float inheritedOpacityScl = 1.f) const{
+		draw_style_impl(region, param, inheritedOpacityScl);
+	}
+
+	FORCE_INLINE void draw_style(fx::layer_param param, float inheritedOpacityScl = 1.f) const{
+		draw_style_impl(bound_abs(), param, inheritedOpacityScl);
+	}
 
 #pragma endregion
 
@@ -670,6 +676,14 @@ public:
 
 	bool set_layout_spec(const layout::layout_specifier specifier){
 		return set_layout_policy_impl(layout::layout_policy_setting{specifier});
+	}
+
+	bool set_layout_spec(const layout::directional_layout_specifier specifier){
+		return set_layout_policy_impl(layout::layout_policy_setting{specifier});
+	}
+
+	bool set_layout_spec(const layout::layout_policy specifier){
+		return set_layout_policy_impl(layout::layout_policy_setting{layout::directional_layout_specifier::fixed(specifier)});
 	}
 
 	//TODO responsibility chain to notify one?
@@ -1082,48 +1096,35 @@ public:
 		return true;
 	}
 
-	[[nodiscard]] constexpr bool ignore_inbound() const noexcept{
-		return is_transparent_in_inbound_filter;
-	}
-
 	[[nodiscard]] FORCE_INLINE inline bool touch_propagate_blocked() const noexcept{
 		return (interactivity & interactivity_flag::ppgt_interactable) == interactivity_flag{};
 	}
 
-	[[nodiscard]] FORCE_INLINE inline float get_draw_opacity() const noexcept{
-		return context_opacity_ * inherent_opacity_;
+	[[nodiscard]] FORCE_INLINE inline float get_local_draw_opacity() const noexcept{
+		return propagate_opacity_ * inherent_opacity_;
 	}
 
-	[[nodiscard]] float get_context_opacity() const noexcept{
-		return context_opacity_;
+	[[nodiscard]] float get_propagate_opacity() const noexcept{
+		return propagate_opacity_;
 	}
 
-	FORCE_INLINE inline void update_context_opacity(const float val) noexcept{
-		const auto prev = get_draw_opacity();
-		if(util::try_modify(context_opacity_, val)){
+	FORCE_INLINE inline void set_propagate_opacity(const float val) noexcept{
+		const auto prev = get_local_draw_opacity();
+		if(util::try_modify(propagate_opacity_, val)){
 			on_opacity_changed(prev);
-			const float o = get_draw_opacity();
-			for(const auto& element : collect_children()){
-				element.for_each(std::bind_back(&elem::update_context_opacity, o));
-			}
 		}
 	}
 
 	FORCE_INLINE inline void set_opacity(const float val) noexcept{
-		const auto prev = get_draw_opacity();
+		const auto prev = get_local_draw_opacity();
 		if(util::try_modify(inherent_opacity_, val)){
 			on_opacity_changed(prev);
-			const float o = get_draw_opacity();
-			for(const auto& element : collect_children()){
-				element.for_each(std::bind_back(&elem::update_context_opacity, o));
-			}
 		}
 	}
 
 	FORCE_INLINE inline void set_children_opacity_with_scl(const float scl) noexcept{
-		const float o = get_draw_opacity() * scl;
 		for(const auto& element : collect_children()){
-			element.for_each(std::bind_back(&elem::update_context_opacity, o));
+			element.for_each(std::bind_back(&elem::set_propagate_opacity, scl));
 		}
 	}
 
@@ -1216,6 +1217,11 @@ FORCE_INLINE constexpr bool is_draw_param_valid(const elem& s, const draw_call_p
 	if(s.invisible) return false;
 	if(!p.draw_bound.overlap_inclusive(s.bound_abs())) return false;
 	return true;
+}
+
+export
+FORCE_INLINE constexpr float get_final_draw_opacity(const elem& s, const draw_call_param& p) noexcept{
+	return p.opacity_scl * s.get_local_draw_opacity();
 }
 
 export

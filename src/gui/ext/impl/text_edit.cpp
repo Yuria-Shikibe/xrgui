@@ -237,13 +237,14 @@ void text_edit::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 	call_stack_builder.push_call_noop(*this, [](const text_edit& e, const draw_call_param& p){
 		if(!p.layer_param.is_top())return;
 		if(!util::is_draw_param_valid(e, p))return;
+		const float opacityScl = util::get_final_draw_opacity(e, p);
 		auto& r = e.renderer();
 		if (e.is_scrollable_mode()) {
 			r.push_scissor({ e.content_bound_abs() });
 			r.notify_viewport_changed();
 		}
 
-		e.draw_selection_and_caret();
+		e.draw_selection_and_caret(opacityScl);
 
 		if(!e.render_cache_.has_drawable_text()) {
 			if (e.is_scrollable_mode()) {
@@ -268,7 +269,7 @@ void text_edit::record_draw_layer(draw_call_stack_recorder& call_stack_builder) 
 				fx::batch_draw_mode::msdf
 			};
 			transform_guard _t{r, mat};
-			color_guard g_{r, e.get_draw_scl_color()};
+			color_guard g_{r, e.get_draw_scl_color(opacityScl)};
 
 			r << e.render_cache_;
 		}
@@ -497,11 +498,11 @@ void text_edit::update_caret_cache(){
 
 
 
-void text_edit::draw_selection_and_caret() const{
+void text_edit::draw_selection_and_caret(float opacityScl) const{
 	if(!is_focused_key()) return;
 
 	if(!glyph_layout_.is_exhausted){
-		constexpr static auto color = graphic::colors::red_dusted.copy_set_a(.6f);
+		const auto color = graphic::colors::red_dusted.copy_set_a(.6f * opacityScl);
 
 		using namespace graphic::draw::instruction;
 		auto& r = renderer();
@@ -529,10 +530,10 @@ void text_edit::draw_selection_and_caret() const{
 		auto& r = renderer();
 
 		const graphic::color selection_color = (is_failed()
-			                                        ? graphic::colors::red_dusted
-			                                        : graphic::colors::light_gray.create_lerp(graphic::colors::aqua, .3f)).copy().mul_a(0.65f);
+				                                        ? graphic::colors::red_dusted
+				                                        : graphic::colors::light_gray.create_lerp(graphic::colors::aqua, .3f)).copy().mul_a(0.65f * opacityScl);
 		const graphic::color caret_color = (is_failed() ? graphic::colors::red_dusted : graphic::colors::white).copy().
-			mul_a(get_draw_opacity());
+			mul_a(opacityScl);
 
 		auto t_params = get_transform_params();
 		math::vec2 base_abs = content_src_pos_abs();

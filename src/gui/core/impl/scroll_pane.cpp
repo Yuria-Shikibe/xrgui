@@ -84,7 +84,7 @@ namespace mo_yanxi::gui{
 }
 
 	void scroll_adaptor_base::draw_scroll_bar(fx::layer_param_pass_t param) const{
-		if(drawer) drawer->draw_layer(*this, content_bound_abs(), get_bar_opacity() * get_draw_opacity(), param);
+		if(drawer) drawer->draw_layer(*this, content_bound_abs(), get_bar_opacity() * get_local_draw_opacity(), param);
 	}
 
 	void scroll_adaptor_base::record_draw_scroll_bar(draw_call_stack_recorder& call_stack_builder) const{
@@ -94,7 +94,7 @@ namespace mo_yanxi::gui{
 				return {
 					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
 					.draw_bound = bound,
-					.opacity_scl = s.get_draw_opacity() * math::interp::smooth(s.get_bar_opacity()),
+					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity() * math::interp::smooth(s.get_bar_opacity()),
 					.layer_param = p.layer_param
 				};
 			});

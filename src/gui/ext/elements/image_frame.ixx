@@ -88,7 +88,7 @@ public:
 		elem::record_draw_layer(call_stack_builder);
 		call_stack_builder.push_call_noop(*this, [](const image_frame& s, const draw_call_param& param){
 			if(param.layer_param == 0){
-				s.draw_content_impl();
+				s.draw_content_impl(util::get_final_draw_opacity(s, param));
 			}
 		});
 	}
@@ -101,7 +101,7 @@ protected:
 		std::swap(drawables_[ldx], drawables_[rdx]);
 	}
 
-	void draw_content_impl() const{
+	void draw_content_impl(float opacityScl) const{
 		auto drawable = get_region();
 		if(!drawable || !drawable->drawable) return;
 		const auto sz = get_expected_size(*drawable->drawable, drawable->style, content_extent());
@@ -109,7 +109,7 @@ protected:
 
 		//TODO support stylized color
 		graphic::color scl{graphic::colors::white};
-		scl.mul_a(get_draw_opacity());
+		scl.mul_a(opacityScl);
 		drawable->drawable->draw(get_scene().renderer(), math::raw_frect{off, sz}, scl);
 	}
 
@@ -225,7 +225,7 @@ public:
 				auto off = align::get_offset_of(s.style.align, sz, s.content_bound_abs());
 
 				//TODO support stylized color
-				auto col = auto{s.scale_color}.mul_a(s.get_draw_opacity());
+				auto col = auto{s.scale_color}.mul_a(util::get_final_draw_opacity(s, param));
 				s.drawable_.draw(s.get_scene().renderer(), math::raw_frect{off, sz}, col);
 			}
 		});

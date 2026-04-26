@@ -151,6 +151,7 @@ public:
 		call_stack_builder.push_call_noop(*this, [](const arrow_button& s, const draw_call_param& p) static{
 			if(!p.layer_param.is_top()) return;
 			if(!util::is_draw_param_valid(s, p)) return;
+			const float opacityScl = util::get_final_draw_opacity(s, p);
 
 			auto arrow = fx::compound::generate_centered_arrow(s.content_extent().fdim({4, 4}), 1.5f, 12);
 			fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
@@ -160,7 +161,7 @@ public:
 			auto [cos, sin] = math::cos_sin(prog * math::pi_half);
 			for(auto vertex : arrow.vertices){
 				context.push(vertex.rotate(cos, sin) + s.content_bound_abs().get_center(), arrow.thick,
-				             graphic::colors::white.copy_set_a(s.get_draw_opacity()));
+				             graphic::colors::white.copy_set_a(opacityScl));
 			}
 
 			context.add_cap();
@@ -746,7 +747,8 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 	scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)){
 	prov_path_->update_value_quiet(this);
 	interactivity = interactivity_flag::children_only;
-	this->is_transparent_in_inbound_filter = true;
+
+	util::sync_set_elem_style(*this, style::family_variant::general_static);
 
 	this->create_head([this](head_body_no_invariant& s){
 		s.set_expand_policy(layout::expand_policy::passive);
@@ -794,7 +796,7 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 				bar.set_expand_policy(layout::expand_policy::passive);
 				bar.create(0, [this](overflow_sequence& ovf_seq){
 					directory_trace_ = &ovf_seq;
-					ovf_seq.is_transparent_in_inbound_filter = true;
+					util::sync_set_elem_style(ovf_seq, style::family_variant::general_static);
 					ovf_seq.template_cell.set_pending();
 					ovf_seq.template_cell.set_pad({2, 2});
 					ovf_seq.set_style();
