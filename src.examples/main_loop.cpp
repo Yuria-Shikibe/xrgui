@@ -87,21 +87,23 @@ auto make_style(){
 					[](const typed_draw_param<elem>& p){
 						return true;
 					},
-					tree_fork{
-						std::array{
-							tree_leaf{
-								round::nine_patch{
-									{
-										.val = assets::builtin::default_round_square_base,
-										.pal = {pal::dark.copy().mul_alpha(.3f)}
+					tree_direct{
+						tree_fork{
+							std::array{
+								tree_leaf{
+									round::nine_patch{
+										{
+											.val = assets::builtin::default_round_square_base,
+											.pal = {pal::dark.copy().mul_alpha(.3f)}
+										}
 									}
-								}
-							},
-							tree_leaf{
-								round::nine_patch{
-									{
-										.val = assets::builtin::default_round_square_boarder_thin,
-										.pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
+								},
+								tree_leaf{
+									round::nine_patch{
+										{
+											.val = assets::builtin::default_round_square_boarder_thin,
+											.pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
+										}
 									}
 								}
 							}

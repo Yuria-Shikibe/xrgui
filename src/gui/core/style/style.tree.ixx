@@ -41,7 +41,7 @@ struct tree_fork{
 		}
 	}
 
-	void direct(const typed_draw_param<target_type>& p) const{
+	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		for(const auto& child : children){
 			style::draw_direct(child, p);
 		}
@@ -103,7 +103,7 @@ struct tree_tuple_fork{
 		}, children);
 	}
 
-	void direct(const typed_draw_param<target_type>& p) const{
+	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		std::apply([&]<typename... Ts>(const Ts&... child){
 			([&]{
 				if constexpr(style_tree_direct_drawable<std::remove_cvref_t<Ts>>){
@@ -164,7 +164,7 @@ struct tree_scope{
 		}
 	}
 
-	void direct(const typed_draw_param<target_type>& p) const{
+	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		if(!present(child)) return;
 		if(auto entered = this->enter(p.param)){
 			style::draw_direct(child, typed_draw_param<target_type>{entered});
@@ -230,7 +230,7 @@ struct tree_leaf{
 		});
 	}
 
-	void direct(const typed_draw_param<target_type>& p) const{
+	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		std::invoke(draw_fn, p);
 	}
 };
@@ -298,11 +298,11 @@ struct tree_router_static{
 		style::draw_record(child, ctx);
 	}
 
-	void direct(const typed_draw_param<target_type>& p) const{
+	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		if(!present(child)) return;
 		if(!allow_record()) return;
 
-		style::draw_direct(child, p);
+		ADAPTED_MUST_TAIL return style::draw_direct(child, p);
 	}
 
 private:
@@ -368,11 +368,11 @@ struct tree_router_dynamic{
 		ctx.push_call_leave();
 	}
 
-	void direct(const typed_draw_param<target_type>& p) const{
+	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		if(!present(child)) return;
 		if(!this->allow_draw(p)) return;
 
-		style::draw_direct(child, p);
+		ADAPTED_MUST_TAIL return style::draw_direct(child, p);
 	}
 
 private:
@@ -420,9 +420,9 @@ struct tree_direct{
 		});
 	}
 
-	void direct(const typed_draw_param<target_type>& p) const{
+	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		if(!present(child)) return;
-		style::draw_direct(child, p);
+		ADAPTED_MUST_TAIL return style::draw_direct(child, p);
 	}
 };
 
