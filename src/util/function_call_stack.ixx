@@ -100,71 +100,80 @@ public:
 		*param_stack_pointer = initial_param;
 		param_stack_pointer->guard_stack_pos = invalid_guard_pos;
 
+		unsigned inactive_counter = 0;
+		if constexpr(is_stack_argument_bool_evaluatable){
+			if(!static_cast<bool>(initial_param)){
+				inactive_counter = 1;
+			}
+		}
+
 		try{
 			for(auto&& call : calls){
 				switch(call.stack_op){
-				case stack_noop : if(call.fn != nullptr){
-						if constexpr(is_stack_argument_bool_evaluatable){
-							if(param_stack_pointer->stack_arg) call.
-								fn(call.host, param_stack_pointer->stack_arg, *this);
-						} else{
-							call.fn(call.host, param_stack_pointer->stack_arg, *this);
-						}
+				case stack_noop :{
+					if(inactive_counter == 0 && call.fn != nullptr){
+						call.fn(call.host, param_stack_pointer->stack_arg, *this);
 					}
 					break;
+				}
 				case stack_enter :{
-					auto rst = [&] -> stack_argument_t{
-						if constexpr(is_stack_argument_bool_evaluatable){
-							if(param_stack_pointer->stack_arg){
-								return call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
-							} else{
-								return param_stack_pointer->stack_arg;
-							}
-						} else{
-							return call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
-						}
-					}();
+					stack_argument_t rst;
+					if(inactive_counter == 0){
+						rst = call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
+					} else{
+						rst = param_stack_pointer->stack_arg;
+					}
 
 					++param_stack_pointer;
 					*param_stack_pointer = rst;
 					param_stack_pointer->guard_stack_pos = current_guard_head_pos;
+
+					if(inactive_counter == 0){
+						if constexpr(is_stack_argument_bool_evaluatable){
+							if(!static_cast<bool>(rst)) inactive_counter = 1;
+						}
+					} else{
+						inactive_counter++;
+					}
 					break;
 				}
 				case stack_leave :{
-					if constexpr(is_stack_argument_bool_evaluatable){
-						if(param_stack_pointer->stack_arg && call.fn) call.fn(
-							call.host, param_stack_pointer->stack_arg, *this);
-					} else{
-						if(call.fn) call.fn(call.host, param_stack_pointer->stack_arg, *this);
+					if(inactive_counter == 0 && call.fn != nullptr){
+						call.fn(call.host, param_stack_pointer->stack_arg, *this);
 					}
+
 					--param_stack_pointer;
 					std::uint32_t target_guard_pos = param_stack_pointer->guard_stack_pos;
 					guard_on_exit(target_guard_pos);
+
+					if(inactive_counter > 0) inactive_counter--;
 					break;
 				}
 				case stack_replace :{
-					// 1. 释放当前层级的 Guard 资源（模拟 leave 的清理行为）
 					std::uint32_t target_guard_pos = param_stack_pointer->guard_stack_pos;
 					guard_on_exit(target_guard_pos);
 
-					// 2. 指针退回上一级，作为父级参数的输入
 					--param_stack_pointer;
-					auto rst = [&] -> stack_argument_t{
-						if constexpr(is_stack_argument_bool_evaluatable){
-							if(param_stack_pointer->stack_arg){
-								return call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
-							} else{
-								return param_stack_pointer->stack_arg;
-							}
-						} else{
-							return call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
-						}
-					}();
+					if(inactive_counter > 0) inactive_counter--;
 
-					// 3. 指针恢复至当前层级，就地覆写并重置 Guard 游标位置
+					stack_argument_t rst;
+					if(inactive_counter == 0){
+						rst = call.fn_with_ret(call.host, param_stack_pointer->stack_arg, *this);
+					} else{
+						rst = param_stack_pointer->stack_arg;
+					}
+
 					++param_stack_pointer;
 					*param_stack_pointer = rst;
 					param_stack_pointer->guard_stack_pos = current_guard_head_pos;
+
+					if(inactive_counter == 0){
+						if constexpr(is_stack_argument_bool_evaluatable){
+							if(!static_cast<bool>(rst)) inactive_counter = 1;
+						}
+					} else{
+						inactive_counter++;
+					}
 					break;
 				}
 				default : std::unreachable();
