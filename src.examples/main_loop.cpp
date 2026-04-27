@@ -1,8 +1,122 @@
 module mo_yanxi.gui.examples.main_loop;
 
 import mo_yanxi.gui.examples.constants;
+import mo_yanxi.gui.style.tree;
+import mo_yanxi.gui.style.interface;
+import mo_yanxi.react_flow.flexible_value;
+import mo_yanxi.gui.style.palette;
+import mo_yanxi.gui.assets;
+import mo_yanxi.gui.assets.manager;
+
+namespace mo_yanxi::gui::style{
+struct layer_router_pred{
+	style_config config;
+
+	constexpr bool operator()(const draw_call_param& p) const noexcept{
+		return config.has_layer(p.layer_param);
+	}
+};
+
+template <typename C>
+struct layer_router : tree_router_dynamic<C, layer_router_pred>{
+	template <typename ChildArg>
+	[[nodiscard]] explicit(false) layer_router(style_config config, ChildArg&& child)
+		: tree_router_dynamic<C, layer_router_pred>(layer_router_pred{config}, std::forward<ChildArg>(child)){
+	}
+
+	template <typename ChildArg>
+	[[nodiscard]] explicit(false) layer_router(ChildArg&& child)
+		: tree_router_dynamic<C, layer_router_pred>(layer_router_pred{style_config{0b1}},
+		                                                   std::forward<ChildArg>(child)){
+	}
+};
+
+template <typename Child>
+layer_router(style_config, Child&&) -> layer_router<std::decay_t<Child>>;
+
+template <typename Child>
+layer_router(Child&&) -> layer_router<std::decay_t<Child>>;
+
+template <typename T>
+struct paletted_value{
+	T val;
+	react_flow::flexible_value_holder<palette> pal;
+
+	auto* operator->(this auto& self) noexcept{
+		return &self.val;
+	}
+
+	auto operator*(this auto& self) noexcept{
+		return self.val;
+	}
+};
+
+namespace round{
+struct nine_patch{
+	paletted_value<image_nine_region> region{};
+
+	void operator()(const typed_draw_param<elem>& p) const{
+		auto& e = *p.current_subject();
+		e.renderer().update_state(fx::push_constant{fx::batch_draw_mode::msdf});
+
+		auto color_edge = region.pal->get_value().on_instance(e).mul_a(p->opacity_scl);
+		e.renderer() << fx::nine_patch_draw<>{
+			.patch = &region.val,
+			.region = p->draw_bound,
+			.color = color_edge,
+		};
+	}
+};
+}
+
+}
 
 namespace mo_yanxi::gui::example{
+
+
+
+auto make_style(){
+	auto& p = gui::assets::builtin::get_page();
+	using sid = assets::builtin::shape_id;
+	using namespace style;
+
+	return tree_tuple_fork{
+			layer_router{
+				style_config{0b01},
+				tree_router_dynamic{
+					[](const typed_draw_param<elem>& p){
+						return true;
+					},
+					tree_fork{
+						std::array{
+							tree_leaf{
+								round::nine_patch{
+									{
+										.val = assets::builtin::default_round_square_base,
+										.pal = {pal::dark.copy().mul_alpha(.3f)}
+									}
+								}
+							},
+							tree_leaf{
+								round::nine_patch{
+									{
+										.val = assets::builtin::default_round_square_boarder_thin,
+										.pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
+									}
+								}
+							}
+						}
+					}
+				}
+			},
+			layer_router{
+				style_config{0b10}, tree_leaf{
+					round::nine_patch{}
+				}
+			},
+		};
+}
+
 void main_loop::main_loop_exec(){
 	auto& current_focus = *target_scene;
 	auto deltatime = global::consume_current_input(current_focus, [this](input_handle::input_event_variant e){
@@ -126,6 +240,19 @@ void main_loop::main_loop_exec(){
 					.color = {graphic::colors::gray, graphic::colors::white}
 				});
 		}
+
+		auto drawer = make_style();
+		test_elem->resize({400, 600});
+		test_elem->update_abs_src({200, 200});
+
+		drawer.direct({
+			.param = draw_call_param{
+				.current_subject = test_elem.get(),
+				.draw_bound = {200, 200, 400, 600},
+				.opacity_scl = 1.f,
+				.layer_param = {0}
+			}
+		});
 
 		r.update_state(fx::batch_draw_mode::msdf);
 		r << fx::nine_patch_draw_vert_color{
@@ -299,7 +426,7 @@ void main_loop::main_loop_exec(){
 			});
 	}
 
-	current_focus.draw();
+	// current_focus.draw();
 	renderer.batch_host.end_rendering();
 	renderer.upload();
 	renderer.create_command();

@@ -17,19 +17,33 @@ export
 template <std::ranges::forward_range Container>
 struct tree_fork{
 	ADAPTED_NO_UNIQUE_ADDRESS Container children;
+	using value_type = std::ranges::range_value_t<Container>;
 	using target_type = node_trait<std::remove_cvref_t<std::ranges::range_reference_t<Container>>>::target_type;
 	static_assert(!std::is_void_v<target_type>, "tree_fork must has a clear target type");
 
 	[[nodiscard]] tree_fork() = default;
 
+	//TODO add std::from_range tag for this constructor
 	template <typename Rng>
 	[[nodiscard]] explicit(false) tree_fork(Rng&& children)
 		: children(std::forward<Rng>(children)){
 	}
 
+	template <typename ...Ts>
+		requires std::constructible_from<Container, Ts&&...>
+	[[nodiscard]] explicit tree_fork(Ts&& ...args)
+		: children(std::forward<Ts>(args)...){
+	}
+
 	void record(draw_recorder& ctx) const{
 		for(const auto& child : children){
 			style::draw_record(child, ctx);
+		}
+	}
+
+	void direct(const typed_draw_param<target_type>& p) const{
+		for(const auto& child : children){
+			style::draw_direct(child, p);
 		}
 	}
 };
@@ -89,6 +103,16 @@ struct tree_tuple_fork{
 		}, children);
 	}
 
+	void direct(const typed_draw_param<target_type>& p) const{
+		std::apply([&]<typename... Ts>(const Ts&... child){
+			([&]{
+				if constexpr(style_tree_direct_drawable<std::remove_cvref_t<Ts>>){
+					style::draw_direct(child, p);
+				}
+			}(), ...);
+		}, children);
+	}
+
 	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
 		style_tree_metrics rst{};
 		std::apply([&]<typename... Ts>(const Ts&... child){
@@ -140,10 +164,13 @@ struct tree_scope{
 		}
 	}
 
-	void direct(const typed_draw_param<target_type>& ctx){
-		if(auto p_child = this->enter(ctx.param)){
-			// style::draw_direct(child, enter(p));
-			this->leave(ctx.param);
+	void direct(const typed_draw_param<target_type>& p) const{
+		if(!present(child)) return;
+		if(auto entered = this->enter(p.param)){
+			style::draw_direct(child, typed_draw_param<target_type>{entered});
+			if constexpr(!std::is_null_pointer_v<OnLeave>){
+				this->leave(entered);
+			}
 		}
 	}
 
@@ -199,7 +226,7 @@ struct tree_leaf{
 
 	void record(draw_recorder& ctx) const{
 		ctx.push_call_noop(*this, [](const tree_leaf& self, const draw_call_param& p) static{
-			self.direct(p);
+			self.direct(typed_draw_param<target_type>{p});
 		});
 	}
 
@@ -275,8 +302,7 @@ struct tree_router_static{
 		if(!present(child)) return;
 		if(!allow_record()) return;
 
-		//TODO
-		// style::draw_direct(child, p);
+		style::draw_direct(child, p);
 	}
 
 private:
@@ -308,6 +334,13 @@ export
 template <typename Child, typename Predicate>
 struct tree_router_dynamic{
 	using target_type = node_trait<Child>::target_type;
+
+	static_assert(
+				redundantly_bool_invocable<
+				const Predicate&,
+				const tree_router_dynamic&, const Child&, const typed_draw_param<target_type>&>,
+				"Dynamic router predicate must be nullptr or redundantly invocable by router/child/direct param context");
+
 	ADAPTED_NO_UNIQUE_ADDRESS Predicate predicate{};
 	ADAPTED_NO_UNIQUE_ADDRESS Child child{};
 
@@ -329,7 +362,7 @@ struct tree_router_dynamic{
 
 		ctx.push_call_enter(
 			*this, [](const tree_router_dynamic& self, const draw_call_param& p) static -> draw_call_param{
-				return self.route_param(p);
+				return self.route_param(typed_draw_param<target_type>{p});
 			});
 		style::draw_record(child, ctx);
 		ctx.push_call_leave();
@@ -337,32 +370,17 @@ struct tree_router_dynamic{
 
 	void direct(const typed_draw_param<target_type>& p) const{
 		if(!present(child)) return;
-		if(!this->allow_draw(p.param)) return;
+		if(!this->allow_draw(p)) return;
 
-		//TODO
-		// style::draw_direct(child, p);
+		style::draw_direct(child, p);
 	}
 
 private:
-	[[nodiscard]] bool allow_draw(const draw_call_param& p) const{
-		if(!p.current_subject){
-			return false;
-		}
-
-		const typed_draw_param<target_type> typed{p};
-		if constexpr(style::is_null_pred_v<Predicate>){
-			return true;
-		} else{
-			static_assert(
-					redundantly_bool_invocable<const Predicate&, const tree_router_dynamic&, const Child&, const
-					                           typed_draw_param<target_type>&>,
-					"Dynamic router predicate must be nullptr or redundantly invocable by router/child/direct param context")
-				;
-			return static_cast<bool>(mo_yanxi::invoke_redundantly(predicate, *this, child, typed));
-		}
+	[[nodiscard]] bool allow_draw(const typed_draw_param<target_type>& p) const{
+		return static_cast<bool>(mo_yanxi::invoke_redundantly(predicate, *this, child, p));
 	}
 
-	[[nodiscard]] draw_call_param route_param(const draw_call_param& p) const{
+	[[nodiscard]] draw_call_param route_param(const typed_draw_param<target_type>& p) const{
 		if(allow_draw(p)){
 			return p;
 		}
@@ -377,6 +395,34 @@ public:
 		} else{
 			return {};
 		}
+	}
+};
+
+export
+template <typename Child>
+struct tree_direct{
+	using target_type = node_trait<Child>::target_type;
+	static_assert(!std::is_void_v<target_type>, "tree_direct must has a clear target type");
+
+	ADAPTED_NO_UNIQUE_ADDRESS Child child;
+
+	[[nodiscard]] tree_direct() = default;
+
+	template <typename ChildArg>
+	[[nodiscard]] explicit(false) tree_direct(ChildArg&& child)
+		: child(std::forward<ChildArg>(child)){
+	}
+
+	void record(draw_recorder& ctx) const{
+		if(!present(child)) return;
+		ctx.push_call_noop(*this, [](const tree_direct& self, const draw_call_param& p) static{
+			style::draw_direct(self.child, typed_draw_param<target_type>{p});
+		});
+	}
+
+	void direct(const typed_draw_param<target_type>& p) const{
+		if(!present(child)) return;
+		style::draw_direct(child, p);
 	}
 };
 
@@ -424,5 +470,8 @@ tree_router_dynamic(Child&&) -> tree_router_dynamic<std::decay_t<Child>, std::nu
 
 template <typename Predicate, typename Child>
 tree_router_dynamic(Predicate&&, Child&&) -> tree_router_dynamic<std::decay_t<Child>, std::decay_t<Predicate>>;
+
+template <typename Child>
+tree_direct(Child&&) -> tree_direct<std::decay_t<Child>>;
 #pragma endregion
 }

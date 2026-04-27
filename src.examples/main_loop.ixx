@@ -102,6 +102,7 @@ private:
 
 	std::jthread exec_thread;
 	scene* target_scene{};
+	elem_ptr test_elem{};
 
 public:
 	[[nodiscard]] main_loop(backend::vulkan::renderer& renderer_ptr, backend::vulkan::context& ctx_ptr,
@@ -109,7 +110,7 @@ public:
 		: renderer_ptr(&renderer_ptr),
 		  ctx_ptr(&ctx_ptr),
 		  external_scene_relative_init_fn(std::move(external_scene_relative_init_fn)), exec_thread{
-			  [](std::stop_token stoptoken, main_loop& self, std::thread::id owner_thread_id) {
+			  [](std::stop_token stoptoken, main_loop& self, std::thread::id owner_thread_id){
 				  self.init();
 				  while(true){
 					  if(self.sync_main_loop(stoptoken)){
@@ -118,11 +119,11 @@ public:
 				  }
 			  },
 			  std::ref(*this), std::this_thread::get_id()
-		  } {
+		  }{
 		mo_yanxi::platform::set_thread_attributes(exec_thread, {
-			.name = "xrgui ui thread",
-			.priority = platform::thread_priority::realtime
-		});
+			                                          .name = "xrgui ui thread",
+			                                          .priority = platform::thread_priority::realtime
+		                                          });
 	}
 
 	scene& get_scene() const noexcept {
@@ -218,6 +219,7 @@ public:
 		term([this] {
 			const auto rst = build_main_ui(*ctx_ptr, renderer_ptr->create_frontend());
 			target_scene = rst.scene_ptr;
+			test_elem = this->target_scene->create<elem>();
 			if(external_scene_relative_init_fn)external_scene_relative_init_fn(rst);
 		});
 	}
@@ -227,6 +229,8 @@ public:
 	bool sync_main_loop(const std::stop_token& stoptoken) {
 		bool should_stop = term([&, this] {
 			if(stoptoken.stop_requested()) {
+				test_elem = {};
+
 				clear_main_ui();
 				return true;
 			}

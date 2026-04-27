@@ -7,6 +7,7 @@ export module mo_yanxi.gui.style.round_square;
 
 import std;
 
+import mo_yanxi.react_flow.flexible_value;
 
 export import mo_yanxi.gui.style.palette;
 
@@ -20,93 +21,11 @@ export import mo_yanxi.gui.fx.instruction_extension;
 export import mo_yanxi.gui.fx.fringe;
 
 namespace mo_yanxi::gui::style{
-// export using palette_terminal = react_flow::terminal_cached<palette>;
-
-struct palette_terminal : react_flow::terminal<palette>{
-	palette value;
-
-public:
-	const palette& get_value() const noexcept{
-		return value;
-	}
-
-	bool has_provenance() const noexcept{
-		return get_inputs().front() != nullptr;
-	}
-
-	bool set_value(const palette& pal) noexcept{
-		if(!has_provenance()){
-			value = pal;
-			return true;
-		}else{
-			return false;
-		}
-	}
-
-	bool set_value(node& node_prov){
-		connect_predecessor(node_prov);
-		return pull_and_push(false);
-	}
-
-	[[nodiscard]] palette_terminal() = default;
-
-	[[nodiscard]] explicit(false) palette_terminal(node& node_prov){
-		set_value(node_prov);
-	}
-
-	[[nodiscard]] explicit(false) palette_terminal(const palette& value)
-		: value(value){
-	}
-
-	const palette* operator->() const noexcept{
-		return &value;
-	}
-
-	const palette& operator*() const noexcept{
-		return value;
-	}
-
-	palette_terminal(const palette_terminal& other) : value{other.value}{
-		copy_inputs(other);
-	}
-
-	palette_terminal(palette_terminal&& other) noexcept = default;
-
-	palette_terminal& operator=(const palette_terminal& other){
-		if(this == &other) return *this;
-		disconnect_self_from_context();
-		copy_inputs(other);
-		value = other.value;
-		return *this;
-	}
-
-	palette_terminal& operator=(palette_terminal&& other) noexcept = default;
-
-protected:
-	void on_update(react_flow::data_carrier<palette>& data) override{
-		value = data.get();
-	}
-};
-
-struct terminal_holder : react_flow::node_holder<palette_terminal>{
-	using node_holder::node_holder;
-
-	terminal_holder(const terminal_holder& other) : node_holder(other.node){
-	}
-
-	terminal_holder& operator=(const terminal_holder& other){
-		if(this == &other) return *this;
-		node.disconnect_self_from_context();
-		node = other.node;
-		return *this;
-	}
-};
-
 export
 template <typename T>
 struct paletted_value{
 	T val;
-	terminal_holder pal;
+	react_flow::flexible_value_holder<palette> pal;
 
 	auto* operator->(this auto& self) noexcept{
 		return &self.val;

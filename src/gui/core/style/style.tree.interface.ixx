@@ -28,6 +28,18 @@ struct typed_draw_param{
 	[[nodiscard]] explicit constexpr operator bool() const noexcept{
 		return static_cast<bool>(param);
 	}
+
+	auto* operator->(this auto& self) noexcept{
+		return &self.param;
+	}
+
+	explicit(false) operator draw_call_param&() noexcept{
+		return param;
+	}
+
+	explicit(false) operator const draw_call_param&() const noexcept{
+		return param;
+	}
 };
 
 export
@@ -376,6 +388,51 @@ export
 template <typename T>
 concept style_tree_metrics_queryable = style_tree_metrics_dispatchable<T>;
 
+export
+template <typename T, typename... Ts>
+struct node_trait{
+	using target_type = void;
+};
+
+template <typename T, typename... Ts>
+	requires requires{
+		typename T::target_type;
+	}
+struct node_trait<T, Ts...>{
+	using target_type = typename T::target_type;
+};
+
+template <>
+struct node_trait<style_tree_type_erased_ptr>{
+	using target_type = void;
+};
+
+export
+template <typename T, typename Target>
+concept style_tree_direct_drawable_typed = requires(const T& value, const typed_draw_param<Target>& p){
+	value.direct(p);
+};
+
+export
+template <typename T>
+concept style_tree_direct_drawable =
+	requires{ typename node_trait<T>::target_type; }
+	&& !std::is_void_v<typename node_trait<T>::target_type>
+	&& style_tree_direct_drawable_typed<T, typename node_trait<T>::target_type>;
+
+inline namespace cpo{
+struct draw_direct_t{
+	template <typename Target, typename T>
+		requires style_tree_direct_drawable_typed<T, Target>
+	void operator()(const T& node, const typed_draw_param<Target>& p) const{
+		if(!style::present(node)) return;
+		node.direct(p);
+	}
+};
+}
+
+export constexpr inline draw_direct_t draw_direct;
+
 #pragma region NodePtrImpl
 
 export
@@ -437,24 +494,5 @@ struct bound_tree_node : style_tree_node<bound_tree_node<Comp>>{
 template <typename T>
 bound_tree_node(T&&) -> bound_tree_node<std::decay_t<T>>;
 
-#pragma endregion
-
-export
-template <typename T, typename... Ts>
-struct node_trait{
-	using target_type = void;
-};
-
-template <typename T, typename... Ts>
-	requires requires{
-		typename T::target_type;
-	}
-struct node_trait<T, Ts...>{
-	using target_type = typename T::target_type;
-};
-
-template <>
-struct node_trait<style_tree_type_erased_ptr>{
-	using target_type = void;
-};
+#pragma endregion;
 }
