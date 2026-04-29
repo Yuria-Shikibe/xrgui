@@ -66,41 +66,38 @@ auto make_style(){
 	using namespace style;
 
 	auto ret = tree_tuple_fork{
-			layer_router{
-				style_config{0b01},
-				tree_router_dynamic{
-					[](const typed_draw_param<elem>& p){
-						return true;
-					},
-					tree_direct{
-						tree_fork{
-							std::array{
-								tree_leaf{
-									primitives::draw_nine_patch{
-										.patch = {assets::builtin::default_round_square_base},
-										.pal = 	{pal::dark.copy().mul_alpha(.3f)}
-									},
+		layer_router{
+			style_config{0b01},
+			tree_router_dynamic{
+				[](const typed_draw_param<elem>& p){
+					return true;
+				},
+				tree_direct{
+					tree_fork{
+						std::array{
+							tree_leaf{
+								primitives::draw_nine_patch{
+									.patch = {assets::builtin::default_round_square_base},
+									.pal = 	{pal::dark.copy().mul_alpha(.3f)}
 								},
-								tree_leaf{
-									primitives::draw_nine_patch{
-										.patch = assets::builtin::default_round_square_boarder_thin,
-										.pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
-									},
-								}
+							},
+							tree_leaf{
+								primitives::draw_nine_patch{
+									.patch = assets::builtin::default_round_square_boarder_thin,
+									.pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
+								},
 							}
 						}
 					}
 				}
-			},
-			// layer_router{
-			// 	style_config{0b10}, tree_leaf{
-			// 		round::nine_patch{}, std::in_place_type<sequence>
-			// 	}
-			// },
-		};
-
-	using Ty = decltype(ret);
-
+			}
+		},
+		// layer_router{
+		// 	style_config{0b10}, tree_leaf{
+		// 		round::nine_patch{}, std::in_place_type<sequence>
+		// 	}
+		// },
+	};
 	return ret;
 }
 

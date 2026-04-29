@@ -51,6 +51,9 @@ struct get_most_derived<T1, T2, Ts...> {
 template <typename... Ts>
 using get_most_derived_t = typename get_most_derived<Ts...>::type;
 
+template <typename Self, typename... Args>
+concept not_single_self_arg = !(sizeof...(Args) == 1 && (std::same_as<Self, std::remove_cvref_t<Args>> && ...));
+
 
 export
 template <std::ranges::forward_range Container>
@@ -64,6 +67,7 @@ struct tree_fork{
 
 	//TODO add std::from_range tag for this constructor
 	template <typename Rng>
+		requires not_single_self_arg<tree_fork, Rng>
 	[[nodiscard]] explicit(false) tree_fork(Rng&& children)
 		: children(std::forward<Rng>(children)){
 	}
@@ -98,6 +102,7 @@ struct tree_metrics_fork{
 	[[nodiscard]] tree_metrics_fork() = default;
 
 	template <typename Rng>
+		requires not_single_self_arg<tree_metrics_fork, Rng>
 	[[nodiscard]] explicit(false) tree_metrics_fork(Rng&& children)
 		: children(std::forward<Rng>(children)){
 	}
@@ -120,7 +125,14 @@ struct tree_tuple_fork{
 
 	ADAPTED_NO_UNIQUE_ADDRESS std::tuple<Children...> children;
 
+	tree_tuple_fork(const tree_tuple_fork& other) = default;
+	tree_tuple_fork(tree_tuple_fork&& other) noexcept = default;
+	tree_tuple_fork& operator=(const tree_tuple_fork& other) = default;
+	tree_tuple_fork& operator=(tree_tuple_fork&& other) noexcept = default;
+
 	template <typename... Ts>
+		requires not_single_self_arg<tree_tuple_fork, Ts...> &&
+		         std::constructible_from<std::tuple<Children...>, Ts&&...>
 	explicit tree_tuple_fork(Ts&&... ts) : children(std::forward<Ts>(ts)...){
 	}
 
@@ -166,7 +178,7 @@ struct tree_tuple_fork{
 };
 
 export
-template <typename Child, typename OnEnter, typename OnLeave>
+template <typename OnEnter, typename OnLeave, typename Child>
 struct tree_scope{
 	using target_type = node_trait<Child>::target_type;
 	using enter_fn_type = OnEnter;
@@ -266,7 +278,7 @@ struct tree_leaf{
 	}
 
 	void record(draw_recorder& ctx) const{
-		ctx.push_call_noop(*this, [](const tree_leaf& self, const draw_call_param& p) static{
+		ctx.push_call_noop(*this, [](const tree_leaf& self, const draw_call_param& p, draw_call_stack&) static{
 			self.direct(typed_draw_param<target_type>{p});
 		});
 	}
@@ -313,7 +325,7 @@ struct tree_metrics_leaf{
 };
 
 export
-template <typename Child, typename Predicate>
+template <typename Predicate, typename Child>
 struct tree_router_static{
 	using target_type = node_trait<Child>::target_type;
 	ADAPTED_NO_UNIQUE_ADDRESS Predicate predicate{};
@@ -322,6 +334,7 @@ struct tree_router_static{
 	[[nodiscard]] tree_router_static() = default;
 
 	template <typename ChildArg>
+		requires not_single_self_arg<tree_router_static, ChildArg>
 	[[nodiscard]] explicit(false) tree_router_static(ChildArg&& child)
 		: child(std::forward<ChildArg>(child)){
 	}
@@ -372,7 +385,7 @@ public:
 };
 
 export
-template <typename Child, typename Predicate>
+template <typename Predicate, typename Child>
 struct tree_router_dynamic{
 	using target_type = node_trait<Child>::target_type;
 
@@ -388,6 +401,7 @@ struct tree_router_dynamic{
 	[[nodiscard]] tree_router_dynamic() = default;
 
 	template <typename ChildArg>
+		requires not_single_self_arg<tree_router_dynamic, ChildArg>
 	[[nodiscard]] explicit(false) tree_router_dynamic(ChildArg&& child)
 		: child(std::forward<ChildArg>(child)){
 	}
@@ -402,7 +416,7 @@ struct tree_router_dynamic{
 		if(!present(child)) return;
 
 		ctx.push_call_enter(
-			*this, [](const tree_router_dynamic& self, const draw_call_param& p) static -> draw_call_param{
+			*this, [](const tree_router_dynamic& self, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
 				return self.route_param(typed_draw_param<target_type>{p});
 			});
 		style::draw_record(child, ctx);
@@ -450,13 +464,14 @@ struct tree_direct{
 	[[nodiscard]] tree_direct() = default;
 
 	template <typename ChildArg>
+		requires not_single_self_arg<tree_direct, ChildArg>
 	[[nodiscard]] explicit(false) tree_direct(ChildArg&& child)
 		: child(std::forward<ChildArg>(child)){
 	}
 
 	void record(draw_recorder& ctx) const{
 		if(!present(child)) return;
-		ctx.push_call_noop(*this, [](const tree_direct& self, const draw_call_param& p) static{
+		ctx.push_call_noop(*this, [](const tree_direct& self, const draw_call_param& p, draw_call_stack&) static{
 			style::draw_direct(self.child, typed_draw_param<target_type>{p});
 		});
 	}
@@ -486,7 +501,7 @@ tree_tuple_fork(const std::tuple<Ts...>&) -> tree_tuple_fork<std::decay_t<Ts>...
 
 template <typename OnEnter, typename OnLeave, typename Child>
 tree_scope(OnEnter&&, OnLeave&&,
-           Child&&) -> tree_scope<std::decay_t<Child>, std::decay_t<OnEnter>, std::decay_t<OnLeave>>;
+           Child&&) -> tree_scope<std::decay_t<OnEnter>, std::decay_t<OnLeave>, std::decay_t<Child>>;
 
 template <typename DrawFn>
 tree_leaf(DrawFn&&) -> tree_leaf<std::decay_t<DrawFn>>;
@@ -501,16 +516,16 @@ template <typename MetricsFn, typename T>
 tree_metrics_leaf(MetricsFn&&, std::in_place_type_t<T>) -> tree_metrics_leaf<std::decay_t<MetricsFn>, T>;
 
 template <typename Child>
-tree_router_static(Child&&) -> tree_router_static<std::decay_t<Child>, std::nullptr_t>;
+tree_router_static(Child&&) -> tree_router_static<std::nullptr_t, std::decay_t<Child>>;
 
 template <typename Predicate, typename Child>
-tree_router_static(Predicate&&, Child&&) -> tree_router_static<std::decay_t<Child>, std::decay_t<Predicate>>;
+tree_router_static(Predicate&&, Child&&) -> tree_router_static<std::decay_t<Predicate>, std::decay_t<Child>>;
 
 template <typename Child>
-tree_router_dynamic(Child&&) -> tree_router_dynamic<std::decay_t<Child>, std::nullptr_t>;
+tree_router_dynamic(Child&&) -> tree_router_dynamic<std::nullptr_t, std::decay_t<Child>>;
 
 template <typename Predicate, typename Child>
-tree_router_dynamic(Predicate&&, Child&&) -> tree_router_dynamic<std::decay_t<Child>, std::decay_t<Predicate>>;
+tree_router_dynamic(Predicate&&, Child&&) -> tree_router_dynamic<std::decay_t<Predicate>, std::decay_t<Child>>;
 
 template <typename Child>
 tree_direct(Child&&) -> tree_direct<std::decay_t<Child>>;
