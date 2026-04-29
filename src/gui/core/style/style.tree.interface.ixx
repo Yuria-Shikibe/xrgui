@@ -507,6 +507,10 @@ struct target_known_node_ptr{
 	using target_type = T;
 	style_tree_type_erased_ptr ptr;
 
+	[[nodiscard]] explicit operator bool() const noexcept{
+		return static_cast<bool>(ptr);
+	}
+
 	void record(draw_recorder& ctx) const{
 		if(ptr)ptr->record_draw(ctx);
 	}
@@ -578,7 +582,7 @@ template <typename T>
 [[nodiscard]] auto make_tree_node_ptr(T&& v){
 	auto ptr = std::make_unique<bound_tree_node<std::decay_t<T>>>(std::forward<T>(v));
 	auto rst = target_known_node_ptr<typename node_trait<std::remove_cvref_t<T>>::target_type>{/*ptr->make_shared_ptr()*/};
-	// ptr.release();
+	ptr.release();
 	return rst;
 }
 

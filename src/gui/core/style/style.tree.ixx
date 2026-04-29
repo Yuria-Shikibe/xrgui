@@ -482,6 +482,37 @@ struct tree_direct{
 	}
 };
 
+export
+struct layer_router_pred{
+	style_config config;
+
+	constexpr bool operator()(const draw_call_param& p) const noexcept{
+		return config.has_layer(p.layer_param);
+	}
+};
+
+export
+template <typename Child>
+struct layer_router : tree_router_dynamic<layer_router_pred, Child>{
+	using base_type = tree_router_dynamic<layer_router_pred, Child>;
+
+	template <typename ChildArg>
+	[[nodiscard]] explicit(false) layer_router(style_config config, ChildArg&& child)
+		: base_type(layer_router_pred{config}, std::forward<ChildArg>(child)){
+	}
+
+	template <typename ChildArg>
+	[[nodiscard]] explicit(false) layer_router(ChildArg&& child)
+		: base_type(layer_router_pred{style_config{0b1}}, std::forward<ChildArg>(child)){
+	}
+};
+
+template <typename Child>
+layer_router(style_config, Child&&) -> layer_router<std::decay_t<Child>>;
+
+template <typename Child>
+layer_router(Child&&) -> layer_router<std::decay_t<Child>>;
+
 #pragma region Deductions
 
 template <typename Rng>
