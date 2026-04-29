@@ -14,6 +14,11 @@ import std;
 
 namespace mo_yanxi::gui{
 
+export
+struct draw_call_mutable_param{
+	math::frect draw_bound;
+	float opacity_scl;
+};
 
 export
 struct draw_call_param{

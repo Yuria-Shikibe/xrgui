@@ -9,6 +9,7 @@ import std;
 import align;
 import mo_yanxi.function_manipulate;
 export import mo_yanxi.gui.style.interface;
+export import mo_yanxi.gui.renderer.frontend;
 
 namespace mo_yanxi::gui::style{
 export
@@ -19,6 +20,18 @@ struct typed_draw_param{
 
 	[[nodiscard]] const T* current_subject() const noexcept{
 		return static_cast<const T*>(param.current_subject);
+	}
+
+	[[nodiscard]] const T& subject() const noexcept{
+		assert(param.current_subject != nullptr);
+		return *current_subject();
+	}
+
+	[[nodiscard]] renderer_frontend& renderer() const noexcept requires requires(const target_type& t){
+		{ t.renderer() } -> std::convertible_to<renderer_frontend&>;
+	}{
+		assert(param.current_subject != nullptr);
+		return subject().renderer();
 	}
 
 	[[nodiscard]] bool has_subject() const noexcept{
@@ -39,6 +52,41 @@ struct typed_draw_param{
 
 	explicit(false) operator const draw_call_param&() const noexcept{
 		return param;
+	}
+
+	template <typename B>
+		requires std::derived_from<T, B>
+	explicit(false) operator typed_draw_param<B>() const noexcept{
+		return typed_draw_param<B>{
+			draw_call_param{
+				.current_subject = static_cast<B*>(current_subject()),
+				.draw_bound = param.draw_bound,
+				.opacity_scl = param.opacity_scl,
+				.layer_param = param.layer_param
+			}};
+	}
+};
+
+export
+template <typename B, std::derived_from<B> D>
+struct typed_draw_param_adaptor{
+	using target_type = B;
+
+	typed_draw_param<D> param;
+
+	[[nodiscard]] const target_type* current_subject() const noexcept{
+		return static_cast<const target_type*>(param.current_subject());
+	}
+
+	[[nodiscard]] const target_type& subject() const noexcept{
+		assert(param->current_subject != nullptr);
+		return *current_subject();
+	}
+
+	template <typename T>
+		requires std::derived_from<D, T>
+	explicit(false) operator typed_draw_param_adaptor<T, D>() const noexcept{
+		return typed_draw_param_adaptor<T, D>{param};
 	}
 };
 

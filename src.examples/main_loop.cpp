@@ -8,6 +8,9 @@ import mo_yanxi.gui.style.palette;
 import mo_yanxi.gui.assets;
 import mo_yanxi.gui.assets.manager;
 
+import mo_yanxi.gui.elem.sequence;
+import mo_yanxi.gui.style.tree.draw;
+
 namespace mo_yanxi::gui::style{
 struct layer_router_pred{
 	style_config config;
@@ -51,24 +54,6 @@ struct paletted_value{
 	}
 };
 
-namespace round{
-struct nine_patch{
-	paletted_value<image_nine_region> region{};
-
-	void operator()(const typed_draw_param<elem>& p) const{
-		auto& e = *p.current_subject();
-		e.renderer().update_state(fx::push_constant{fx::batch_draw_mode::msdf});
-
-		auto color_edge = region.pal->get_value().on_instance(e).mul_a(p->opacity_scl);
-		e.renderer() << fx::nine_patch_draw<>{
-			.patch = &region.val,
-			.region = p->draw_bound,
-			.color = color_edge,
-		};
-	}
-};
-}
-
 }
 
 namespace mo_yanxi::gui::example{
@@ -80,7 +65,7 @@ auto make_style(){
 	using sid = assets::builtin::shape_id;
 	using namespace style;
 
-	return tree_tuple_fork{
+	auto ret = tree_tuple_fork{
 			layer_router{
 				style_config{0b01},
 				tree_router_dynamic{
@@ -91,32 +76,32 @@ auto make_style(){
 						tree_fork{
 							std::array{
 								tree_leaf{
-									round::nine_patch{
-										{
-											.val = assets::builtin::default_round_square_base,
-											.pal = {pal::dark.copy().mul_alpha(.3f)}
-										}
-									}
+									primitives::draw_nine_patch{
+										.patch = {assets::builtin::default_round_square_base},
+										.pal = 	{pal::dark.copy().mul_alpha(.3f)}
+									},
 								},
 								tree_leaf{
-									round::nine_patch{
-										{
-											.val = assets::builtin::default_round_square_boarder_thin,
-											.pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
-										}
-									}
+									primitives::draw_nine_patch{
+										.patch = assets::builtin::default_round_square_boarder_thin,
+										.pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
+									},
 								}
 							}
 						}
 					}
 				}
 			},
-			layer_router{
-				style_config{0b10}, tree_leaf{
-					round::nine_patch{}
-				}
-			},
+			// layer_router{
+			// 	style_config{0b10}, tree_leaf{
+			// 		round::nine_patch{}, std::in_place_type<sequence>
+			// 	}
+			// },
 		};
+
+	using Ty = decltype(ret);
+
+	return ret;
 }
 
 void main_loop::main_loop_exec(){
@@ -428,7 +413,7 @@ void main_loop::main_loop_exec(){
 			});
 	}
 
-	// current_focus.draw();
+	//current_focus.draw();
 	renderer.batch_host.end_rendering();
 	renderer.upload();
 	renderer.create_command();

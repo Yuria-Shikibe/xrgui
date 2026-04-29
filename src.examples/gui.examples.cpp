@@ -590,8 +590,8 @@ make_style_result make_styles(scene& scene){
 
 		{
 			auto gst = templt;
-			gst.edge.pal->set_value(*pal_front_distributor_cursor_ignored);
-			gst.back.pal->set_value(gst.back.pal->get_value().copy().set_cursor_ignored());
+			gst.edge.pal.node.set_value(*pal_front_distributor_cursor_ignored);
+			gst.back.pal.node.set_value(gst.back.pal.node.get_value().copy().set_cursor_ignored());
 			default_family.set(family_variant::general_static, referenced_ptr<round_style>{std::in_place, gst});
 		}
 
@@ -631,7 +631,7 @@ make_style_result make_styles(scene& scene){
 		{
 			auto gst = templt;
 			gst.base = gst.back;
-			gst.base.pal->disconnect_self_from_context();
+			gst.base.pal.node.disconnect_self_from_context();
 			gst.base.pal.node.set_value(gst.base.pal.node.get_value().copy().mul_alpha(2.f));
 			default_family.set(family_variant::solid, referenced_ptr<round_style>{std::in_place, gst});
 		}

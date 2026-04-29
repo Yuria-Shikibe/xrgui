@@ -13,6 +13,45 @@ export import :interface;
 export import mo_yanxi.gui.style.interface;
 
 namespace mo_yanxi::gui::style{
+
+template <typename T1, typename T2>
+struct get_more_derived {
+	static constexpr bool is_related = std::derived_from<T1, T2> || std::derived_from<T2, T1>;
+	static_assert(is_related, "Error: The two types do not have an inheritance relationship.");
+
+	using type = std::conditional_t<std::derived_from<T1, T2>, T1, T2>;
+};
+
+template <typename... Ts>
+struct get_most_derived;
+
+template <>
+struct get_most_derived<> {
+	using type = void;
+};
+
+template <typename T>
+struct get_most_derived<T> {
+	using type = T;
+};
+
+template <typename T1, typename T2>
+struct get_most_derived<T1, T2> {
+	using type = typename get_more_derived<T1, T2>::type;
+};
+
+template <typename T1, typename T2, typename... Ts>
+struct get_most_derived<T1, T2, Ts...> {
+	using type = typename get_most_derived<
+		typename get_more_derived<T1, T2>::type,
+		Ts...
+	>::type;
+};
+
+template <typename... Ts>
+using get_most_derived_t = typename get_most_derived<Ts...>::type;
+
+
 export
 template <std::ranges::forward_range Container>
 struct tree_fork{
@@ -133,6 +172,10 @@ struct tree_scope{
 	using enter_fn_type = OnEnter;
 	using leave_fn_type = OnLeave;
 
+	static_assert(
+		strictly_redundantly_invocable<const enter_fn_type&, tree_scope, typed_draw_param<target_type>>,
+		"disallow implicit convert of typed draw param to avoid current subject offset");
+
 	ADAPTED_NO_UNIQUE_ADDRESS enter_fn_type on_enter{};
 	ADAPTED_NO_UNIQUE_ADDRESS leave_fn_type on_leave{};
 	ADAPTED_NO_UNIQUE_ADDRESS Child child{};
@@ -150,7 +193,7 @@ struct tree_scope{
 		if(!present(child)) return;
 
 		ctx.push_call_enter(*this, [](const tree_scope& self, const draw_call_param& p) static -> draw_call_param{
-			return self.enter(p);
+			return self.enter(typed_draw_param<target_type>{p});
 		});
 
 		style::draw_record(child, ctx);
@@ -175,12 +218,8 @@ struct tree_scope{
 	}
 
 private:
-	[[nodiscard]] draw_call_param enter(const draw_call_param& p) const{
-		if constexpr(std::is_null_pointer_v<OnEnter>){
-			return p;
-		} else{
-			return std::invoke_r<draw_call_param>(on_enter, *this, typed_draw_param<target_type>{p});
-		}
+	[[nodiscard]] draw_call_param enter(const typed_draw_param<target_type>& p) const{
+		return mo_yanxi::invoke_redundantly(on_enter, *this, p);
 	}
 
 	void leave(const draw_call_param& p) const{
@@ -215,11 +254,13 @@ struct tree_leaf{
 	[[nodiscard]] tree_leaf() = default;
 
 	template <typename Fn>
+		requires (std::invocable<const Fn&, typed_draw_param<target_type>>)
 	[[nodiscard]] explicit(false) tree_leaf(Fn&& draw_fn)
 		: draw_fn(std::forward<Fn>(draw_fn)){
 	}
 
 	template <typename Fn>
+		requires (std::invocable<const Fn&, typed_draw_param<target_type>>)
 	[[nodiscard]] explicit(false) tree_leaf(Fn&& draw_fn, std::in_place_type_t<T>)
 		: draw_fn(std::forward<Fn>(draw_fn)){
 	}
@@ -381,7 +422,7 @@ private:
 	}
 
 	[[nodiscard]] draw_call_param route_param(const typed_draw_param<target_type>& p) const{
-		if(allow_draw(p)){
+		if(this->allow_draw(p)){
 			return p;
 		}
 

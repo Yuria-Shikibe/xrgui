@@ -11,9 +11,21 @@ export
 template <typename T>
 struct flexible_value : terminal<T>{
 	using value_type = T;
+private:
 	value_type value;
 
 public:
+
+	[[nodiscard]] flexible_value() = default;
+
+	[[nodiscard]] explicit(false) flexible_value(node& node_prov){
+		set_value(node_prov);
+	}
+
+	[[nodiscard]] explicit(false) flexible_value(const value_type& value)
+		: value(value){
+	}
+
 	const value_type& get_value() const noexcept{
 		return value;
 	}
@@ -34,16 +46,6 @@ public:
 	bool set_value(node& node_prov){
 		this->connect_predecessor(node_prov);
 		return this->pull_and_push(false);
-	}
-
-	[[nodiscard]] flexible_value() = default;
-
-	[[nodiscard]] explicit(false) flexible_value(node& node_prov){
-		set_value(node_prov);
-	}
-
-	[[nodiscard]] explicit(false) flexible_value(const value_type& value)
-		: value(value){
 	}
 
 	const value_type* operator->() const noexcept{
@@ -80,6 +82,7 @@ export
 template <typename T>
 struct flexible_value_holder : node_holder_portable<flexible_value<T>>{
 	using node_holder_portable<flexible_value<T>>::node_holder_portable;
+
 
 	flexible_value_holder(const flexible_value_holder& other) : node_holder_portable<flexible_value<T>>(other.node){
 	}
