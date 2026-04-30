@@ -43,6 +43,7 @@ import mo_yanxi.core.platform;
 
 import mo_yanxi.gui.examples;
 import mo_yanxi.gui.examples.main_loop;
+import mo_yanxi.gui.examples.loop_exec;
 
 
 struct alignas(16) high_light_filter_args{
@@ -59,9 +60,7 @@ struct alignas(16) tonemap_args{
 };
 
 void app_run(
-	mo_yanxi::gui::example::main_loop& main_loop,
-	mo_yanxi::backend::vulkan::context& ctx,
-	mo_yanxi::backend::vulkan::renderer& renderer,
+	mo_yanxi::gui::example::main_loop_type& main_loop,
 	mo_yanxi::vk::command_buffer& cmd_buf
 ){
 	using namespace mo_yanxi;
@@ -71,6 +70,8 @@ void app_run(
 	auto& current_focus = main_loop.get_scene();;
 	std::println("[App] Entering Main Loop");
 	main_loop.wait_term_and_reset();
+
+	auto& ctx = main_loop.get_ctx();
 	while(!ctx.window().should_close()){
 		ctx.window().poll_events();
 		timer.fetch_time();
@@ -83,8 +84,8 @@ void app_run(
 		(void)main_loop.unhandled_events.fetch();
 
 		main_loop.wait_term();
-		std::array<VkCommandBuffer, 2> buffers{renderer.get_valid_cmd_buf(), cmd_buf};
-		vk::cmd::submit_command(ctx.graphic_queue(), buffers, renderer.get_fence());
+		std::array<VkCommandBuffer, 2> buffers{main_loop.get_renderer().get_valid_cmd_buf(), cmd_buf};
+		vk::cmd::submit_command(ctx.graphic_queue(), buffers, main_loop.get_renderer().get_fence());
 		ctx.flush();
 		main_loop.reset_term();
 	}
@@ -95,8 +96,6 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	using namespace graphic;
 
 	const auto shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
-
-
 
 	std::println("[GUI] Core Initialize ");
 	gui::global::initialize();
@@ -464,8 +463,12 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 #pragma endregion
 
 #pragma region GuiBindingFn
-	auto init_fn = [&](const gui::example::ui_outputs& ui_providers){
+	auto init_fn = [&](gui::example::main_loop_type& loop) -> gui::example::main_loop_init_return_t {
+		gui::example::main_loop_init_return_t ret{};
+
+		auto ui_providers = gui::example::build_main_ui(loop.get_ctx(), loop.get_renderer().create_frontend());
 		auto& scene = *ui_providers.scene_ptr;
+		ret.main_scene = ui_providers.scene_ptr;
 
 		static constexpr auto post_task = []<typename F>(gui::scene& scene, F&& fn){
 			scene.get_output_communicate_async_task_queue(0).post(std::forward<F>(fn));
@@ -549,32 +552,34 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		tonemap_gamma.connect_predecessor(*ui_providers.tonemap_gamma);
 
 		ui_providers.apply(scene);
+
+		return ret;
 	};
+
 #pragma endregion
 
 	std::println("[GUI] Async Scene Setup");
-	gui::example::main_loop main_loop{renderer, ctx, init_fn};
-	main_loop.permit_burst();
-	main_loop.wait_term();
+	gui::example::main_loop_type main_loop{std::move(renderer), ctx, {
+			.init_fn = init_fn,
+			.main_loop_fn = gui::example::main_loop_fn,
+			.exit_fn = [](const gui::example::main_loop_type&){
+				gui::example::clear_main_ui();
+			}
+		}};
+
 	std::println("[GUI] Async Scene Setup Done");
 
 	auto post_process_cmd = ctx.get_compute_command_pool().obtain();
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
 
+		main_loop.resize({event.size.width, event.size.height});
 		{
-			main_loop.wait_until_idle();
+			auto& r = main_loop.get_renderer();
 
-			renderer.resize({event.size.width, event.size.height});
-
-			auto& focus = main_loop.get_scene();
-			auto exec_thread = std::exchange(focus.ui_main_thread_id, std::this_thread::get_id());
-			focus.resize(math::rect_ortho{tags::from_extent, {}, event.size.width, event.size.height}.as<float>());
-			focus.ui_main_thread_id = exec_thread;
+			ui_input_base.resource = compositor::image_entity{.handle = r.get_blit_attachments()[0]};
+			ui_input_back.resource = compositor::image_entity{.handle = r.get_blit_attachments()[1]};
+			input_background.resource = compositor::image_entity{.handle = r.get_blit_attachments()[2]};
 		}
-
-		ui_input_base.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[0]};
-		ui_input_back.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[1]};
-		input_background.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[2]};
 
 		manager.resize(event.size, true);
 
@@ -600,7 +605,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	ctx.record_post_command(true);
 
-	app_run(main_loop, ctx, renderer, post_process_cmd);
+	app_run(main_loop, post_process_cmd);
 
 	std::println("[GUI] Exiting...");
 
@@ -674,10 +679,6 @@ struct GlobalCerrOptimizer {
 		original_buf = std::cerr.rdbuf();
 		optimized_buf = new FastColorErrorBuffer(original_buf);
 		std::cerr.rdbuf(optimized_buf);
-
-		// 关键性能优化：cerr 默认设置了 unitbuf（每次写入都 flush）
-		// 如果追求极致性能，可以关闭它，但在错误处理中通常建议保留
-		// std::cerr.unsetf(std::ios::unitbuf);
 	}
 
 	~GlobalCerrOptimizer() {

@@ -104,6 +104,9 @@ target("xrgui.default")
     add_files("src.backends/vulkan_glfw/**.ixx", {public = true})
     add_files("src.backends/vulkan_glfw/**.cpp")
 
+    add_files("gui.config/**.ixx", {public = true})
+    add_files("gui.config/**.cpp")
+
 
     add_rules("media.svg_to_bin")
     add_files("properties/assets_raw/gen/**.svg")

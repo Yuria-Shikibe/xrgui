@@ -1,93 +1,27 @@
-module mo_yanxi.gui.examples.main_loop;
+module mo_yanxi.gui.examples.loop_exec;
 
 import mo_yanxi.gui.examples.constants;
-import mo_yanxi.gui.style.tree;
-import mo_yanxi.gui.style.interface;
-import mo_yanxi.react_flow.flexible_value;
-import mo_yanxi.gui.style.palette;
-import mo_yanxi.gui.assets;
-import mo_yanxi.gui.assets.manager;
+import mo_yanxi.gui.global;
+import mo_yanxi.math.rand;
+import std;
 
-import mo_yanxi.gui.elem.sequence;
-import mo_yanxi.gui.style.tree.draw;
-
-namespace mo_yanxi::gui::style{
-
-template <typename T>
-struct paletted_value{
-	T val;
-	react_flow::flexible_value_holder<palette> pal;
-
-	auto* operator->(this auto& self) noexcept{
-		return &self.val;
-	}
-
-	auto operator*(this auto& self) noexcept{
-		return self.val;
-	}
-};
-
-}
-
-namespace mo_yanxi::gui::example{
+import mo_yanxi.gui.fx.instruction_extension;
+import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.math.interpolation;
 
 
-
-auto make_style(){
-	auto& p = gui::assets::builtin::get_page();
-	using sid = assets::builtin::shape_id;
-	using namespace style;
-
-	auto ret = tree_tuple_fork{
-		layer_router{
-			style_config{0b01},
-			tree_router_dynamic{
-				[](const typed_draw_param<elem>& p){
-					return true;
-				},
-				tree_direct{
-					tree_fork{
-						std::array{
-							tree_leaf{
-								primitives::draw_nine_patch{
-										{
-											.patch = {assets::builtin::default_round_square_base},
-										   .pal = 	{pal::dark.copy().mul_alpha(.3f)}
-										}
-								},
-							},
-							tree_leaf{
-								primitives::draw_nine_patch{
-										{
-											.patch = assets::builtin::default_round_square_boarder_thin,
-										   .pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
-										}
-								},
-							}
-						}
-					}
-				}
-			}
-		},
-		// layer_router{
-		// 	style_config{0b10}, tree_leaf{
-		// 		round::nine_patch{}, std::in_place_type<sequence>
-		// 	}
-		// },
-	};
-	return ret;
-}
-
-void main_loop::main_loop_exec(){
-	auto& current_focus = *target_scene;
-	auto deltatime = global::consume_current_input(current_focus, [this](input_handle::input_event_variant e){
-		unhandled_events.push(e);
+void mo_yanxi::gui::example::main_loop_fn(struct main_loop<main_loop_payload>& main_loop){
+	auto& current_focus = main_loop.get_scene();
+	auto deltatime = global::consume_current_input(current_focus, [&](input_handle::input_event_variant e){
+		main_loop.unhandled_events.push(e);
 	});
 
 	current_focus.layout();
 
-	auto& renderer = *renderer_ptr;
+	auto& renderer = main_loop.get_renderer();
 	auto& r = current_focus.renderer();
+
+	auto& trail = main_loop.payload.trail;
 
 	trail.update(deltatime.count() * 60, current_focus.get_cursor_pos(), 2);
 	renderer.batch_host.begin_rendering();
@@ -202,18 +136,18 @@ void main_loop::main_loop_exec(){
 				});
 		}
 
-		auto drawer = make_style();
-		test_elem->resize({400, 600});
-		test_elem->update_abs_src({200, 200});
-
-		drawer.direct({
-			.param = draw_call_param{
-				.current_subject = test_elem.get(),
-				.draw_bound = {200, 200, 400, 600},
-				.opacity_scl = 1.f,
-				.layer_param = {0}
-			}
-		});
+		// auto drawer = make_style();
+		// test_elem->resize({400, 600});
+		// test_elem->update_abs_src({200, 200});
+		//
+		// drawer.direct({
+		// 	.param = draw_call_param{
+		// 		.current_subject = test_elem.get(),
+		// 		.draw_bound = {200, 200, 400, 600},
+		// 		.opacity_scl = 1.f,
+		// 		.layer_param = {0}
+		// 	}
+		// });
 
 		r.update_state(fx::batch_draw_mode::msdf);
 		r << fx::nine_patch_draw_vert_color{
@@ -392,5 +326,3 @@ void main_loop::main_loop_exec(){
 	renderer.upload();
 	renderer.create_command();
 }
-}
-
