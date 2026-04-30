@@ -44,6 +44,8 @@ import mo_yanxi.core.platform;
 import mo_yanxi.gui.examples;
 import mo_yanxi.gui.default_config.main_loop;
 import mo_yanxi.gui.examples.loop_exec;
+import mo_yanxi.gui.examples.default_config.colored_cerr;
+import mo_yanxi.gui.examples.default_config.font_styles;
 
 
 struct alignas(16) high_light_filter_args{
@@ -293,35 +295,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	std::println("[GUI] Font Manager Initialize");
 	font::font_manager font_manager{};
-	font_manager.set_page(image_atlas.create_image_page("font"));
-
-	{
-		auto sys_font_path = font::get_system_fonts();
-		auto consolas_family = font::find_family_of(sys_font_path, "Consolas");
-		auto segoe_symbol = sys_font_path.find("Segoe UI Symbol");
-
-		const std::filesystem::path font_path = std::filesystem::current_path().append("assets/font").make_preferred();
-		auto& SourceHanSansCN_regular = font_manager.register_meta("srchs", font_path / "SourceHanSansCN-Regular.otf");
-		const font::font_face_meta* segoe{};
-		if(segoe_symbol != sys_font_path.end()){
-			segoe = &font_manager.register_meta("segui", segoe_symbol->second);
-		}
-
-
-		std::vector<const font::font_face_meta*> code_faces_{};
-		for(const auto& [name, path] : consolas_family){
-			auto& meta = font_manager.register_meta(name, path);
-			code_faces_.push_back(&meta);
-		}
-
-		font_manager.register_family("code", code_faces_, {&SourceHanSansCN_regular, segoe});
-
-		auto& default_family = font_manager.register_family("gui", {&SourceHanSansCN_regular, segoe});
-
-		font_manager.set_default_family(&default_family);
-
-		font::default_font_manager = &font_manager;
-	}
+	gui::example::init_font_manager(font_manager, image_atlas);
 	std::println("[GUI] Font Manager Initialize Done");
 
 	{
@@ -620,83 +594,11 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	ctx.wait_on_device();
 }
 
-class FastColorErrorBuffer : public std::streambuf {
-private:
-	std::streambuf* source;
-	std::vector<char> buffer;
-	static constexpr std::size_t BUF_SIZE = 1024; // 1KB 缓冲区
-
-	const char* RED_START = "\033[31m";
-	const char* COLOR_RESET = "\033[0m";
-
-	// 内部刷新逻辑
-	bool flush_to_source() {
-		std::ptrdiff_t n = pptr() - pbase();
-		if (n <= 0) return true;
-
-		// 批量注入颜色：[开始颜色][数据][结束颜色]
-		if (source->sputn(RED_START, 5) != 5) return false;
-		if (source->sputn(pbase(), n) != n) return false;
-		if (source->sputn(COLOR_RESET, 4) != 4) return false;
-
-		pbump(static_cast<int>(-n)); // 重置指针
-		return source->pubsync() == 0;
-	}
-
-protected:
-	// 当缓冲区满时调用
-	virtual int_type overflow(int_type c) override {
-		if (!flush_to_source()) return EOF;
-		if (c != EOF) {
-			*pptr() = static_cast<char>(c);
-			pbump(1);
-		}
-		return c;
-	}
-
-	// 当调用 std::endl 或 flush 时调用
-	virtual int sync() override {
-		return flush_to_source() ? 0 : -1;
-	}
-
-public:
-	explicit FastColorErrorBuffer(std::streambuf* s) : source(s), buffer(BUF_SIZE) {
-		// 设置缓冲区区域：开始、当前、结束
-		setp(buffer.data(), buffer.data() + buffer.size());
-	}
-
-	~FastColorErrorBuffer() override {
-		sync();
-	}
-};
-
-// 自动初始化器
-struct GlobalCerrOptimizer {
-	std::streambuf* original_buf;
-	FastColorErrorBuffer* optimized_buf;
-
-	GlobalCerrOptimizer() {
-		original_buf = std::cerr.rdbuf();
-		optimized_buf = new FastColorErrorBuffer(original_buf);
-		std::cerr.rdbuf(optimized_buf);
-	}
-
-	~GlobalCerrOptimizer() {
-		std::cerr.rdbuf(original_buf);
-		delete optimized_buf;
-	}
-};
 int main(){
-	std::optional<GlobalCerrOptimizer> _;
-
 	using namespace mo_yanxi;
 	using namespace graphic;
 
-	if(auto ptr = std::getenv("COLORED"); ptr != nullptr && std::strcmp(ptr, "0") == 0){
-
-	} else{
-		_.emplace();
-	}
+	auto _cerr = make_colored_errc();
 
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
