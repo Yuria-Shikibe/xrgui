@@ -142,6 +142,10 @@ template <typename T, typename... Ts>
 struct node_trait;
 
 export
+template <typename T>
+using node_target_t = typename node_trait<std::remove_cvref_t<T>>::target_type;
+
+export
 struct style_tree_metrics{
 	align::spacing inset{};
 
@@ -207,15 +211,41 @@ concept style_tree_member_record_drawable = requires(const T& value, draw_record
 
 export
 template <typename T>
-concept style_tree_member_metrics_queryable = requires(const T& value, const style_tree_metrics_query_param& p){
-	{ value.query_metrics(p) } -> std::convertible_to<style_tree_metrics>;
-} || (
-	requires{ typename node_trait<T>::target_type; }
-	&& !std::is_void_v<typename node_trait<T>::target_type>
-	&& requires(const T& value, const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& p){
+concept style_tree_typed_target = requires{
+	typename node_target_t<T>;
+} && !std::is_void_v<node_target_t<T>>;
+
+export
+template <typename T>
+concept style_tree_member_metrics_queryable = style_tree_typed_target<T>
+	&& requires(const T& value, const typed_style_tree_metrics_query_param<node_target_t<T>>& p){
 		{ value.query_metrics(p) } -> std::convertible_to<style_tree_metrics>;
-	}
-);
+	};
+
+export
+template <typename T>
+concept style_tree_arrow_metrics_queryable = style_tree_typed_target<T>
+	&& requires(const T& value, const typed_style_tree_metrics_query_param<node_target_t<T>>& p){
+		{ value->query_metrics(p) } -> std::convertible_to<style_tree_metrics>;
+	};
+
+export
+template <typename T, typename Target>
+concept style_tree_direct_drawable_typed = requires(const T& value, const typed_draw_param<Target>& p){
+	value.direct(p);
+};
+
+export
+template <typename T>
+concept style_tree_member_direct_drawable = style_tree_typed_target<T>
+	&& style_tree_direct_drawable_typed<T, node_target_t<T>>;
+
+export
+template <typename T>
+concept style_tree_arrow_direct_drawable = style_tree_typed_target<T>
+	&& requires(const T& value, const typed_draw_param<node_target_t<T>>& p){
+		value->direct(p);
+	};
 
 export
 template <typename T>
@@ -228,14 +258,7 @@ concept style_tree_draw_dispatchable = style_tree_member_recordable<T>
 export
 template <typename T>
 concept style_tree_metrics_dispatchable = style_tree_member_metrics_queryable<T>
-	|| requires(const T& value, const style_tree_metrics_query_param& p){ value->query_metrics(p); }
-	|| (
-		requires{ typename node_trait<T>::target_type; }
-		&& !std::is_void_v<typename node_trait<T>::target_type>
-		&& requires(const T& value, const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& p){
-			value->query_metrics(p);
-		}
-	)
+	|| style_tree_arrow_metrics_queryable<T>
 	|| style_tree_dereferenceable<T>;
 
 export
@@ -246,7 +269,7 @@ struct node_trait{
 
 template <typename T, typename... Ts>
 	requires requires{
-	typename T::target_type;
+		typename T::target_type;
 	}
 struct node_trait<T, Ts...>{
 	using target_type = typename T::target_type;
@@ -274,21 +297,15 @@ struct query_metrics_t{
 	template <typename T>
 	[[nodiscard]] FORCE_INLINE style_tree_metrics operator()(
 		const T& node,
-		const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& p = {}) const
+		const typed_style_tree_metrics_query_param<node_target_t<T>>& p = {}) const
 		noexcept{
 		if(!style::present(node)){
 			return {};
 		}
 
-		if constexpr(requires(const T& value,
-			            const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& q){
-				{ value.query_metrics(q) } -> std::convertible_to<style_tree_metrics>;
-			}){
+		if constexpr(style_tree_member_metrics_queryable<T>){
 			return node.query_metrics(p);
-		} else if constexpr(requires(const T& value,
-			            const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& q){
-				{ value->query_metrics(q) } -> std::convertible_to<style_tree_metrics>;
-			}){
+		} else if constexpr(style_tree_arrow_metrics_queryable<T>){
 			return node->query_metrics(p);
 		} else if constexpr(style_tree_dereferenceable<T>){
 			return (*this)(*node, p);
@@ -329,24 +346,6 @@ struct draw_record_t{
 export constexpr inline query_metrics_t query_metrics;
 export constexpr inline draw_record_t draw_record;
 
-inline namespace cpo{
-struct inset_t{
-	template <typename T>
-	[[nodiscard]] FORCE_INLINE align::spacing operator()(const T& node,
-	                                                     const style_tree_metrics_query_param& p = {}) const noexcept{
-		return style::query_metrics(node, p).inset;
-	}
-};
-}
-
-export constexpr inline inset_t inset;
-
-export
-template <typename T, typename Target>
-concept style_tree_direct_drawable_typed = requires(const T& value, const typed_draw_param<Target>& p){
-	value.direct(p);
-};
-
 export
 template <typename T>
 concept style_tree_recordable = style_tree_draw_dispatchable<T>;
@@ -355,18 +354,14 @@ export
 template <typename T>
 concept style_tree_metrics_queryable = style_tree_metrics_dispatchable<T>;
 
-
 export
 template <typename T>
-concept style_tree_direct_drawable =
-	requires{ typename node_trait<T>::target_type; }
-	&& !std::is_void_v<typename node_trait<T>::target_type>
-	&& style_tree_direct_drawable_typed<T, typename node_trait<T>::target_type>;
+concept style_tree_direct_drawable = style_tree_member_direct_drawable<T>;
 
 inline namespace cpo{
 struct draw_direct_t{
 	template <typename Target, typename T>
-		requires style_tree_direct_drawable_typed<T, Target>
+		requires style_tree_direct_drawable_typed<T, Target> && std::derived_from<Target, node_target_t<T>>
 	void operator()(const T& node, const typed_draw_param<Target>& p) const{
 		if(!style::present(node)) return;
 		node.direct(p);
@@ -453,16 +448,8 @@ public:
 		                            const style_tree_metrics_query_param& p) static noexcept -> style_tree_metrics{
 			assert(val != nullptr);
 			auto& ty = std::as_const(*cast_to_ty(const_cast<void*>(val)));
-			if constexpr(requires{ typename Ty::target_type; }
-				&& !std::is_void_v<typename Ty::target_type>
-				&& requires(const Ty& value, const typed_style_tree_metrics_query_param<typename Ty::target_type>& q){
-					{ value.query_metrics(q) } -> std::convertible_to<style_tree_metrics>;
-				}){
-				return ty.query_metrics(typed_style_tree_metrics_query_param<typename Ty::target_type>{p});
-			} else if constexpr(requires(const Ty& value, const style_tree_metrics_query_param& q){
-				{ value.query_metrics(q) } -> std::convertible_to<style_tree_metrics>;
-			}){
-				return ty.query_metrics(p);
+			if constexpr(style_tree_member_metrics_queryable<Ty>){
+				return ty.query_metrics(typed_style_tree_metrics_query_param<node_target_t<Ty>>{p});
 			} else{
 				return {};
 			}
@@ -470,9 +457,8 @@ public:
 		rst.direct_func_ptr_ = +[](const void* val,
 		                           const draw_call_param& p) static noexcept -> void{
 			auto& ty = std::as_const(*cast_to_ty(const_cast<void*>(val)));
-			if constexpr(requires{ typename Ty::target_type; }
-				&& requires(const Ty& v, const typed_draw_param<typename Ty::target_type>& dp){ v.direct(dp); }){
-				style::draw_direct(ty, typed_draw_param<typename Ty::target_type>{p});
+			if constexpr(style_tree_member_direct_drawable<Ty>){
+				style::draw_direct(ty, typed_draw_param<node_target_t<Ty>>{p});
 			}
 		};
 		return rst;
@@ -547,7 +533,8 @@ struct target_known_node_ptr{
 
 	bool operator==(const target_known_node_ptr&) const noexcept = default;
 
-	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
+	[[nodiscard]] style_tree_metrics query_metrics(
+		const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
 		if(ptr){
 			return ptr->query_metrics(p.param);
 		}
@@ -600,7 +587,8 @@ struct bound_tree_node : style_tree_node<bound_tree_node<Comp>>{
 		style::draw_direct(comp, p);
 	}
 
-	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
+	[[nodiscard]] style_tree_metrics query_metrics(
+		const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
 		return style::query_metrics(comp, p);
 	}
 };
