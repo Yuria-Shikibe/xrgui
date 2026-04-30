@@ -9,8 +9,8 @@ import mo_yanxi.gui.fx.compound;
 import mo_yanxi.gui.fx.fringe;
 
 namespace mo_yanxi::gui{
-void style::debug_elem_drawer::draw_layer_impl(const elem& element, math::frect region, float opacityScl,
-	fx::layer_param layer_param) const{
+/*void style::debug_elem_drawer::draw_layer_impl(const elem& element, math::frect region, float opacityScl,
+                                               fx::layer_param layer_param) const{
 	switch(layer_param.layer_index){
 	case 0 : draw(element, region, opacityScl);
 		break;
@@ -21,24 +21,24 @@ void style::debug_elem_drawer::draw_layer_impl(const elem& element, math::frect 
 }
 
 void style::debug_elem_drawer::draw(const elem& element, rect region, float opacityScl) const{
-
 	auto cregion = element.clip_to_content_bound(region);
 
 	element.get_scene().renderer().push(graphic::draw::instruction::rect_aabb_outline{
-		.v00 = cregion.vert_00(),
-		.v11 = cregion.vert_11(),
-		.stroke = 1,
-		.vert_color = graphic::colors::YELLOW.copy().set_a(.1f)
-	});
+			.v00 = cregion.vert_00(),
+			.v11 = cregion.vert_11(),
+			.stroke = 1,
+			.vert_color = graphic::colors::YELLOW.copy().set_a(.1f)
+		});
 
 	using namespace graphic;
 	using namespace graphic::draw::instruction;
 	color c = colors::gray;
 	/*if(element.cursor_state().pressed){
 		c = colors::aqua;
-	}else */if(element.cursor_state().focused){
+	}else #1#
+	if(element.cursor_state().focused){
 		c = colors::white;
-	}else if(element.cursor_state().inbound){
+	} else if(element.cursor_state().inbound){
 		c = colors::light_gray;
 	}
 	c.set_a(.75f);
@@ -49,11 +49,11 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 	float light = (element.is_toggled() ? 1.6f : 1.f) * (element.is_disabled() ? .5f : 1.f);
 
 	draw::quad_group vc{
-		c.mul_a(opacityScl).set_light(light),
-		c.create_lerp(colors::ACID.to_light(2), f1).mul_a(opacityScl).set_light(light),
-		c.create_lerp(colors::ORANGE.to_light(2), f2).mul_a(opacityScl).set_light(light),
-		c.create_lerp(colors::CRIMSON.to_light(2), f3).mul_a(opacityScl).set_light(light),
-	};
+			c.mul_a(opacityScl).set_light(light),
+			c.create_lerp(colors::ACID.to_light(2), f1).mul_a(opacityScl).set_light(light),
+			c.create_lerp(colors::ORANGE.to_light(2), f2).mul_a(opacityScl).set_light(light),
+			c.create_lerp(colors::CRIMSON.to_light(2), f3).mul_a(opacityScl).set_light(light),
+		};
 
 	auto vcb = vc;
 	vcb *= color{.1, .1, .1, 1};
@@ -74,11 +74,11 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 		auto hit_region = rect{pos_abs, 5 + util::get_nest_depth(&element) * 9.f};
 
 		element.get_scene().renderer().push(rect_aabb_outline{
-			.v00 = hit_region.vert_00(),
-			.v11 = hit_region.vert_11(),
-			.stroke = {2},
-			.vert_color = colors::LIME.copy().set_a(.8f)
-		});
+				.v00 = hit_region.vert_00(),
+				.v11 = hit_region.vert_11(),
+				.stroke = {2},
+				.vert_color = colors::LIME.copy().set_a(.8f)
+			});
 
 		auto seg = math::rect::get_closest_vertex_pair(region, hit_region);
 
@@ -97,27 +97,10 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 	}
 
 
-
-
-
-
-
-
-
 	region.scl_size(.25f, .25f);
 
 
-
-
-
-
-
-
-
-
 	//
-
-
 }
 
 void style::debug_elem_drawer::draw_background(const elem& element, math::frect region, float opacityScl) const{
@@ -128,18 +111,17 @@ void style::debug_elem_drawer::draw_background(const elem& element, math::frect 
 			.v11 = region.vert_11(),
 			.vert_color = {colors::dark_gray.create_lerp({0, 0, 0, 1}, .85f).copy().mul_a(opacityScl)}
 		});
-}
+}*/
 
 
 style::target_known_node_ptr<elem> elem::get_elem_default_style_() const{
 	return get_style_tree_manager().get_default<elem>();
 }
 
-elem::elem(scene& scene, elem* parent) noexcept:
+elem::elem(scene& scene, elem* parent) noexcept :
 	scene_(std::addressof(scene)),
 	parent_(parent),
-	is_at_display_stage_(parent ? parent->decide_is_children_displayable_on_add(*this) : true)
-{
+	is_at_display_stage_(parent ? parent->decide_is_children_displayable_on_add(*this) : true){
 	if(is_at_display_stage()){
 		scene.notify_display_state_changed(get_channel());
 	}
@@ -183,7 +165,7 @@ bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
 }
 
 void elem::drop_tooltip() const{
-	if(has_tooltip())get_scene().tooltip_manager_.request_drop(this);
+	if(has_tooltip()) get_scene().tooltip_manager_.request_drop(this);
 }
 
 void elem::set_style(style::family_variant v){
@@ -212,7 +194,6 @@ void elem::clear_scene_references() noexcept{
 	if(is_at_display_stage()){
 		scene_->notify_display_state_changed(get_channel());
 	}
-
 }
 
 void elem::notify_layout_changed(propagate_mask propagation){
@@ -220,18 +201,20 @@ void elem::notify_layout_changed(propagate_mask propagation){
 
 	if(parent_){
 		const bool force_upper = check_propagate_satisfy(propagation, propagate_mask::force_upper);
-		if(force_upper || (check_propagate_satisfy(propagation, propagate_mask::super) && layout_state.is_broadcastable(propagate_mask::super))){
+		if(force_upper || (check_propagate_satisfy(propagation, propagate_mask::super) && layout_state.is_broadcastable(
+			propagate_mask::super))){
 			if(parent_->layout_state.notify_children_changed(force_upper)){
 				if(parent_->layout_state.intercept_lower_to_isolated){
 					parent_->notify_isolated_layout_changed();
-				}else{
+				} else{
 					parent_->notify_layout_changed(propagation - propagate_mask::child);
 				}
 			}
 		}
 	}
 
-	if(check_propagate_satisfy(propagation, propagate_mask::child) && layout_state.is_broadcastable(propagate_mask::child)){
+	if(check_propagate_satisfy(propagation, propagate_mask::child) && layout_state.is_broadcastable(
+		propagate_mask::child)){
 		for(auto&& element : exposed_children()){
 			if(element->layout_state.notify_parent_changed()){
 				element->notify_layout_changed(propagation - propagate_mask::super);
@@ -265,7 +248,6 @@ bool elem::parent_contain_constrain(const math::vec2 pos_relative) const noexcep
 bool elem::is_focused_scroll() const noexcept{
 	assert(scene_ != nullptr);
 	return scene_->input_handler_.focus_cursor == this;
-
 }
 
 bool elem::is_focused_key() const noexcept{
@@ -291,33 +273,19 @@ void elem::set_focused_scroll(const bool focus) noexcept{
 void elem::set_focused_key(const bool focus) noexcept{
 	if(focus){
 		get_scene().input_handler_.switch_key_focus(this);
-	}else if(is_focused_key()){
+	} else if(is_focused_key()){
 		get_scene().input_handler_.switch_key_focus(nullptr);
 	}
-
-}
-
-style::style_manager& elem::get_style_manager_legacy() const noexcept{
-	return scene_->resources().style_manager;
 }
 
 void elem::update_altitude_(altitude_t height){
-
-
-
-
-
-
-
 }
 
 void elem::init_altitude_(altitude_t height){
-
-
 }
 
 void elem::relocate_scene(scene& target_scene) noexcept{
-	for (auto&& elem_wrapper : collect_children()){
+	for(auto&& elem_wrapper : collect_children()){
 		elem_wrapper.for_each([&](elem& e){
 			e.relocate_self_scene(target_scene);
 		});
@@ -343,5 +311,4 @@ events::op_afterwards util::thoroughly_esc(elem* where) noexcept{
 	}
 	return events::op_afterwards::fall_through;
 }
-
 }

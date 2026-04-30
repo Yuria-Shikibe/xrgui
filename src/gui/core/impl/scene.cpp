@@ -328,12 +328,6 @@ std::thread::id exchange_scene_thread(scene& s, std::thread::id id){
 	return std::exchange(s.ui_main_thread_id, id);
 }
 
-style::style_manager scene_resources::init_style_manager_() const{
-	style::style_manager manager{};
-	manager.reserve(64);
-	return manager;
-}
-
 style::style_tree_manager scene_resources::init_style_tree_manager_() const{
 	style::style_tree_manager manager{};
 	manager.reserve(64);

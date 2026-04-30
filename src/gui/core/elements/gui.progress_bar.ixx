@@ -163,35 +163,25 @@ export struct progress_bar;
 namespace style{
 
 export
-struct progress_drawer : style_drawer<progress_bar>{
-	using style_drawer::style_drawer;
+struct progress_drawer_flat{
+	using target_type = progress_bar;
+
+	void operator()(const typed_draw_param<progress_bar>& p) const;
 };
 
 export
-struct progress_drawer_flat : progress_drawer{
-	using progress_drawer::progress_drawer;
+struct progress_drawer_arc{
+	using target_type = progress_bar;
 
-protected:
-	void draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override;
-};
-
-export
-struct progress_drawer_arc : progress_drawer{
 	math::based_section<float> radius{0, 1};
 	math::based_section<float> angle_range{0, 1};
 	align::pos align = align::pos::center;
 
-	using progress_drawer::progress_drawer;
-
-protected:
-	void draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override;
+	void operator()(const typed_draw_param<progress_bar>& p) const;
 };
 
-export inline constexpr progress_drawer_flat default_progress_drawer{tags::persistent, layer_top_only};
-export inline const progress_drawer* global_default_progress_drawer{};
-
-export inline const progress_drawer* get_global_default_progress_drawer() noexcept{
-	return global_default_progress_drawer == nullptr ? &default_progress_drawer : global_default_progress_drawer;
+export inline auto make_default_progress_style(){
+	return make_tree_node_ptr(tree_leaf{progress_drawer_flat{}});
 }
 
 }
@@ -208,7 +198,9 @@ protected:
 
 struct progress_bar : elem{
 private:
-	referenced_ptr<const style::progress_drawer> drawer{style::get_global_default_progress_drawer()};
+	style::target_known_node_ptr<progress_bar> content_style_{init_content_style_()};
+
+	style::target_known_node_ptr<progress_bar> init_content_style_();
 
 protected:
 	progress_bar_terminal* notifier_{};
@@ -234,12 +226,14 @@ public:
 	}
 
 public:
-	[[nodiscard]] const style::progress_drawer* get_drawer() const noexcept{
-		return drawer.get();
+	using elem::set_style;
+
+	[[nodiscard]] const style::target_known_node_ptr<progress_bar>& get_content_style() const noexcept{
+		return content_style_;
 	}
 
-	void set_drawer(referenced_ptr<const style::progress_drawer>&& drawer){
-		if(util::try_modify(this->drawer, std::move(drawer))){
+	void set_style(style::target_known_node_ptr<progress_bar> style){
+		if(util::try_modify(this->content_style_, std::move(style))){
 			get_scene().notify_display_state_changed(get_channel());
 		}
 	}
@@ -258,8 +252,8 @@ public:
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
-		if(drawer)record_content_drawer_draw_context(call_stack_builder, [](const progress_bar& s, draw_recorder& r){
-			s.drawer->record_draw_layer(r);
+		if(style::present(content_style_))record_content_drawer_draw_context(call_stack_builder, [](const progress_bar& s, draw_recorder& r){
+			style::draw_record(s.content_style_, r);
 		});
 	}
 

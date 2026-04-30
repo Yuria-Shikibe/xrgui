@@ -10,9 +10,12 @@ import mo_yanxi.math.interpolation;
 namespace mo_yanxi::gui{
 
 
-	void style::scroll_pane_bar_drawer::draw_layer_impl(const scroll_adaptor_base& element, math::frect region,
-	                                                    float opacityScl,
-	                                                    fx::layer_param layer_param) const{
+	void style::scroll_pane_bar_drawer::operator()(const typed_draw_param<scroll_adaptor_base>& p) const{
+		const auto& element = p.subject();
+		auto region = p->draw_bound;
+		float opacityScl = p->opacity_scl;
+		auto layer_param = p->layer_param;
+
 		if(layer_param.is_top() && opacityScl > 0.001f){
 			each_scroll_rect(element, region, [&](math::raw_frect bar_rect, bool){
 				element.renderer().push(graphic::draw::instruction::rect_aabb{
@@ -81,10 +84,17 @@ namespace mo_yanxi::gui{
     }
 
     return true;
-}
+	}
 
 	void scroll_adaptor_base::draw_scroll_bar(fx::layer_param_pass_t param) const{
-		if(drawer) drawer->draw_layer(*this, content_bound_abs(), get_bar_opacity() * get_local_draw_opacity(), param);
+		if(drawer){
+			style::draw_direct(drawer, style::typed_draw_param<scroll_adaptor_base>{{
+				.current_subject = this,
+				.draw_bound = content_bound_abs(),
+				.opacity_scl = get_bar_opacity() * get_local_draw_opacity(),
+				.layer_param = param,
+			}});
+		}
 	}
 
 	void scroll_adaptor_base::record_draw_scroll_bar(draw_recorder& call_stack_builder) const{
@@ -99,16 +109,16 @@ namespace mo_yanxi::gui{
 				};
 			});
 
-		drawer->record_draw_layer(call_stack_builder );
+		style::draw_record(drawer, call_stack_builder);
 
 		call_stack_builder.push_call_leave();
 	}
 
 
 
-	referenced_ptr<const style::scroll_pane_bar_drawer> scroll_adaptor_base::init_drawer_(){
+	style::target_known_node_ptr<scroll_adaptor_base> scroll_adaptor_base::init_drawer_(){
 		return post_sync_assign(*this, &scroll_adaptor_base::drawer, [](scroll_adaptor_base& b){
-			return b.get_style_manager_legacy().get_default<style::scroll_pane_bar_drawer>();
+			return b.get_style_tree_manager().get_default<scroll_adaptor_base>();
 		});
 	}
 

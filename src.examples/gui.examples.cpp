@@ -59,7 +59,6 @@ import mo_yanxi.gui.compound.data_table;
 import mo_yanxi.gui.compound.click_collapser;
 import mo_yanxi.gui.compound.numeric_input_area;
 
-import mo_yanxi.gui.style.round_square;
 import mo_yanxi.gui.style.round_styles;
 import mo_yanxi.gui.style.progress_bars;
 import mo_yanxi.gui.style.palette;
@@ -121,42 +120,6 @@ struct image_cursor : style::cursor{
 	}
 };
 
-struct r_style : style::round_style{
-protected:
-	void draw_layer_impl(const elem& element, math::frect region, float opacityScl,
-	                     fx::layer_param layer_param) const override{
-		if(layer_param == 0){
-			auto inbounds = element.get_scene().get_inbounds();
-			if(!inbounds.empty() && inbounds.back() == &element){
-				// auto pos = util::transform_scene2local(element, element.get_scene().get_cursor_pos());
-				// 	auto& r = element.renderer();
-				// 	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_draw});
-				// 	r.update_state(fx::batch_draw_mode::msdf);
-				//
-				// 	element.renderer() << fx::nine_patch_draw<>{
-				// 		.patch = &back,
-				// 		.region = region,
-				// 		.color = graphic::colors::white,
-				// 	};
-				//
-				// 	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::mask_apply});
-				// 	r.update_state(fx::push_constant{fx::batch_draw_mode::def, fx::mask_read_mode::def});
-				//
-				// 	r << fx::fringe::poly(fx::circle{
-				// 		.pos = {element.get_scene().get_cursor_pos()},
-				// 		.radius = {0, 60},
-				// 		.color = {graphic::colors::aqua.copy_set_a(.5f), graphic::colors::pale_green.copy_set_a(.5f)}
-				// 	});
-				//
-				// 	r.update_state(fx::pipeline_config{.pipeline_index = gpip_idx::def});
-				// 	r.update_state(fx::batch_draw_mode::msdf);
-			}
-		}
-
-		style::round_style::draw_layer_impl(element, region, opacityScl, layer_param);
-	}
-};
-
 #pragma region ExampleUIStructs
 struct csv_file_reader : head_body{
 	struct file_listener : react_flow::terminal<std::span<const std::filesystem::path>>{
@@ -198,12 +161,10 @@ struct csv_file_reader : head_body{
 				prog.set_style();
 				prog.progress.set_state(progress_state::approach_smooth);
 				prog.progress.set_speed(.0001f);
-				referenced_ptr<style::ring_progress> drawer{std::in_place};
-				drawer->thickness = 32;
 				prog.draw_config.color = {graphic::colors::white, graphic::colors::white};
 
 				prog.set_self_boarder(gui::boarder{}.set(32));
-				prog.set_drawer(std::move(drawer));
+				prog.set_style(style::make_ring_progress_style(32));
 				prog.set_progress_state(progress_state::rough);
 			});
 		}
@@ -460,14 +421,14 @@ struct vp : gui::viewport{
 			state_guard _{renderer(), fx::blend::pma::additive};
 			for(unsigned i = 0; i < curve_points.size(); ++i){
 				renderer() << fx::fringe::curve(instruction::parametric_curve{
-					                  .param = instruction::curve_trait_mat::b_spline.apply_to(
-						                  curve_points[i], curve_points[(i + 1) % curve_points.size()],
-						                  curve_points[(i + 2) % curve_points.size()],
-						                  curve_points[(i + 3) % curve_points.size()]),
-					                  .stroke = {12, 12},
-					                  .segments = 6,
-					                  .color = {graphic::colors::aqua.copy_set_a(.52f)}
-				                  });
+						.param = instruction::curve_trait_mat::b_spline.apply_to(
+							curve_points[i], curve_points[(i + 1) % curve_points.size()],
+							curve_points[(i + 2) % curve_points.size()],
+							curve_points[(i + 3) % curve_points.size()]),
+						.stroke = {12, 12},
+						.segments = 6,
+						.color = {graphic::colors::aqua.copy_set_a(.52f)}
+					});
 			}
 		}
 
@@ -570,10 +531,7 @@ struct make_style_result{
 };
 
 
-
 make_style_result make_styles(scene_resources& scene){
-	auto& sm = scene.style_manager;
-
 	auto pal_front_distributor_ptr = react_flow::node_pointer(react_flow::provider_cached<style::palette>{});
 	auto pal_back_distributor_ptr = react_flow::node_pointer(react_flow::provider_cached<style::palette>{});
 
@@ -589,177 +547,31 @@ make_style_result make_styles(scene_resources& scene){
 		};
 	pal_front_distributor_cursor_ignored->connect_predecessor(pal_front_distributor);
 
-#pragma region Legacy
-	{
-		using namespace style;
-		r_style templt{};
-
-		static constexpr auto color_to_dark = [](graphic::color c){
-			return c.set_value(.12f).shift_saturation(-.05f);
-		};
-
-		templt.edge = {assets::builtin::default_round_square_boarder_thin, {pal_front_distributor}};
-		templt.back = {assets::builtin::default_round_square_base, {pal_back_distributor}};
-
-		auto [itr, suc] = sm.register_style<elem_style_drawer>(referenced_ptr<r_style>{std::in_place, templt});
-		auto& default_family = itr->second.get_default();
-
-		{
-			auto gst = templt;
-			gst.edge.pal.node.set_value(*pal_front_distributor_cursor_ignored);
-			gst.back.pal.node.set_value(gst.back.pal.node.get_value().copy().set_cursor_ignored());
-			default_family.set(family_variant::general_static, referenced_ptr<round_style>{std::in_place, gst});
-		}
-
-		{
-			auto gst = templt;
-			static constexpr auto baseColor = graphic::colors::aqua.create_lerp(graphic::colors::AQUA_SKY, .5f);
-			gst.edge.pal = make_theme_palette(baseColor);
-			gst.back.pal = make_theme_palette(color_to_dark(baseColor));
-			default_family.set(family_variant::accent, referenced_ptr<round_style>{std::in_place, gst});
-		}
-
-		{
-			auto gst = templt;
-			static constexpr auto baseColor = graphic::colors::red_dusted.create_lerp(graphic::colors::white, .1f);
-			gst.edge.pal = make_theme_palette(baseColor);
-			gst.back.pal = make_theme_palette(color_to_dark(baseColor));
-			default_family.set(family_variant::invalid, referenced_ptr<round_style>{std::in_place, gst});
-		}
-
-		{
-			auto gst = templt;
-			static constexpr auto baseColor = graphic::color::from_rgba8888(0XDBBB6AFF).create_lerp(
-				graphic::colors::pale_yellow, .5f);
-			gst.edge.pal = make_theme_palette(baseColor);
-			gst.back.pal = make_theme_palette(color_to_dark(baseColor));
-			default_family.set(family_variant::warning, referenced_ptr<round_style>{std::in_place, gst});
-		}
-
-		{
-			auto gst = templt;
-			static constexpr auto baseColor = graphic::colors::pale_green;
-			gst.edge.pal = make_theme_palette(baseColor);
-			gst.back.pal = make_theme_palette(color_to_dark(baseColor));
-			default_family.set(family_variant::accepted, referenced_ptr<round_style>{std::in_place, gst});
-		}
-
-		{
-			auto gst = templt;
-			gst.base = gst.back;
-			gst.base.pal.node.disconnect_self_from_context();
-			gst.base.pal.node.set_value(gst.base.pal.node.get_value().copy().mul_alpha(2.f));
-			default_family.set(family_variant::solid, referenced_ptr<round_style>{std::in_place, gst});
-		}
-
-		{
-			referenced_ptr<round_style_base_only> round_style{std::in_place};
-			round_style->boarder.set(4);
-			round_style->base = templt.base;
-			round_style->back = templt.back;
-
-			default_family.set(family_variant::base_only, std::move(round_style));
-		}
-
-		{
-			referenced_ptr<round_style_edge_only> round_style{std::in_place};
-			round_style->edge = templt.edge;
-
-			default_family.set(family_variant::edge_only, std::move(round_style));
-		}
-	}
-
-	auto elem_slice = sm.get_slice<style::elem_style_drawer>().value();
-
-	{
-		referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
-		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
-		round_scroll_bar_style->bar_palette = style::pal::white.copy().mul_rgb(.8f);
-
-		sm.register_style<style::scroll_pane_bar_drawer>(std::move(round_scroll_bar_style));
-	}
-
-	{
-		referenced_ptr<style::thin_slider_drawer> round_scroll_bar_style{std::in_place};
-
-		constexpr auto pal = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .5f));
-		round_scroll_bar_style->handle_palette = pal;
-		round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
-		round_scroll_bar_style->bar_palette = pal;
-
-		sm.register_style<style::slider1d_drawer>(std::move(round_scroll_bar_style));
-	}
-
-	{
-		constexpr auto pal = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .5f));
-
-		referenced_ptr<style::round_slider_drawer> drawer{std::in_place};
-		drawer->handle_shape = assets::builtin::default_round_square_base;
-		drawer->bar_shape = assets::builtin::default_round_square_base;
-
-		drawer->handle_palette = pal;
-		drawer->bar_palette = pal.copy().mul_rgb(.8f);
-		drawer->bar_back_palette = pal.copy().mul_rgb(.5f);
-
-		drawer->vert_margin = 5.f;
-
-		sm.register_style<style::slider1d_drawer>(std::move(drawer));
-	}
-
-	{
-		style::side_bar_style style{};
-		const auto region = assets::builtin::get_page()[assets::builtin::shape_id::side_bar].value_or({});
-		style.boarder.set(2);
-		style.bar.pal = style::pal::white;
-		style.bar = image_row_patch{region, region->uv.get_region(), 18, 18, 4};
-		style.back.pal = style::pal::dark;
-		style.back.val = assets::builtin::default_round_square_base;
-
-
-		{
-			auto s = style;
-			s.boarder.left = 16;
-			s.pos = style::side_bar_pos::left;
-			elem_slice.insert_or_assign("side_bar_left", referenced_ptr<style::side_bar_style>{std::in_place, s});
-		}
-		{
-			auto s = style;
-			s.boarder.right = 16;
-			s.pos = style::side_bar_pos::right;
-			elem_slice.insert_or_assign("side_bar_right", referenced_ptr<style::side_bar_style>{std::in_place, s});
-		}
-		{
-			auto s = style;
-			s.boarder.top = 16;
-			s.pos = style::side_bar_pos::top;
-			elem_slice.insert_or_assign("side_bar_top", referenced_ptr<style::side_bar_style>{std::in_place, s});
-		}
-		{
-			auto s = style;
-			s.boarder.bottom = 16;
-			s.pos = style::side_bar_pos::bottom;
-			elem_slice.insert_or_assign("side_bar_bottom", referenced_ptr<style::side_bar_style>{std::in_place, s});
-		}
-
-
-		{
-			referenced_ptr<style::round_scroll_bar_style> round_scroll_bar_style{std::in_place};
-			round_scroll_bar_style->bar_shape = assets::builtin::get_separator_row_patch();
-			round_scroll_bar_style->bar_palette = style::pal::white.copy().mul_rgb(.8f);
-			sm.register_style<style::scroll_pane_bar_drawer>(std::move(round_scroll_bar_style));
-		}
-	}
-
-	sm.register_style<style::slider2d_drawer>(referenced_ptr<style::default_slider2d_drawer>{std::in_place});
-#pragma endregion
-
 	{
 		auto& manager = scene.style_tree_manager;
+		manager.register_style<slider1d>(style::spec::make_round_slider_style({
+			.handle_shape = assets::builtin::default_round_square_base,
+			.bar_shape = assets::builtin::default_round_square_base,
+			.handle_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .55f)),
+			.bar_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .5f)),
+			.bar_back_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .5f)),
+			.bar_margin = 4.f,
+			.vert_margin = 5.f
+		}));
+
+		manager.register_style<slider2d>(style::make_default_slider2d_style());
+		manager.register_style<progress_bar>(style::make_default_progress_style());
+		manager.register_style<scroll_adaptor_base>(style::spec::make_round_scroll_bar_style({
+			.bar_shape = assets::builtin::get_separator_row_patch(),
+			.bar_palette = style::pal::white.copy().mul_rgb(.8f),
+			.back_palette = {},
+		}));
+
 		style::spec::create_entry e{
-			.edge = {assets::builtin::default_round_square_boarder_thin, {pal_front_distributor}},
-			.base = {},
-			.back = {assets::builtin::default_round_square_base, {pal_back_distributor}}
-		};
+				.edge = {assets::builtin::default_round_square_boarder_thin, {pal_front_distributor}},
+				.base = {},
+				.back = {assets::builtin::default_round_square_base, {pal_back_distributor}}
+			};
 
 		auto [itr, rst] = manager.register_style<elem>(style::make_tree_node_ptr(e.make_general()));
 		auto& col = itr->second;
@@ -779,7 +591,8 @@ make_style_result make_styles(scene_resources& scene){
 			auto back_pal = gst.back.pal.node.get_value().copy();
 			back_pal.set_cursor_ignored();
 			gst.back.pal = {back_pal};
-			col.default_family.set(style::family_variant::general_static, style::make_tree_node_ptr(gst.make_general()));
+			col.default_family.set(style::family_variant::general_static,
+			                       style::make_tree_node_ptr(gst.make_general()));
 		}
 
 		{
@@ -821,7 +634,8 @@ make_style_result make_styles(scene_resources& scene){
 			auto base_pal = gst.back.pal.node.get_value().copy();
 			base_pal.mul_alpha(2.f);
 			gst.base.pal = {base_pal};
-			col.default_family.set(style::family_variant::solid, style::make_tree_node_ptr(gst.make_general_with_base()));
+			col.default_family.set(style::family_variant::solid,
+			                       style::make_tree_node_ptr(gst.make_general_with_base()));
 		}
 	}
 
@@ -1039,21 +853,20 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 							sequence.template_cell.set_pad({4, 4});
 
 							auto slider = sequence.emplace_back<slider1d_with_output>();
-							slider->set_smooth_scroll(true);
-							slider->set_smooth_jump(false);
-							slider->set_smooth_drag(true);
-							slider->bar_handle_extent = {40};
-							referenced_ptr<style::round_slider_drawer> drawer{std::in_place};
-							drawer->handle_shape = assets::builtin::default_round_square_base;
-							drawer->bar_shape = assets::builtin::default_round_square_base;
-							drawer->handle_palette = style::pal::white;
-							drawer->bar_palette = style::pal::pastel_gray.copy().mul_rgb(.7f);
-							drawer->bar_back_palette = style::pal::pastel_gray.copy().mul_rgb(.2f);
-							drawer->vert_margin = 5.f;
-
-
-							slider->set_drawer(std::move(drawer));
-							slider.cell().set_size(60);
+						slider->set_smooth_scroll(true);
+						slider->set_smooth_jump(false);
+						slider->set_smooth_drag(true);
+						slider->bar_handle_extent = {40};
+						slider->set_drawer(style::spec::make_round_slider_style({
+							.handle_shape = assets::builtin::default_round_square_base,
+							.bar_shape = assets::builtin::default_round_square_base,
+							.handle_palette = style::pal::white,
+							.bar_palette = style::pal::pastel_gray.copy().mul_rgb(.7f),
+							.bar_back_palette = style::pal::pastel_gray.copy().mul_rgb(.2f),
+							.bar_margin = 4.f,
+							.vert_margin = 5.f,
+						}));
+						slider.cell().set_size(60);
 
 							auto& progNode = slider->get_provider();
 

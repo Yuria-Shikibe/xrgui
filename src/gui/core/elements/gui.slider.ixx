@@ -5,7 +5,6 @@ export import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.slider_logic;
 import mo_yanxi.snap_shot;
 import mo_yanxi.math;
-import mo_yanxi.gui.style.interface;
 import std;
 
 namespace mo_yanxi::gui {
@@ -15,37 +14,25 @@ export struct slider1d;
 export struct slider2d;
 
 namespace style {
-    export struct slider1d_drawer : style_drawer<slider1d> {
-        using style_drawer::style_drawer;
-    };
-    
-    export struct default_slider1d_drawer : slider1d_drawer {
-        [[nodiscard]] constexpr default_slider1d_drawer()
-        : slider1d_drawer(tags::persistent, layer_top_only) {}
+    export struct draw_slider1d_default {
+        using target_type = slider1d;
 
-    protected:
-        void draw_layer_impl(
-            const slider1d& element,
-            math::frect region,
-            float opacityScl,
-            fx::layer_param layer_param) const override;
+        void operator()(const typed_draw_param<slider1d>& p) const;
     };
 
-    export struct slider2d_drawer : style_drawer<slider2d> {
-        using style_drawer::style_drawer;
+    export struct draw_slider2d_default {
+        using target_type = slider2d;
+
+        void operator()(const typed_draw_param<slider2d>& p) const;
     };
 
-    export struct default_slider2d_drawer : slider2d_drawer {
-        [[nodiscard]] constexpr default_slider2d_drawer()
-        : slider2d_drawer(tags::persistent, layer_top_only) {}
+    export inline auto make_default_slider1d_style() {
+        return make_tree_node_ptr(tree_leaf{draw_slider1d_default{}});
+    }
 
-    protected:
-        void draw_layer_impl(
-            const slider2d& element,
-            math::frect region,
-            float opacityScl,
-            fx::layer_param layer_param) const override;
-    };
+    export inline auto make_default_slider2d_style() {
+        return make_tree_node_ptr(tree_leaf{draw_slider2d_default{}});
+    }
 }
 
 
@@ -110,7 +97,7 @@ protected:
     virtual void on_changed() {}
 
 private:
-	const auto* get_drawer() const noexcept{
+	const auto& get_content_style_() const noexcept{
 		return static_cast<const Derived&>(*this).get_drawer();
 	}
 
@@ -118,11 +105,11 @@ public:
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
-		if(get_drawer()){
+		if(style::present(get_content_style_())){
 			static_cast<const Derived&>(*this).record_content_drawer_draw_context(
 				call_stack_builder,
 				[](const Derived& self, draw_recorder& r){
-					style::record_draw_layer(*self.get_drawer(), r);
+					style::draw_record(self.get_drawer(), r);
 				});
 		}
 	}
@@ -258,21 +245,24 @@ export struct slider1d : slider_base<1, slider1d> {
 private:
     bool is_vertical_{false};
 
-    referenced_ptr<const style::slider1d_drawer> drawer_{post_sync_assign(*this, &slider1d::drawer_, [](const slider1d& s){
-		return s.get_style_manager_legacy().get_default<style::slider1d_drawer>();
-	})};
+    style::target_known_node_ptr<slider1d> content_style_{init_content_style_()};
+
+    style::target_known_node_ptr<slider1d> init_content_style_();
 
 public:
     using slider_base<1, slider1d>::slider_base;
 
-	const style::slider1d_drawer* get_drawer() const noexcept{
-		return drawer_.get();
+	const style::target_known_node_ptr<slider1d>& get_drawer() const noexcept{
+		return content_style_;
 	}
 
-    void set_drawer(referenced_ptr<const style::slider1d_drawer>&& drawer) {
-	    if(util::try_modify(drawer_, std::move(drawer))){
-		    get_scene().notify_display_state_changed(get_channel());
-	    }
+    void set_drawer(style::target_known_node_ptr<slider1d> style) {
+		sync_run([stl = std::move(style)](slider1d& s) mutable {
+			if(util::try_modify(s.content_style_, std::move(stl))){
+				s.get_scene().notify_display_state_changed(s.get_channel());
+			}
+		});
+
     }
 
     [[nodiscard]] bool is_vertical() const noexcept{
@@ -325,21 +315,23 @@ public:
 
 export struct slider2d : slider_base<2, slider2d> {
 private:
-	referenced_ptr<const style::slider2d_drawer> drawer_{post_sync_assign(*this, &slider2d::drawer_, [](const slider2d& s){
-		return s.get_style_manager_legacy().get_default<style::slider2d_drawer>();
-	})};
+	style::target_known_node_ptr<slider2d> content_style_{init_content_style_()};
+
+	style::target_known_node_ptr<slider2d> init_content_style_();
 
 public:
 	using slider_base<2, slider2d>::slider_base;
 
-	const style::slider2d_drawer* get_drawer() const noexcept{
-		return drawer_.get();
+	const style::target_known_node_ptr<slider2d>& get_drawer() const noexcept{
+		return content_style_;
 	}
 
-	void set_drawer(referenced_ptr<const style::slider2d_drawer>&& drawer) {
-		if(util::try_modify(drawer_, std::move(drawer))){
-			get_scene().notify_display_state_changed(get_channel());
-		}
+	void set_drawer(style::target_known_node_ptr<slider2d> style) {
+		sync_run([stl = std::move(style)](slider2d& s) mutable {
+			if(util::try_modify(s.content_style_, std::move(stl))){
+				s.get_scene().notify_display_state_changed(s.get_channel());
+			}
+		});
 	}
 
     [[nodiscard]] math::vec2 get_progress() const noexcept { return expand_to_vec2(bar.get_progress()); }

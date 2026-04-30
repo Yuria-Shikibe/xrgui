@@ -79,9 +79,9 @@ private:
 	};
 	overlay_bar_state overlay_state_{overlay_bar_state::hidden};
 
-	referenced_ptr<const style::scroll_pane_bar_drawer> init_drawer_();
+	style::target_known_node_ptr<scroll_adaptor_base> init_drawer_();
 
-	referenced_ptr<const style::scroll_pane_bar_drawer> drawer{init_drawer_()};
+	style::target_known_node_ptr<scroll_adaptor_base> drawer{init_drawer_()};
 
 public:
 	float fade_delay_ticks{60.0f * 1.5f};
@@ -802,11 +802,11 @@ protected:
 };
 
 namespace style{
-struct scroll_pane_bar_drawer : style_drawer<scroll_adaptor_base>{
+struct scroll_pane_bar_drawer {
+	using target_type = scroll_adaptor_base;
+
 	float minor_near_margin_ratio{0.25f};
 	float minor_far_margin_ratio{0.05f};
-
-	using style_drawer::style_drawer;
 
 protected:
 	math::raw_frect get_scroll_region(const scroll_adaptor_base& element, float isHori){
@@ -885,11 +885,14 @@ protected:
 		this->each_scroll_rect(element, region, barConsumer, barConsumer);
 	}
 
-	void draw_layer_impl(const scroll_adaptor_base& element, math::frect region, float opacityScl,
-	                     fx::layer_param layer_param) const override;
+	public:
+	void operator()(const typed_draw_param<scroll_adaptor_base>& p) const;
 };
 
-constexpr scroll_pane_bar_drawer default_scroll_pane_drawer{tags::persistent, {0b1}};
+export
+inline auto make_default_scroll_pane_style(){
+	return make_tree_node_ptr(tree_leaf{scroll_pane_bar_drawer{}});
+}
 }
 
 /**

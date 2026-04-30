@@ -40,62 +40,6 @@ export constexpr inline boarder default_boarder{8, 8, 8, 8};
 export
 struct overlay_manager;
 
-namespace style{
-
-
-export struct elem_style_drawer : style_drawer<elem>{
-	using style_drawer::style_drawer;
-
-	/**
-	 * @warning boarder must not change after init section, all access(multi-thread and cache) to it assumes that it is const
-	 * @return the boarder of the drawer
-	 */
-	[[nodiscard]] virtual boarder get_boarder() const noexcept{
-		return {};
-	}
-};
-
-export struct debug_elem_drawer final : elem_style_drawer{
-	[[nodiscard]] constexpr debug_elem_drawer() : elem_style_drawer(tags::persistent, layer_draw_until<2>){
-	}
-
-	[[nodiscard]] explicit debug_elem_drawer(const style_config& config)
-		: elem_style_drawer(config){
-	}
-
-	boarder get_boarder() const noexcept override{
-		return default_boarder;
-	}
-
-
-	void draw(const elem& element, rect region, float opacityScl) const;
-
-	void draw_background(const elem& element, math::frect region, float opacityScl) const;
-
-protected:
-	void draw_layer_impl(const elem& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override;
-};
-
-export struct empty_drawer final : elem_style_drawer{
-	[[nodiscard]] constexpr empty_drawer() : elem_style_drawer(tags::persistent, layer_top_only){}
-
-
-	void draw_layer_impl(
-		const elem& element,
-		math::frect region,
-		float opacityScl,
-		fx::layer_param layer_param) const override{
-	}
-};
-
-
-using elem_style_ptr = referenced_ptr<const elem_style_drawer>;
-
-export constexpr inline debug_elem_drawer debug_style;
-export constexpr inline empty_drawer empty_style;
-
-
-}
 
 export
 struct cursor_states{
@@ -857,8 +801,6 @@ public:
 
 #pragma region Trivial_Getter_Setters
 public:
-	[[deprecated]] style::style_manager& get_style_manager_legacy() const noexcept;
-
 	style::style_tree_manager& get_style_tree_manager() const noexcept{
 		return get_scene().resources().style_tree_manager;
 	}

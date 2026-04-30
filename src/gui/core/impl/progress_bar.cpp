@@ -106,10 +106,12 @@ SectorLayout calculateSectorFit(float w, float h, float a1, float a2) {
     return {R, {x_c, y_c}};
 }
 
-void style::progress_drawer_flat::draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl,
-	fx::layer_param layer_param) const{
-	if(layer_param == 0){
+void style::progress_drawer_flat::operator()(const typed_draw_param<progress_bar>& p) const{
+	if(p->layer_param == 0){
 		using namespace graphic;
+		const auto& element = p.subject();
+		auto region = p->draw_bound;
+		float opacityScl = p->opacity_scl;
 
 		auto prog = element.progress.get_current();
 
@@ -124,8 +126,12 @@ void style::progress_drawer_flat::draw_layer_impl(const progress_bar& element, m
 	}
 }
 
-void style::progress_drawer_arc::draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl,
-	fx::layer_param layer_param) const{
+void style::progress_drawer_arc::operator()(const typed_draw_param<progress_bar>& p) const{
+	if(!p->layer_param.is_top()) return;
+
+	const auto& element = p.subject();
+	auto region = p->draw_bound;
+	float opacityScl = p->opacity_scl;
 	const auto prog = element.progress.get_current();
 	using namespace graphic;
 
@@ -178,5 +184,11 @@ void style::progress_drawer_arc::draw_layer_impl(const progress_bar& element, ma
 				element.draw_config.color[prog].copy().mul_a(opacityScl), element.draw_config.color[prog].copy().mul_a(opacityScl)
 			}
 		}, 1.5f * cap_size, 1.5f* cap_size, 1.5f);
+}
+
+style::target_known_node_ptr<progress_bar> progress_bar::init_content_style_(){
+	return post_sync_assign(*this, &progress_bar::content_style_, [](const progress_bar& s){
+		return s.get_style_tree_manager().get_default<progress_bar>();
+	});
 }
 }

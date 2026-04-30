@@ -24,31 +24,35 @@ import mo_yanxi.gui.fx.fringe;
 
 namespace mo_yanxi::gui{
 export
-struct slider_gradient_drawer : style::default_slider1d_drawer{
+struct slider_gradient_drawer{
+	using target_type = slider1d;
+
 	graphic::color src;
 	graphic::color dst;
 
-protected:
-	void draw_layer_impl(const target_type& element, math::frect region, float opacityScl,
-	                     fx::layer_param layer_param) const override{
-		if(layer_param.is_top()){
-			auto srca = src.copy().mul_a(opacityScl);
-			auto dsta = dst.copy().mul_a(opacityScl);
-			element.renderer() << graphic::draw::instruction::rect_aabb{
-					.v00 = region.get_src(),
-					.v11 = region.get_end(),
+	void operator()(const style::typed_draw_param<target_type>& p) const{
+		if(p->layer_param.is_top()){
+			auto srca = src.copy().mul_a(p->opacity_scl);
+			auto dsta = dst.copy().mul_a(p->opacity_scl);
+			p.subject().renderer() << graphic::draw::instruction::rect_aabb{
+					.v00 = p->draw_bound.get_src(),
+					.v11 = p->draw_bound.get_end(),
 					.vert_color = {srca, dsta, srca, dsta}
 				};
 		}
 
-		default_slider1d_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
+		style::draw_slider1d_default{}(p);
 	}
 };
 
-struct hue_gradient_drawer final : gui::style::default_slider1d_drawer{
-	void draw_layer_impl(const target_type& element, math::frect region, float opacityScl,
-	                     fx::layer_param layer_param) const override{
-		if(layer_param.is_top()){
+struct hue_gradient_drawer final {
+	using target_type = slider1d;
+
+	void operator()(const style::typed_draw_param<target_type>& p) const{
+		if(p->layer_param.is_top()){
+			const auto& element = p.subject();
+			auto region = p->draw_bound;
+			float opacityScl = p->opacity_scl;
 			static constexpr int segs_size = 128;
 			fx::fringe::inplace_line_context<segs_size + 4> context{};
 
@@ -70,28 +74,29 @@ struct hue_gradient_drawer final : gui::style::default_slider1d_drawer{
 			start.*minor += stroke * .5f;
 
 			for(int i = 0; i < segs_size; ++i){
-				auto p = start.copy();
-				p.*major = math::fma(marching, i, p.*major);
+				auto pos = start.copy();
+				pos.*major = math::fma(marching, i, pos.*major);
 				auto color = graphic::color{}.from_hsv({
-						static_cast<float>(i) / static_cast<float>((segs_size - 1)), 1, 1
+						static_cast<float>(i) / static_cast<float>(segs_size - 1), 1, 1
 					}).set_a(opacityScl);
-				context.push(p, stroke * .6f, color);
+				context.push(pos, stroke * .6f, color);
 			}
 
 			context.add_cap(0.1, 0.1);
 			element.renderer() << context.mid(graphic::draw::instruction::line_segments{});
 		}
 
-		default_slider1d_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
+		style::draw_slider1d_default{}(p);
 	}
 };
 
-struct alpha_gradient_drawer : gui::style::default_slider1d_drawer{
-protected:
-	void draw_layer_impl(const target_type& element, math::frect region, float opacityScl,
-	                     fx::layer_param layer_param) const override{
-		if(layer_param.is_top()){
+struct alpha_gradient_drawer {
+	using target_type = slider1d;
 
+	void operator()(const style::typed_draw_param<target_type>& p) const{
+		if(p->layer_param.is_top()){
+			const auto& element = p.subject();
+			auto region = p->draw_bound;
 
 			using namespace graphic::draw;
 
@@ -153,12 +158,17 @@ protected:
 			}
 		}
 
-		default_slider1d_drawer::draw_layer_impl(element, region, opacityScl, layer_param);
+		style::draw_slider1d_default{}(p);
 	}
 };
 
-constexpr hue_gradient_drawer hue_gradient_slider_drawer{};
-constexpr alpha_gradient_drawer alpha_gradient_slider_drawer{};
+inline auto make_hue_gradient_slider_style(){
+	return style::make_tree_node_ptr(style::tree_leaf{hue_gradient_drawer{}});
+}
+
+inline auto make_alpha_gradient_slider_style(){
+	return style::make_tree_node_ptr(style::tree_leaf{alpha_gradient_drawer{}});
+}
 
 namespace cpd{
 template <typename... Fns>
@@ -346,7 +356,7 @@ public:
 					}));
 					s.set_style();
 					s.set_vertical(layout_policy);
-					s.set_drawer(hue_gradient_slider_drawer);
+					s.set_drawer(make_hue_gradient_slider_style());
 					slider_HUE_ = &s;
 				}
 
@@ -356,7 +366,7 @@ public:
 					}));
 					s.set_style();
 					s.set_vertical(layout_policy);
-					s.set_drawer(alpha_gradient_slider_drawer);
+					s.set_drawer(make_alpha_gradient_slider_style());
 					slider_alpha_ = &s;
 				}
 			}, layout_policy);
@@ -367,7 +377,7 @@ public:
 			}));
 			s.set_style();
 			s.set_vertical(layout_policy);
-			s.set_drawer(hue_gradient_slider_drawer);
+			s.set_drawer(make_hue_gradient_slider_style());
 			slider_HUE_ = &s;
 			set_body_size({layout::size_category::mastering, 60});
 		}

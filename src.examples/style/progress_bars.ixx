@@ -12,13 +12,17 @@ import mo_yanxi.gui.fx.instruction_extension;
 
 namespace mo_yanxi::gui::style{
 export
-struct ring_progress : progress_drawer {
+struct ring_progress {
+    using target_type = progress_bar;
+
     float thickness{ 6.0f };
 
-    using progress_drawer::progress_drawer;
+    void operator()(const typed_draw_param<progress_bar>& p) const{
 
-protected:
-    void draw_layer_impl(const progress_bar& element, math::frect region, float opacityScl, fx::layer_param layer_param) const override{
+    const auto& element = p.subject();
+    auto region = p->draw_bound;
+    float opacityScl = p->opacity_scl;
+    auto layer_param = p->layer_param;
 
     if (layer_param != 0) return;
 
@@ -110,4 +114,9 @@ protected:
 		}, 1.5f * cap_size, 1.5f * cap_size, 1.5f);
     }
 };
+
+export
+inline auto make_ring_progress_style(float thickness = 6.0f){
+	return make_tree_node_ptr(tree_leaf{ring_progress{thickness}});
+}
 }

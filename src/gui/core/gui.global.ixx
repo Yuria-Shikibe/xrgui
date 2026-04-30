@@ -1,7 +1,6 @@
 export module mo_yanxi.gui.global;
 
 export import mo_yanxi.gui.infrastructure;
-export import mo_yanxi.gui.style.manager;
 export import mo_yanxi.input_handle.input_event_queue;
 
 import std;
