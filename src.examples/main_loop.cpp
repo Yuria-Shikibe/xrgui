@@ -12,33 +12,6 @@ import mo_yanxi.gui.elem.sequence;
 import mo_yanxi.gui.style.tree.draw;
 
 namespace mo_yanxi::gui::style{
-struct layer_router_pred{
-	style_config config;
-
-	constexpr bool operator()(const draw_call_param& p) const noexcept{
-		return config.has_layer(p.layer_param);
-	}
-};
-
-template <typename C>
-struct layer_router : tree_router_dynamic<C, layer_router_pred>{
-	template <typename ChildArg>
-	[[nodiscard]] explicit(false) layer_router(style_config config, ChildArg&& child)
-		: tree_router_dynamic<C, layer_router_pred>(layer_router_pred{config}, std::forward<ChildArg>(child)){
-	}
-
-	template <typename ChildArg>
-	[[nodiscard]] explicit(false) layer_router(ChildArg&& child)
-		: tree_router_dynamic<C, layer_router_pred>(layer_router_pred{style_config{0b1}},
-		                                                   std::forward<ChildArg>(child)){
-	}
-};
-
-template <typename Child>
-layer_router(style_config, Child&&) -> layer_router<std::decay_t<Child>>;
-
-template <typename Child>
-layer_router(Child&&) -> layer_router<std::decay_t<Child>>;
 
 template <typename T>
 struct paletted_value{
