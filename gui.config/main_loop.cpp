@@ -1,11 +1,11 @@
-module mo_yanxi.gui.examples.main_loop;
+module mo_yanxi.gui.default_config.main_loop;
 
-import mo_yanxi.gui.examples.constants;
+import mo_yanxi.gui.examples.default_config.constants;
 import mo_yanxi.gui.style.tree;
 import mo_yanxi.gui.style.interface;
 import mo_yanxi.react_flow.flexible_value;
 import mo_yanxi.gui.style.palette;
-import mo_yanxi.gui.assets;
+import mo_yanxi.gui.default_config.assets;
 import mo_yanxi.gui.assets.manager;
 
 import mo_yanxi.gui.elem.sequence;

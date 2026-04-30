@@ -2,7 +2,7 @@ module;
 
 #include <vulkan/vulkan.h>
 
-export module mo_yanxi.gui.style.round_styles;
+export module mo_yanxi.gui.default_config.round_styles;
 
 import std;
 

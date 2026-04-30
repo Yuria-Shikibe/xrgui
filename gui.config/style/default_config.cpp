@@ -1,6 +1,6 @@
-module mo_yanxi.gui.examples.default_config;
+module mo_yanxi.gui.default_config.scene;
 
-import mo_yanxi.gui.examples.constants;
+import mo_yanxi.gui.examples.default_config.constants;
 
 void mo_yanxi::gui::example::set_cursors(scene& scene){
 	auto& cm = scene.resources().cursor_collection_manager;

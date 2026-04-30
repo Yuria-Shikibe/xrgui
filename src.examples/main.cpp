@@ -25,7 +25,7 @@ import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.gui.fx.instruction_extension;
 
-import mo_yanxi.gui.assets;
+import mo_yanxi.gui.default_config.assets;
 import mo_yanxi.gui.image_regions;
 
 import mo_yanxi.font;
@@ -42,7 +42,7 @@ import mo_yanxi.gui.markdown;
 import mo_yanxi.core.platform;
 
 import mo_yanxi.gui.examples;
-import mo_yanxi.gui.examples.main_loop;
+import mo_yanxi.gui.default_config.main_loop;
 import mo_yanxi.gui.examples.loop_exec;
 
 
@@ -67,7 +67,7 @@ void app_run(
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
-	auto& current_focus = main_loop.get_scene();;
+	auto& current_focus = main_loop.get_scene();
 	std::println("[App] Entering Main Loop");
 	main_loop.wait_term_and_reset();
 

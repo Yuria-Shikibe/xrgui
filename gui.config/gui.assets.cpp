@@ -14,7 +14,7 @@ __pragma(warning(pop))
 #define MY_POP_IGNORE_MODULE_INCLUDE_WARNING
 #endif
 
-module mo_yanxi.gui.assets;
+module mo_yanxi.gui.default_config.assets;
 
 import mo_yanxi.gui.assets.manager;
 

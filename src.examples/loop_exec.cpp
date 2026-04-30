@@ -1,6 +1,6 @@
 module mo_yanxi.gui.examples.loop_exec;
 
-import mo_yanxi.gui.examples.constants;
+import mo_yanxi.gui.examples.default_config.constants;
 import mo_yanxi.gui.global;
 import mo_yanxi.math.rand;
 import std;

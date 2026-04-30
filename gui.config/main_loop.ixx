@@ -2,7 +2,7 @@
 // Created by Matrix on 2026/4/6.
 //
 
-export module mo_yanxi.gui.examples.main_loop;
+export module mo_yanxi.gui.default_config.main_loop;
 
 import std;
 import mo_yanxi.gui.global;

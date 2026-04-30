@@ -2,7 +2,7 @@
 
 //
 
-export module mo_yanxi.gui.assets;
+export module mo_yanxi.gui.default_config.assets;
 
 import mo_yanxi.graphic.image_atlas;
 import std;

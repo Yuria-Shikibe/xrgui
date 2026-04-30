@@ -4,7 +4,7 @@
 
 export module mo_yanxi.gui.examples.loop_exec;
 
-import mo_yanxi.gui.examples.main_loop;
+import mo_yanxi.gui.default_config.main_loop;
 import mo_yanxi.graphic.trail;
 
 namespace mo_yanxi::gui::example{

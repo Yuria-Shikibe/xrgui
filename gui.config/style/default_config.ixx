@@ -2,13 +2,13 @@ module;
 
 #include <cassert>
 
-export module mo_yanxi.gui.examples.default_config;
+export module mo_yanxi.gui.default_config.scene;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.image_regions;
 import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.gui.assets;
+import mo_yanxi.gui.default_config.assets;
 import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.style.palette;
 
@@ -17,7 +17,7 @@ import mo_yanxi.gui.elem.slider;
 import mo_yanxi.gui.elem.progress_bar;
 import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.style.tree.draw;
-import mo_yanxi.gui.style.round_styles;
+import mo_yanxi.gui.default_config.round_styles;
 
 import std;
 namespace mo_yanxi::gui{

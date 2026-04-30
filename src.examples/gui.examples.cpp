@@ -59,7 +59,7 @@ import mo_yanxi.gui.compound.data_table;
 import mo_yanxi.gui.compound.click_collapser;
 import mo_yanxi.gui.compound.numeric_input_area;
 
-import mo_yanxi.gui.style.round_styles;
+import mo_yanxi.gui.default_config.round_styles;
 import mo_yanxi.gui.style.progress_bars;
 import mo_yanxi.gui.style.palette;
 
@@ -72,8 +72,8 @@ import celestial_display;
 import mo_yanxi.graphic.trail;
 import mo_yanxi.math.rand;
 
-import mo_yanxi.gui.examples.constants;
-import mo_yanxi.gui.examples.default_config;
+import mo_yanxi.gui.examples.default_config.constants;
+import mo_yanxi.gui.default_config.scene;
 
 
 namespace mo_yanxi::gui::example{

@@ -2,7 +2,7 @@
 // Created by Matrix on 2026/4/13.
 //
 
-export module mo_yanxi.gui.examples.constants;
+export module mo_yanxi.gui.examples.default_config.constants;
 
 import std;
 import mo_yanxi.gui.fx.config;
