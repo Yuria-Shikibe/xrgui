@@ -34,6 +34,7 @@ import mo_yanxi.circular_queue;
 export import mo_yanxi.gui.util;
 export import mo_yanxi.gui.util.task_queue;
 export import mo_yanxi.gui.style.manager;
+export import mo_yanxi.gui.style.tree.manager;
 
 export import mo_yanxi.input_handle;
 export import mo_yanxi.gui.alloc;
@@ -197,12 +198,14 @@ struct scene_resources{
 private:
 	mr::heap heap{};
 	style::style_manager init_style_manager_() const;
+	style::style_tree_manager init_style_tree_manager_() const;
 
 	allocator_aware_poly_unique_ptr<native_communicator, mr::heap_allocator<native_communicator>>  communicator_{};
 public:
 	any_pool<false, mr::unvs_allocator<std::byte>> object_pool{};
 
 	UI_MAIN_THREAD_ACCESS_ONLY style::style_manager style_manager{};
+	UI_MAIN_THREAD_ACCESS_ONLY style::style_tree_manager style_tree_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
 
 	template <std::derived_from<native_communicator> Ty, typename ...Args>
@@ -214,7 +217,7 @@ public:
 	[[nodiscard]] scene_resources() = default;
 
 	[[nodiscard]] explicit scene_resources(mr::heap&& heap)
-		: heap(std::move(heap)), style_manager(init_style_manager_()){
+		: heap(std::move(heap)), style_manager(init_style_manager_()), style_tree_manager(init_style_tree_manager_()){
 	}
 
 	[[nodiscard]] explicit scene_resources(mr::arena_id_t arena_id)

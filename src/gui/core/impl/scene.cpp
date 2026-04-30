@@ -6,6 +6,7 @@ module mo_yanxi.gui.infrastructure;
 
 import std;
 import mo_yanxi.platform.thread;
+import mo_yanxi.gui.style.tree;
 
 namespace mo_yanxi::gui{
 
@@ -331,6 +332,15 @@ style::style_manager scene_resources::init_style_manager_() const{
 	style::style_manager manager{};
 	manager.reserve(64);
 	manager.register_style<style::elem_style_drawer>(referenced_ptr<style::debug_elem_drawer>{std::in_place, style_config{}});
+	return manager;
+}
+
+style::style_tree_manager scene_resources::init_style_tree_manager_() const{
+	style::style_tree_manager manager{};
+	manager.reserve(64);
+	manager.register_style<elem>(style::make_tree_node_ptr(style::tree_leaf{
+		[](const style::typed_draw_param<elem>&){}
+	}));
 	return manager;
 }
 
