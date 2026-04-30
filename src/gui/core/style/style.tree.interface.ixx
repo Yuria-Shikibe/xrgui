@@ -570,6 +570,10 @@ struct bound_tree_node : style_tree_node<bound_tree_node<Comp>>{
 		style::draw_record(comp, ctx);
 	}
 
+	void direct(const typed_draw_param<target_type>& p) const{
+		style::draw_direct(comp, p);
+	}
+
 	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
 		return style::query_metrics(comp, p);
 	}
