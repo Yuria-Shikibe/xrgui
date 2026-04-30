@@ -60,6 +60,7 @@ import mo_yanxi.gui.compound.click_collapser;
 import mo_yanxi.gui.compound.numeric_input_area;
 
 import mo_yanxi.gui.style.round_square;
+import mo_yanxi.gui.style.round_styles;
 import mo_yanxi.gui.style.progress_bars;
 import mo_yanxi.gui.style.palette;
 
@@ -551,29 +552,44 @@ void set_cursors(scene& scene){
 
 struct make_style_result{
 	using node_type = react_flow::provider_cached<style::palette>;
-	node_type& front;
-	node_type& back;
+	react_flow::node_pointer front_ptr;
+	react_flow::node_pointer back_ptr;
+
+	node_type& front() const noexcept{
+		return static_cast<node_type&>(*front_ptr);
+	}
+
+	node_type& back() const noexcept{
+		return static_cast<node_type&>(*back_ptr);
+	}
+
+	void add_to_scene(scene& s) const{
+		s.request_embedded_react_node(s.root(), auto{front_ptr});
+		s.request_embedded_react_node(s.root(), auto{back_ptr});
+	}
 };
 
-make_style_result make_styles(scene& scene){
-	auto& sm = scene.resources().style_manager;
 
 
-	auto& pal_front_distributor = scene.request_embedded_react_node(scene.root(),
-	                                                                react_flow::provider_cached<style::palette>{});
-	auto& pal_back_distributor = scene.request_embedded_react_node(scene.root(),
-	                                                               react_flow::provider_cached<style::palette>{});
+make_style_result make_styles(scene_resources& scene){
+	auto& sm = scene.style_manager;
+
+	auto pal_front_distributor_ptr = react_flow::node_pointer(react_flow::provider_cached<style::palette>{});
+	auto pal_back_distributor_ptr = react_flow::node_pointer(react_flow::provider_cached<style::palette>{});
+
+	auto& pal_front_distributor = static_cast<make_style_result::node_type&>(*pal_front_distributor_ptr);
+	auto& pal_back_distributor = static_cast<make_style_result::node_type&>(*pal_back_distributor_ptr);
+
 	pal_front_distributor.update_value(math::lerp(style::pal::white, style::pal::dark, .155f));
 	pal_back_distributor.update_value(style::pal::dark);
-
 	react_flow::node_pointer pal_front_distributor_cursor_ignored{
 			react_flow::make_transformer([](style::palette palette){
 				return palette.set_cursor_ignored();
 			})
 		};
-
 	pal_front_distributor_cursor_ignored->connect_predecessor(pal_front_distributor);
 
+#pragma region Legacy
 	{
 		using namespace style;
 		r_style templt{};
@@ -735,9 +751,83 @@ make_style_result make_styles(scene& scene){
 	}
 
 	sm.register_style<style::slider2d_drawer>(referenced_ptr<style::default_slider2d_drawer>{std::in_place});
+#pragma endregion
 
-	return {pal_front_distributor, pal_back_distributor};
+	{
+		auto& manager = scene.style_tree_manager;
+		style::spec::create_entry e{
+			.edge = {assets::builtin::default_round_square_boarder_thin, {pal_front_distributor}},
+			.base = {},
+			.back = {assets::builtin::default_round_square_base, {pal_back_distributor}}
+		};
+
+		auto [itr, rst] = manager.register_style<elem>(style::make_tree_node_ptr(e.make_general()));
+		auto& col = itr->second;
+		auto slice = style::style_tree_slice<elem>{col};
+
+		col.default_family.set(style::family_variant::edge_only, style::make_tree_node_ptr(e.make_edge_only()));
+		col.default_family.set(style::family_variant::base_only, style::make_tree_node_ptr(e.make_back_only()));
+
+		static constexpr auto color_to_dark = [](graphic::color c){
+			return c.set_value(.12f).shift_saturation(-.05f);
+		};
+
+		{
+			auto gst = e;
+			auto& cursor_ignored_node = *pal_front_distributor_cursor_ignored;
+			gst.edge.pal = {cursor_ignored_node};
+			auto back_pal = gst.back.pal.node.get_value().copy();
+			back_pal.set_cursor_ignored();
+			gst.back.pal = {back_pal};
+			col.default_family.set(style::family_variant::general_static, style::make_tree_node_ptr(gst.make_general()));
+		}
+
+		{
+			auto gst = e;
+			static constexpr auto baseColor = graphic::colors::aqua.create_lerp(graphic::colors::AQUA_SKY, .5f);
+			gst.edge.pal = {style::make_theme_palette(baseColor)};
+			gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
+			col.default_family.set(style::family_variant::accent, style::make_tree_node_ptr(gst.make_general()));
+		}
+
+		{
+			auto gst = e;
+			static constexpr auto baseColor = graphic::colors::red_dusted.create_lerp(graphic::colors::white, .1f);
+			gst.edge.pal = {style::make_theme_palette(baseColor)};
+			gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
+			col.default_family.set(style::family_variant::invalid, style::make_tree_node_ptr(gst.make_general()));
+		}
+
+		{
+			auto gst = e;
+			static constexpr auto baseColor = graphic::color::from_rgba8888(0XDBBB6AFF).create_lerp(
+				graphic::colors::pale_yellow, .5f);
+			gst.edge.pal = {style::make_theme_palette(baseColor)};
+			gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
+			col.default_family.set(style::family_variant::warning, style::make_tree_node_ptr(gst.make_general()));
+		}
+
+		{
+			auto gst = e;
+			static constexpr auto baseColor = graphic::colors::pale_green;
+			gst.edge.pal = {style::make_theme_palette(baseColor)};
+			gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
+			col.default_family.set(style::family_variant::accepted, style::make_tree_node_ptr(gst.make_general()));
+		}
+
+		{
+			auto gst = e;
+			gst.base.patch = {assets::builtin::default_round_square_base};
+			auto base_pal = gst.back.pal.node.get_value().copy();
+			base_pal.mul_alpha(2.f);
+			gst.base.pal = {base_pal};
+			col.default_family.set(style::family_variant::solid, style::make_tree_node_ptr(gst.make_general_with_base()));
+		}
+	}
+
+	return {std::move(pal_front_distributor_ptr), std::move(pal_back_distributor_ptr)};
 }
+
 
 #pragma endregion
 
@@ -850,16 +940,18 @@ void example_scene::draw_impl(rect clip){
 ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend renderer){
 	auto& ui_root = global::manager;
 	auto& res = ui_root.add_scene_resources("main");
+	auto style_pal_prov = make_styles(res);
+
 	const auto scene_add_rst = ui_root.add_scene<example_scene, loose_group>("main", res, true, std::move(renderer));
 
 	// scene_add_rst.scene.resize(math::rect_ortho{tags::from_extent, {}, ctx.get_extent().width, ctx.get_extent().height}.as<float>());
 	auto& scene = scene_add_rst.scene;
 	auto& root = scene_add_rst.root_group;
+	style_pal_prov.add_to_scene(scene);
 
 	scene.enable_elem_async_task_post(true);
 	scene.drop_and_reset_communicate_async_task_queue_size(1);
 
-	auto style_pal_prov = make_styles(scene);
 	set_cursors(scene);
 
 	scene.pass_config = {
@@ -1194,7 +1286,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								c.set_head_size(50);
 								c.create_body([](table& e){
 									e.set_style(
-										e.get_style_manager().get_default<style::elem_style_drawer>(
+										e.get_style_manager_legacy().get_default<style::elem_style_drawer>(
 											style::family_variant::base_only));
 									e.interactivity = interactivity_flag::enabled;
 									e.template_cell.pad.set_vert(4);
@@ -1268,7 +1360,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								[&](label& e){
 									e.set_fit_type(label_fit_type::scl);
 									e.set_style(
-										e.get_style_manager().get_default<style::elem_style_drawer>(
+										e.get_style_manager_legacy().get_default<style::elem_style_drawer>(
 											style::family_variant::base_only));
 									e.set_text(std::format("chunk by {}", i));
 								}, [&](sequence& e){
@@ -1310,7 +1402,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								auto receiver = table.emplace_back<label>();
 								receiver->set_fit();
 								receiver->set_style(
-									receiver->get_style_manager().get_default<style::elem_style_drawer>(
+									receiver->get_style_manager_legacy().get_default<style::elem_style_drawer>(
 										family_variant));
 								receiver->interactivity = interactivity_flag::enabled;
 
@@ -1342,7 +1434,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 									seq.template_cell.set_size(120).set_pad({2, 2});
 									auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
 										i.set_style(
-											i.get_style_manager().get_default<style::elem_style_drawer>(
+											i.get_style_manager_legacy().get_default<style::elem_style_drawer>(
 												style::family_variant::base_only));
 										i.interactivity = interactivity_flag::enabled;
 									}, assets::builtin::shape_id::more);
@@ -1554,11 +1646,11 @@ Edge Cases:
 							}
 						};
 						table.create_back([&](picker& p){
-							p.prov = &style_pal_prov.front;
+							p.prov = &style_pal_prov.front();
 						}, layout::layout_policy::hori_major, 120);
 
 						table.create_back([&](picker& p){
-							p.prov = &style_pal_prov.back;
+							p.prov = &style_pal_prov.back();
 						}, layout::layout_policy::hori_major, 120);
 					}
 				},
@@ -1573,7 +1665,7 @@ Edge Cases:
 						hdl->set_expand_policy(layout::expand_policy::passive);
 						hdl->set_max_extent({std::numeric_limits<float>::infinity(), 140});
 						hdl->set_style(
-							hdl->get_style_manager().get_default<
+							hdl->get_style_manager_legacy().get_default<
 								style::elem_style_drawer>(style::family_variant::solid));
 
 						hdl.cell().region_scale = {.0f, .0f, .5f, .5f};
@@ -1656,7 +1748,7 @@ Edge Cases:
 					label.set_self_boarder(boarder{}.set_vert(6));
 					label.sync_run([](elem& el){
 						el.set_style(
-							el.get_style_manager().get_default<style::elem_style_drawer>(
+							el.get_style_manager_legacy().get_default<style::elem_style_drawer>(
 								style::family_variant::base_only));
 					});
 					label.set_fit_type(label_fit_type::scl);

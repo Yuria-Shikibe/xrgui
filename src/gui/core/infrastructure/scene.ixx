@@ -825,6 +825,17 @@ public:
 		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
 		return ptr;
 	}
+
+	react_flow::node& request_embedded_react_node(elem& elem, react_flow::node_pointer&& ptr){
+		if(!is_on_scene_thread(*this)){
+			throw std::runtime_error{"create node not on main ui thread"};
+		}
+
+		auto& n = react_flow_.add_node(std::move(ptr));
+		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(n)});
+		return n;
+	}
+
 #pragma endregion
 
 private:

@@ -52,7 +52,7 @@ public:
 			hb.set_expand_policy(layout::expand_policy::passive);
 			hb.interactivity = interactivity_flag::enabled;
 			hb.sync_run([](elem& e){
-				e.set_style(e.get_style_manager().get_default<style::elem_style_drawer>(style::family_variant::base_only));
+				e.set_style(e.get_style_manager_legacy().get_default<style::elem_style_drawer>(style::family_variant::base_only));
 			});
 
 			hb.create_head([&](arrow_rotor& a){

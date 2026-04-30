@@ -356,7 +356,7 @@ struct tree_router_static{
 		if(!present(child)) return;
 		if(!allow_record()) return;
 
-		ADAPTED_MUST_TAIL return style::draw_direct(child, p);
+		/*ADAPTED_MUST_TAIL return*/ style::draw_direct(child, p);
 	}
 
 private:
@@ -427,7 +427,7 @@ struct tree_router_dynamic{
 		if(!present(child)) return;
 		if(!this->allow_draw(p)) return;
 
-		ADAPTED_MUST_TAIL return style::draw_direct(child, p);
+		/*ADAPTED_MUST_TAIL return*/ style::draw_direct(child, p);
 	}
 
 private:
@@ -478,7 +478,7 @@ struct tree_direct{
 
 	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		if(!present(child)) return;
-		ADAPTED_MUST_TAIL return style::draw_direct(child, p);
+		/*ADAPTED_MUST_TAIL return*/ style::draw_direct(child, p);
 	}
 };
 

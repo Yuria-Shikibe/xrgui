@@ -177,7 +177,7 @@ public:
 				ext.*major_p = s.content_extent().*major_p;
 
 				src += off;
-				bool any = s.head().style || s.body().style;
+				bool any = s.head().style_legacy_ || s.body().style_legacy_;
 
 				if(!any){
 					s.renderer().push(graphic::draw::instruction::line{
@@ -189,11 +189,11 @@ public:
 				}
 
 				ext.*minor_p -= s.get_pad() / 2.f;
-				if(s.head().style)
+				if(s.head().style_legacy_)
 					s.head().draw_style({tags::from_vertex, s.content_src_pos_abs(), src + ext}, p.layer_param,
 					                    paneOpacity * s.drag_progress_ * 4.f);
 				src.*minor_p += s.get_pad() / 2.f;
-				if(s.body().style)
+				if(s.body().style_legacy_)
 					s.body().draw_style({
 					                    tags::from_vertex, s.content_src_pos_abs() + s.content_extent(),
 					                    src

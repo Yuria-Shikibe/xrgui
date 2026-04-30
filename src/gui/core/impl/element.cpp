@@ -132,7 +132,7 @@ void style::debug_elem_drawer::draw_background(const elem& element, math::frect 
 
 
 style::elem_style_ptr elem::get_elem_default_style_() const{
-	return get_style_manager().get_default<style::elem_style_drawer>();
+	return get_style_manager_legacy().get_default<style::elem_style_drawer>();
 }
 
 elem::elem(scene& scene, elem* parent) noexcept:
@@ -188,8 +188,8 @@ void elem::drop_tooltip() const{
 
 void elem::set_style() noexcept{
 	sync_run([](elem& elem){
-		if(elem.style == nullptr)return;
-		elem.style = nullptr;
+		elem.style_legacy_ = nullptr;
+		elem.style_ = {};
 		elem.get_scene().notify_display_state_changed(elem.get_channel());
 		if(util::try_modify(elem.style_boarder_cache_, {})){
 			elem.notify_isolated_layout_changed();
@@ -294,7 +294,7 @@ void elem::set_focused_key(const bool focus) noexcept{
 
 }
 
-style::style_manager& elem::get_style_manager() const noexcept{
+style::style_manager& elem::get_style_manager_legacy() const noexcept{
 	return scene_->resources().style_manager;
 }
 

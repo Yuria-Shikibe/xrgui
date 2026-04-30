@@ -15,20 +15,23 @@ import mo_yanxi.gui.infrastructure;
 namespace mo_yanxi::gui::style::primitives{
 
 export
-struct draw_nine_patch{
-	using target_type = elem;
-
+struct nine_patch_draw_entry{
 	react_flow::flexible_value_holder<image_nine_region> patch{};
 	react_flow::flexible_value_holder<palette> pal{};
+};
+
+export
+struct draw_nine_patch{
+	nine_patch_draw_entry entry;
 
 	void operator()(const typed_draw_param<elem>& p) const{
-		if(!patch->image_view) return;
+		if(!entry.patch->image_view) return;
 		const elem& e = p.subject();
 		auto& r = e.renderer();
 		r.update_state(fx::push_constant{fx::batch_draw_mode::msdf});
-		auto color = pal->on_instance(e).mul_a(p->opacity_scl);
+		auto color = entry.pal->on_instance(e).mul_a(p->opacity_scl);
 		r << fx::nine_patch_draw<>{
-			.patch = std::to_address(patch),
+			.patch = std::to_address(entry.patch),
 			.region = p->draw_bound,
 			.color = color,
 		};
@@ -37,20 +40,17 @@ struct draw_nine_patch{
 
 export
 struct draw_nine_patch_hollow{
-	using target_type = elem;
-
-	react_flow::flexible_value_holder<image_nine_region> patch{};
-	react_flow::flexible_value_holder<palette> pal{};
+	nine_patch_draw_entry entry;
 
 	void operator()(const typed_draw_param<elem>& p) const{
-		if(!patch->image_view) return;
+		if(!entry.patch->image_view) return;
 		const elem& e = p.subject();
 		auto& r = e.renderer();
 
 		r.update_state(fx::push_constant{fx::batch_draw_mode::msdf});
-		auto color = pal->on_instance(e).mul_a(p->opacity_scl);
+		auto color = entry.pal->on_instance(e).mul_a(p->opacity_scl);
 		r << fx::nine_patch_hollow_draw<>{
-			.patch = std::to_address(patch),
+			.patch = std::to_address(entry.patch),
 			.region = p->draw_bound,
 			.color = color,
 		};
@@ -59,8 +59,6 @@ struct draw_nine_patch_hollow{
 
 export
 struct draw_row_patch{
-	using target_type = elem;
-
 	react_flow::flexible_value_holder<image_row_patch> patch{};
 	react_flow::flexible_value_holder<palette> pal{};
 	graphic::draw::instruction::row_patch_flags flags{};

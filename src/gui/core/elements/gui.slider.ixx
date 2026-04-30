@@ -259,7 +259,7 @@ private:
     bool is_vertical_{false};
 
     referenced_ptr<const style::slider1d_drawer> drawer_{post_sync_assign(*this, &slider1d::drawer_, [](const slider1d& s){
-		return s.get_style_manager().get_default<style::slider1d_drawer>();
+		return s.get_style_manager_legacy().get_default<style::slider1d_drawer>();
 	})};
 
 public:
@@ -326,7 +326,7 @@ public:
 export struct slider2d : slider_base<2, slider2d> {
 private:
 	referenced_ptr<const style::slider2d_drawer> drawer_{post_sync_assign(*this, &slider2d::drawer_, [](const slider2d& s){
-		return s.get_style_manager().get_default<style::slider2d_drawer>();
+		return s.get_style_manager_legacy().get_default<style::slider2d_drawer>();
 	})};
 
 public:

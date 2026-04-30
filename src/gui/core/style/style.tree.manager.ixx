@@ -81,6 +81,11 @@ public:
 		set(std::to_underlying(variant), std::move(new_style));
 	}
 
+	template <typename Ty>
+	void set(family_variant variant, target_known_node_ptr<Ty>&& new_style) {
+		this->set(std::to_underlying(variant), detail::unwrap_tree_ptr(std::move(new_style)));
+	}
+
 	[[nodiscard]] bool empty() const noexcept {
 		return styles.empty();
 	}
@@ -92,7 +97,7 @@ public:
 
 export template <detail::style_tree_node_composition Node>
 [[nodiscard]] style_tree_family make_style_tree_family(Node&& default_style) {
-	auto ptr = make_tree_node_ptr(std::forward<Node>(default_style));
+	auto ptr = style::make_tree_node_ptr(std::forward<Node>(default_style));
 	return style_tree_family{detail::unwrap_tree_ptr(std::move(ptr))};
 }
 
@@ -104,8 +109,7 @@ export template <typename Target>
 using style_tree_map_allocator = detail::named_style_map_allocator<style_tree_family>;
 
 export struct style_tree_collection {
-	std::unordered_map<std::string, style_tree_family, transparent::string_hasher, transparent::string_equal_to,
-	                   style_tree_map_allocator> map;
+	string_hash_map<style_tree_family, style_tree_map_allocator> map;
 	style_tree_family default_family;
 
 	explicit style_tree_collection(style_tree_family default_val, const style_tree_map_allocator& alloc = {})
@@ -183,7 +187,7 @@ private:
 			template <detail::style_tree_node_composition Node>
 				requires std::derived_from<typename node_trait<std::remove_cvref_t<Node>>::target_type, Target>
 			variant_proxy& operator=(Node&& value) {
-				return (*this) = make_tree_node_ptr(std::forward<Node>(value));
+				return (*this) = style::make_tree_node_ptr(std::forward<Node>(value));
 			}
 		};
 
@@ -245,7 +249,7 @@ public:
 	template <detail::style_tree_node_composition Node>
 		requires std::derived_from<typename node_trait<std::remove_cvref_t<Node>>::target_type, Target>
 	void set_default(Node&& new_default) const {
-		set_default(make_tree_node_ptr(std::forward<Node>(new_default)));
+		this->set_default(style::make_tree_node_ptr(std::forward<Node>(new_default)));
 	}
 
 	[[nodiscard]] target_known_node_ptr<Target> at(std::string_view key, std::size_t index = 0) const {
@@ -278,7 +282,7 @@ public:
 	template <typename Key, detail::style_tree_node_composition Node>
 		requires std::derived_from<typename node_trait<std::remove_cvref_t<Node>>::target_type, Target>
 	auto insert_or_assign(Key&& key, Node&& style) const {
-		return insert_or_assign(std::forward<Key>(key), make_tree_node_ptr(std::forward<Node>(style)));
+		return this->insert_or_assign(std::forward<Key>(key), style::make_tree_node_ptr(std::forward<Node>(style)));
 	}
 
 	[[nodiscard]] bool contains(std::string_view key) const noexcept {

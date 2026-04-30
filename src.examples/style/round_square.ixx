@@ -1,6 +1,5 @@
 module;
 
-#include <stdexcept>
 #include <vulkan/vulkan.h>
 
 export module mo_yanxi.gui.style.round_square;

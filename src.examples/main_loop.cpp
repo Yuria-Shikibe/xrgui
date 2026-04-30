@@ -50,14 +50,18 @@ auto make_style(){
 						std::array{
 							tree_leaf{
 								primitives::draw_nine_patch{
-									.patch = {assets::builtin::default_round_square_base},
-									.pal = 	{pal::dark.copy().mul_alpha(.3f)}
+										{
+											.patch = {assets::builtin::default_round_square_base},
+										   .pal = 	{pal::dark.copy().mul_alpha(.3f)}
+										}
 								},
 							},
 							tree_leaf{
 								primitives::draw_nine_patch{
-									.patch = assets::builtin::default_round_square_boarder_thin,
-									.pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
+										{
+											.patch = assets::builtin::default_round_square_boarder_thin,
+										   .pal = {make_theme_palette(graphic::colors::AQUA_SKY)}
+										}
 								},
 							}
 						}
@@ -383,7 +387,7 @@ void main_loop::main_loop_exec(){
 			});
 	}
 
-	//current_focus.draw();
+	current_focus.draw();
 	renderer.batch_host.end_rendering();
 	renderer.upload();
 	renderer.create_command();

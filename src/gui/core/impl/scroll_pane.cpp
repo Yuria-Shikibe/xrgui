@@ -108,7 +108,7 @@ namespace mo_yanxi::gui{
 
 	referenced_ptr<const style::scroll_pane_bar_drawer> scroll_adaptor_base::init_drawer_(){
 		return post_sync_assign(*this, &scroll_adaptor_base::drawer, [](scroll_adaptor_base& b){
-			return b.get_style_manager().get_default<style::scroll_pane_bar_drawer>();
+			return b.get_style_manager_legacy().get_default<style::scroll_pane_bar_drawer>();
 		});
 	}
 

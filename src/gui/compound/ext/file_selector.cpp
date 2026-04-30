@@ -22,7 +22,7 @@ namespace mo_yanxi::gui::cpd{
 namespace{
 void set_elem_style_(elem& e, std::string_view name){
 	e.sync_run([name](elem& el){
-		el.set_style(el.get_style_manager().get_slice<style::elem_style_drawer>()->get_or_default(name));
+		el.set_style(el.get_style_manager_legacy().get_slice<style::elem_style_drawer>()->get_or_default(name));
 	});
 }
 
@@ -229,7 +229,7 @@ arrow_button::arrow_button(scene& scene, elem* parent) : elem(scene, parent){
 			auto hdl = t.create_back([&](scroll_adaptor<sequence>& p){
 				p.sync_run([](elem& e){
 					e.set_style(
-						e.get_style_manager().get_default<style::elem_style_drawer>(
+						e.get_style_manager_legacy().get_default<style::elem_style_drawer>(
 							style::family_variant::general_static));
 				});
 

@@ -519,6 +519,7 @@ struct target_known_node_ptr{
 		if(ptr)ptr->direct_draw(p.param);
 	}
 
+	bool operator==(const target_known_node_ptr&) const noexcept = default;
 
 	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
 		if(ptr){
@@ -581,7 +582,7 @@ export
 template <typename T>
 [[nodiscard]] auto make_tree_node_ptr(T&& v){
 	auto ptr = std::make_unique<bound_tree_node<std::decay_t<T>>>(std::forward<T>(v));
-	auto rst = target_known_node_ptr<typename node_trait<std::remove_cvref_t<T>>::target_type>{/*ptr->make_shared_ptr()*/};
+	auto rst = target_known_node_ptr<typename node_trait<std::remove_cvref_t<T>>::target_type>{ptr->make_shared_ptr()};
 	ptr.release();
 	return rst;
 }
