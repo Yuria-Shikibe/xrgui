@@ -58,16 +58,17 @@ struct typed_draw_param{
 		requires std::derived_from<T, B>
 	explicit(false) operator typed_draw_param<B>() const noexcept{
 		return typed_draw_param<B>{
-			draw_call_param{
-				.current_subject = static_cast<B*>(current_subject()),
-				.draw_bound = param.draw_bound,
-				.opacity_scl = param.opacity_scl,
-				.layer_param = param.layer_param
-			}};
+				draw_call_param{
+					.current_subject = static_cast<B*>(current_subject()),
+					.draw_bound = param.draw_bound,
+					.opacity_scl = param.opacity_scl,
+					.layer_param = param.layer_param
+				}
+			};
 	}
 };
 
-export
+/*export
 template <typename B, std::derived_from<B> D>
 struct typed_draw_param_adaptor{
 	using target_type = B;
@@ -88,7 +89,7 @@ struct typed_draw_param_adaptor{
 	explicit(false) operator typed_draw_param_adaptor<T, D>() const noexcept{
 		return typed_draw_param_adaptor<T, D>{param};
 	}
-};
+};*/
 
 export
 struct style_tree_metrics_inherited_state{
@@ -137,6 +138,10 @@ struct typed_style_tree_metrics_query_param{
 };
 
 export
+template <typename T, typename... Ts>
+struct node_trait;
+
+export
 struct style_tree_metrics{
 	align::spacing inset{};
 
@@ -175,148 +180,6 @@ concept redundantly_bool_invocable = mo_yanxi::redundantly_invocable<Fn, Args...
 		} -> std::convertible_to<bool>;
 	};
 
-struct style_inplace_vtable{
-	using func_signature = void*(void* val, void* t) noexcept;
-	using metrics_signature = style_tree_metrics(*)(const void* val, const style_tree_metrics_query_param& p) noexcept;
-	using direct_signature = void(*)(const void* val, const draw_call_param& p) noexcept;
-
-private:
-	func_signature* func_ptr_{};
-	metrics_signature metrics_func_ptr_{};
-	direct_signature direct_func_ptr_{};
-
-public:
-	[[nodiscard]] void* clone_with_ownership(const void* val) const{
-		void* rst = func_ptr_(const_cast<void*>(val), nullptr);
-		if(!rst){
-			throw std::runtime_error{"failed to clone style"};
-		}
-		return rst;
-	}
-
-	void record(const void* val, draw_recorder& ctx) const{
-		if(!func_ptr_(const_cast<void*>(val), &ctx)){
-			throw std::runtime_error{"failed to record style"};
-		}
-	}
-
-	void destroy(void* val) const noexcept{
-		func_ptr_(nullptr, val);
-	}
-
-	[[nodiscard]] style_tree_metrics query_metrics(const void* val,
-	                                               const style_tree_metrics_query_param& p) const noexcept{
-		if(metrics_func_ptr_ == nullptr){
-			return {};
-		}
-		return metrics_func_ptr_(val, p);
-	}
-
-	void direct_draw(const void* val, const draw_call_param& p) const{
-		direct_func_ptr_(val, p);
-	}
-
-	template <typename EntryType, std::derived_from<EntryType> Ty, std::invocable<const Ty&, draw_recorder&> RecordFn>
-		// requires (std::is_final_v<Ty> || std::has_virtual_destructor_v<Ty>)
-	constexpr static style_inplace_vtable create(RecordFn fn) noexcept{
-		static constexpr auto cast_to_ty = [](void* t) static noexcept -> Ty*{
-			return static_cast<Ty*>(static_cast<EntryType*>(t));
-		};
-		style_inplace_vtable rst;
-		rst.func_ptr_ = +[](void* val, void* t) static noexcept -> void*{
-			if(val == nullptr){
-				// 销毁分支：val为空，t 指代 create 时指定的类型 Ty
-				auto* self = cast_to_ty(t);
-				delete self;
-				return self;
-			}
-
-			if(t == nullptr){
-				// 拷贝分支：t为空，val 指代 create 时指定的类型 Ty
-				return new(std::nothrow) Ty(std::as_const(*cast_to_ty(val)));
-			}
-
-			// 记录分支：此时 t 是 record context，val 是类型 Ty
-			assert(val != nullptr);
-			assert(t != nullptr);
-			auto& ctx = *static_cast<draw_recorder*>(t);
-			auto& ty = std::as_const(*cast_to_ty(val));
-			try{
-				std::invoke(RecordFn{}, ty, ctx);
-				return val;
-			} catch(...){
-				return nullptr;
-			}
-		};
-		rst.metrics_func_ptr_ = +[](const void* val,
-		                            const style_tree_metrics_query_param& p) static noexcept -> style_tree_metrics{
-			assert(val != nullptr);
-			auto& ty = std::as_const(*cast_to_ty(const_cast<void*>(val)));
-			if constexpr(requires(const Ty& value, const style_tree_metrics_query_param& q){
-				{ value.query_metrics(q) } -> std::convertible_to<style_tree_metrics>;
-			}){
-				return ty.query_metrics(p);
-			} else{
-				return {};
-			}
-		};
-		rst.direct_func_ptr_ = +[](const void* val,
-		                           const draw_call_param& p) static noexcept -> void{
-			auto& ty = std::as_const(*cast_to_ty(const_cast<void*>(val)));
-			if constexpr(requires{ typename Ty::target_type; }
-				&& requires(const Ty& v, const typed_draw_param<typename Ty::target_type>& dp){ v.direct(dp); }){
-				draw_direct(ty, typed_draw_param<typename Ty::target_type>{p});
-			}
-		};
-		return rst;
-	}
-};
-
-export
-struct style_tree_node_deleter;
-
-export
-struct style_tree_refable_node_base : referenced_object_persistable{
-	friend style_tree_node_deleter;
-
-protected:
-	style_inplace_vtable vtable;
-
-public:
-	[[nodiscard]] explicit style_tree_refable_node_base(const style_inplace_vtable& vtable)
-		: vtable(vtable){
-	}
-
-	[[nodiscard]] style_tree_refable_node_base(const style_inplace_vtable& vtable,
-	                                           const tags::persistent_tag_t& persistent_tag) :
-		referenced_object_persistable(persistent_tag),
-		vtable(vtable){
-	}
-
-	void record_draw(draw_recorder& ctx) const{
-		vtable.record(this, ctx);
-	}
-
-	void direct_draw(const draw_call_param& p) const{
-		vtable.direct_draw(this, p);
-	}
-
-	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
-		return vtable.query_metrics(this, p);
-	}
-};
-
-export
-struct style_tree_node_deleter{
-	static void operator()(const style_tree_refable_node_base* node) noexcept{
-		//TODO this is ugly
-		node->vtable.destroy(const_cast<style_tree_refable_node_base*>(node));
-	}
-};
-
-export
-using style_tree_type_erased_ptr = referenced_ptr<style_tree_refable_node_base, style_tree_node_deleter>;
-
 
 export
 template <typename T>
@@ -346,7 +209,13 @@ export
 template <typename T>
 concept style_tree_member_metrics_queryable = requires(const T& value, const style_tree_metrics_query_param& p){
 	{ value.query_metrics(p) } -> std::convertible_to<style_tree_metrics>;
-};
+} || (
+	requires{ typename node_trait<T>::target_type; }
+	&& !std::is_void_v<typename node_trait<T>::target_type>
+	&& requires(const T& value, const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& p){
+		{ value.query_metrics(p) } -> std::convertible_to<style_tree_metrics>;
+	}
+);
 
 export
 template <typename T>
@@ -360,7 +229,28 @@ export
 template <typename T>
 concept style_tree_metrics_dispatchable = style_tree_member_metrics_queryable<T>
 	|| requires(const T& value, const style_tree_metrics_query_param& p){ value->query_metrics(p); }
+	|| (
+		requires{ typename node_trait<T>::target_type; }
+		&& !std::is_void_v<typename node_trait<T>::target_type>
+		&& requires(const T& value, const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& p){
+			value->query_metrics(p);
+		}
+	)
 	|| style_tree_dereferenceable<T>;
+
+export
+template <typename T, typename... Ts>
+struct node_trait{
+	using target_type = void;
+};
+
+template <typename T, typename... Ts>
+	requires requires{
+	typename T::target_type;
+	}
+struct node_trait<T, Ts...>{
+	using target_type = typename T::target_type;
+};
 
 inline namespace cpo{
 struct present_t{
@@ -382,18 +272,23 @@ export constexpr inline cpo::present_t present;
 inline namespace cpo{
 struct query_metrics_t{
 	template <typename T>
-	[[nodiscard]] FORCE_INLINE style_tree_metrics operator()(const T& node,
-	                                                         const style_tree_metrics_query_param& p = {}) const
+	[[nodiscard]] FORCE_INLINE style_tree_metrics operator()(
+		const T& node,
+		const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& p = {}) const
 		noexcept{
 		if(!style::present(node)){
 			return {};
 		}
 
-		if constexpr(style_tree_member_metrics_queryable<T>){
+		if constexpr(requires(const T& value,
+			            const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& q){
+				{ value.query_metrics(q) } -> std::convertible_to<style_tree_metrics>;
+			}){
 			return node.query_metrics(p);
-		} else if constexpr(requires(const T& value, const style_tree_metrics_query_param& q){
-			value->query_metrics(q);
-		}){
+		} else if constexpr(requires(const T& value,
+			            const typed_style_tree_metrics_query_param<typename node_trait<T>::target_type>& q){
+				{ value->query_metrics(q) } -> std::convertible_to<style_tree_metrics>;
+			}){
 			return node->query_metrics(p);
 		} else if constexpr(style_tree_dereferenceable<T>){
 			return (*this)(*node, p);
@@ -447,6 +342,12 @@ struct inset_t{
 export constexpr inline inset_t inset;
 
 export
+template <typename T, typename Target>
+concept style_tree_direct_drawable_typed = requires(const T& value, const typed_draw_param<Target>& p){
+	value.direct(p);
+};
+
+export
 template <typename T>
 concept style_tree_recordable = style_tree_draw_dispatchable<T>;
 
@@ -454,30 +355,6 @@ export
 template <typename T>
 concept style_tree_metrics_queryable = style_tree_metrics_dispatchable<T>;
 
-export
-template <typename T, typename... Ts>
-struct node_trait{
-	using target_type = void;
-};
-
-template <typename T, typename... Ts>
-	requires requires{
-		typename T::target_type;
-	}
-struct node_trait<T, Ts...>{
-	using target_type = typename T::target_type;
-};
-
-template <>
-struct node_trait<style_tree_type_erased_ptr>{
-	using target_type = void;
-};
-
-export
-template <typename T, typename Target>
-concept style_tree_direct_drawable_typed = requires(const T& value, const typed_draw_param<Target>& p){
-	value.direct(p);
-};
 
 export
 template <typename T>
@@ -499,6 +376,155 @@ struct draw_direct_t{
 
 export constexpr inline draw_direct_t draw_direct;
 
+struct style_inplace_vtable{
+	using func_signature = void*(void* val, void* t) noexcept;
+	using metrics_signature = style_tree_metrics(*)(const void* val, const style_tree_metrics_query_param& p) noexcept;
+	using direct_signature = void(*)(const void* val, const draw_call_param& p) noexcept;
+
+private:
+	func_signature* func_ptr_{};
+	metrics_signature metrics_func_ptr_{};
+	direct_signature direct_func_ptr_{};
+
+public:
+	[[nodiscard]] void* clone_with_ownership(const void* val) const{
+		void* rst = func_ptr_(const_cast<void*>(val), nullptr);
+		if(!rst){
+			throw std::runtime_error{"failed to clone style"};
+		}
+		return rst;
+	}
+
+	void record(const void* val, draw_recorder& ctx) const{
+		if(!func_ptr_(const_cast<void*>(val), &ctx)){
+			throw std::runtime_error{"failed to record style"};
+		}
+	}
+
+	void destroy(void* val) const noexcept{
+		func_ptr_(nullptr, val);
+	}
+
+	[[nodiscard]] style_tree_metrics query_metrics(const void* val,
+	                                               const style_tree_metrics_query_param& p) const noexcept{
+		if(metrics_func_ptr_ == nullptr){
+			return {};
+		}
+		return metrics_func_ptr_(val, p);
+	}
+
+	void direct_draw(const void* val, const draw_call_param& p) const{
+		direct_func_ptr_(val, p);
+	}
+
+	template <typename EntryType, std::derived_from<EntryType> Ty, std::invocable<const Ty&, draw_recorder&> RecordFn>
+	// requires (std::is_final_v<Ty> || std::has_virtual_destructor_v<Ty>)
+	constexpr static style_inplace_vtable create(RecordFn fn) noexcept{
+		static constexpr auto cast_to_ty = [](void* t) static noexcept -> Ty*{
+			return static_cast<Ty*>(static_cast<EntryType*>(t));
+		};
+		style_inplace_vtable rst;
+		rst.func_ptr_ = +[](void* val, void* t) static noexcept -> void*{
+			if(val == nullptr){
+				// 销毁分支：val为空，t 指代 create 时指定的类型 Ty
+				auto* self = cast_to_ty(t);
+				delete self;
+				return self;
+			}
+
+			if(t == nullptr){
+				// 拷贝分支：t为空，val 指代 create 时指定的类型 Ty
+				return new(std::nothrow) Ty(std::as_const(*cast_to_ty(val)));
+			}
+
+			// 记录分支：此时 t 是 record context，val 是类型 Ty
+			assert(val != nullptr);
+			assert(t != nullptr);
+			auto& ctx = *static_cast<draw_recorder*>(t);
+			auto& ty = std::as_const(*cast_to_ty(val));
+			try{
+				std::invoke(RecordFn{}, ty, ctx);
+				return val;
+			} catch(...){
+				return nullptr;
+			}
+		};
+		rst.metrics_func_ptr_ = +[](const void* val,
+		                            const style_tree_metrics_query_param& p) static noexcept -> style_tree_metrics{
+			assert(val != nullptr);
+			auto& ty = std::as_const(*cast_to_ty(const_cast<void*>(val)));
+			if constexpr(requires{ typename Ty::target_type; }
+				&& !std::is_void_v<typename Ty::target_type>
+				&& requires(const Ty& value, const typed_style_tree_metrics_query_param<typename Ty::target_type>& q){
+					{ value.query_metrics(q) } -> std::convertible_to<style_tree_metrics>;
+				}){
+				return ty.query_metrics(typed_style_tree_metrics_query_param<typename Ty::target_type>{p});
+			} else if constexpr(requires(const Ty& value, const style_tree_metrics_query_param& q){
+				{ value.query_metrics(q) } -> std::convertible_to<style_tree_metrics>;
+			}){
+				return ty.query_metrics(p);
+			} else{
+				return {};
+			}
+		};
+		rst.direct_func_ptr_ = +[](const void* val,
+		                           const draw_call_param& p) static noexcept -> void{
+			auto& ty = std::as_const(*cast_to_ty(const_cast<void*>(val)));
+			if constexpr(requires{ typename Ty::target_type; }
+				&& requires(const Ty& v, const typed_draw_param<typename Ty::target_type>& dp){ v.direct(dp); }){
+				style::draw_direct(ty, typed_draw_param<typename Ty::target_type>{p});
+			}
+		};
+		return rst;
+	}
+};
+
+export
+struct style_tree_node_deleter;
+
+export
+struct style_tree_refable_node_base : referenced_object_persistable{
+	friend style_tree_node_deleter;
+
+protected:
+	style_inplace_vtable vtable;
+
+public:
+	[[nodiscard]] explicit style_tree_refable_node_base(const style_inplace_vtable& vtable)
+		: vtable(vtable){
+	}
+
+	[[nodiscard]] style_tree_refable_node_base(const style_inplace_vtable& vtable,
+	                                           const tags::persistent_tag_t& persistent_tag) :
+		referenced_object_persistable(persistent_tag),
+		vtable(vtable){
+	}
+
+	void record_draw(draw_recorder& ctx) const{
+		vtable.record(this, ctx);
+	}
+
+	void direct_draw(const draw_call_param& p) const{
+		vtable.direct_draw(this, p);
+	}
+
+	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
+		return vtable.query_metrics(this, p);
+	}
+};
+
+export
+struct style_tree_node_deleter{
+	static void operator()(const style_tree_refable_node_base* node) noexcept{
+		//TODO this is ugly
+		node->vtable.destroy(const_cast<style_tree_refable_node_base*>(node));
+	}
+};
+
+export
+using style_tree_type_erased_ptr = referenced_ptr<style_tree_refable_node_base, style_tree_node_deleter>;
+
+
 #pragma region NodePtrImpl
 
 export
@@ -512,18 +538,18 @@ struct target_known_node_ptr{
 	}
 
 	void record(draw_recorder& ctx) const{
-		if(ptr)ptr->record_draw(ctx);
+		if(ptr) ptr->record_draw(ctx);
 	}
 
 	void direct(const typed_draw_param<T>& p) const{
-		if(ptr)ptr->direct_draw(p.param);
+		if(ptr) ptr->direct_draw(p.param);
 	}
 
 	bool operator==(const target_known_node_ptr&) const noexcept = default;
 
-	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
+	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
 		if(ptr){
-			return ptr->query_metrics(p);
+			return ptr->query_metrics(p.param);
 		}
 		return {};
 	}
@@ -574,7 +600,7 @@ struct bound_tree_node : style_tree_node<bound_tree_node<Comp>>{
 		style::draw_direct(comp, p);
 	}
 
-	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
+	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
 		return style::query_metrics(comp, p);
 	}
 };

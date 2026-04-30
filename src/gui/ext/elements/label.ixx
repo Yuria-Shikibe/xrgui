@@ -235,11 +235,11 @@ public:
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 
-		call_stack_builder.push_call_noop(*this, [](const direct_label& s, const draw_call_param& p) static {
+		call_stack_builder.push_call_noop(*this, [](const direct_label& s, const draw_call_param& p) static{
+			if(!p.layer_param.is_top()) return;
+			if(!util::is_draw_param_valid(s, p)) return;
 
-			if (!p.layer_param.is_top())return;
-			if (!util::is_draw_param_valid(s, p))return;
-				s.draw_text(util::get_final_draw_opacity(s, p));
+			s.draw_text(util::get_final_draw_opacity(s, p));
 		});
 	}
 

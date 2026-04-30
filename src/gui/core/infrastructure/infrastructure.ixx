@@ -39,7 +39,7 @@ namespace util{
 export
 void sync_set_elem_style(elem& e, style::family_variant v){
 	e.sync_run([v](elem& el){
-		el.set_style(el.get_style_manager_legacy().get_slice<style::elem_style_drawer>()->default_style(v));
+		el.set_style(el.get_style_tree_manager().get_default<elem>(v));
 	});
 }
 

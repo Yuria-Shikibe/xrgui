@@ -1285,9 +1285,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 								c.emplace_head<elem>().set_style();
 								c.set_head_size(50);
 								c.create_body([](table& e){
-									e.set_style(
-										e.get_style_manager_legacy().get_default<style::elem_style_drawer>(
-											style::family_variant::base_only));
+									e.set_style(style::family_variant::base_only);
 									e.interactivity = interactivity_flag::enabled;
 									e.template_cell.pad.set_vert(4);
 									e.set_tooltip_state(
@@ -1359,9 +1357,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 							auto hdl = menu.create_back(
 								[&](label& e){
 									e.set_fit_type(label_fit_type::scl);
-									e.set_style(
-										e.get_style_manager_legacy().get_default<style::elem_style_drawer>(
-											style::family_variant::base_only));
+									e.set_style(style::family_variant::base_only);
 									e.set_text(std::format("chunk by {}", i));
 								}, [&](sequence& e){
 									e.set_has_smooth_pos_animation(true);
@@ -1401,9 +1397,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 
 								auto receiver = table.emplace_back<label>();
 								receiver->set_fit();
-								receiver->set_style(
-									receiver->get_style_manager_legacy().get_default<style::elem_style_drawer>(
-										family_variant));
+								receiver->set_style(family_variant);
 								receiver->interactivity = interactivity_flag::enabled;
 
 								auto& listener = receiver->request_embedded_react_node(react_flow::make_listener(
@@ -1433,9 +1427,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 										layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 									seq.template_cell.set_size(120).set_pad({2, 2});
 									auto [_, cell] = seq.create_overflow_elem([](icon_frame& i){
-										i.set_style(
-											i.get_style_manager_legacy().get_default<style::elem_style_drawer>(
-												style::family_variant::base_only));
+										i.set_style(style::family_variant::base_only);
 										i.interactivity = interactivity_flag::enabled;
 									}, assets::builtin::shape_id::more);
 									cell.set_size({layout::size_category::scaling});
@@ -1664,9 +1656,7 @@ Edge Cases:
 						hdl->get_slider().set_progress(math::map(1.f, 0.f, 3.f, 0.f, 1.f));
 						hdl->set_expand_policy(layout::expand_policy::passive);
 						hdl->set_max_extent({std::numeric_limits<float>::infinity(), 140});
-						hdl->set_style(
-							hdl->get_style_manager_legacy().get_default<
-								style::elem_style_drawer>(style::family_variant::solid));
+						hdl->set_style(style::family_variant::solid);
 
 						hdl.cell().region_scale = {.0f, .0f, .5f, .5f};
 						hdl.cell().region_align = align::pos::bottom_left;
@@ -1746,11 +1736,7 @@ Edge Cases:
 			elem_ptr{
 				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
 					label.set_self_boarder(boarder{}.set_vert(6));
-					label.sync_run([](elem& el){
-						el.set_style(
-							el.get_style_manager_legacy().get_default<style::elem_style_drawer>(
-								style::family_variant::base_only));
-					});
+					label.set_style(style::family_variant::base_only);
 					label.set_fit_type(label_fit_type::scl);
 					label.set_text(std::format("[{}]-{}", idx, creator.name));
 					label.text_entire_align = align::pos::center;

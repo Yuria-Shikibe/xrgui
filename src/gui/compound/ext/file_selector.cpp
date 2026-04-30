@@ -20,11 +20,6 @@ import mo_yanxi.gui.style.progress_bars;
 
 namespace mo_yanxi::gui::cpd{
 namespace{
-void set_elem_style_(elem& e, std::string_view name){
-	e.sync_run([name](elem& el){
-		el.set_style(el.get_style_manager_legacy().get_slice<style::elem_style_drawer>()->get_or_default(name));
-	});
-}
 
 void set_style_side_bar(elem& e){
 	util::sync_set_elem_style(e, style::family_variant::base_only);
@@ -227,11 +222,7 @@ arrow_button::arrow_button(scene& scene, elem* parent) : elem(scene, parent){
 			t.set_style();
 			std::size_t count{};
 			auto hdl = t.create_back([&](scroll_adaptor<sequence>& p){
-				p.sync_run([](elem& e){
-					e.set_style(
-						e.get_style_manager_legacy().get_default<style::elem_style_drawer>(
-							style::family_variant::general_static));
-				});
+				util::sync_set_elem_style(p, style::family_variant::general_static);
 
 				sequence& seq = p.get_elem();
 

@@ -265,16 +265,13 @@ private:
 	bool is_at_display_stage_{false};
 	elem_tree_channel element_channel_{};
 
-public:
-	style::elem_style_ptr style_legacy_{};
-
 private:
 	style::target_known_node_ptr<elem> style_{};
 
-	[[nodiscard]] style::elem_style_ptr get_elem_default_style_() const;
+	[[nodiscard]] style::target_known_node_ptr<elem> get_elem_default_style_() const;
 
 	boarder boarder_{};
-	boarder style_boarder_cache_{style_legacy_ ? style_legacy_->get_boarder() : gui::boarder{}};
+	boarder style_boarder_cache_{};
 
 	mpsc_action_queue<elem> actions{};
 
@@ -487,42 +484,25 @@ public:
 #pragma region Draw
 public:
 
-	[[deprecated]] void set_style(const style::elem_style_drawer& style) noexcept{
-		if(this->style_legacy_.get() == std::addressof(style)){
-			return;
-		}
-
-		this->style_legacy_ = std::addressof(style);
-		get_scene().notify_display_state_changed(get_channel());
-		if(util::try_modify(style_boarder_cache_, style.get_boarder())){
-			notify_isolated_layout_changed();
-		}
-
+	const style::target_known_node_ptr<elem>& get_style() const noexcept{
+		return style_;
 	}
 
-	[[deprecated]] void set_style(referenced_ptr<const style::elem_style_drawer> style) noexcept{
-		if(this->style_legacy_ == style){
-			return;
-		}
-
-		this->style_legacy_ = std::move(style);
-		get_scene().notify_display_state_changed(get_channel());
-		if(util::try_modify(style_boarder_cache_, style ? style->get_boarder() : gui::boarder{})){
-			notify_isolated_layout_changed();
-		}
-	}
-
-	void set_style(style::target_known_node_ptr<elem>&& style) noexcept{
+	void set_style(style::target_known_node_ptr<elem>&& style){
 		if(this->style_ == style){
 			return;
 		}
 
 		this->style_ = std::move(style);
 		get_scene().notify_display_state_changed(get_channel());
+
+		auto inset = style::query_metrics(this->style_, {}).inset;
 		if(util::try_modify(style_boarder_cache_, style ? style::query_metrics(this->style_, {}).inset : gui::boarder{})){
 			notify_isolated_layout_changed();
 		}
 	}
+
+	void set_style(style::family_variant v);
 
 	void set_style() noexcept;
 
@@ -563,9 +543,8 @@ protected:
 
 public:
 	virtual void record_draw_layer(draw_recorder& call_stack_builder) const{
-		if(style_legacy_){
+		if(style_){
 			record_drawer_draw_context(call_stack_builder, [](const elem& e, draw_recorder& s){
-				e.style_legacy_->record_draw_layer(s);
 				style::draw_record(e.style_, s);
 			});
 		}
@@ -576,7 +555,14 @@ protected:
 	}
 
 	FORCE_INLINE void draw_style_impl(math::frect region, fx::layer_param param, float inheritedOpacityScl) const{
-		if(style_legacy_)style_legacy_->draw_layer(*this, region, inheritedOpacityScl * get_local_draw_opacity(), param);
+		style::draw_direct(style_, style::typed_draw_param<elem>{
+			{
+				.current_subject = this,
+				.draw_bound = region,
+				.opacity_scl = inheritedOpacityScl * get_local_draw_opacity(),
+				.layer_param = param
+			}
+		});
 	}
 
 public:

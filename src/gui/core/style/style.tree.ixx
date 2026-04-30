@@ -107,8 +107,9 @@ struct tree_metrics_fork{
 		: children(std::forward<Rng>(children)){
 	}
 
-	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
+	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
 		style_tree_metrics rst{};
+		//TODO clip branch that has no query available
 		for(const auto& child : children){
 			rst.merge_from(style::query_metrics(child, p));
 		}
@@ -164,7 +165,7 @@ struct tree_tuple_fork{
 		}, children);
 	}
 
-	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
+	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
 		style_tree_metrics rst{};
 		std::apply([&]<typename... Ts>(const Ts&... child){
 			([&]{
@@ -241,12 +242,8 @@ private:
 	}
 
 public:
-	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
-		if constexpr(style_tree_metrics_queryable<Child>){
-			return style::query_metrics(child, p);
-		} else{
-			return {};
-		}
+	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
+		return style::query_metrics(child, p);
 	}
 };
 
@@ -315,9 +312,9 @@ struct tree_metrics_leaf{
 		: metrics_fn(std::forward<Fn>(metrics_fn)){
 	}
 
-	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
+	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
 		if constexpr(std::invocable<const MetricsFn&, typed_style_tree_metrics_query_param<target_type>>){
-			return std::invoke(metrics_fn, typed_style_tree_metrics_query_param<target_type>{p});
+			return std::invoke(metrics_fn, p);
 		} else{
 			return std::invoke(metrics_fn);
 		}
@@ -371,16 +368,12 @@ private:
 	}
 
 public:
-	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
+	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
 		if(!allow_record()){
 			return {};
 		}
 
-		if constexpr(style_tree_metrics_queryable<Child>){
-			return style::query_metrics(child, p);
-		} else{
-			return {};
-		}
+		return style::query_metrics(child, p);
 	}
 };
 
@@ -444,12 +437,9 @@ private:
 	}
 
 public:
-	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
-		if constexpr(style_tree_metrics_queryable<Child>){
-			return style::query_metrics(child, p);
-		} else{
-			return {};
-		}
+	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
+		return style::query_metrics(child, p);
+
 	}
 };
 
@@ -479,6 +469,10 @@ struct tree_direct{
 	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		if(!present(child)) return;
 		/*ADAPTED_MUST_TAIL return*/ style::draw_direct(child, p);
+	}
+
+	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
+		return style::query_metrics(child, p);
 	}
 };
 
