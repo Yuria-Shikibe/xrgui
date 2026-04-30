@@ -11,28 +11,19 @@ import mo_yanxi.backend.glfw.window;
 import mo_yanxi.backend.application_timer;
 import mo_yanxi.backend.vulkan.renderer;
 
-import mo_yanxi.math.rand;
-import mo_yanxi.math.interpolation;
-
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.graphic.compositor.manager;
 import mo_yanxi.graphic.compositor.post_process_pass;
 import mo_yanxi.graphic.compositor.post_process_pass_with_ubo;
 import mo_yanxi.graphic.compositor.bloom;
-import mo_yanxi.graphic.shaderc;
-import mo_yanxi.graphic.trail;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.group;
 import mo_yanxi.gui.global;
 import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.renderer.frontend;
-import mo_yanxi.gui.fx.config;
-import mo_yanxi.gui.fx.fringe;
 import mo_yanxi.gui.fx.instruction_extension;
-import mo_yanxi.gui.elem.label;
-import mo_yanxi.gui.elem.text_edit;
 
 import mo_yanxi.gui.assets;
 import mo_yanxi.gui.image_regions;
@@ -43,7 +34,6 @@ import mo_yanxi.font.manager;
 import mo_yanxi.typesetting;
 import mo_yanxi.typesetting.segmented_layout;
 import mo_yanxi.typesetting.util;
-import mo_yanxi.typesetting.rich_text;
 
 import mo_yanxi.react_flow.common;
 import mo_yanxi.react_flow;

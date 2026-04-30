@@ -60,18 +60,18 @@ rule("media.svg_to_bin")
 rule_end()
 
 function set_xrgui_deps()
-    add_deps("mo_yanxi.utility", "mo_yanxi.vulkan_wrapper", "mo_yanxi.react_flow")
+    add_deps("mo_yanxi.utility", "mo_yanxi.vulkan_wrapper", "mo_yanxi.react_flow", {public = true})
 
-    add_packages("msdfgen")
-    add_packages("freetype")
-    add_packages("harfbuzz")
-    add_packages("mimalloc")
+    add_packages("msdfgen", {public = true})
+    add_packages("freetype", {public = true})
+    add_packages("harfbuzz", {public = true})
+    add_packages("mimalloc", {public = true})
     add_packages("nanosvg")
-    add_packages("gtl")
-    add_packages("spirv-reflect")
+    add_packages("gtl", {public = true})
+    add_packages("spirv-reflect", {public = true})
     add_packages("simdutf")
 
-    add_includedirs("./external/VulkanMemoryAllocator/include")
+    add_includedirs("./external/VulkanMemoryAllocator/include", {public = true})
     add_includedirs("./external/stb")
     add_includedirs("./external/include")
     add_includedirs("./external/plf_hive")
@@ -88,74 +88,21 @@ function set_xrgui_deps()
     add_files("./src/**.ixx", {public = true})
 
     add_cxflags("/wd4267", "/wd4244", "/wd4305", {tools = {"cl", "clang_cl"}})
-
---     on_config(function (target)
---         local flags = nil
---         if target:has_tool("cxx", "cl", "clang_cl") then
---             flags = {"/wd4267", "/wd4244", "/wd4305"}
---         elseif target:has_tool("cxx", "gcc", "clang") then
---             flags = "-Wno-conversion"
---         end
---
---         if flags then
---             for _, file in ipairs(os.files("src/**.ixx")) do
---                 local relpath = path.relative(file, os.projectdir())
---                 target:fileconfig_add(relpath, {cxflags = flags, public = true})
---             end
---             for _, file in ipairs(os.files("src/**.cpp")) do
---                 local relpath = path.relative(file, os.projectdir())
---                 target:fileconfig_add(relpath, {cxflags = flags})
---             end
---         end
---     end)
-
---     add_links("shaderc_shared")
 end
 
-target("xrgui")
+target("xrgui.default")
     set_kind("object")
     set_languages("c++latest")
     set_warnings("all", "pedantic")
     set_xrgui_deps()
 
-    if is_mode("release") then
-        set_policy("build.optimization.lto", true)
-    end
-    if is_plat("windows") then
-        add_syslinks("imm32", {public = true})
-    end
-
-    set_enabled(false)
-
-target_end()
-
-target("xrgui.example")
-    set_kind("binary")
-    set_extension(".exe")
-    set_languages("c++latest")
-
-    set_warnings("all", "pedantic")
-
-    if is_mode("release") then
-        set_policy("build.optimization.lto", true)
-    end
-    if is_plat("windows") then
-        add_syslinks("imm32", {public = true})
-    end
-
-    set_xrgui_deps()
--- 似乎有bug使得msvc总说找不到模块，暂时直接添加代码
---     add_deps("xrgui")
-    add_packages("glfw")
-
+    add_packages("glfw", {public = true})
     add_files("src.backends/universal/**.ixx", {public = true})
     add_files("src.backends/universal/**.cpp")
     add_files("src.backends/vulkan/**.ixx", {public = true})
     add_files("src.backends/vulkan/**.cpp")
     add_files("src.backends/vulkan_glfw/**.ixx", {public = true})
     add_files("src.backends/vulkan_glfw/**.cpp")
-    add_files("src.examples/**.ixx", {public = true})
-    add_files("src.examples/**.cpp")
 
 
     add_rules("media.svg_to_bin")
@@ -179,53 +126,76 @@ target("xrgui.example")
         end
     end)
 
-    -- 构建前自动生成汇总头文件 assets_summary.h
     before_build(function (target)
-            import("core.project.config")
-            local my_res_inc = path.join(config.builddir(), ".assets", "includes")
-            local summary_header_path = path.join(my_res_inc, "assets_summary.h")
+        import("core.project.config")
+        local my_res_inc = path.join(config.builddir(), ".assets", "includes")
+        local summary_header_path = path.join(my_res_inc, "assets_summary.h")
 
-            local summary_lines = { "#pragma once\n" }
+        local summary_lines = { "#pragma once\n" }
 
-            local src_basedir = path.join(os.projectdir(), "properties/assets_raw/gen")
-            local svg_files = os.files(path.join(src_basedir, "**.svg"))
+        local src_basedir = path.join(os.projectdir(), "properties/assets_raw/gen")
+        local svg_files = os.files(path.join(src_basedir, "**.svg"))
 
-            for _, file in ipairs(svg_files) do
-                local rel_path = path.relative(file, src_basedir)
-                local inc_path = (rel_path .. ".h"):gsub("\\", "/")
+        for _, file in ipairs(svg_files) do
+            local rel_path = path.relative(file, src_basedir)
+            local inc_path = (rel_path .. ".h"):gsub("\\", "/")
 
-                local dir = path.directory(rel_path)
-                local ns_decl, ns_close = "", ""
-                if dir and dir ~= "." and dir ~= "" then
-                    local ns_name = dir:gsub("[\\/]", "::"):gsub("[%.%-]", "_")
-                    ns_decl = "namespace " .. ns_name .. " {\n"
-                    ns_close = "} // namespace " .. ns_name .. "\n"
-                end
-
-                local var_name = path.filename(rel_path):gsub("[%.%-]", "_")
-                table.insert(summary_lines, string.format([[
-    %s#if __has_include("%s")
-    constexpr inline char %s[] = {
-    #include "%s"
-    };
-    #else
-    constexpr inline char %s[] = {};
-    #endif
-    %s]], ns_decl, inc_path, var_name, inc_path, var_name, ns_close))
+            local dir = path.directory(rel_path)
+            local ns_decl, ns_close = "", ""
+            if dir and dir ~= "." and dir ~= "" then
+                local ns_name = dir:gsub("[\\/]", "::"):gsub("[%.%-]", "_")
+                ns_decl = "namespace " .. ns_name .. " {\n"
+                ns_close = "} // namespace " .. ns_name .. "\n"
             end
 
-            local new_content = table.concat(summary_lines, "\n")
-            if io.readfile(summary_header_path) ~= new_content then
-                print("updating " .. summary_header_path)
-                io.writefile(summary_header_path, new_content)
-            end
-        end)
+            local var_name = path.filename(rel_path):gsub("[%.%-]", "_")
+            table.insert(summary_lines, string.format([[
+        %s#if __has_include("%s")
+        constexpr inline char %s[] = {
+        #include "%s"
+        };
+        #else
+        constexpr inline char %s[] = {};
+        #endif
+        %s]], ns_decl, inc_path, var_name, inc_path, var_name, ns_close))
+        end
+
+        local new_content = table.concat(summary_lines, "\n")
+        if io.readfile(summary_header_path) ~= new_content then
+            print("updating " .. summary_header_path)
+            io.writefile(summary_header_path, new_content)
+        end
+    end)
 
     after_build(function (target)
         local dst_dir = target:targetdir()
         os.cp(path.join(os.projectdir(), "properties/assets"), dst_dir)
         os.cp(path.join(os.projectdir(), "properties/vk_layer_settings.txt"), dst_dir)
     end)
+
+    if is_mode("release") then
+        set_policy("build.optimization.lto", true)
+    end
+    if is_plat("windows") then
+        add_syslinks("imm32", {public = true})
+    end
+target_end()
+
+target("xrgui.example")
+    set_kind("binary")
+    set_extension(".exe")
+    set_languages("c++latest")
+
+    set_warnings("all", "pedantic")
+
+    if is_mode("release") then
+        set_policy("build.optimization.lto", true)
+    end
+
+     add_deps("xrgui.default")
+
+    add_files("src.examples/**.ixx", {public = true})
+    add_files("src.examples/**.cpp")
 target_end()
 
 task("gen_slang")
