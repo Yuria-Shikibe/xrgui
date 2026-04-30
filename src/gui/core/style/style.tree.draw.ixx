@@ -25,13 +25,13 @@ struct draw_nine_patch{
 	nine_patch_draw_entry entry;
 
 	void operator()(const typed_draw_param<elem>& p) const{
-		if(!entry.patch->image_view) return;
+		if(!entry.patch->get_value().image_view) return;
 		const elem& e = p.subject();
 		auto& r = e.renderer();
 		r.update_state(fx::push_constant{fx::batch_draw_mode::msdf});
-		auto color = entry.pal->on_instance(e).mul_a(p->opacity_scl);
+		auto color = entry.pal->get_value().on_instance(e).mul_a(p->opacity_scl);
 		r << fx::nine_patch_draw<>{
-			.patch = std::to_address(entry.patch),
+			.patch = std::addressof(entry.patch->get_value()),
 			.region = p->draw_bound,
 			.color = color,
 		};
@@ -43,14 +43,14 @@ struct draw_nine_patch_hollow{
 	nine_patch_draw_entry entry;
 
 	void operator()(const typed_draw_param<elem>& p) const{
-		if(!entry.patch->image_view) return;
+		if(!entry.patch->get_value().image_view) return;
 		const elem& e = p.subject();
 		auto& r = e.renderer();
 
 		r.update_state(fx::push_constant{fx::batch_draw_mode::msdf});
-		auto color = entry.pal->on_instance(e).mul_a(p->opacity_scl);
+		auto color = entry.pal->get_value().on_instance(e).mul_a(p->opacity_scl);
 		r << fx::nine_patch_hollow_draw<>{
-			.patch = std::to_address(entry.patch),
+			.patch = std::addressof(entry.patch->get_value()),
 			.region = p->draw_bound,
 			.color = color,
 		};
@@ -64,13 +64,13 @@ struct draw_row_patch{
 	graphic::draw::instruction::row_patch_flags flags{};
 
 	void operator()(const typed_draw_param<elem>& p) const{
-		if(!patch->get_image_view()) return;
+		if(!patch->get_value().get_image_view()) return;
 		const elem& e = p.subject();
 		auto& r = e.renderer();
 		e.renderer().update_state(fx::push_constant{fx::batch_draw_mode::msdf});
-		auto color = pal->on_instance(e).mul_a(p->opacity_scl);
+		auto color = pal->get_value().on_instance(e).mul_a(p->opacity_scl);
 		e.renderer() << fx::row_patch_draw{
-			.patch = std::to_address(patch),
+			.patch = std::addressof(patch->get_value()),
 			.region = p->draw_bound,
 			.color = color,
 			.flags = flags,
