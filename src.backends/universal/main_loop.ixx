@@ -8,16 +8,10 @@ import std;
 import mo_yanxi.gui.global;
 import mo_yanxi.gui.renderer.frontend;
 
-import mo_yanxi.gui.fx.instruction_extension;
-
 import mo_yanxi.backend.vulkan.renderer;
 import mo_yanxi.backend.vulkan.context;
 
-import mo_yanxi.graphic.trail;
-import mo_yanxi.math.rand;
-import mo_yanxi.math.interpolation;
 import mo_yanxi.concurrent.mpsc_double_buffer;
-import mo_yanxi.math;
 
 import mo_yanxi.platform.thread;
 

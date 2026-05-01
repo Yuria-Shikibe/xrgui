@@ -612,11 +612,8 @@ int main(){
 	font::initialize();
 	backend::glfw::initialize();
 
-
 	typesetting::rich_text_look_up_table table;
 	typesetting::look_up_table = &table;
-
-
 
 	VkApplicationInfo appInfo{
 		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
