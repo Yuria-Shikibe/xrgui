@@ -29,7 +29,7 @@ if current_dir == root_dir then
 end
 
 -- used for react flow redirect
-set_config("spec_mo_yanxi_utility_path", path.join(current_dir, "./external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"))
+set_config("spec_mo_yanxi_utility_path", path.join(current_dir, "external/mo_yanxi_vulkan_wrapper/external/mo_yanxi_utility"))
 
 includes("external/**/xmake.lua")
 
@@ -47,7 +47,7 @@ rule("media.svg_to_bin")
         import("utils.binary.bin2c")
 
         local my_res_inc = path.join(config.builddir(), ".assets", "includes")
-        local src_basedir = path.join(os.projectdir(), "properties/assets_raw/gen")
+        local src_basedir = path.join(current_dir, "properties/assets_raw/gen")
         local rel_path = path.relative(sourcefile, src_basedir)
         local headerfile = path.join(my_res_inc, rel_path .. ".h")
 
@@ -136,7 +136,7 @@ target("xrgui.default")
 
         local summary_lines = { "#pragma once\n" }
 
-        local src_basedir = path.join(os.projectdir(), "properties/assets_raw/gen")
+        local src_basedir = path.join(current_dir, "properties/assets_raw/gen")
         local svg_files = os.files(path.join(src_basedir, "**.svg"))
 
         for _, file in ipairs(svg_files) do
@@ -172,8 +172,8 @@ target("xrgui.default")
 
     after_build(function (target)
         local dst_dir = target:targetdir()
-        os.cp(path.join(os.projectdir(), "properties/assets"), dst_dir)
-        os.cp(path.join(os.projectdir(), "properties/vk_layer_settings.txt"), dst_dir)
+        os.cp(path.join(current_dir, "properties/assets"), dst_dir)
+        os.cp(path.join(current_dir, "properties/vk_layer_settings.txt"), dst_dir)
     end)
 
     if is_mode("release") then
@@ -205,20 +205,38 @@ task("gen_slang")
     on_run(function ()
         import("core.base.option")
 
-        local path_builder = path.join(current_dir, "./properties/build_util/slang_builder.py");
-        local path_config = path.join(current_dir, option.get("config"));
-        local path_slangc = option.get("complier");
-        local pass = option.get("pass");
+        local path_builder = path.join(current_dir, "./properties/build_util/slang_builder.py")
 
-        os.exec("py " .. path_builder .. " " .. path_slangc .. " " .. option.get("output") .. " " .. path_config .. " -j 30 " .. pass)
+        local user_config = option.get("config")
+        local user_output = option.get("output")
+
+        local path_config
+        local output
+
+        if user_config == "" then
+            path_config = path.join(current_dir, "./properties/assets_raw/shader/config.toml")
+        else
+            path_config = path.join(os.cwd(), user_config)
+        end
+
+        if user_output == "" then
+            output = path.join(current_dir, "./properties/assets/shader/spv")
+        else
+            output = path.join(os.cwd(), user_output)
+        end
+
+        local path_slangc = option.get("complier")
+        local pass = option.get("pass")
+
+        os.exec("py " .. path_builder .. " " .. path_slangc .. " " .. output .. " " .. path_config .. " -j 30 " .. pass)
     end)
 
     set_menu({
         usage = "compile slang to spirv",
         options = {
             {'c', "complier", "kv", "./slang/bin/slangc.exe", "Path to slangc.exe"},
-            {'o', "output", "kv", "./properties/assets/shader/spv", "Spirv Output Dir Relative To Directory Root"},
-            {'f', "config", "kv", "./properties/assets_raw/shader/config.toml", "Shader Build Config"},
+            {'o', "output", "kv", "", "Spirv Output Dir Relative To Directory Root"},
+            {'f', "config", "kv", "", "Shader Build Config"},
             {'p', "pass", "kv", "", "Pass through args to py"},
         }
     })
@@ -226,7 +244,11 @@ task_end()
 
 task("gen_icon")
     on_run(function ()
-        os.exec("py ./properties/assets_raw/svg_normalize.py -i ./properties/assets_raw/icons -o ./properties/assets_raw/gen/icons")
+        local path_builder = path.join(current_dir, "./properties/assets_raw/svg_normalize.py");
+        local path_i = path.join(current_dir, "./properties/assets_raw/icons");
+        local path_o = path.join(current_dir, "./properties/assets_raw/gen/icons");
+
+        os.exec("py " .. path_builder .. " -i " .. path_i .. " -o " .. path_o)
     end)
 
     set_menu({
