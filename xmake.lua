@@ -216,13 +216,13 @@ task("gen_slang")
         if user_config == "" then
             path_config = path.join(current_dir, "./properties/assets_raw/shader/config.toml")
         else
-            path_config = path.join(os.cwd(), user_config)
+            path_config = path.join(os.curdir(), user_config)
         end
 
         if user_output == "" then
             output = path.join(current_dir, "./properties/assets/shader/spv")
         else
-            output = path.join(os.cwd(), user_output)
+            output = path.join(os.curdir(), user_output)
         end
 
         local path_slangc = option.get("complier")
