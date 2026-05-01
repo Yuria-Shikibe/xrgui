@@ -148,7 +148,7 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 		} else{
 			ensure_render_pass_(r, cmd, draw_cfg, ctx_val);
 
-			cache_graphic_context_.apply(cmd, r.draw_pipeline_manager_);
+			cache_graphic_context_.apply(cmd, r.draw_pipeline_manager_.get_pipelines());
 			cmd_draw_(r, cmd, i, draw_cfg, ctx_val);
 
 			for(const auto& entry : r.batch_host.get_section_state_deltas(i).get_entries()){

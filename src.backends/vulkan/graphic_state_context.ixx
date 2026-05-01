@@ -7,6 +7,7 @@ module;
 export module mo_yanxi.graphic_state_context;
 
 import std;
+import mo_yanxi.tuple_manipulate;
 export import mo_yanxi.backend.vulkan.attachment_manager;
 export import mo_yanxi.backend.vulkan.pipeline_manager;
 
@@ -214,8 +215,8 @@ struct graphics_context_trace {
     	}
     }
 
-	void apply(VkCommandBuffer cmd, graphic_pipeline_manager& pipeline_manager) {
-		auto& pipe_data = pipeline_manager.get_pipelines()[pending_state.pipeline_index];
+	void apply(VkCommandBuffer cmd, std::span<const graphic_pipeline_data> pipelines) {
+		auto& pipe_data = pipelines[pending_state.pipeline_index];
 
 		// 1. 检查管线是否必须变更
 		if ((dirty_flags & DIRTY_PIPELINE) && (pending_state.pipeline_index != current_state.pipeline_index)) {
