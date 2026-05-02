@@ -215,8 +215,8 @@ struct graphics_context_trace {
     	}
     }
 
-	void apply(VkCommandBuffer cmd, std::span<const graphic_pipeline_data> pipelines) {
-		auto& pipe_data = pipelines[pending_state.pipeline_index];
+private:
+	void apply_pipe_(VkCommandBuffer cmd, const graphic_pipeline_data& pipe_data){
 
 		// 1. 检查管线是否必须变更
 		if ((dirty_flags & DIRTY_PIPELINE) && (pending_state.pipeline_index != current_state.pipeline_index)) {
@@ -224,7 +224,7 @@ struct graphics_context_trace {
 
 			current_state.pipeline_index = pending_state.pipeline_index;
 			pipeline_just_changed = true;
-			
+
 			current_state = pending_state;
 		}
 
@@ -278,6 +278,14 @@ struct graphics_context_trace {
 
         dirty_flags = DIRTY_NONE;
         requires_rebind = pipeline_just_changed = false;
+	}
+
+public:
+	template <std::ranges::random_access_range PipelineRange>
+		requires (std::convertible_to<std::ranges::range_reference_t<const PipelineRange&>, const graphic_pipeline_data&>)
+	void apply(VkCommandBuffer cmd, const PipelineRange& pipelines) {
+		const graphic_pipeline_data& pipe_data = std::ranges::begin(pipelines)[pending_state.pipeline_index];
+		apply_pipe_(cmd, pipe_data);
     }
 
 	void set_rebind_required() noexcept{
