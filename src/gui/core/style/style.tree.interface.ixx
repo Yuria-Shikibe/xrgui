@@ -68,44 +68,9 @@ struct typed_draw_param{
 	}
 };
 
-/*export
-template <typename B, std::derived_from<B> D>
-struct typed_draw_param_adaptor{
-	using target_type = B;
-
-	typed_draw_param<D> param;
-
-	[[nodiscard]] const target_type* current_subject() const noexcept{
-		return static_cast<const target_type*>(param.current_subject());
-	}
-
-	[[nodiscard]] const target_type& subject() const noexcept{
-		assert(param->current_subject != nullptr);
-		return *current_subject();
-	}
-
-	template <typename T>
-		requires std::derived_from<D, T>
-	explicit(false) operator typed_draw_param_adaptor<T, D>() const noexcept{
-		return typed_draw_param_adaptor<T, D>{param};
-	}
-};*/
-
-export
-struct style_tree_metrics_inherited_state{
-	// Reserved for future style inheritance-dependent metric solving.
-};
-
-export
-struct style_tree_metrics_composed_state{
-	// Reserved for future style composition-dependent metric solving.
-};
-
 export
 struct style_tree_metrics_query_param{
 	const void* current_subject{};
-	style_tree_metrics_inherited_state inherited{};
-	style_tree_metrics_composed_state composed{};
 
 	[[nodiscard]] explicit constexpr operator bool() const noexcept{
 		return current_subject != nullptr;
@@ -237,19 +202,14 @@ concept style_tree_direct_drawable_typed = requires(const T& value, const typed_
 
 export
 template <typename T>
-concept style_tree_member_direct_drawable = style_tree_typed_target<T>
+concept style_tree_direct_drawable = style_tree_typed_target<T>
 	&& style_tree_direct_drawable_typed<T, node_target_t<T>>;
 
-export
-template <typename T>
-concept style_tree_arrow_direct_drawable = style_tree_typed_target<T>
-	&& requires(const T& value, const typed_draw_param<node_target_t<T>>& p){
-		value->direct(p);
-	};
+
 
 export
 template <typename T>
-concept style_tree_draw_dispatchable = style_tree_member_recordable<T>
+concept style_tree_recordable = style_tree_member_recordable<T>
 	|| style_tree_member_record_drawable<T>
 	|| requires(const T& value, draw_recorder& r){ value->record(r); }
 	|| requires(const T& value, draw_recorder& r){ value->record_draw(r); }
@@ -257,7 +217,7 @@ concept style_tree_draw_dispatchable = style_tree_member_recordable<T>
 
 export
 template <typename T>
-concept style_tree_metrics_dispatchable = style_tree_member_metrics_queryable<T>
+concept style_tree_metrics_queryable = style_tree_member_metrics_queryable<T>
 	|| style_tree_arrow_metrics_queryable<T>
 	|| style_tree_dereferenceable<T>;
 
@@ -346,17 +306,7 @@ struct draw_record_t{
 export constexpr inline query_metrics_t query_metrics;
 export constexpr inline draw_record_t draw_record;
 
-export
-template <typename T>
-concept style_tree_recordable = style_tree_draw_dispatchable<T>;
 
-export
-template <typename T>
-concept style_tree_metrics_queryable = style_tree_metrics_dispatchable<T>;
-
-export
-template <typename T>
-concept style_tree_direct_drawable = style_tree_member_direct_drawable<T>;
 
 inline namespace cpo{
 struct draw_direct_t{
@@ -429,7 +379,7 @@ public:
 
 			if(t == nullptr){
 				// 拷贝分支：t为空，val 指代 create 时指定的类型 Ty
-				return new(std::nothrow) Ty(std::as_const(*cast_to_ty(val)));
+				return static_cast<EntryType*>(new(std::nothrow) Ty(std::as_const(*cast_to_ty(val))));
 			}
 
 			// 记录分支：此时 t 是 record context，val 是类型 Ty
@@ -448,7 +398,7 @@ public:
 		                            const style_tree_metrics_query_param& p) static noexcept -> style_tree_metrics{
 			assert(val != nullptr);
 			auto& ty = std::as_const(*cast_to_ty(const_cast<void*>(val)));
-			if constexpr(style_tree_member_metrics_queryable<Ty>){
+			if constexpr(style_tree_metrics_queryable<Ty>){
 				return ty.query_metrics(typed_style_tree_metrics_query_param<node_target_t<Ty>>{p});
 			} else{
 				return {};
@@ -457,7 +407,7 @@ public:
 		rst.direct_func_ptr_ = +[](const void* val,
 		                           const draw_call_param& p) static noexcept -> void{
 			auto& ty = std::as_const(*cast_to_ty(const_cast<void*>(val)));
-			if constexpr(style_tree_member_direct_drawable<Ty>){
+			if constexpr(style_tree_direct_drawable<Ty>){
 				style::draw_direct(ty, typed_draw_param<node_target_t<Ty>>{p});
 			}
 		};
@@ -496,6 +446,10 @@ public:
 
 	[[nodiscard]] style_tree_metrics query_metrics(const style_tree_metrics_query_param& p = {}) const noexcept{
 		return vtable.query_metrics(this, p);
+	}
+
+	[[nodiscard]] style_tree_refable_node_base* clone_with_ownership() const{
+		return static_cast<style_tree_refable_node_base*>(vtable.clone_with_ownership(this));
 	}
 };
 
@@ -540,6 +494,10 @@ struct target_known_node_ptr{
 		}
 		return {};
 	}
+
+	target_known_node_ptr copy() const{
+		return target_known_node_ptr{{*ptr->clone_with_ownership()}};
+	}
 };
 
 export
@@ -562,7 +520,7 @@ struct style_tree_node : style_tree_refable_node_base{
 	}
 
 	[[nodiscard]] std::unique_ptr<Derived> clone() const{
-		return std::unique_ptr{static_cast<Derived*>(vtable.clone_with_ownership(this))};
+		return std::unique_ptr{static_cast<Derived*>(static_cast<style_tree_refable_node_base*>(vtable.clone_with_ownership(this)))};
 	}
 };
 

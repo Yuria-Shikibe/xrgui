@@ -896,6 +896,7 @@ inline auto make_default_scroll_pane_style(){
 }
 
 /**
+ * @brief NOT RECOMMENDED TO USE unless it is trully dynmaic
  * @warning in most cases, generic scroll pane is not recommended to use, use scroll adaptor instead.
  */
 export

@@ -5,9 +5,8 @@ module;
 export module mo_yanxi.graphic.compositor.bloom;
 
 import std;
-export import mo_yanxi.graphic.compositor.post_process_pass;
+export import mo_yanxi.graphic.compositor.sub_pass;
 import mo_yanxi.vk;
-import mo_yanxi.vk.cmd;
 import mo_yanxi.math.vector2;
 
 namespace mo_yanxi::graphic::compositor{
@@ -45,8 +44,8 @@ struct bloom_uniform_block{
 };
 
 export
-struct bloom_pass final : post_process_stage{
-	using post_process_stage::post_process_stage;
+struct bloom_pass final : sub_pass_stage{
+	using sub_pass_stage::sub_pass_stage;
 
 	void set_scale(const float scale){
 		if(current_param.scale != scale){
@@ -93,8 +92,6 @@ private:
 
 	std::uint32_t total_mip_level_{0};
 	std::uint32_t max_mip_level_{7};
-	std::vector<vk::image_view> down_mipmap_image_views{};
-	std::vector<vk::image_view> up_mipmap_image_views{};
 
 	[[nodiscard]] std::uint32_t get_required_mipmap_level() const noexcept{
 		return sockets().at_out<image_requirement>(0).mip_level;
@@ -105,205 +102,203 @@ private:
 	}
 
 private:
-	void post_init(const vk::allocator_usage& alloc, const math::u32size2 extent) override{
-		init_pipeline(alloc, {
+	[[nodiscard]] std::vector<VkPushConstantRange> push_constant_ranges() const override{
+		return {
 			VkPushConstantRange{
 				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 				.offset = 0,
 				.size = sizeof(bloom_defines)
-			}});
+			}
+		};
 	}
 
-	void reset_resources(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
+	void post_init(const vk::allocator_usage& alloc, const math::u32size2 extent) override{
+		sub_pass_stage::post_init(alloc, extent);
+		if(samplers_.contains({0, 0})){
+			const auto sampler = get_sampler_at({0, 0});
+			samplers_.try_emplace(binding_info{1, 0}, sampler);
+			samplers_.try_emplace(binding_info{2, 0}, sampler);
+		}
+		uniform_buffer_ = {alloc, sizeof(bloom_uniform_block)};
+		(void)vk::buffer_mapper{uniform_buffer_}.load(current_param);
+	}
+
+	[[nodiscard]] std::vector<sub_pass_setup> build_sub_passes(const pass_data& pass,
+		const math::u32size2 extent) const override{
+		(void)pass;
 		int raw_scale = get_target_scale();
 		if (raw_scale < 0) {
 			throw std::invalid_argument("Bloom target scale cannot be less than 0");
 		}
 
-		total_mip_level_ = std::min(max_mip_level_, get_real_mipmap_level(extent));
+		const auto total_mip_level = std::min(max_mip_level_, get_real_mipmap_level(extent));
+		if(total_mip_level == 0){
+			throw std::runtime_error("Bloom mip level resolved to zero");
+		}
 
 
 		std::uint32_t target_scale = std::min(static_cast<std::uint32_t>(raw_scale),
-		                                      total_mip_level_ > 0 ? total_mip_level_ - 1 : 0u);
-		std::uint32_t total_passes = total_mip_level_ * 2 - target_scale;
+		                                      total_mip_level > 0 ? total_mip_level - 1 : 0u);
+		std::uint32_t total_passes = total_mip_level * 2 - target_scale;
 
-		uniform_buffer_ = {alloc, sizeof(bloom_uniform_block)};
-		reset_descriptor_buffer(alloc, total_passes);
-
-		vk::buffer_mapper ubo_mapper{uniform_buffer_};
-		(void)ubo_mapper.load(current_param);
-
-		{
-			vk::descriptor_mapper info{descriptor_buffer_};
-			for(std::uint32_t i = 0; i < total_passes; ++i){
-				(void)info.set_uniform_buffer(
-					4,
-					uniform_buffer_.get_address(), sizeof(bloom_uniform_block), i);
-			}
-		}
-
-		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources().get_in(1).resource);
-		const auto up_sample_image = std::get<image_entity>(pass.get_used_resources().get_out(0).resource);
-
-
-		const auto down_format = sockets().at_in<image_requirement>(1).get_format();
-		const auto up_format = sockets().at_out<image_requirement>(0).get_format();
-
-		down_mipmap_image_views.resize(total_mip_level_);
-		up_mipmap_image_views.resize(total_mip_level_ - target_scale);
-
-		for(auto&& [idx, view] : down_mipmap_image_views | std::views::enumerate){
-			view = vk::image_view(
-				alloc.get_device(), {
-					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-					.pNext = nullptr,
-					.flags = 0,
-					.image = down_sample_image.handle.image,
-					.viewType = VK_IMAGE_VIEW_TYPE_2D,
-					.format = down_format,
-					.components = {},
-					.subresourceRange = VkImageSubresourceRange{
-						VK_IMAGE_ASPECT_COLOR_BIT, static_cast<std::uint32_t>(idx), 1, 0, 1
-					}
-				}
-			);
-		}
-
-		for(auto&& [idx, view] : up_mipmap_image_views | std::views::enumerate){
-			view = vk::image_view(
-				alloc.get_device(), {
-					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-					.pNext = nullptr,
-					.flags = 0,
-					.image = up_sample_image.handle.image,
-					.viewType = VK_IMAGE_VIEW_TYPE_2D,
-					.format = up_format,
-					.components = {},
-					.subresourceRange = VkImageSubresourceRange{
-						VK_IMAGE_ASPECT_COLOR_BIT, static_cast<std::uint32_t>(idx), 1, 0, 1
-					}
-				}
-			);
-		}
-
-		VkSampler sampler = get_sampler_at({0, 0});
-		vk::descriptor_mapper mapper{descriptor_buffer_};
-
+		std::vector<sub_pass_setup> setups;
+		setups.reserve(total_passes);
 		for(std::uint32_t i = 0; i < total_passes; ++i){
-			mapper.set_image(0, std::get<image_entity>(pass.get_used_resources().get_in(0).resource).handle.image_view,
-			                 i, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler);
-			mapper.set_image(1, down_sample_image.handle.image_view, i, VK_IMAGE_LAYOUT_GENERAL, sampler);
-			mapper.set_image(2, up_sample_image.handle.image_view, i, VK_IMAGE_LAYOUT_GENERAL, sampler);
+			sub_pass_setup setup{};
+			setup.push_constants.resize(sizeof(bloom_defines));
+			const auto layer_info = get_current_defines(i, extent, total_mip_level);
+			std::memcpy(setup.push_constants.data(), &layer_info, sizeof(layer_info));
+			const auto current_mipmap_index = reverse_after(i, total_mip_level);
+			const auto div = 1u << (current_mipmap_index + 1u - static_cast<std::uint32_t>(i >= total_mip_level));
+			setup.dispatch.fixed_group_count = VkExtent3D{
+				.width = pass_impl::get_work_group_size(extent / div).x,
+				.height = pass_impl::get_work_group_size(extent / div).y,
+				.depth = 1,
+			};
 
-			if(i < total_mip_level_){
-				mapper.set_storage_image(3, down_mipmap_image_views[i], VK_IMAGE_LAYOUT_GENERAL, i);
-			} else{
+			setup.bindings.push_back({.binding = {1, 0}, .view = {
+				.base_mip_level = 0,
+				.level_count = 0,
+				.base_array_layer = 0,
+				.layer_count = 1,
+				.image_layout = VK_IMAGE_LAYOUT_GENERAL,
+			}});
 
-				std::uint32_t conceptual_mip = reverse_after(i, total_mip_level_);
-				mapper.set_storage_image(3, up_mipmap_image_views[conceptual_mip - target_scale],
-				                         VK_IMAGE_LAYOUT_GENERAL, i);
-			}
+			setup.bindings.push_back({.binding = {2, 0}, .view = {
+				.base_mip_level = 0,
+				.level_count = 0,
+				.base_array_layer = 0,
+				.layer_count = 1,
+				.image_layout = VK_IMAGE_LAYOUT_GENERAL,
+			}});
+
+			setup.bindings.push_back(sub_pass_binding_view{
+				.binding = {3, 0},
+				.resource_slot = i < total_mip_level ? slot_pair{1, no_slot} : slot_pair{no_slot, 0},
+				.view = {
+				.base_mip_level = i < total_mip_level ? i : reverse_after(i, total_mip_level) - target_scale,
+				.level_count = 1,
+				.base_array_layer = 0,
+				.layer_count = 1,
+				.image_layout = VK_IMAGE_LAYOUT_GENERAL,
+			}});
+
+			setups.push_back(std::move(setup));
 		}
+
+		return setups;
 	}
 
-	void record_command(const vk::allocator_usage& alloc, const pass_data& pass, math::u32size2 extent,
-	                    VkCommandBuffer buffer) override{
-		using namespace vk;
-
+	[[nodiscard]] std::vector<sub_pass_baked_sync> bake_sub_pass_sync(const pass_data& pass,
+		const math::u32size2 extent,
+		std::span<const sub_pass_runtime_setup> prepared_sub_passes) const override{
 		int raw_scale = get_target_scale();
 		if (raw_scale < 0) {
 			throw std::invalid_argument("Bloom target scale cannot be negative");
 		}
-		std::uint32_t target_scale = std::min(static_cast<std::uint32_t>(raw_scale),
-		                                      total_mip_level_ > 0 ? total_mip_level_ - 1 : 0u);
-		std::uint32_t total_passes = total_mip_level_ * 2 - target_scale;
-
-		pipeline_.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-		cmd::bind_descriptors(buffer, {descriptor_buffer_});
+		const auto total_mip_level = std::min(max_mip_level_, get_real_mipmap_level(extent));
+		const auto target_scale = std::min(static_cast<std::uint32_t>(raw_scale),
+			total_mip_level > 0 ? total_mip_level - 1 : 0u);
+		std::vector<sub_pass_baked_sync> baked(prepared_sub_passes.size() > 1 ? prepared_sub_passes.size() - 1 : 0);
 
 		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources().get_in(1).resource);
 		const auto up_sample_image = std::get<image_entity>(pass.get_used_resources().get_out(0).resource);
 
-		for(std::uint32_t i = 0; i < total_passes; ++i){
-			const auto current_mipmap_index = reverse_after(i, total_mip_level_);
-			const auto div = 1 << (current_mipmap_index + 1 - (i >= total_mip_level_));
-			math::u32size2 current_ext{extent / div};
+		for(std::uint32_t i = 0; i + 1 < prepared_sub_passes.size(); ++i){
+			auto& sync = baked[i];
+			VkImage image = VK_NULL_HANDLE;
+			std::uint32_t mip_level = 0;
 
-			if(i > 0){
-				if(i <= total_mip_level_){
+			if(i + 1 <= total_mip_level){
+				image = down_sample_image.handle.image;
+				mip_level = reverse_after(i, total_mip_level);
+			} else{
+				image = down_sample_image.handle.image;
+				mip_level = reverse_after(i + 1, total_mip_level) + 1;
+			}
 
-					cmd::memory_barrier(
-						buffer,
-						down_sample_image.handle.image,
-						VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-						VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-						VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-						VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-						VK_IMAGE_LAYOUT_GENERAL,
-						VK_IMAGE_LAYOUT_GENERAL,
-
-						VkImageSubresourceRange{
-							VK_IMAGE_ASPECT_COLOR_BIT, reverse_after(i - 1, total_mip_level_), 1, 0, 1
-						}
-					);
-				} else{
-					cmd::memory_barrier(
-						buffer,
-						down_sample_image.handle.image,
-						VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-						VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-						VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-						VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-						VK_IMAGE_LAYOUT_GENERAL,
-						VK_IMAGE_LAYOUT_GENERAL,
-
-						VkImageSubresourceRange{
-							VK_IMAGE_ASPECT_COLOR_BIT, reverse_after(i, total_mip_level_) + 1, 1, 0, 1
-						}
-					);
+			sync.image_barriers.push_back({
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+				.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+				.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image = image,
+				.subresourceRange = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = mip_level,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
 				}
+			});
+
+			if(i >= total_mip_level && i + 1 > total_mip_level){
+				sync.image_barriers.push_back({
+					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+					.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+					.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+					.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+					.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+					.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.image = up_sample_image.handle.image,
+					.subresourceRange = {
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = reverse_after(i, total_mip_level) - target_scale,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1,
+					}
+				});
 			}
 
-
-			if(i == total_passes - 1 && i >= total_mip_level_){
-				//Final, set output image layout to general
-				cmd::memory_barrier(
-					buffer,
-					up_sample_image.handle.image,
-					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-					VK_ACCESS_2_NONE,
-					VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-					VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-					VK_IMAGE_LAYOUT_GENERAL,
-					VK_IMAGE_LAYOUT_GENERAL
-				);
+			if(i + 1 == prepared_sub_passes.size() - 1 && i + 1 >= total_mip_level){
+				sync.image_barriers.push_back({
+					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+					.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					.srcAccessMask = VK_ACCESS_2_NONE,
+					.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+					.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+					.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+					.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.image = up_sample_image.handle.image,
+					.subresourceRange = {
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = reverse_after(i + 1, total_mip_level) - target_scale,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1,
+					}
+				});
 			}
-
-			cmd::set_descriptor_offsets(buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0, {0},
-			                            {descriptor_buffer_.get_chunk_offset(i)});
-
-			const auto groups = get_work_group_size(current_ext);
-
-			const auto layerinfo = get_current_defines(i, extent);
-			vkCmdPushConstants(buffer, pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(bloom_defines), &layerinfo);
-
-			vkCmdDispatch(buffer, groups.x, groups.y, 1);
 		}
+
+		return baked;
 	}
 
 private:
-	bloom_defines get_current_defines(unsigned layerIndex, const math::u32size2 extent) const noexcept{
+	bloom_defines get_current_defines(unsigned layerIndex, const math::u32size2 extent,
+		const std::uint32_t total_mip_level) const noexcept{
 		return {
 			.currentLayerExtent = [&] -> math::u32size2{
-				if(layerIndex < total_mip_level_){
+				if(layerIndex < total_mip_level){
 					return {extent.x >> (layerIndex + 1), extent.y >> (layerIndex + 1)};
 				} else{
-					return {extent.x >> reverse_after(layerIndex, total_mip_level_), extent.y >> reverse_after(layerIndex, total_mip_level_)};
+					return {extent.x >> reverse_after(layerIndex, total_mip_level), extent.y >> reverse_after(layerIndex, total_mip_level)};
 				}
 			}(),
-				.current_layer = reverse_after(layerIndex, total_mip_level_),
-				.up_scaling = layerIndex >= total_mip_level_,
-				.total_layer = total_mip_level_,
+				.current_layer = reverse_after(layerIndex, total_mip_level),
+				.up_scaling = layerIndex >= total_mip_level,
+				.total_layer = total_mip_level,
 				.target_scale = static_cast<std::uint32_t>(std::max(0, get_target_scale())),
 		};
 	}

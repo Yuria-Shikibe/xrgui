@@ -177,8 +177,18 @@ public:
 		}
 	}
 
+	[[nodiscard]] const inout_map& get_inout_map() const noexcept{
+		return inout_map_;
+	}
 
 	bound_stage_resource& operator[](binding_info binding) /*noexcept*/{
+		if(auto itr = std::ranges::find(resources_, binding); itr != resources_.end()){
+			return *itr;
+		}
+		throw std::out_of_range("pass does not exist");
+	}
+
+	const bound_stage_resource& operator[](binding_info binding) const /*noexcept*/{
 		if(auto itr = std::ranges::find(resources_, binding); itr != resources_.end()){
 			return *itr;
 		}
@@ -210,6 +220,12 @@ struct ubo_subrange{
 	std::uint32_t binding;
 	std::uint32_t offset;
 	std::uint32_t size;
+};
+
+export
+struct image_binding_override{
+	VkImageView image_view{VK_NULL_HANDLE};
+	VkImageLayout image_layout{VK_IMAGE_LAYOUT_UNDEFINED};
 };
 
 export
@@ -279,8 +295,9 @@ public:
 	}
 
 protected:
-	void init_pipeline(const vk::allocator_usage& ctx,
-		std::initializer_list<VkPushConstantRange> pushConstantRanges = {}) noexcept{
+	template <std::ranges::contiguous_range R = std::initializer_list<VkPushConstantRange>>
+		requires std::convertible_to<std::ranges::range_value_t<R>, VkPushConstantRange>
+	void init_pipeline(const vk::allocator_usage& ctx, const R& pushConstantRanges = {}) noexcept{
 		descriptor_layout_ = {
 				ctx.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
 				meta_.descriptor_layout_builder_
@@ -326,73 +343,140 @@ protected:
 	}
 
 	void default_bind_uniform_buffer(){
+		default_bind_uniform_buffer(0);
+	}
+
+	void default_bind_uniform_buffer(const std::uint32_t chunk_index){
 		vk::descriptor_mapper mapper{descriptor_buffer_};
 
 		for(const auto& uniform_offset : uniform_subranges_){
 			(void)mapper.set_uniform_buffer(uniform_offset.binding,
-				uniform_buffer_.get_address() + uniform_offset.offset, uniform_offset.size);
+				uniform_buffer_.get_address() + uniform_offset.offset, uniform_offset.size, chunk_index);
 		}
 	}
 
-	void default_bind_resources(const pass_data& pass){
-		vk::descriptor_mapper mapper{descriptor_buffer_};
-		auto bind = [&, this](const resource_map_entry& connection, const resource_entity& res,
-			const resource_requirement& requirement){
-			std::visit(overload_narrow{
-					[&](const image_entity& entity){
-						auto& req = std::get<image_requirement>(requirement.req);
-						if(req.uses_sampled_descriptor() && !req.uses_storage_descriptor()){
-							VkSampler sampler = VK_NULL_HANDLE;
+	void default_bind_uniform_buffers(const std::uint32_t chunk_count){
+		for(std::uint32_t chunk_idx = 0; chunk_idx < chunk_count; ++chunk_idx){
+			default_bind_uniform_buffer(chunk_idx);
+		}
+	}
 
-							VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+	[[nodiscard]] resource_entity get_resource_for_connection(const pass_data& pass,
+		const resource_map_entry& connection) const{
+		if(connection.slot.has_in()){
+			if(auto res = pass.get_used_resources().get_in(connection.slot.in)){
+				return res;
+			}
+		}
 
+		if(connection.slot.has_out()){
+			if(auto res = pass.get_used_resources().get_out(connection.slot.out)){
+				return res;
+			}
+		}
 
-							if(samplers_.contains(connection.binding)){
-								sampler = get_sampler_at(connection.binding);
-								if(sampler != VK_NULL_HANDLE){
-									desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-								}
-							}
+		throw std::out_of_range("failed to find resource");
+	}
 
-							mapper.set_image(
-								connection.binding.binding,
-								entity.handle.image_view,
-								0,
-								VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-								sampler,
-								desc_type
-							);
-						} else{
-							mapper.set_storage_image(connection.binding.binding, entity.handle.image_view,
-								VK_IMAGE_LAYOUT_GENERAL);
-						}
-					},
-					[&](const buffer_entity& entity){
-						(void)mapper.set_storage_buffer(connection.binding.binding, entity.handle.begin(),
-							entity.handle.size);
+	[[nodiscard]] const resource_requirement& get_requirement_for_binding(const binding_info binding) const{
+		return meta_[binding];
+	}
+
+	[[nodiscard]] VkImageLayout get_default_image_layout(const image_requirement& req) const noexcept{
+		if(req.uses_sampled_descriptor() && !req.uses_storage_descriptor()){
+			return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		}
+
+		return VK_IMAGE_LAYOUT_GENERAL;
+	}
+
+	void bind_resource(vk::descriptor_mapper& mapper,
+		const std::uint32_t chunk_index,
+		const resource_map_entry& connection,
+		const resource_entity& res,
+		const resource_requirement& requirement,
+		const image_binding_override* image_override = nullptr) const{
+		std::visit(overload_narrow{
+				[&](const image_entity& entity){
+					auto& req = std::get<image_requirement>(requirement.req);
+					const auto image_view = image_override && image_override->image_view != VK_NULL_HANDLE
+						? image_override->image_view
+						: entity.handle.image_view;
+					auto image_layout = get_default_image_layout(req);
+					if(image_override && image_override->image_layout != VK_IMAGE_LAYOUT_UNDEFINED){
+						image_layout = image_override->image_layout;
 					}
-				}, res.resource);
-		};
 
-		std::size_t local_count{};
+					if(req.uses_sampled_descriptor() && !req.uses_storage_descriptor()){
+						VkSampler sampler = VK_NULL_HANDLE;
+
+						VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+
+
+						if(samplers_.contains(connection.binding)){
+							sampler = get_sampler_at(connection.binding);
+							if(sampler != VK_NULL_HANDLE){
+								desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+							}
+						}
+
+						mapper.set_image(
+							connection.binding.binding,
+							image_view,
+							chunk_index,
+							image_layout,
+							sampler,
+							desc_type
+						);
+					} else{
+						mapper.set_storage_image(connection.binding.binding, image_view, image_layout, chunk_index);
+					}
+				},
+				[&](const buffer_entity& entity){
+					(void)mapper.set_storage_buffer(connection.binding.binding, entity.handle.begin(),
+						entity.handle.size, chunk_index);
+				}
+			}, res.resource);
+	}
+
+	void default_bind_resources(const pass_data& pass, const std::uint32_t chunk_index = 0){
+		vk::descriptor_mapper mapper{descriptor_buffer_};
 		for(const auto& connection : meta_.inout_map_.get_connections()){
 			if(connection.binding.set != 0) continue;
+			const auto res = get_resource_for_connection(pass, connection);
+			bind_resource(mapper, chunk_index, connection, res, get_requirement_for_binding(connection.binding));
+		}
+	}
 
+	void bind_descriptor_sets(VkCommandBuffer buffer, const std::uint32_t chunk_index = 0) const{
+		if(external_descriptor_usages_.empty()){
+			descriptor_buffer_.bind_chunk_to(buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0, chunk_index);
+		} else{
+			std::array<std::byte, 1024> buf;
+			std::pmr::monotonic_buffer_resource pool{buf.data(), buf.size(), std::pmr::new_delete_resource()};
+			std::pmr::vector<VkDescriptorBufferBindingInfoEXT> infos(external_descriptor_usages_.size() + 1, &pool);
 
-			if(auto res = pass.get_used_resources().get_in(connection.slot.in)){
-				bind(connection, res, meta_.sockets.at_in(connection.slot.in));
-				continue;
+			infos[0] = descriptor_buffer_;
+
+			std::pmr::vector<VkDeviceSize> offsets(infos.size(), &pool);
+			offsets[0] = descriptor_buffer_.get_chunk_offset(chunk_index);
+			std::pmr::vector<std::uint32_t> indices(std::from_range,
+				std::views::iota(0U) | std::views::take(infos.size()), &pool);
+			for(std::uint32_t i = 0; i < external_descriptor_usages_.size(); ++i){
+				const auto setIdx = i + 1;
+				const auto itr = std::ranges::lower_bound(external_descriptor_usages_, setIdx, {},
+					&external_descriptor_usage::set_index);
+				if(itr == external_descriptor_usages_.end() || itr->set_index != setIdx){
+					throw std::out_of_range(
+						"failed to find external descriptor usage, set index must be contiguous from 1");
+				}
+				infos[setIdx] = itr->entry->dbo_info;
+				offsets[setIdx] = itr->offset;
 			}
 
-			if(auto res = pass.get_used_resources().get_out(connection.slot.out)){
-				bind(connection, res, meta_.sockets.at_out(connection.slot.out));
-				continue;
-			}
-
-			throw std::out_of_range("failed to find resource");
-
-		// CONTINUE:
-			continue;
+			vk::cmd::bindDescriptorBuffersEXT(buffer, infos.size(), infos.data());
+			vk::cmd::setDescriptorBufferOffsetsEXT(buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0,
+				infos.size(), indices.data(), offsets.data());
 		}
 	}
 
@@ -427,34 +511,7 @@ public:
 		math::u32size2 extent,
 		VkCommandBuffer buffer) override{
 		pipeline_.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-		if(external_descriptor_usages_.empty()){
-			descriptor_buffer_.bind_to(buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0);
-		} else{
-			std::array<std::byte, 1024> buf;
-			std::pmr::monotonic_buffer_resource pool{buf.data(), buf.size(), std::pmr::new_delete_resource()};
-			std::pmr::vector<VkDescriptorBufferBindingInfoEXT> infos(external_descriptor_usages_.size() + 1, &pool);
-
-			infos[0] = descriptor_buffer_;
-
-			std::pmr::vector<VkDeviceSize> offsets(infos.size(), &pool);
-			std::pmr::vector<std::uint32_t> indices(std::from_range,
-				std::views::iota(0U) | std::views::take(infos.size()), &pool);
-			for(std::uint32_t i = 0; i < external_descriptor_usages_.size(); ++i){
-				const auto setIdx = i + 1;
-				const auto itr = std::ranges::lower_bound(external_descriptor_usages_, setIdx, {},
-					&external_descriptor_usage::set_index);
-				if(itr == external_descriptor_usages_.end() || itr->set_index != setIdx){
-					throw std::out_of_range(
-						"failed to find external descriptor usage, set index must be contiguous from 1");
-				}
-				infos[setIdx] = itr->entry->dbo_info;
-				offsets[setIdx] = itr->offset;
-			}
-
-			vk::cmd::bindDescriptorBuffersEXT(buffer, infos.size(), infos.data());
-			vk::cmd::setDescriptorBufferOffsetsEXT(buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0,
-				infos.size(), indices.data(), offsets.data());
-		}
+		bind_descriptor_sets(buffer);
 
 
 		auto groups = get_work_group_size(extent);

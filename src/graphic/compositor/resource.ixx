@@ -17,6 +17,8 @@ export module mo_yanxi.graphic.compositor.resource;
 
 import mo_yanxi.utility;
 import mo_yanxi.vk;
+import mo_yanxi.math;
+import mo_yanxi.math.vector2;
 import std;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
@@ -908,6 +910,51 @@ struct external_descriptor_usage{
 	const external_descriptor* entry;
 	std::uint32_t set_index;
 	VkDeviceSize offset;
+};
+
+export
+struct sub_pass_image_view{
+	std::uint32_t base_mip_level{};
+	std::uint32_t level_count{1};
+	std::uint32_t base_array_layer{};
+	std::uint32_t layer_count{1};
+	VkImageLayout image_layout{VK_IMAGE_LAYOUT_UNDEFINED};
+
+	friend constexpr bool operator==(const sub_pass_image_view&, const sub_pass_image_view&) noexcept = default;
+};
+
+export
+struct sub_pass_binding_view{
+	binding_info binding{};
+	slot_pair resource_slot{};
+	sub_pass_image_view view{};
+};
+
+export
+struct sub_pass_dispatch{
+	std::optional<VkExtent3D> fixed_group_count{};
+	math::u32size2 group_unit_size{16, 16};
+
+	[[nodiscard]] VkExtent3D resolve(const VkExtent2D target_extent) const noexcept{
+		if(fixed_group_count){
+			return *fixed_group_count;
+		}
+
+		return {
+			.width = (target_extent.width + group_unit_size.x - 1) / group_unit_size.x,
+			.height = (target_extent.height + group_unit_size.y - 1) / group_unit_size.y,
+			.depth = 1,
+		};
+	}
+};
+
+export
+struct sub_pass_setup{
+	std::vector<sub_pass_binding_view> bindings{};
+	std::vector<std::byte> push_constants{};
+	std::uint32_t push_offset{};
+	VkShaderStageFlags push_stages{VK_SHADER_STAGE_COMPUTE_BIT};
+	sub_pass_dispatch dispatch{};
 };
 
 #pragma endregion

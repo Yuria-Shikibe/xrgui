@@ -148,7 +148,7 @@ struct tree_tuple_fork{
 	void record(draw_recorder& ctx) const{
 		std::apply([&ctx]<typename... Ts>(const Ts&... child){
 			([&]{
-				if constexpr(style_tree_recordable<std::remove_cvref_t<Ts>>){
+				if constexpr(style::style_tree_recordable<std::remove_cvref_t<Ts>>){
 					style::draw_record(child, ctx);
 				}
 			}(), ...);
@@ -158,7 +158,7 @@ struct tree_tuple_fork{
 	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		std::apply([&]<typename... Ts>(const Ts&... child){
 			([&]{
-				if constexpr(style_tree_direct_drawable<std::remove_cvref_t<Ts>>){
+				if constexpr(style::style_tree_direct_drawable<std::remove_cvref_t<Ts>>){
 					style::draw_direct(child, p);
 				}
 			}(), ...);
@@ -169,7 +169,7 @@ struct tree_tuple_fork{
 		style_tree_metrics rst{};
 		std::apply([&]<typename... Ts>(const Ts&... child){
 			([&]{
-				if constexpr(style_tree_metrics_queryable<std::remove_cvref_t<Ts>>){
+				if constexpr(style::style_tree_metrics_queryable<std::remove_cvref_t<Ts>>){
 					rst.merge_from(style::query_metrics(child, p));
 				}
 			}(), ...);
