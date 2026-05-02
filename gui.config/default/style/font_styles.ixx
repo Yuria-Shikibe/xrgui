@@ -34,9 +34,9 @@ void init_font_manager(font::font_manager& font_manager, graphic::image_atlas& i
 			code_faces_.push_back(&meta);
 		}
 
-		font_manager.register_family("code", code_faces_, {&SourceHanSansCN_regular, segoe});
+		font_manager.register_family("mono", code_faces_, {&SourceHanSansCN_regular, segoe});
 
-		auto& default_family = font_manager.register_family("gui", {&SourceHanSansCN_regular, segoe});
+		auto& default_family = font_manager.register_family("def", {&SourceHanSansCN_regular, segoe});
 
 		font_manager.set_default_family(&default_family);
 

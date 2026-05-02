@@ -321,16 +321,21 @@ protected:
 			math::vec2 cell_sz;
 			cell_sz.*majorTarget = content_sz.*majorTarget;
 			cell_sz.*minorTarget = minor;
-			item->resize(cell_sz, propagate_mask::lower);
-			item->try_layout();
 
 			if(item_size[idx].pending()){
 				item->restriction_extent.set_minor_pending(get_layout_policy());
+			} else{
+				item->restriction_extent.set_minor(get_layout_policy(), minor);
 			}
 
 			if(majorPending){
 				item->restriction_extent.set_major_pending(get_layout_policy());
+			} else{
+				item->restriction_extent.set_major(get_layout_policy(), cell_sz.*majorTarget);
 			}
+
+			item->resize(cell_sz, propagate_mask::lower);
+			item->try_layout();
 		}
 
 		set_children_src();

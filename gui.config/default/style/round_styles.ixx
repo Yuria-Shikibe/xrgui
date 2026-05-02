@@ -98,7 +98,7 @@ struct draw_round_slider{
 		const auto& element = p.subject();
 		auto region = p->draw_bound;
 		float opacity_scl = p->opacity_scl;
-		state_guard _{element.renderer(), fx::batch_draw_mode::msdf};
+		element.renderer().update_state(fx::push_constant{fx::batch_draw_mode::msdf});
 
 		const auto extent = element.get_bar_handle_extent(region.extent());
 		auto progress_scl = math::vec2{element.bar.get_progress()[0], 1.f};
@@ -142,7 +142,7 @@ struct draw_round_slider{
 		element.renderer() << fx::nine_patch_draw<&image_nine_region::get_row_coords_scaled>{
 			.patch = &entry.handle_shape,
 			.region = {pos2, extent},
-			.color = color.mul(.75f),
+			.color = color.mul(1.05f),
 		};
 	}
 };

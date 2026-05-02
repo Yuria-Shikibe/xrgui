@@ -133,7 +133,7 @@ protected:
 
 	[[nodiscard]] text_transform_params get_transform_params() const noexcept{
 		const math::vec2 raw_ext = glyph_layout_.extent;
-		const math::vec2 abs_scale = scale_.copy().to_abs();
+		const math::vec2 abs_scale = scale_.copy().to_abs() * get_scaling();
 		const math::vec2 trans_ext = raw_ext * abs_scale;
 		const math::vec2 reg_ext = get_glyph_draw_extent();
 		math::vec2 c_scale = scale_;
@@ -395,7 +395,7 @@ protected:
 	text_layout_result layout_text(math::vec2 bound);
 
 	[[nodiscard]] math::vec2 get_glyph_draw_extent() const noexcept{
-		math::vec2 abs_scale = {std::abs(scale_.x), std::abs(scale_.y)};
+		math::vec2 abs_scale = math::vec2{std::abs(scale_.x), std::abs(scale_.y)} * get_scaling();
 		math::vec2 base_ext = glyph_layout_.extent * abs_scale;
 		if(view_mode_ == text_edit_view_type::fit){
 			return mo_yanxi::gui::align::embed_to(align::scale::fit_smaller, base_ext, content_extent());

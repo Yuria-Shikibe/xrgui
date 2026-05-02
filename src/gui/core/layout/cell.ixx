@@ -76,9 +76,10 @@ namespace mo_yanxi::gui::layout{
 				cell_expected_restriction_extent.set_height(extent.y);
 			}
 
-			elem.restriction_extent = cell_expected_restriction_extent;
-			elem.resize(extent, propagate_mask::lower);
-			elem.try_layout();
+		elem.restriction_extent = cell_expected_restriction_extent;
+		elem.resize(extent, propagate_mask::lower);
+		elem.set_prefer_extent(extent);
+		elem.try_layout();
 		}
 
 		bool update_relative_src(elem& elem, math::vec2 parent_content_src) const{

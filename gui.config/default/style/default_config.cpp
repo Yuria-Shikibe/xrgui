@@ -41,9 +41,9 @@ mo_yanxi::gui::example::make_style_result mo_yanxi::gui::example::make_styles(sc
 		manager.register_style<slider1d>(style::spec::make_round_slider_style({
 				.handle_shape = assets::builtin::default_round_square_base,
 				.bar_shape = assets::builtin::default_round_square_base,
-				.handle_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .55f)),
-				.bar_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .5f)),
-				.bar_back_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .5f)),
+				.handle_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .3f)),
+				.bar_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .3f)),
+				.bar_back_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .3f)),
 				.bar_margin = 4.f,
 				.vert_margin = 5.f
 			}));

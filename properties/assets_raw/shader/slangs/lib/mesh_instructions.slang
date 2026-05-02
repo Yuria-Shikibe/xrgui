@@ -648,7 +648,7 @@ struct row_patch : instr_resolver {
 
         resolve_result rst;
         rst.pmt = Primitive(generic, param);
-        rst.vtx = Vertex(float3(position, generic.depth), c, uv);
+        rst.vtx = Vertex(float3(position, generic.depth + depth_bias), c, uv);
         return rst;
     }
 };

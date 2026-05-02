@@ -94,7 +94,7 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
 	if(view_mode_ != text_edit_view_type::fit && bound.area() < 32.0f) return {};
 
 	math::vec2 local_bound = bound;
-	math::vec2 abs_scale = {std::abs(scale_.x), std::abs(scale_.y)};
+	math::vec2 abs_scale = math::vec2{std::abs(scale_.x), std::abs(scale_.y)} * get_scaling();
 
 	if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
 		local_bound /= abs_scale;

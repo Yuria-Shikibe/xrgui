@@ -220,7 +220,7 @@ private:
 	mpsc_action_queue<elem> actions{};
 
 public:
-	layout::optional_mastering_extent restriction_extent{};
+	layout::optional_mastering_extent restriction_extent{layout::pending_size, layout::pending_size};
 
 protected:
 	cursor_states cursor_states_{};
@@ -947,6 +947,11 @@ public:
 
 	[[nodiscard]] FORCE_INLINE inline vec2 boarder_extent() const noexcept{
 		return boarder_.extent() + style_boarder_cache_.extent();
+	}
+
+	void restrict_child(elem& child) const{
+		child.restriction_extent = clip_boarder_from(restriction_extent, boarder_extent());
+		child.resize(content_extent());
 	}
 
 	[[nodiscard]] FORCE_INLINE inline math::vec2 content_src_offset() const noexcept{

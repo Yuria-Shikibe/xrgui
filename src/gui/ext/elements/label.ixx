@@ -297,7 +297,7 @@ protected:
 	[[nodiscard]] math::vec2 get_glyph_draw_extent() const noexcept{
 		math::vec2 base_ext = glyph_layout_.extent;
 
-		base_ext *= {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
+		base_ext *= math::vec2{std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)} * get_scaling();
 
 		if(transform_config_.is_vertical()){
 			base_ext.swap_xy();
@@ -340,7 +340,7 @@ protected:
 		}
 
 
-		math::vec2 abs_scale = {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
+		math::vec2 abs_scale = math::vec2{std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)} * get_scaling();
 		if(abs_scale.x > 0.0001f && abs_scale.y > 0.0001f){
 			local_bound /= abs_scale;
 		}

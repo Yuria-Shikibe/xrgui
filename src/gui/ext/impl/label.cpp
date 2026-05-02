@@ -22,7 +22,7 @@ void direct_label::draw_text(float opacityScl) const {
 	if (!render_cache_.has_drawable_text()) return;
 
 	math::vec2 raw_ext = glyph_layout_.extent;
-	math::vec2 abs_scale = {std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)};
+	math::vec2 abs_scale = math::vec2{std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)} * get_scaling();
 
 
 	math::vec2 scaled_ext = raw_ext * abs_scale;

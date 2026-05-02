@@ -95,8 +95,7 @@ protected:
 	bool resize_impl(const math::vec2 size) override{
 		if(elem::resize_impl(size)){
 			auto& cur = *get_active_elem_ptr();
-			cur.restriction_extent = clip_boarder_from(restriction_extent, boarder_extent());
-			cur.resize(content_extent());
+			restrict_child(cur);
 
 			return true;
 		}
@@ -124,9 +123,8 @@ public:
 			current_active_index_ = index;
 			auto& cur = *get_active_elem_ptr();
 			cur.on_display_state_changed(true, false);
-			cur.restriction_extent = clip_boarder_from(restriction_extent, boarder_extent());
+			restrict_child(cur);
 			cur.update_abs_src(content_src_pos_abs());
-			cur.resize(content_extent());
 			notify_isolated_layout_changed();
 		}
 	}

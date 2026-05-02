@@ -591,6 +591,28 @@ public:
 		}
 	}
 
+	constexpr void set_major(layout_policy policy, float v) noexcept{
+		switch(policy){
+		case layout_policy::none : return;
+		case layout_policy::hori_major : set_width(v);
+			return;
+		case layout_policy::vert_major : set_height(v);
+			return;
+		default : std::unreachable();
+		}
+	}
+
+	constexpr void set_minor(layout_policy policy, float v) noexcept{
+		switch(policy){
+		case layout_policy::none : return;
+		case layout_policy::hori_major : set_height(v);
+			return;
+		case layout_policy::vert_major : set_width(v);
+			return;
+		default : std::unreachable();
+		}
+	}
+
 	constexpr void collapse(const math::vec2 size) noexcept{
 		auto [dx, dy] = get_pending();
 		if(!dx) width_ = size.x;
