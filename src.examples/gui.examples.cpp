@@ -69,7 +69,7 @@ import mo_yanxi.gui.assets.manager;
 import mo_yanxi.backend.communicator;
 import mo_yanxi.backend.vulkan.context;
 
-import celestial_display;
+import mo_yanxi.celestial_display;
 import mo_yanxi.graphic.trail;
 import mo_yanxi.math.rand;
 
@@ -516,36 +516,34 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 
 	auto make_create_table = [&] -> std::vector<test_entry>{
 		std::vector<test_entry> tests{
-				test_entry{
-					"markdown preview", [](scroll_adaptor<sequence>& pane){
-						pane.set_overlay_bar(true);
-						pane.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
-						{
-							auto& seq = pane.get_elem();
-							seq.set_style();
-							seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
-							seq.set_expand_policy(layout::expand_policy::prefer);
-							seq.template_cell.set_pending();
-							seq.template_cell.set_pad({8.f, 8.f});
+			test_entry{
+				"markdown preview", [](scroll_adaptor<sequence>& pane){
+					pane.set_overlay_bar(true);
+					pane.set_layout_spec(layout::layout_policy::none);
+					auto& seq = pane.get_elem();
+					seq.set_style();
+					seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
+					seq.set_expand_policy(layout::expand_policy::prefer);
+					seq.template_cell.set_pending();
+					seq.template_cell.set_pad({8.f, 8.f});
 
-							const auto path = std::filesystem::current_path().append("assets/markdown/preview.md").make_preferred();
-							if(auto text = md::try_read_markdown_utf8_file(path)) {
-								md::append_markdown(seq, *text);
-							} else {
-								seq.create_back([&](direct_label& label){
-									label.set_style();
-									label.set_fit(false);
-									label.set_expand_policy(layout::expand_policy::prefer);
-									label.text_entire_align = align::pos::top_left;
-									std::u32string error_text = U"{c:#FF8080}Failed to load markdown file:\n";
-									error_text.append(path.u32string());
-									error_text += U"{/c}";
-									label.set_tokenized_text(typesetting::tokenized_text{error_text, typesetting::tokenize_tag::def});
-								}).cell().set_pending();
-							}
-						};
+					const auto path = std::filesystem::current_path().append("assets/markdown/preview.md").make_preferred();
+					if(auto text = md::try_read_markdown_utf8_file(path)) {
+						md::append_markdown(seq, *text);
+					} else {
+						seq.create_back([&](direct_label& label){
+							label.set_style();
+							label.set_fit(false);
+							label.set_expand_policy(layout::expand_policy::prefer);
+							label.text_entire_align = align::pos::top_left;
+							std::u32string error_text = U"{c:#FF8080}Failed to load markdown file:\n";
+							error_text.append(path.u32string());
+							error_text += U"{/c}";
+							label.set_tokenized_text(typesetting::tokenized_text{error_text, typesetting::tokenize_tag::def});
+						}).cell().set_pending();
 					}
-				},
+				}
+			},
 				test_entry{
 					"layout test", [](scroll_adaptor<table>& pane){
 						pane.set_style();

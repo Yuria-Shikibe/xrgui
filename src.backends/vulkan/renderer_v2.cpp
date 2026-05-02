@@ -254,6 +254,7 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	}
 
 	cache_graphic_context_.reset();
+	for(auto& c : cache_push_constants_) c.clear();
 	gui::fx::pipeline_config draw_cfg{.pipeline_index = 0};
 
 	const auto& initial_pipe_opt = r.draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index].option;
@@ -329,6 +330,7 @@ bool renderer::command_recording_context::apply_section_state_(
 
 		const auto& pipe_opt = r.draw_pipeline_manager_.get_pipelines()[params.draw_cfg.pipeline_index].option;
 		params.context_trace.update_pipeline(params.draw_cfg.pipeline_index, pipe_opt);
+		for(auto& c : cache_push_constants_) c.clear();
 
 		if(params.ctx_val.is_rendering){
 			const bool is_new_msaa = pipe_opt.enables_multisample && r.attachment_manager_.enables_multisample();
@@ -347,8 +349,18 @@ bool renderer::command_recording_context::apply_section_state_(
 	}
 	case state_type::push_constant :{
 		const auto flags = static_cast<VkShaderStageFlags>(params.entry.tag.minor);
-		vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, params.entry.logical_offset,
-		                   params.entry.payload.size(),
+		const auto stg_idx = stage_index(flags);
+		auto& cache = cache_push_constants_[stg_idx];
+		const auto off = params.entry.logical_offset;
+		const auto sz  = params.entry.payload.size();
+
+		if(off + sz <= cache.size() && std::memcmp(cache.data() + off, params.entry.payload.data(), sz) == 0){
+			break;
+		}
+		if(off + sz > cache.size()) cache.resize(off + sz, std::byte{0});
+		std::memcpy(cache.data() + off, params.entry.payload.data(), sz);
+
+		vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, off, sz,
 		                   params.entry.payload.data());
 		break;
 	}

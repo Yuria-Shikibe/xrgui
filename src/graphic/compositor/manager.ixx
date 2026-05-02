@@ -65,6 +65,13 @@ struct pass_identity{
 		return false;
 	}
 
+	friend auto operator<=>(const pass_identity& lhs, const pass_identity& rhs) noexcept{
+		if(auto c = lhs.where <=> rhs.where; c != 0) return c;
+		if(lhs.where != nullptr) return std::strong_ordering::equal;
+		if(auto c = lhs.external_target <=> rhs.external_target; c != 0) return c;
+		return lhs.slot <=> rhs.slot;
+	}
+
 	[[nodiscard]] std::string format(std::string_view endpoint_name = "Tml") const;
 };
 
@@ -169,26 +176,17 @@ struct pass_impl{
 	friend pass_data;
 	friend manager;
 
-	static constexpr math::u32size2 compute_group_unit_size2{16, 16};
-
-	constexpr static math::u32size2 get_work_group_size(math::u32size2 image_size) noexcept{
-		return image_size.add(compute_group_unit_size2.copy().sub(1u, 1u)).div(compute_group_unit_size2);
-	}
-
 	[[nodiscard]] explicit pass_impl(){
 	}
 
 	virtual ~pass_impl() = default;
 
 protected:
-	virtual void post_init(const vk::allocator_usage& allocator, const math::u32size2 extent){
+	virtual void prepare(const vk::allocator_usage& allocator, const pass_data& pass,
+	                     const math::u32size2 extent){
 	}
 
-	virtual void reset_resources(const vk::allocator_usage& allocator, const pass_data& pass,
-	                             const math::u32size2 extent){
-	}
-
-	[[nodiscard]] virtual const pass_inout_connection& sockets() const noexcept = 0;
+	[[nodiscard]] virtual const pass_logical_socket& sockets() const noexcept = 0;
 
 	[[nodiscard]] virtual std::string_view get_name() const noexcept{
 		return {};
@@ -203,34 +201,26 @@ protected:
 	}
 };
 
-struct sync_baked_data {
-	struct wait_info {
+struct sync_baked_data{
+	struct wait_info{
 		VkEvent event;
 		std::vector<VkImageMemoryBarrier2> image_barriers;
 		std::vector<VkBufferMemoryBarrier2> buffer_barriers;
 	};
 
-	struct signal_info {
+	struct signal_info{
 		VkEvent event;
 		VkPipelineStageFlags2 stage_mask;
 		VkAccessFlags2 access_mask;
 	};
-
-
+	
 	std::vector<VkEvent> events_to_reset;
-
 
 	std::vector<VkImageMemoryBarrier2> immediate_image_barriers_in;
 	std::vector<VkBufferMemoryBarrier2> immediate_buffer_barriers_in;
 
-
-
 	std::vector<wait_info> waits;
-
-
-
 	std::vector<signal_info> signals;
-
 
 	std::vector<VkImageMemoryBarrier2> immediate_image_barriers_out;
 	std::vector<VkBufferMemoryBarrier2> immediate_buffer_barriers_out;
@@ -266,16 +256,22 @@ public:
 		                   meta->get_name());
 	}
 
-	[[nodiscard]] const pass_inout_connection& sockets() const noexcept{
+	[[nodiscard]] const pass_logical_socket& sockets() const noexcept{
 		return meta->sockets();
 	}
 
 	void add_dep(const pass_dependency dep){
+		if(!dep.id->sockets().has_output(dep.src_idx))
+			throw std::invalid_argument(std::format(
+				"pass '{}' has no output at slot {}", dep.id->get_identity_name(), dep.src_idx));
+		if(!sockets().has_input(dep.dst_idx))
+			throw std::invalid_argument(std::format(
+				"pass '{}' has no input at slot {}", get_identity_name(), dep.dst_idx));
 		dependencies_resource_.push_back(dep);
 	}
 
 	void add_dep(const std::initializer_list<pass_dependency> dep){
-		dependencies_resource_.append(dep);
+		for(const auto& d : dep) add_dep(d);
 	}
 
 	void add_exec_dep(pass_data* dep){
@@ -376,21 +372,6 @@ std::string pass_identity::format(std::string_view endpoint_name) const{
 	                   std::string(where ? where->get_identity_name() : "endpoint"), fmt_slot(endpoint_name, slot.out));
 }
 }
-
-template <>
-struct std::hash<mo_yanxi::graphic::compositor::pass_identity>{
-	static std::size_t operator()(const mo_yanxi::graphic::compositor::pass_identity& idt) noexcept{
-		if(idt.where){
-			auto p0 = std::bit_cast<std::uintptr_t>(idt.where);
-			return std::hash<std::size_t>{}(p0);
-		} else{
-			auto p1 = std::bit_cast<std::size_t>(idt.external_target) ^ static_cast<std::size_t>(idt.slot.out) ^ (
-				static_cast<std::size_t>(idt.slot.in) << 31);
-			return std::hash<std::size_t>{}(p1);
-		}
-	}
-};
-
 
 namespace mo_yanxi::graphic::compositor{
 export
@@ -613,7 +594,7 @@ private:
 	void unique(){
 		auto& range = bounds;
 
-		std::unordered_map<pass_identity, resource_trace*> checked_outs{};
+		std::flat_map<pass_identity, resource_trace*> checked_outs{};
 		auto itr = std::ranges::begin(range);
 		auto end = std::ranges::end(range);
 
@@ -832,8 +813,7 @@ public:
 
 	void pass_post_init(){
 		for(auto& stage : passes_){
-			stage.meta->post_init(allocator_frags_, {extent_.width, extent_.height});
-			stage.meta->reset_resources(allocator_frags_, stage, {extent_.width, extent_.height});
+			stage.meta->prepare(allocator_frags_, stage, {extent_.width, extent_.height});
 		}
 	}
 
@@ -847,7 +827,7 @@ private:
 
 		std::size_t event_count_needed = 0;
 
-		std::unordered_map<const resource_handle*, resource_sim_state> res_states{};
+		std::flat_map<const resource_handle*, resource_sim_state> res_states{};
 
 
 
@@ -1445,7 +1425,7 @@ public:
 		struct node{
 			unsigned in_degree{};
 		};
-		std::unordered_map<pass_data*, node> nodes;
+		std::flat_map<pass_data*, node> nodes;
 
 
 		for(auto& v : passes_){

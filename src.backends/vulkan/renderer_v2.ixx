@@ -103,6 +103,15 @@ export struct renderer{
 
 		graphics_context_trace cache_graphic_context_{};
 
+		static constexpr unsigned kMaxShaderStages = 6;
+		std::array<std::vector<std::byte>, kMaxShaderStages> cache_push_constants_{};
+
+		static constexpr unsigned stage_index(VkShaderStageFlags flags) noexcept{
+			unsigned idx = 0;
+			while(flags >>= 1) ++idx;
+			return idx < kMaxShaderStages ? idx : 0;
+		}
+
 		//TODO merge clear requests
 		std::vector<VkClearAttachment> cache_clear_attachments_{};
 		std::vector<VkClearRect> cache_clear_rects_{};

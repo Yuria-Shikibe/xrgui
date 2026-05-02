@@ -15,11 +15,6 @@ namespace mo_yanxi::graphic::compositor{
 	return (ceil * 2 - value - 1);
 }
 
-[[nodiscard]] constexpr std::uint32_t reverse_after_bit(std::uint32_t value, std::uint32_t ceil) noexcept{
-	if(value < ceil) return value;
-	return (ceil * 2 - value - 1) | ~(~0u >> 1);
-}
-
 [[nodiscard]] constexpr std::uint32_t get_real_mip_level(std::uint32_t expected, math::u32size2 extent) noexcept{
 	return std::min(expected, vk::get_recommended_mip_level(extent.x, extent.y));
 }
@@ -90,8 +85,28 @@ struct bloom_pass final : sub_pass_stage{
 private:
 	bloom_uniform_block current_param{1, 1, 1, 0.5f};
 
-	std::uint32_t total_mip_level_{0};
 	std::uint32_t max_mip_level_{7};
+
+	struct mip_info{
+		std::uint32_t total_mip_level;
+		std::uint32_t target_scale;
+	};
+
+	[[nodiscard]] mip_info resolve_mip_info(const math::u32size2 extent) const{
+		const int raw_scale = get_target_scale();
+		if(raw_scale < 0){
+			throw std::invalid_argument("Bloom target scale cannot be less than 0");
+		}
+
+		const auto total_mip_level = std::min(max_mip_level_, get_real_mipmap_level(extent));
+		if(total_mip_level == 0){
+			throw std::runtime_error("Bloom mip level resolved to zero");
+		}
+
+		const auto target_scale = std::min(static_cast<std::uint32_t>(raw_scale),
+			total_mip_level > 0 ? total_mip_level - 1 : 0u);
+		return {total_mip_level, target_scale};
+	}
 
 	[[nodiscard]] std::uint32_t get_required_mipmap_level() const noexcept{
 		return sockets().at_out<image_requirement>(0).mip_level;
@@ -101,19 +116,8 @@ private:
 		return get_real_mip_level(get_required_mipmap_level(), extent);
 	}
 
-private:
-	[[nodiscard]] std::vector<VkPushConstantRange> push_constant_ranges() const override{
-		return {
-			VkPushConstantRange{
-				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-				.offset = 0,
-				.size = sizeof(bloom_defines)
-			}
-		};
-	}
-
-	void post_init(const vk::allocator_usage& alloc, const math::u32size2 extent) override{
-		sub_pass_stage::post_init(alloc, extent);
+	void prepare(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
+		sub_pass_stage::prepare(alloc, pass, extent);
 		if(samplers_.contains({0, 0})){
 			const auto sampler = get_sampler_at({0, 0});
 			samplers_.try_emplace(binding_info{1, 0}, sampler);
@@ -122,24 +126,12 @@ private:
 		uniform_buffer_ = {alloc, sizeof(bloom_uniform_block)};
 		(void)vk::buffer_mapper{uniform_buffer_}.load(current_param);
 	}
-
 	[[nodiscard]] std::vector<sub_pass_setup> build_sub_passes(const pass_data& pass,
 		const math::u32size2 extent) const override{
 		(void)pass;
-		int raw_scale = get_target_scale();
-		if (raw_scale < 0) {
-			throw std::invalid_argument("Bloom target scale cannot be less than 0");
-		}
 
-		const auto total_mip_level = std::min(max_mip_level_, get_real_mipmap_level(extent));
-		if(total_mip_level == 0){
-			throw std::runtime_error("Bloom mip level resolved to zero");
-		}
-
-
-		std::uint32_t target_scale = std::min(static_cast<std::uint32_t>(raw_scale),
-		                                      total_mip_level > 0 ? total_mip_level - 1 : 0u);
-		std::uint32_t total_passes = total_mip_level * 2 - target_scale;
+		const auto [total_mip_level, target_scale] = resolve_mip_info(extent);
+		const std::uint32_t total_passes = total_mip_level * 2 - target_scale;
 
 		std::vector<sub_pass_setup> setups;
 		setups.reserve(total_passes);
@@ -148,11 +140,11 @@ private:
 			setup.push_constants.resize(sizeof(bloom_defines));
 			const auto layer_info = get_current_defines(i, extent, total_mip_level);
 			std::memcpy(setup.push_constants.data(), &layer_info, sizeof(layer_info));
-			const auto current_mipmap_index = reverse_after(i, total_mip_level);
-			const auto div = 1u << (current_mipmap_index + 1u - static_cast<std::uint32_t>(i >= total_mip_level));
+
+			const auto& unit_size = meta().shader_info().thread_group_size;
 			setup.dispatch.fixed_group_count = VkExtent3D{
-				.width = pass_impl::get_work_group_size(extent / div).x,
-				.height = pass_impl::get_work_group_size(extent / div).y,
+				.width = (layer_info.currentLayerExtent.x + unit_size.x - 1) / unit_size.x,
+				.height = (layer_info.currentLayerExtent.y + unit_size.y - 1) / unit_size.y,
 				.depth = 1,
 			};
 
@@ -188,17 +180,10 @@ private:
 
 		return setups;
 	}
-
 	[[nodiscard]] std::vector<sub_pass_baked_sync> bake_sub_pass_sync(const pass_data& pass,
 		const math::u32size2 extent,
 		std::span<const sub_pass_runtime_setup> prepared_sub_passes) const override{
-		int raw_scale = get_target_scale();
-		if (raw_scale < 0) {
-			throw std::invalid_argument("Bloom target scale cannot be negative");
-		}
-		const auto total_mip_level = std::min(max_mip_level_, get_real_mipmap_level(extent));
-		const auto target_scale = std::min(static_cast<std::uint32_t>(raw_scale),
-			total_mip_level > 0 ? total_mip_level - 1 : 0u);
+		const auto [total_mip_level, target_scale] = resolve_mip_info(extent);
 		std::vector<sub_pass_baked_sync> baked(prepared_sub_passes.size() > 1 ? prepared_sub_passes.size() - 1 : 0);
 
 		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources().get_in(1).resource);
@@ -311,7 +296,6 @@ private:
 
 struct bloom_meta_config{
 	int target_scale = 0;
-	std::optional<VkSpecializationInfo> specializationInfo = std::nullopt;
 
 	VkFormat format = VK_FORMAT_R16G16B16A16_SFLOAT;
 	VkImageLayout target_layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -324,17 +308,16 @@ struct bloom_meta_config{
 
 export
 	[[nodiscard]] post_process_meta get_bloom_default_meta(
-		const vk::shader_module& shader_module,
+		compute_shader_info&& shader_info,
 		bloom_meta_config config){
 		post_process_meta meta{
-				shader_module,
+				std::move(shader_info),
 				{
 					{{0}, {0, no_slot}}, //Input
 					{{1}, {1, no_slot}},
 					{{2}, {no_slot, 0}}, //Output
 					{{3}, {no_slot, 0}},
-				},
-				config.specializationInfo
+				}
 			};
 
 	meta.set_format_at_in(1, config.format);

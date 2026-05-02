@@ -28,7 +28,19 @@ export bool is_size_pending(float size) noexcept{
 //TODO make it hori/vert/nullopt?
 export enum class layout_policy : std::uint8_t{
 	none,
+
+	/**
+	 * @brief element first try layout horizontally(LTR), linefeed performs vertically(TTB).
+	 *
+	 * i.e. major: x direction; minor: y direction
+	 */
 	hori_major,
+
+	/**
+	 * @brief element first try layout vertically(TTB), linefeed performs horizontally(LTR).
+	 *
+	 * i.e. major: y direction; minor: x direction
+	 */
 	vert_major,
 };
 

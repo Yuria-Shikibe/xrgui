@@ -604,7 +604,7 @@ public:
 	}
 
 	bool set_layout_spec(const layout::layout_policy specifier){
-		return set_layout_policy_impl(layout::layout_policy_setting{layout::directional_layout_specifier::fixed(specifier)});
+		return set_layout_policy_impl(layout::layout_policy_setting{layout::layout_specifier::fixed(specifier)});
 	}
 
 	//TODO responsibility chain to notify one?

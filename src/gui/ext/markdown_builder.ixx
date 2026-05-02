@@ -450,28 +450,29 @@ void build_blocks(sequence& parent, const md::node_list& nodes, const markdown_c
 	inline_renderer render{config};
 
 	for(const md::ast_node& node : nodes) {
-		std::visit([&](const auto& val) {
-			using node_type = std::remove_cvref_t<decltype(val)>;
+		std::visit([&]<typename T0>(const T0& val) {
+			using node_type = std::remove_cvref_t<T0>;
 
 			if constexpr(std::is_same_v<node_type, md::paragraph>) {
 				auto text = render(val.children);
 				if(!text.empty()) {
-					append_rich_label(parent, text, config);
+					md::append_rich_label(parent, text, config);
 				}
 			} else if constexpr(std::is_same_v<node_type, md::heading>) {
-				auto text = rich_size_wrap(render(val.children), config.heading_sizes[std::min<std::size_t>(val.level - 1, config.heading_sizes.size() - 1)], true);
-				auto hdl = append_rich_label(parent, text, config);
+				auto text = md::rich_size_wrap(render(val.children), config.heading_sizes[std::min<std::size_t>(val.level - 1, config.heading_sizes.size() - 1)], true);
+				auto hdl = md::append_rich_label(parent, text, config);
 				hdl.cell().set_pad({config.heading_pad, config.heading_pad});
 			} else if constexpr(std::is_same_v<node_type, md::code_block>) {
 				std::u32string text = val.content.empty() ? U" " : std::u32string{val.content};
 				append_raw_label(parent, std::move(text), config, true, false);
 			} else if constexpr(std::is_same_v<node_type, md::table>) {
-				build_table(parent, val, config);
+				md::build_table(parent, val, config);
 			} else if constexpr(std::is_same_v<node_type, md::list>) {
-				build_list(parent, val, config);
+				md::build_list(parent, val, config);
 			} else if constexpr(std::is_same_v<node_type, md::blockquote>) {
-				build_blockquote(parent, val, config);
+				md::build_blockquote(parent, val, config);
 			} else if constexpr(std::is_same_v<node_type, md::thematic_break>) {
+				// TODO use separator instead.
 				auto hdl = append_rich_label(parent, U"{c:#7F8A99FF}--------------------------------{/c}", config);
 				hdl.cell().set_pad({config.block_pad * 0.5f, config.block_pad * 0.5f});
 			}

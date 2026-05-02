@@ -6,9 +6,14 @@ module;
 #include <spirv_reflect.h>;
 #endif
 
+#ifdef __RESHARPER__
+#include <stdexcept>
+#endif
+
 export module mo_yanxi.graphic.shader_reflect;
 
 import mo_yanxi.graphic.compositor.resource;
+import mo_yanxi.math.vector2;
 import std;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
@@ -35,6 +40,7 @@ public:
 		if(module_.GetResult() != SPV_REFLECT_RESULT_SUCCESS){
 			throw std::runtime_error("Failed to create SPIRV-Reflect shader module");
 		}
+
 		enumerate_resources();
 	}
 
@@ -71,6 +77,17 @@ public:
 
 	[[nodiscard]] compositor::binding_info binding_info_of(const SpvReflectDescriptorBinding* resource) const noexcept{
 		return {resource->binding, resource->set};
+	}
+
+	[[nodiscard]] math::u32size2 get_thread_group_size(const std::string_view entry_name = "main") const noexcept{
+		const auto& spv_module = module_.GetShaderModule();
+		for(uint32_t i = 0; i < spv_module.entry_point_count; ++i){
+			const auto& ep = spv_module.entry_points[i];
+			if(ep.name && entry_name == ep.name){
+				return {ep.local_size.x, ep.local_size.y};
+			}
+		}
+		return {1, 1};
 	}
 
 private:
@@ -202,6 +219,10 @@ private:
 public:
 	void append(std::span<const std::uint32_t> bytecode, VkShaderStageFlags stage_flag){
 		spv_reflect::ShaderModule module{bytecode.size_bytes(), bytecode.data(), SPV_REFLECT_MODULE_FLAG_NO_COPY};
+		append(module, stage_flag);
+	}
+	
+	void append(const spv_reflect::ShaderModule& module, VkShaderStageFlags stage_flag){
 
 		std::uint32_t count{};
 		module.EnumeratePushConstantBlocks(&count, nullptr);

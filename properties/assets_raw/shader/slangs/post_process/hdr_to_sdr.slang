@@ -62,7 +62,8 @@ void main(
     uint3 dispatchThreadID: SV_DispatchThreadID
 ) {
     let pos = dispatchThreadID.xy;
-    let hdrColor = input.Load(uint3(pos, 0));
+    let hdrColorRaw = input.Load(uint3(pos, 0));
+    let hdrColor = float4(max(hdrColorRaw.rgb, 0.0f), hdrColorRaw.a);
 
 
     let exp = params.exposure;

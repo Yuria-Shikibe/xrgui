@@ -1,6 +1,7 @@
 module;
 
 #include <vulkan/vulkan.h>
+#include <cassert>
 
 #ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 #include <spirv_reflect.h>;
@@ -88,14 +89,33 @@ export struct stage_ubo : binding_info{
 struct bound_stage_resource : binding_info, resource_requirement{
 };
 
+export struct compute_shader_info{
+	vk::shader_module shader;
+	std::string entry_name{"main"};
+	std::optional<VkSpecializationInfo> specialization_info{};
+	math::u32size2 thread_group_size{1, 1};
+
+	[[nodiscard]] compute_shader_info() = default;
+
+	[[nodiscard]] compute_shader_info(vk::shader_module&& shader,
+		std::string_view entry_name = "main",
+		std::optional<VkSpecializationInfo> specialization_info = std::nullopt)
+		: shader(std::move(shader)),
+		entry_name(entry_name),
+		specialization_info(specialization_info){
+		const shader_reflection refl{this->shader.get_binary()};
+		thread_group_size = refl.get_thread_group_size(this->entry_name);
+	}
+};
+
 export struct post_process_stage;
 
 export struct post_process_meta{
 	friend post_process_stage;
 
 private:
-	const vk::shader_module* shader_{};
-	inout_map inout_map_{};
+	compute_shader_info shader_info_{};
+	pass_binding_socket inout_map_{};
 
 	std::vector<stage_ubo> uniform_buffers_{};
 	std::vector<bound_stage_resource> resources_{};
@@ -104,19 +124,16 @@ private:
 	vk::descriptor_layout_builder descriptor_layout_builder_{};
 	std::vector<inout_index> required_transient_buffer_input_slots_{};
 
-	std::optional<VkSpecializationInfo> specialization_info_{};
-
 public:
-	pass_inout_connection sockets{};
+	pass_logical_socket sockets{};
 
 	[[nodiscard]] post_process_meta() = default;
 
-	[[nodiscard]] post_process_meta(const vk::shader_module& shader, const inout_map& inout_map,
-		std::optional<VkSpecializationInfo> specializationInfo = std::nullopt)
-		: shader_(&shader),
-		inout_map_(inout_map), specialization_info_(specializationInfo){
+	[[nodiscard]] post_process_meta(compute_shader_info&& shader_info, const pass_binding_socket& inout_map)
+		: shader_info_(std::move(shader_info)),
+		inout_map_(inout_map){
 
-		const shader_reflection refl{shader.get_binary()};
+		const shader_reflection refl{shader_info_.shader.get_binary()};
 
 
 		for(const auto* input : refl.storage_images()){
@@ -163,9 +180,14 @@ public:
 
 		for(const auto& pass : inout_map.get_connections()){
 			if(!std::ranges::contains(resources_, pass.binding)){
-
-				throw std::invalid_argument("binding not match");
+				throw std::invalid_argument(std::format(
+					"binding (set={}, binding={}) in inout_map not found in shader '{}'",
+					pass.binding.set, pass.binding.binding, shader_info_.shader.get_name()));
 			}
+		}
+
+		for(const auto& range : refl.push_constant_ranges()){
+			constant_layout_.push(range);
 		}
 
 		sockets.data.reserve(resources_.size());
@@ -173,11 +195,10 @@ public:
 			if(auto itr = std::ranges::find(resources_, pass.binding); itr != std::ranges::end(resources_)){
 				sockets.add(pass.slot, *itr);
 			}
-			//TODO process local usage
 		}
 	}
 
-	[[nodiscard]] const inout_map& get_inout_map() const noexcept{
+	[[nodiscard]] const pass_binding_socket& get_inout_map() const noexcept{
 		return inout_map_;
 	}
 
@@ -196,7 +217,11 @@ public:
 	}
 
 	[[nodiscard]] std::string_view name() const noexcept{
-		return shader_->get_name();
+		return shader_info_.shader.get_name();
+	}
+
+	[[nodiscard]] const compute_shader_info& shader_info() const noexcept{
+		return shader_info_;
 	}
 
 
@@ -212,6 +237,10 @@ public:
 		return uniform_buffers_ | std::views::filter([](const stage_ubo& ubo){
 			return ubo.set == 0;
 		});
+	}
+
+	[[nodiscard]] auto push_constant_ranges() const noexcept{
+		return constant_layout_.get_constant_ranges();
 	}
 };
 
@@ -247,16 +276,13 @@ protected:
 
 
 	std::vector<external_descriptor_usage> external_descriptor_usages_{};
+	std::vector<std::byte> push_constants_{};
 
 public:
 	[[nodiscard]] post_process_stage() = default;
 
 	[[nodiscard]] explicit(false) post_process_stage(post_process_meta&& meta)
 		: meta_(std::move(meta)){
-	}
-
-	[[nodiscard]] explicit(false) post_process_stage(const post_process_meta& meta)
-		: post_process_stage(post_process_meta{meta}){
 	}
 
 	void set_sampler_at(binding_info binding_info, VkSampler sampler){
@@ -294,6 +320,10 @@ public:
 		}
 	}
 
+	void set_push_constants(std::vector<std::byte> data){
+		push_constants_ = std::move(data);
+	}
+
 protected:
 	template <std::ranges::contiguous_range R = std::initializer_list<VkPushConstantRange>>
 		requires std::convertible_to<std::ranges::range_value_t<R>, VkPushConstantRange>
@@ -317,9 +347,17 @@ protected:
 
 		pipeline_ = vk::pipeline{
 				ctx.get_device(), pipeline_layout_, VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
-				meta_.shader_->get_create_info(VK_SHADER_STAGE_COMPUTE_BIT, "main",
-					meta().specialization_info_ ? &meta().specialization_info_.value() : nullptr)
+				meta_.shader_info_.shader.get_create_info(VK_SHADER_STAGE_COMPUTE_BIT,
+					meta_.shader_info_.entry_name,
+					meta().shader_info_.specialization_info ? &meta().shader_info_.specialization_info.value() : nullptr)
 			};
+	}
+
+	template <std::ranges::contiguous_range R = std::initializer_list<VkPushConstantRange>>
+		requires std::convertible_to<std::ranges::range_value_t<R>, VkPushConstantRange>
+	void init_pipeline_and_ubo(const vk::allocator_usage& ctx, const R& push_constant_ranges = {}){
+		init_pipeline(ctx, push_constant_ranges);
+		init_uniform_buffer(ctx);
 	}
 
 	void reset_descriptor_buffer(const vk::allocator_usage& ctx, std::uint32_t chunk_count = 1){
@@ -481,22 +519,19 @@ protected:
 	}
 
 public:
-	void post_init(const vk::allocator_usage& alloc, const math::u32size2 extent) override{
-		init_pipeline(alloc);
+	void prepare(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
+		init_pipeline(alloc, meta_.push_constant_ranges());
 		init_uniform_buffer(alloc);
 		reset_descriptor_buffer(alloc);
-	}
-
-	void reset_resources(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
 		default_bind_uniform_buffer();
 		default_bind_resources(pass);
 	}
 
-	[[nodiscard]] const pass_inout_connection& sockets() const noexcept final{
+	[[nodiscard]] const pass_logical_socket& sockets() const noexcept final{
 		return meta_.sockets;
 	}
 
-	[[nodiscard]] pass_inout_connection& sockets() noexcept{
+	[[nodiscard]] pass_logical_socket& sockets() noexcept{
 		return meta_.sockets;
 	}
 
@@ -504,6 +539,12 @@ public:
 		return meta_.name();
 	}
 
+
+	[[nodiscard]] static math::u32size2 get_work_group_size(math::u32size2 image_size, math::u32size2 unit_size) noexcept{
+		assert(std::has_single_bit(unit_size.x));
+		assert(std::has_single_bit(unit_size.y));
+		return image_size.add(unit_size.copy().sub(1, 1)).div(unit_size);
+	}
 
 	void record_command(
 		const vk::allocator_usage& allocator,
@@ -513,14 +554,21 @@ public:
 		pipeline_.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
 		bind_descriptor_sets(buffer);
 
+		const auto pc_ranges = meta_.push_constant_ranges();
+		if(!pc_ranges.empty() && !push_constants_.empty()){
+			vkCmdPushConstants(buffer, pipeline_layout_, pc_ranges[0].stageFlags,
+				pc_ranges[0].offset, static_cast<std::uint32_t>(push_constants_.size()),
+				push_constants_.data());
+		}
 
-		auto groups = get_work_group_size(extent);
+		const auto& group_size = meta_.shader_info_.thread_group_size;
+		auto groups = get_work_group_size(extent, group_size);
 		vkCmdDispatch(buffer, groups.x, groups.y, 1);
 	}
 
 
 	[[nodiscard]] const vk::shader_module& shader() const{
-		return *meta_.shader_;
+		return meta_.shader_info_.shader;
 	}
 
 	[[nodiscard]] post_process_meta& meta(){

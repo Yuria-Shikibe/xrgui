@@ -38,8 +38,8 @@ private:
 
 protected:
 
-	void post_init(const vk::allocator_usage& alloc, const math::u32size2 extent) override{
-		post_process_stage::post_init(alloc, extent);
+	void prepare(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
+		post_process_stage::prepare(alloc, pass, extent);
 
 		vk::buffer_mapper mapper{uniform_buffer_};
 		[&]<std::size_t ...Idx>(std::index_sequence<Idx...>){

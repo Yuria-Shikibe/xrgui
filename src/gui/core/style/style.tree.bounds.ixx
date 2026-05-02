@@ -51,4 +51,59 @@ struct bounds_side_bar{
 	}
 };
 
+export
+enum class side_dir{
+	left,
+	right,
+	top,
+	bottom,
+};
+
+export
+struct bounds_side_strip{
+	side_dir side{};
+	float stroke{};
+
+	template <typename Target>
+	draw_call_param operator()(const auto& self, const typed_draw_param<Target>& p) const{
+		if(!p || stroke <= 0.f) return {};
+
+		auto result = p.param;
+		switch(side){
+			using enum side_dir;
+		case left:
+			result.draw_bound = {p->draw_bound.src, {stroke, p->draw_bound.extent().y}};
+			break;
+		case right:
+			result.draw_bound = {p->draw_bound.vert_01(), {-stroke, p->draw_bound.extent().y}};
+			break;
+		case top:
+			result.draw_bound = {p->draw_bound.src, {p->draw_bound.extent().x, stroke}};
+			break;
+		case bottom:
+			result.draw_bound = {p->draw_bound.vert_10(), {p->draw_bound.extent().x, -stroke}};
+			break;
+		}
+		return result.draw_bound.is_roughly_zero_area(0.01f) ? draw_call_param{} : result;
+	}
+};
+
+export
+struct side_strip_inset{
+	side_dir side{};
+	float width{};
+
+	[[nodiscard]] style_tree_metrics operator()() const noexcept{
+		style_tree_metrics rst{};
+		switch(side){
+			using enum side_dir;
+		case left:   rst.inset.left   = width; break;
+		case right:  rst.inset.right  = width; break;
+		case top:    rst.inset.top    = width; break;
+		case bottom: rst.inset.bottom = width; break;
+		}
+		return rst;
+	}
+};
+
 }

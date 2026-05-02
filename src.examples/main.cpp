@@ -326,14 +326,23 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	std::println("[Compositor] Initialize");
 
 	compositor::manager manager{ctx.get_allocator()};
-	vk::shader_module shader_filter_high_light = {
-			ctx.get_device(), shader_spv_path / "post_process.highlight_extract.spv"
-		};
-	vk::shader_module shader_merge = {ctx.get_device(), shader_spv_path / "ui.merge.spv"};
-	vk::shader_module shader_hdr_to_sdr = {ctx.get_device(), shader_spv_path / "post_process.hdr_to_sdr.spv"};
+	compositor::compute_shader_info shader_filter_high_light{
+		vk::shader_module{ctx.get_device(), shader_spv_path / "post_process.highlight_extract.spv"}
+	};
+	compositor::compute_shader_info shader_merge{
+		vk::shader_module{ctx.get_device(), shader_spv_path / "ui.merge.spv"}
+	};
+	compositor::compute_shader_info shader_hdr_to_sdr{
+		vk::shader_module{ctx.get_device(), shader_spv_path / "post_process.hdr_to_sdr.spv"}
+	};
 
 	vk::sampler sampler_blit{ctx.get_device(), vk::preset::default_blit_sampler};
-	vk::shader_module shader_bloom{ctx.get_device(), shader_spv_path / "post_process.bloom.spv"};
+	compositor::compute_shader_info shader_bloom{
+		vk::shader_module{ctx.get_device(), shader_spv_path / "post_process.bloom.spv"}
+	};
+	auto make_bloom_shader = [&]{
+		return vk::shader_module{ctx.get_device(), shader_spv_path / "post_process.bloom.spv"};
+	};
 
 	auto& ui_input_base = manager.add_external_resource(compositor::resource_entity_external{
 			compositor::image_entity{}, compositor::resource_dependency{
@@ -358,7 +367,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	auto pass_filter_high_light = manager.add_pass<compositor::post_process_pass_with_ubo<high_light_filter_args>>(
 		compositor::post_process_meta{
-			shader_filter_high_light, {
+			std::move(shader_filter_high_light), {
 				{{0}, compositor::no_slot, 0},
 				{{1}, 0, compositor::no_slot},
 			}
@@ -367,7 +376,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	pass_filter_high_light.id()->add_input({{ui_input_base, 0}});
 
 
-	auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom, {}));
+	auto pass_bloom = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(std::move(shader_bloom), {}));
 	pass_bloom.data.set_sampler_at_binding(0, sampler_blit);
 	pass_bloom.pass.add_dep({pass_filter_high_light.id(), 0, 0});
 	pass_bloom.pass.add_local({1, compositor::no_slot});
@@ -375,14 +384,17 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	static constexpr VkSpecializationMapEntry SpecEntry{0, 0, 4};
 	static constexpr VkBool32 SpecData{true};
-	auto pass_blur = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(shader_bloom, {
-			.target_scale = 1,
-			.specializationInfo = VkSpecializationInfo{
+	auto pass_blur = manager.add_pass<compositor::bloom_pass>(compositor::get_bloom_default_meta(
+		compositor::compute_shader_info{
+			make_bloom_shader(), "main",
+			VkSpecializationInfo{
 				.mapEntryCount = 1,
 				.pMapEntries = &SpecEntry,
 				.dataSize = sizeof(SpecData),
 				.pData = &SpecData
-			},
+			}
+		}, {
+			.target_scale = 1,
 			.format = VK_FORMAT_R8G8B8A8_UNORM
 
 		}));
@@ -393,7 +405,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 
 	auto pass_merge = manager.add_pass<compositor::post_process_stage>(compositor::post_process_meta{
-			shader_merge, {
+			std::move(shader_merge), {
 				{{0}, compositor::no_slot, 0},
 				{{1}, 0, compositor::no_slot},
 				{{2}, 1, compositor::no_slot},
@@ -412,13 +424,13 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 
 	compositor::post_process_meta meta{
-			shader_hdr_to_sdr, {
+			std::move(shader_hdr_to_sdr), {
 				{{0}, compositor::no_slot, 0},
 				{{1}, 0, compositor::no_slot},
 			}
 		};
 	meta.sockets.at_out(0).get<compositor::image_requirement>().usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-	auto pass_h2s = manager.add_pass<compositor::post_process_pass_with_ubo<tonemap_args>>(meta);
+	auto pass_h2s = manager.add_pass<compositor::post_process_pass_with_ubo<tonemap_args>>(std::move(meta));
 	pass_h2s.id()->add_dep({pass_merge.id(), 0, 0});
 	pass_h2s.id()->add_local({compositor::no_slot, 0});
 

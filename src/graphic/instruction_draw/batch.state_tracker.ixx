@@ -70,6 +70,17 @@ public:
 
 	void update(tag_type tag, std::span<const std::byte> payload, unsigned offset = 0) {
 		if(payload.empty()) return;
+		if(const auto* rec = records_.try_find_record(tag); rec){
+			const auto storage = records_.data();
+			auto existing = rec->src_span.to_span(storage.data());
+			const unsigned rec_start = rec->logical_offset;
+			const unsigned rec_end = rec_start + rec->src_span.size;
+			if(offset >= rec_start && offset + payload.size() <= rec_end){
+				if(std::memcmp(payload.data(), existing.data() + (offset - rec_start), payload.size()) == 0){
+					return;
+				}
+			}
+		}
 		records_.push(tag, payload, offset);
 		if(auto it = std::ranges::lower_bound(dirty_tags_, tag); it == dirty_tags_.end() || *it != tag){
 			dirty_tags_.insert(it, tag);

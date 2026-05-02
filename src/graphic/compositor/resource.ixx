@@ -57,7 +57,7 @@ constexpr T value_or(T val, T alternative, const T& nullopt_value = not_specifie
 
 export
 template <typename T, std::predicate<const T&, const T&> Pr = std::less<T>>
-T get_optional_max(T l, T r, T optional_spec_value = not_specified<T>, Pr pred = {}) noexcept{
+constexpr T get_optional_max(T l, T r, T optional_spec_value = not_specified<T>, Pr pred = {}) noexcept{
 	if(l == optional_spec_value && r == optional_spec_value) return optional_spec_value;
 	if(l == optional_spec_value) return r;
 	if(r == optional_spec_value) return l;
@@ -649,6 +649,7 @@ struct slot_pair{
 	}
 
 	friend constexpr bool operator==(const slot_pair& lhs, const slot_pair& rhs) noexcept = default;
+	friend constexpr auto operator<=>(const slot_pair& lhs, const slot_pair& rhs) noexcept = default;
 };
 
 export
@@ -657,6 +658,7 @@ struct binding_info{
 	std::uint32_t set;
 
 	friend constexpr bool operator==(const binding_info&, const binding_info&) noexcept = default;
+	friend constexpr auto operator<=>(const binding_info&, const binding_info&) noexcept = default;
 };
 
 export
@@ -671,14 +673,14 @@ struct resource_map_entry{
 
 
 export
-struct inout_map{
+struct pass_binding_socket{
 private:
 	gch::small_vector<resource_map_entry> connection_{};
 
 public:
-	[[nodiscard]] inout_map() = default;
+	[[nodiscard]] pass_binding_socket() = default;
 
-	[[nodiscard]] inout_map(const std::initializer_list<resource_map_entry> map)
+	[[nodiscard]] pass_binding_socket(const std::initializer_list<resource_map_entry> map)
 		: connection_(map){
 		compact_check();
 	}
@@ -735,7 +737,7 @@ public:
 
 //TODO make the access control more strict
 export
-struct pass_inout_connection{
+struct pass_logical_socket{
 	static constexpr std::size_t sso = 4;
 	using data_index = unsigned;
 	using slot_to_data_index = gch::small_vector<data_index, sso>;
@@ -755,7 +757,7 @@ private:
 		output_slots[idx] = desc_index;
 	}
 
-	[[nodiscard]] bool has_index(const inout_index idx, slot_to_data_index pass_inout_connection::* mptr) const noexcept{
+	[[nodiscard]] bool has_index(const inout_index idx, slot_to_data_index pass_logical_socket::* mptr) const noexcept{
 		if((this->*mptr).size() <= idx) return false;
 		return (this->*mptr)[idx] != no_slot;
 	}
@@ -780,6 +782,14 @@ public:
 	template <typename S>
 	auto& at_out(this S&& self, inout_index index) noexcept{
 		return self.data.at(self.output_slots.at(index));
+	}
+
+	[[nodiscard]] bool has_input(const inout_index idx) const noexcept{
+		return has_index(idx, &pass_logical_socket::input_slots);
+	}
+
+	[[nodiscard]] bool has_output(const inout_index idx) const noexcept{
+		return has_index(idx, &pass_logical_socket::output_slots);
 	}
 
 	[[nodiscard]] std::optional<resource_requirement> get_out(const inout_index outIdx) const noexcept{
@@ -816,7 +826,7 @@ public:
 	}
 
 private:
-	auto get_valid_of(slot_to_data_index pass_inout_connection::* which) const noexcept{
+	auto get_valid_of(slot_to_data_index pass_logical_socket::* which) const noexcept{
 		return (this->*which) | std::views::enumerate | std::views::filter([](auto&& t){
 			auto&& [idx, v] = t;
 			return v != no_slot;
@@ -825,11 +835,11 @@ private:
 
 public:
 	auto get_valid_in() const noexcept{
-		return get_valid_of(&pass_inout_connection::input_slots);
+		return get_valid_of(&pass_logical_socket::input_slots);
 	}
 
 	auto get_valid_out() const noexcept{
-		return get_valid_of(&pass_inout_connection::output_slots);
+		return get_valid_of(&pass_logical_socket::output_slots);
 	}
 
 	template <typename T>
@@ -861,8 +871,8 @@ public:
 	template <typename T>
 		requires std::constructible_from<resource_requirement, T&&>
 	void add(const slot_pair slots, T&& val){
-		if(has_index(slots.in, &pass_inout_connection::input_slots) || has_index(
-			slots.out, &pass_inout_connection::output_slots)){
+		if(has_index(slots.in, &pass_logical_socket::input_slots) || has_index(
+			slots.out, &pass_logical_socket::output_slots)){
 			return;
 		}
 

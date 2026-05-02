@@ -134,11 +134,13 @@ struct graphics_context_trace {
     }
 
     void set_viewport(const VkViewport& vp) noexcept {
+    	if(std::memcmp(&pending_state.viewport, &vp, sizeof(VkViewport)) == 0) return;
     	pending_state.viewport = vp;
     	dirty_flags |= DIRTY_VIEWPORT;
     }
 
     void set_scissor(const VkRect2D& area) noexcept {
+    	if(std::memcmp(&pending_state.scissor, &area, sizeof(VkRect2D)) == 0) return;
     	pending_state.scissor = area;
     	dirty_flags |= DIRTY_SCISSOR;
     }
