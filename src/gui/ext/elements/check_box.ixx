@@ -63,7 +63,7 @@ public:
 export
 struct check_box : select_box<2>{
 	private:
-		react_flow::node_holder<react_flow::provider_cached<pass_type>> prov_;
+		react_flow::node_holder_pinned<react_flow::provider_cached<pass_type>> prov_;
 
 protected:
 	void on_selected_val_updated(unsigned value) override{

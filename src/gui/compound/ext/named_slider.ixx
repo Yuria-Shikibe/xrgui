@@ -24,7 +24,7 @@ export
 struct named_slider : head_body{
 private:
 	react_flow::node_pointer progress_transformer_{};
-	react_flow::node_holder<label_text_prov> display_text_recv_{};
+	react_flow::node_holder_pinned<label_text_prov> display_text_recv_{};
 
 public:
 

@@ -146,7 +146,7 @@ struct csv_file_reader : head_body{
 		}
 	};
 
-	react_flow::node_holder<file_listener> path_node_{this};
+	react_flow::node_holder_pinned<file_listener> path_node_{this};
 
 	[[nodiscard]] csv_file_reader(scene& scene, elem* parent)
 		: head_body(scene, parent){

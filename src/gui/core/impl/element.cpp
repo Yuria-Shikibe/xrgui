@@ -190,6 +190,7 @@ void elem::clear_scene_references() noexcept{
 	assert(scene_ != nullptr);
 	assert(is_on_scene_thread(get_scene()));
 
+	scene_->layer_altitude_record_.erase(layer_altitude_, 1);
 	scene_->drop_(this);
 	if(is_at_display_stage()){
 		scene_->notify_display_state_changed(get_channel());
@@ -279,9 +280,22 @@ void elem::set_focused_key(const bool focus) noexcept{
 }
 
 void elem::update_altitude_(altitude_t height){
+	if(layer_altitude_ == height){
+		return;
+	}
+	scene_->layer_altitude_record_.erase(layer_altitude_, 1);
+	layer_altitude_ = height;
+	scene_->layer_altitude_record_.insert(height, 1);
+	for (auto&& wrapper : collect_children()){
+		wrapper.for_each([this](elem& child){
+			child.update_altitude_(layer_altitude_ + 1);
+		});
+	}
 }
 
 void elem::init_altitude_(altitude_t height){
+	layer_altitude_ = height;
+	scene_->layer_altitude_record_.insert(height, 1);
 }
 
 void elem::relocate_scene(scene& target_scene) noexcept{

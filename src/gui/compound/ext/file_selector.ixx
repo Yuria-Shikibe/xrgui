@@ -104,7 +104,7 @@ private:
 		return selected.paths;
 	}
 
-	react_flow::node_holder<react_flow::provider_member<&file_selector::get_selected_paths>> prov_path_{};
+	react_flow::node_holder_pinned<react_flow::provider_member<&file_selector::get_selected_paths>> prov_path_{};
 
 protected:
 	struct file_entry;

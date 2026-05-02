@@ -363,7 +363,7 @@ public:
 
 export struct slider1d_with_output : slider1d {
 private:
-    react_flow::node_holder<react_flow::provider_cached<float>> output_node;
+    react_flow::node_holder_pinned<react_flow::provider_cached<float>> output_node;
 public:
     slider1d_with_output(scene& scene, elem* parent) : slider1d(scene, parent) {}
 
@@ -375,7 +375,7 @@ protected:
 
 export struct slider2d_with_output : slider2d {
 private:
-    react_flow::node_holder<react_flow::provider_cached<math::vec2>> output_node;
+    react_flow::node_holder_pinned<react_flow::provider_cached<math::vec2>> output_node;
 public:
     slider2d_with_output(scene& scene, elem* parent) : slider2d(scene, parent) {}
 

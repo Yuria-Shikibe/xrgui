@@ -53,13 +53,14 @@ BITMASK_OPS(export, elem_tree_channel);
 
 
 /**
- * @brief Principally, holes are not allowed, but this cause the destruction must begin from tail(highest), which cause some performance issue.
+ * @brief Tracks element count per altitude level with O(1) max query.
  *
- * TODO currently tooltip and overlays are not supported
+ * Holes are allowed: when the highest occupied altitude drops to zero, max is scanned downward.
  */
 struct layer_altitude_record {
 private:
-	std::vector<unsigned, mr::heap_allocator<unsigned>> records_{};
+	mr::heap_vector<unsigned> records_{};
+	altitude_t max_used_{};
 
 public:
 	layer_altitude_record() = default;
@@ -68,34 +69,29 @@ public:
 	}
 
 	void insert(altitude_t alt, unsigned count = 1) {
-
-
-
-
-
-
+		if(alt >= records_.size()){
+			records_.resize(alt + 1);
+		}
+		records_[alt] += count;
+		if(alt > max_used_){
+			max_used_ = alt;
+		}
 	}
 
 	void erase(altitude_t alt, unsigned count = 1) noexcept {
-
-
-
-
-		//
-
-
-
-		//
-
-
-
-
-
-
+		if(alt >= records_.size()){
+			return;
+		}
+		records_[alt] -= count;
+		if(alt == max_used_ && records_[alt] == 0){
+			while(max_used_ > 0 && records_[max_used_] == 0){
+				--max_used_;
+			}
+		}
 	}
 
 	altitude_t get_max() const noexcept {
-		return records_.size();
+		return max_used_;
 	}
 };
 
@@ -596,6 +592,7 @@ protected:
 	UI_TRANSIENT tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
 	UI_TRANSIENT overlay_manager overlay_manager_{get_heap_allocator()};
 	UI_TRANSIENT cursor_drawer current_cursor_drawers_{};
+	UI_TRANSIENT layer_altitude_record layer_altitude_record_{get_heap_allocator<unsigned>()};
 	elem* scene_root_{};
 
 	[[nodiscard]] scene_base() = default;
@@ -640,6 +637,10 @@ public:
 
 	[[nodiscard]] double get_current_time() const{
 		return current_time_;
+	}
+
+	[[nodiscard]] altitude_t get_max_element_altitude() const noexcept{
+		return layer_altitude_record_.get_max();
 	}
 
 	void set_current_time(const float current_time){

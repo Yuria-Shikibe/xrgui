@@ -1243,12 +1243,7 @@ bool set_fill_parent(
 
 export
 unsigned inline get_nest_depth(const elem* where) noexcept{
-	unsigned cur{};
-	while(where){
-		where = where->parent();
-		cur++;
-	}
-	return cur;
+	return where ? where->get_altitude() : 0;
 }
 
 math::vec2 inline helper_transform_scene2content(const elem* where, math::vec2 inPos) noexcept{

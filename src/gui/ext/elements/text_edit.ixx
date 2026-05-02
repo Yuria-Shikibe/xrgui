@@ -548,7 +548,7 @@ private:
 		}
 	};
 
-	react_flow::node_holder<react_flow::provider_cached<const text_edit_prov*, std::u32string_view, trans>> prov_;
+	react_flow::node_holder_pinned<react_flow::provider_cached<const text_edit_prov*, std::u32string_view, trans>> prov_;
 
 public:
 	[[nodiscard]] text_edit_prov(scene& scene, elem* parent)
