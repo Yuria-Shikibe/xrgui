@@ -10,7 +10,7 @@ import mo_yanxi.graphic_state_context;
 export import mo_yanxi.graphic.draw.instruction.batch.frontend;
 import mo_yanxi.graphic.draw.instruction.batch.backend.vulkan;
 
-import :barrier_automatic;
+import mo_yanxi.vk.sync_processor;
 
 import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
@@ -21,6 +21,7 @@ export import mo_yanxi.backend.vulkan.attachment_manager;
 export import mo_yanxi.backend.vulkan.pipeline_manager;
 
 namespace mo_yanxi::backend::vulkan{
+
 template <typename T>
 constexpr T mask(unsigned N) noexcept{
 	return N >= std::numeric_limits<std::make_unsigned_t<T>>::digits ? ~T{0} : (static_cast<T>(1) << N) - 1;
@@ -93,7 +94,7 @@ export struct renderer{
 
 	private:
 		graphic::draw::record_context<> cache_descriptor_context_{};
-		vk::cmd::dependency_gen cache_barrier_gen_{};
+		vk::sync::sync_barrier_batch cache_barrier_gen_{};
 
 		vk::dynamic_rendering cache_rendering_config_{};
 
@@ -105,7 +106,10 @@ export struct renderer{
 		//TODO merge clear requests
 		std::vector<VkClearAttachment> cache_clear_attachments_{};
 		std::vector<VkClearRect> cache_clear_rects_{};
-		attachment_sync_manager cache_sync_mgr_{};
+		vk::sync::sync_processor cache_sync_mgr_{};
+		std::vector<vk::sync::image_slot> draw_attachment_slots_{};
+		std::vector<vk::sync::image_slot> blit_attachment_slots_{};
+		std::vector<vk::sync::image_slot> mask_attachment_slots_{};
 
 
 		void flush_pass_(VkCommandBuffer cmd, per_record_context_value& ctx_val) {
@@ -120,11 +124,13 @@ export struct renderer{
 
 	public:
 		command_recording_context() = default;
+		void rebuild_sync_resources_(renderer& r);
 
 		void resize(std::size_t draw_count, std::size_t blit_count){
 			cache_attachment_enter_mark_.resize(draw_count);
-			cache_sync_mgr_.resize(draw_count, blit_count);
 			cache_mask_layer_enter_mark_.assign(1, {});
+			draw_attachment_slots_.resize(draw_count);
+			blit_attachment_slots_.resize(blit_count);
 		}
 
 		void record(renderer& r, VkCommandBuffer cmd);
@@ -232,6 +238,7 @@ public:
 
 		record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
 		                   attachment_manager_.get_blit_attachments().size());
+		record_ctx_.rebuild_sync_resources_(*this);
 
 		initialize_frames(create_info.command_pool);
 		initialize_blit_resources(create_info);

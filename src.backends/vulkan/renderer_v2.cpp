@@ -6,6 +6,91 @@ module;
 module mo_yanxi.backend.vulkan.renderer;
 
 namespace mo_yanxi::backend::vulkan{
+using mo_yanxi::vk::sync::image_state;
+using mo_yanxi::vk::sync::sync_barrier_batch;
+
+namespace{
+constexpr image_state make_image_state(
+	const VkPipelineStageFlags2 stage_mask,
+	const VkAccessFlags2 access_mask,
+	const VkImageLayout layout) noexcept{
+	return image_state{{stage_mask, access_mask}, layout};
+}
+
+constexpr auto draw_write_state = make_image_state(
+	VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+	VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+	VK_IMAGE_LAYOUT_GENERAL
+);
+
+constexpr auto draw_sample_state = make_image_state(
+	VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+	VK_ACCESS_2_SHADER_READ_BIT,
+	VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+);
+
+constexpr auto blit_rw_state = make_image_state(
+	VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+	VK_IMAGE_LAYOUT_GENERAL
+);
+
+constexpr auto blit_write_state = make_image_state(
+	VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+	VK_IMAGE_LAYOUT_GENERAL
+);
+
+constexpr auto mask_write_state = make_image_state(
+	VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+	VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+	VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+);
+
+constexpr auto mask_read_state = make_image_state(
+	VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+	VK_ACCESS_2_SHADER_READ_BIT,
+	VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+);
+
+VkImageSubresourceRange make_mask_layer_range(const std::uint32_t layer) noexcept{
+	return {
+		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+		.baseMipLevel = 0,
+		.levelCount = 1,
+		.baseArrayLayer = layer,
+		.layerCount = 1,
+	};
+}
+}
+
+void renderer::command_recording_context::rebuild_sync_resources_(renderer& r){
+	cache_sync_mgr_.clear_resources();
+	cache_sync_mgr_.reset_transient();
+	cache_sync_mgr_.reserve_resources(
+		r.attachment_manager_.get_draw_attachments().size() + r.attachment_manager_.get_blit_attachments().size() +
+			r.attachment_manager_.get_mask_image_views().size(),
+		0
+	);
+
+	draw_attachment_slots_.clear();
+	blit_attachment_slots_.clear();
+	mask_attachment_slots_.clear();
+	draw_attachment_slots_.reserve(r.attachment_manager_.get_draw_attachments().size());
+	blit_attachment_slots_.reserve(r.attachment_manager_.get_blit_attachments().size());
+	mask_attachment_slots_.reserve(r.attachment_manager_.get_mask_image_views().size());
+
+	for(std::size_t i = 0; i < r.attachment_manager_.get_draw_attachments().size(); ++i){
+		draw_attachment_slots_.push_back(cache_sync_mgr_.register_image(draw_write_state));
+	}
+	for(std::size_t i = 0; i < r.attachment_manager_.get_blit_attachments().size(); ++i){
+		blit_attachment_slots_.push_back(cache_sync_mgr_.register_image(blit_rw_state));
+	}
+	for(std::size_t i = 0; i < r.attachment_manager_.get_mask_image_views().size(); ++i){
+		mask_attachment_slots_.push_back(cache_sync_mgr_.register_image(mask_read_state));
+	}
+}
+
 void renderer::command_recording_context::ensure_render_pass_(
 	renderer& r, VkCommandBuffer cmd,
 	const gui::fx::pipeline_config& draw_cfg,
@@ -18,17 +103,72 @@ void renderer::command_recording_context::ensure_render_pass_(
 
 	cache_barrier_gen_.clear();
 
-	cache_sync_mgr_.sync_draw_targets(
-		cache_barrier_gen_,
-		target_mask, pipe_opt.input_attachments_mask, r.attachment_manager_.get_draw_attachments(),
-		pipe_opt.mask_usage_type, ctx_val.mask_depth, r.attachment_manager_.get_mask_image().get_image()
-	);
+	target_mask.for_each_popbit([&](unsigned idx){
+		(void)cache_sync_mgr_.transition_image(
+			cache_barrier_gen_,
+			draw_attachment_slots_[idx],
+			r.attachment_manager_.get_draw_attachments()[idx].get_image(),
+			draw_write_state
+		);
+	});
 
-	if(!cache_barrier_gen_.empty()){
-		cache_barrier_gen_.apply(cmd);
+	pipe_opt.input_attachments_mask.for_each_popbit([&](unsigned idx){
+		(void)cache_sync_mgr_.transition_image(
+			cache_barrier_gen_,
+			draw_attachment_slots_[idx],
+			r.attachment_manager_.get_draw_attachments()[idx].get_image(),
+			draw_sample_state
+		);
+	});
+
+	for(std::size_t idx = 0; idx < blit_attachment_slots_.size(); ++idx){
+		(void)cache_sync_mgr_.transition_image(
+			cache_barrier_gen_,
+			blit_attachment_slots_[idx],
+			r.attachment_manager_.get_blit_attachments()[idx].get_image(),
+			blit_rw_state
+		);
 	}
 
-	cache_sync_mgr_.commit_pending_blit_to_graphics(cache_barrier_gen_, r.attachment_manager_.get_blit_attachments());
+	if(pipe_opt.mask_usage_type != mask_usage::ignore && mask_attachment_slots_.size() <= ctx_val.mask_depth){
+		const auto old_size = mask_attachment_slots_.size();
+		mask_attachment_slots_.resize(ctx_val.mask_depth + 1);
+		for(std::size_t idx = old_size; idx < mask_attachment_slots_.size(); ++idx){
+			mask_attachment_slots_[idx] = cache_sync_mgr_.register_image(mask_read_state);
+		}
+	}
+
+	if(const auto& mask_image = r.attachment_manager_.get_mask_image().get_image(); mask_image.get() != VK_NULL_HANDLE){
+		if(pipe_opt.mask_usage_type == mask_usage::write){
+			(void)cache_sync_mgr_.transition_image(
+				cache_barrier_gen_,
+				mask_attachment_slots_[ctx_val.mask_depth],
+				mask_image,
+				mask_write_state,
+				make_mask_layer_range(ctx_val.mask_depth)
+			);
+
+			if(ctx_val.mask_depth > 0){
+				const auto read_layer = ctx_val.mask_depth - 1;
+				(void)cache_sync_mgr_.transition_image(
+					cache_barrier_gen_,
+					mask_attachment_slots_[read_layer],
+					mask_image,
+					mask_read_state,
+					make_mask_layer_range(read_layer)
+				);
+			}
+		} else if(pipe_opt.mask_usage_type == mask_usage::read){
+			(void)cache_sync_mgr_.transition_image(
+				cache_barrier_gen_,
+				mask_attachment_slots_[ctx_val.mask_depth],
+				mask_image,
+				mask_read_state,
+				make_mask_layer_range(ctx_val.mask_depth)
+			);
+		}
+	}
+
 	cache_barrier_gen_.apply(cmd);
 
 	VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -101,21 +241,16 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 		cache_descriptor_context_(r.resolver_pipeline_layout_, cmd, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
 		r.batch_device.cmd_compute_resolve(cmd, r.current_frame_index_);
 
-		static constexpr VkMemoryBarrier2 memory_barrier{
-				.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-				.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-				.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT |
+		cache_barrier_gen_.clear();
+		cache_barrier_gen_.push_execution(
+			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT |
 				VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-				.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT |
+			VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT |
 				VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
-			};
-		static constexpr VkDependencyInfo dep_info{
-				.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-				.memoryBarrierCount = 1,
-				.pMemoryBarriers = &memory_barrier
-			};
-		vkCmdPipelineBarrier2(cmd, &dep_info);
+		);
+		cache_barrier_gen_.apply(cmd);
 	}
 
 	cache_graphic_context_.reset();
@@ -124,9 +259,20 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	const auto& initial_pipe_opt = r.draw_pipeline_manager_.get_pipelines()[draw_cfg.pipeline_index].option;
 	cache_graphic_context_.update_pipeline(draw_cfg.pipeline_index, initial_pipe_opt);
 
-	cache_sync_mgr_.reset_barriers();
+	cache_sync_mgr_.reset_transient();
+	for(const auto& slot : draw_attachment_slots_){
+		cache_sync_mgr_.set_image_state(slot, draw_write_state);
+	}
+	for(const auto& slot : blit_attachment_slots_){
+		cache_sync_mgr_.set_image_state(slot, blit_rw_state);
+	}
+	for(const auto& slot : mask_attachment_slots_){
+		cache_sync_mgr_.set_image_state(slot, mask_read_state);
+	}
 	if(r.mask_attachment_states_invalidated_){
-		cache_sync_mgr_.invalidate_mask_states(r.attachment_manager_.get_mask_image_views().size());
+		for(const auto& slot : mask_attachment_slots_){
+			cache_sync_mgr_.set_image_state(slot, {});
+		}
 		r.mask_attachment_states_invalidated_ = false;
 	}
 	std::ranges::fill(cache_attachment_enter_mark_, 0);
@@ -344,13 +490,23 @@ void renderer::command_recording_context::blit_(renderer& r, gui::fx::blit_confi
 	const auto& inout = r.get_blit_inout_config(cfg);
 
 	cache_barrier_gen_.clear();
-	cache_sync_mgr_.sync_blit_inputs(cache_barrier_gen_, inout.get_input_entries(),
-	                                 r.attachment_manager_.get_draw_attachments());
-	cache_sync_mgr_.sync_blit_outputs(cache_barrier_gen_, inout.get_output_entries(),
-	                                  r.attachment_manager_.get_blit_attachments());
-	if(!cache_barrier_gen_.empty()){
-		cache_barrier_gen_.apply(cmd);
+	for(const auto& e : inout.get_input_entries()){
+		(void)cache_sync_mgr_.transition_image(
+			cache_barrier_gen_,
+			draw_attachment_slots_[e.resource_index],
+			r.attachment_manager_.get_draw_attachments()[e.resource_index].get_image(),
+			blit_rw_state
+		);
 	}
+	for(const auto& e : inout.get_output_entries()){
+		(void)cache_sync_mgr_.transition_image(
+			cache_barrier_gen_,
+			blit_attachment_slots_[e.resource_index],
+			r.attachment_manager_.get_blit_attachments()[e.resource_index].get_image(),
+			blit_rw_state
+		);
+	}
+	cache_barrier_gen_.apply(cmd);
 
 
 	const auto& pc = r.blit_pipeline_manager_.get_pipelines()[cfg.pipe_info.pipeline_index];
@@ -376,7 +532,9 @@ void renderer::command_recording_context::blit_(renderer& r, gui::fx::blit_confi
 		vkCmdDispatch(cmd, dispatches.x, dispatches.y, 1);
 	}
 
-	cache_sync_mgr_.mark_blit_completed(inout.get_output_entries());
+	for(const auto& e : inout.get_output_entries()){
+		cache_sync_mgr_.set_image_state(blit_attachment_slots_[e.resource_index], blit_write_state);
+	}
 }
 
 void renderer::resize(VkExtent2D extent){
@@ -388,6 +546,7 @@ void renderer::resize(VkExtent2D extent){
 
 	record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
 	                   attachment_manager_.get_blit_attachments().size());
+	record_ctx_.rebuild_sync_resources_(*this);
 
 	auto update_descriptor = [this](vk::descriptor_buffer& db, const compute_pipeline_blit_inout_config& cfg){
 		vk::descriptor_mapper mapper{db};
