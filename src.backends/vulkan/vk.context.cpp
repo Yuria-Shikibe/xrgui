@@ -464,8 +464,13 @@ void context::recreate(bool no_fence_wait){
 		window_.wait_event();
 	}
 
-	wait_on_device();
-
+	for(const auto& arr : sync_arr){
+		arr.fence.wait();
+	}
+	wait_on_graphic();
+	if(graphic_family() != present_family()){
+		waitOnQueue(device.present_queue());
+	}
 
 	last_swap_chain.handle = swap_chain;
 

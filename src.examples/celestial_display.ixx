@@ -2,12 +2,12 @@ module;
 
 export module mo_yanxi.celestial_display;
 
-export import mo_yanxi.graphic.color;
+export import mo_yanxi.graphic.gradient;
 import std;
 import mo_yanxi.math.vector2;
 import mo_yanxi.math;
 import mo_yanxi.graphic.trail;
-export import mo_yanxi.graphic.gradient;
+
 
 namespace celestial {
 

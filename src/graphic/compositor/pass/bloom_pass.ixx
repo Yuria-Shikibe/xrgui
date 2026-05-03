@@ -16,7 +16,12 @@ namespace mo_yanxi::graphic::compositor{
 }
 
 [[nodiscard]] constexpr std::uint32_t get_real_mip_level(std::uint32_t expected, math::u32size2 extent) noexcept{
-	return std::min(expected, vk::get_recommended_mip_level(extent.x, extent.y));
+	const auto rec = vk::get_recommended_mip_level(extent.x, extent.y);
+	const auto minor_dim = std::min(extent.x, extent.y);
+	const auto extent_max = minor_dim > 0
+		? static_cast<std::uint32_t>(std::bit_width(minor_dim) - 1)
+		: 0u;
+	return std::min({expected, rec, extent_max});
 }
 
 struct bloom_defines {
@@ -123,7 +128,6 @@ private:
 			samplers_.try_emplace(binding_info{1, 0}, sampler);
 			samplers_.try_emplace(binding_info{2, 0}, sampler);
 		}
-		uniform_buffer_ = {alloc, sizeof(bloom_uniform_block)};
 		(void)vk::buffer_mapper{uniform_buffer_}.load(current_param);
 	}
 	[[nodiscard]] std::vector<sub_pass_setup> build_sub_passes(const pass_data& pass,
@@ -139,6 +143,11 @@ private:
 			sub_pass_setup setup{};
 			setup.push_constants.resize(sizeof(bloom_defines));
 			const auto layer_info = get_current_defines(i, extent, total_mip_level);
+			if (layer_info.currentLayerExtent.x == 0 || layer_info.currentLayerExtent.y == 0) {
+				throw std::runtime_error(std::format(
+					"Bloom sub-pass {} has zero extent (extent={}x{}, mip={}/{})",
+					i, extent.x, extent.y, layer_info.current_layer, total_mip_level));
+			}
 			std::memcpy(setup.push_constants.data(), &layer_info, sizeof(layer_info));
 
 			const auto& unit_size = meta().shader_info().thread_group_size;
