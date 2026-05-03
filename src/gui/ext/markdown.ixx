@@ -1,6 +1,7 @@
 export module mo_yanxi.gui.markdown;
 
 import std;
+import mo_yanxi.utility;
 
 namespace mo_yanxi::gui::md {
 
@@ -616,9 +617,6 @@ private:
 
 namespace mo_yanxi::gui::md {
 
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
-
 export class ast_printer {
 public:
 	static std::string print(const node_list& nodes) {
@@ -674,7 +672,7 @@ private:
 		std::string child_prefix = is_root ? "" : (prefix + (is_last ? "    " : "│   "));
 		out += current_prefix;
 
-		std::visit(overloaded{
+		std::visit(overload{
 			[&](const text& n) {
 				out += "Text [pos: " + std::to_string(node.start_pos) + "] " + format_excerpt(n.content) + "\n";
 			},

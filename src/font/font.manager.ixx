@@ -402,8 +402,10 @@ public:
 		};
 
 		if(record.drawable){
+			auto crop = acquired.generator.crop(gid);
+			crop.meta = handle.get_source();
 			auto load = graphic::sdf_load{
-				acquired.generator.crop(gid, handle.get_source()->get_loader_msdf_handle()),
+				std::move(crop),
 				acquired.extent()
 			};
 			auto name = make_glyph_region_name(handle.get_source(), gid);

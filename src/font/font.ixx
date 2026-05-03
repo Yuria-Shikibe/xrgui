@@ -199,13 +199,75 @@ struct glyph_metrics{
 };
 
 export struct font_face_handle;
+export struct font_face_meta;
+}
 
+
+namespace mo_yanxi::graphic::msdf{
+
+struct msdf_glyph_generator_base{
+	//no lock to this face sine image loads from the same thread
+	union{
+		/**
+		 * @brief specify on create
+		 */
+		const font::font_face_meta* meta;
+
+		/**
+		 * @brief specify by image loader, cropped from meta
+		 *
+		 * active member during glyph load
+		 */
+		msdfgen::FontHandle* msdf_face;
+	};
+
+	unsigned font_w{};
+	unsigned font_h{};
+	double range = 0.1;
+	unsigned boarder = sdf_image_boarder;
+
+	[[nodiscard]] msdf_glyph_generator_base() noexcept
+		: meta(nullptr){
+	}
+};
+
+export
+struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
+	msdfgen::GlyphIndex code{};
+
+	[[nodiscard]] msdf_glyph_generator_crop(const msdf_glyph_generator_base& base, msdfgen::GlyphIndex code)
+	: msdf_glyph_generator_base{base}, code(code){
+	}
+
+	bitmap operator()(const unsigned w, const unsigned h, const unsigned mip_lv) const{
+		auto scl = 1 << mip_lv;
+		auto b = boarder / scl;
+		if(b * 2 >= w || b * 2 >= h){
+			b = 0;
+		}
+		return load_glyph(msdf_face, code, w - b * 2, h - b * 2, b,
+			static_cast<double>(font_w) / static_cast<double>(scl),
+			static_cast<double>(font_h) / static_cast<double>(scl), range / static_cast<double>(scl));
+	};
+};
+
+export
+struct msdf_glyph_generator : msdf_glyph_generator_base{
+	[[nodiscard]] msdf_glyph_generator_crop crop(unsigned code) const noexcept{
+		msdf_glyph_generator_crop rst {*this, msdfgen::GlyphIndex{code}};
+		return rst;
+	}
+};
+}
+
+
+namespace mo_yanxi::font{
 export struct acquire_result{
 	glyph_metrics metrics;
 	graphic::msdf::msdf_glyph_generator generator;
 
 	constexpr bool has_drawable_glyph() const noexcept{
-		return generator.face != nullptr;
+		return generator.meta != nullptr;
 	}
 
 	[[nodiscard]] inline constexpr math::usize2 extent() const noexcept{
@@ -217,7 +279,6 @@ export struct font_face_meta;
 
 struct font_face_handle : exclusive_handle<FT_Face>{
 private:
-	exclusive_handle_member<msdfgen::FontHandle*> msdfHdl{};
 	exclusive_handle_member<const font_face_meta*> origin_meta{};
 
 public:
@@ -225,8 +286,8 @@ public:
 
 	~font_face_handle(){
 		if(handle) check(FT_Done_Face(handle));
-		if(msdfHdl) msdfgen::destroyFont(msdfHdl);
 	}
+
 	[[nodiscard]] bool is_bold() const noexcept {
 		return handle && (handle->style_flags & FT_STYLE_FLAG_BOLD) != 0;
 	}
@@ -243,7 +304,6 @@ public:
 			index,
 			&handle));
 		// msdfgen 采用 FreeType 句柄
-		msdfHdl = adopt_msdfgen_hld_and_fuck_msvc(handle);
 	}
 
 	font_face_handle(const font_face_handle& other) = delete;
@@ -255,14 +315,9 @@ public:
 		return origin_meta;
 	}
 
-	msdfgen::FontHandle* get_msdf_handle() const noexcept{
-		return msdfHdl;
-	}
-
 	explicit font_face_handle(const char* path, const FT_Long index = 0){
 		auto lib = get_ft_lib();
 		check(FT_New_Face(lib, path, index, &handle));
-		msdfHdl = msdfgen::loadFont(graphic::msdf::HACK_get_ft_library_from(&lib), path);
 	}
 
 	[[nodiscard]] std::string_view get_family_name() const noexcept{
@@ -345,12 +400,13 @@ public:
 		if(const auto shot = load_and_get_by_index(code, FT_LOAD_NO_HINTING)){
 			auto glyph = shot.value();
 			const bool is_empty = glyph->bitmap.width == 0 || glyph->bitmap.rows == 0;
+			graphic::msdf::msdf_glyph_generator generator{};
+			generator.meta = is_empty ? nullptr : get_source();
+			generator.font_w = handle->size->metrics.x_ppem;
+			generator.font_h = handle->size->metrics.y_ppem;
 			return acquire_result{
 					glyph->metrics,
-					graphic::msdf::msdf_glyph_generator{
-						is_empty ? nullptr : msdfHdl.get(),
-						handle->size->metrics.x_ppem, handle->size->metrics.y_ppem
-					}
+					std::move(generator)
 				};
 		}
 
@@ -451,6 +507,39 @@ export struct styled_font_face_view {
 	}
 };
 
+export struct msdf_handle_wrapper{
+	font_face_handle handle{};
+	msdfgen::FontHandle* msdf_handle{};
+
+	[[nodiscard]] msdf_handle_wrapper(font_face_handle&& handle)
+		: handle(std::move(handle)), msdf_handle(adopt_msdfgen_hld_and_fuck_msvc(this->handle.get())){
+	}
+
+	msdf_handle_wrapper(msdf_handle_wrapper&& other) noexcept
+		: handle{std::move(other.handle)},
+		  msdf_handle{std::exchange(other.msdf_handle, {})}{
+	}
+
+	msdf_handle_wrapper& operator=(msdf_handle_wrapper&& other) noexcept{
+		if(this == &other) return *this;
+		clear_();
+		handle = std::move(other.handle);
+		msdf_handle = std::exchange(other.msdf_handle, {});
+		return *this;
+	}
+
+	~msdf_handle_wrapper(){
+		clear_();
+	}
+
+private:
+	void clear_() noexcept{
+		if(msdf_handle){
+			msdfgen::destroyFont(msdf_handle);
+		}
+	}
+};
+
 /**
  * @brief 字体元数据 (Read-Only)
  * 仅包含文件数据，多线程共享，不包含任何 Handle。
@@ -489,11 +578,6 @@ public:
 
 	[[nodiscard]] std::span<const std::byte> data() const noexcept {
 		return font_data_;
-	}
-
-	// 提供给 sdf_load 使用的接口
-	[[nodiscard]] msdfgen::FontHandle* get_loader_msdf_handle() const noexcept {
-		return loader_handle_.get_msdf_handle();
 	}
 
 private:
@@ -622,6 +706,8 @@ struct std::hash<mo_yanxi::font::glyph_identity>{ // NOLINT(*-dcl58-cpp)
 };
 
 module : private;
+
+
 void mo_yanxi::font::check(FT_Error error){
 	if(!error) return;
 

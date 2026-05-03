@@ -93,44 +93,6 @@ public:
 	}
 };
 
-struct msdf_glyph_generator_base{
-	//no lock to this face sine image loads from the same thread
-	msdfgen::FontHandle* face{};
-	unsigned font_w{};
-	unsigned font_h{};
-	double range = 0.09;
-	unsigned boarder = sdf_image_boarder;
-};
-
-export
-struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
-	msdfgen::GlyphIndex code{};
-
-	[[nodiscard]] msdf_glyph_generator_crop(const msdf_glyph_generator_base& base, msdfgen::GlyphIndex code)
-	: msdf_glyph_generator_base{base}, code(code){
-	}
-
-	bitmap operator()(const unsigned w, const unsigned h, const unsigned mip_lv) const{
-		auto scl = 1 << mip_lv;
-		auto b = boarder / scl;
-		if(b * 2 >= w || b * 2 >= h){
-			b = 0;
-		}
-		return load_glyph(face, code, w - b * 2, h - b * 2, b,
-			static_cast<double>(font_w) / static_cast<double>(scl),
-			static_cast<double>(font_h) / static_cast<double>(scl), range / static_cast<double>(scl));
-	};
-};
-
-export
-struct msdf_glyph_generator : msdf_glyph_generator_base{
-	[[nodiscard]] msdf_glyph_generator_crop crop(unsigned code, msdfgen::FontHandle* face_override) const noexcept{
-		msdf_glyph_generator_crop rst {*this, msdfgen::GlyphIndex{code}};
-		rst.face = face_override;
-		return rst;
-	}
-};
-
 constexpr unsigned boarder_size = 96;
 constexpr double boarder_range = 4;
 

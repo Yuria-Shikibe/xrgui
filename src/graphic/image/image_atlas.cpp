@@ -143,7 +143,9 @@ namespace mo_yanxi::graphic{
 
 	}
 
-	async_image_loader::async_image_loader(const vk::context_info& context, std::uint32_t graphic_family_index,
+	async_image_loader::async_image_loader(
+		const vk::context_info& context,
+		std::uint32_t graphic_family_index,
 		VkQueue working_queue/*, vk::resource_descriptor_heap& target_descriptor_heap*/,
 		std::uint32_t target_descriptor_heap_section):
 		working_queue_{working_queue},
@@ -152,12 +154,25 @@ namespace mo_yanxi::graphic{
 		region_fence_(context.device, true),
 		allocation_fence_(context.device, false),
 		// target_descriptor_heap_(&target_descriptor_heap),
-		target_descriptor_heap_section_(target_descriptor_heap_section),
-		working_thread([](std::stop_token stop_token, async_image_loader& self){
-			work_func(std::move(stop_token), self);
-		}, std::ref(*this)){
-		platform::set_thread_attributes(working_thread, {
-			.name = "xrgui image loader thread",
+		target_descriptor_heap_section_(target_descriptor_heap_section){
+		const auto cpu_worker_count = calculate_cpu_worker_count();
+		cpu_workers_.reserve(cpu_worker_count);
+		for(unsigned i = 0; i < cpu_worker_count; ++i){
+			auto& worker = cpu_workers_.emplace_back();
+			worker.work_thread = std::jthread([](std::stop_token stop_token, async_image_loader& self, unsigned worker_index){
+				cpu_work_func(std::move(stop_token), self, worker_index);
+			}, std::ref(*this), i);
+			platform::set_thread_attributes(worker.work_thread, {
+				.name = std::format("xrgui image cpu worker {}", i),
+				.priority = platform::thread_priority::high
+			});
+		}
+
+		gpu_thread_ = std::jthread([](std::stop_token stop_token, async_image_loader& self){
+			gpu_work_func(std::move(stop_token), self);
+		}, std::ref(*this));
+		platform::set_thread_attributes(gpu_thread_, {
+			.name = "xrgui image gpu thread",
 			.priority = platform::thread_priority::high
 		});
 	}

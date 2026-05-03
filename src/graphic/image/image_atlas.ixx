@@ -37,6 +37,8 @@ import mo_yanxi.utility;
 
 export import mo_yanxi.graphic.msdf;
 import mo_yanxi.io.image;
+import mo_yanxi.font;
+import mo_yanxi.cache;
 
 import std;
 
@@ -227,6 +229,11 @@ struct async_loader_task{
 
 export struct image_atlas;
 
+struct async_image_loader_cpu_worker{
+	lru_cache<const font::font_face_meta*, font::msdf_handle_wrapper, 4> font_cache_;
+	std::jthread work_thread{};
+};
+
 struct async_image_loader{
 	friend struct image_atlas;
 
@@ -242,37 +249,69 @@ private:
 
 	std::multimap<VkDeviceSize, vk::buffer> stagings{};
 
-	std::mutex region_queue_mutex{};
-	ccur::condition_variable_single region_queue_cond{};
+	std::mutex load_queue_mutex_{};
+	ccur::condition_variable_single load_queue_cond_{};
+
+	std::mutex gpu_queue_mutex_{};
+	ccur::condition_variable_single gpu_queue_cond_{};
 
 
 	circular_queue<texture_allocation_request> alloc_queue{};
 	circular_queue<allocated_image_load_description> load_queue{};
-	std::atomic_bool loading_flag_{};
+	ccur::mpsc_queue<prepared_image_upload> prepared_queue_{};
+	std::atomic_uint outstanding_work_count_{0};
 
 	// vk::resource_descriptor_heap* target_descriptor_heap_{};
 	std::uint32_t target_descriptor_heap_section_{};
 
-	std::jthread working_thread{};
+	std::jthread gpu_thread_{};
+	std::vector<async_image_loader_cpu_worker> cpu_workers_{};
 
-	static void work_func(std::stop_token stop_token, async_image_loader& self) try {
+
+	static constexpr unsigned max_cpu_worker_count_ = 4;
+
+	[[nodiscard]] static unsigned calculate_cpu_worker_count() noexcept{
+		const auto hc = std::thread::hardware_concurrency();
+		const auto available = hc > 2 ? hc - 2 : 1u;
+		return std::min(max_cpu_worker_count_, available);
+	}
+
+	void notify_cpu_workers_() noexcept{
+		for(std::size_t i = 0; i < cpu_workers_.size(); ++i){
+			load_queue_cond_.notify_one();
+		}
+	}
+
+	void on_work_item_finished_() noexcept{
+		const auto prev = outstanding_work_count_.fetch_sub(1, std::memory_order::acq_rel);
+		assert(prev > 0);
+		outstanding_work_count_.notify_all();
+	}
+
+	void request_stop_() noexcept{
+		for(auto& worker : cpu_workers_){
+			worker.work_thread.request_stop();
+		}
+		gpu_thread_.request_stop();
+		notify_cpu_workers_();
+		gpu_queue_cond_.notify_one();
+	}
+
+	static void gpu_work_func(std::stop_token stop_token, async_image_loader& self) try {
 		circular_queue<texture_allocation_request> texture_alloc_queue{};
-		std::vector<allocated_image_load_description> image_load_queue{};
-		image_load_queue.reserve(16);
 
 		while (true) {
-			image_load_queue.clear();
 			texture_alloc_queue.clear();
 
 			{
-				std::unique_lock lock(self.region_queue_mutex);
+				std::unique_lock lock(self.gpu_queue_mutex_);
 
-				self.region_queue_cond.wait(lock, [&]{
-					return !self.alloc_queue.empty() || !self.load_queue.empty() || stop_token.stop_requested();
+				self.gpu_queue_cond_.wait(lock, [&]{
+					return !self.alloc_queue.empty() || !self.prepared_queue_.empty() || (stop_token.stop_requested() && self.outstanding_work_count_.load(std::memory_order::acquire) == 0);
 				});
 
 
-				if (stop_token.stop_requested() && self.alloc_queue.empty() && self.load_queue.empty()) {
+				if (stop_token.stop_requested() && self.alloc_queue.empty() && self.prepared_queue_.empty() && self.outstanding_work_count_.load(std::memory_order::acquire) == 0) {
 					break;
 				}
 
@@ -280,42 +319,68 @@ private:
 				if (!self.alloc_queue.empty()) {
 					std::ranges::swap(texture_alloc_queue, self.alloc_queue);
 				}
-
-				if (!self.load_queue.empty()) {
-					auto count = std::min(self.load_queue.size(), image_load_queue.capacity());
-					for(unsigned i = 0; i < count; ++i){
-						image_load_queue.push_back(std::move(self.load_queue.front()));
-						self.load_queue.pop_front();
-					}
-				}
 			}
-
-			if(!texture_alloc_queue.empty() && stop_token.stop_requested()){
-				break;
-			}
-			self.loading_flag_.store(true, std::memory_order::release);
 
 			texture_alloc_queue.for_each([&](auto, texture_allocation_request& r){
 				self.load(r);
+				self.on_work_item_finished_();
 			});
 
-			if(stop_token.stop_requested()){
-				self.loading_flag_.store(false, std::memory_order::release);
-				self.loading_flag_.notify_all();
-				break;
+			while(auto prepared = self.prepared_queue_.try_consume()){
+				self.load(std::move(*prepared));
+				self.on_work_item_finished_();
 			}
-
-			for (auto && alloc : image_load_queue){
-				self.load(self.prepare(std::move(alloc)));
-			}
-
-			self.loading_flag_.store(false, std::memory_order::release);
-			self.loading_flag_.notify_all();
 		}
 
 		self.region_fence_.wait();
 	} catch(...){
-		std::println(std::cerr, "Loader Thread Exceptionally Exited");
+		std::println(std::cerr, "Image GPU Loader Thread Exceptionally Exited");
+		throw;
+	}
+
+	static void cpu_work_func(std::stop_token stop_token, async_image_loader& self, unsigned worker_index) try {
+		auto& worker = self.cpu_workers_[worker_index];
+		while (true) {
+			allocated_image_load_description item{};
+
+			{
+				std::unique_lock lock(self.load_queue_mutex_);
+
+				self.load_queue_cond_.wait(lock, [&]{
+					return !self.load_queue.empty() || stop_token.stop_requested();
+				});
+
+				if (stop_token.stop_requested() && self.load_queue.empty()) {
+					break;
+				}
+
+				item = std::move(self.load_queue.front());
+				self.load_queue.pop_front();
+			}
+
+			if(auto* sdf = std::get_if<sdf_load>(&item.desc.raw)){
+				std::visit([&](auto& gen){
+					using T = std::decay_t<decltype(gen)>;
+					if constexpr(std::same_as<T, msdf::msdf_glyph_generator_crop>){
+						if(const auto* meta = gen.meta){
+							auto* cached = worker.font_cache_.get(meta);
+							if(cached == nullptr){
+								worker.font_cache_.emplace(meta, font::msdf_handle_wrapper{font::font_face_handle{meta->data(), meta}});
+								cached = worker.font_cache_.get(meta);
+							}
+							if(cached != nullptr){
+								gen.msdf_face = cached->msdf_handle;
+							}
+						}
+					}
+				}, sdf->generator);
+			}
+
+			self.prepared_queue_.push(self.prepare(std::move(item)));
+			self.gpu_queue_cond_.notify_one();
+		}
+	} catch(...){
+		std::println(std::cerr, "Image CPU Worker {} Exceptionally Exited", worker_index);
 		throw;
 	}
 
@@ -343,35 +408,44 @@ public:
 	}
 
 	void push(allocated_image_load_description&& desc){
+		outstanding_work_count_.fetch_add(1, std::memory_order::acq_rel);
 		{
-			std::lock_guard lock(region_queue_mutex);
+			std::lock_guard lock(load_queue_mutex_);
 			load_queue.emplace_back(std::move(desc));
 		}
-		region_queue_cond.notify_one();
+		load_queue_cond_.notify_one();
 	}
 
 	void push(const texture_allocation_request& desc){
+		outstanding_work_count_.fetch_add(1, std::memory_order::acq_rel);
 		{
-			std::lock_guard lock(region_queue_mutex);
+			std::lock_guard lock(gpu_queue_mutex_);
 			alloc_queue.push_back(desc);
 		}
-		region_queue_cond.notify_one();
+		gpu_queue_cond_.notify_one();
 	}
 
 public:
+	void request_stop() noexcept{
+		request_stop_();
+	}
+
 	void wait() const noexcept{
-		if(working_thread.joinable()){
-			loading_flag_.wait(true, std::memory_order::acquire);
+		if(gpu_thread_.joinable()){
+			auto pending = outstanding_work_count_.load(std::memory_order::acquire);
+			while(pending != 0){
+				outstanding_work_count_.wait(pending, std::memory_order::acquire);
+				pending = outstanding_work_count_.load(std::memory_order::acquire);
+			}
 		}
 	}
 
 	[[nodiscard]] bool is_loading() const noexcept{
-		return loading_flag_.load(std::memory_order::relaxed);
+		return outstanding_work_count_.load(std::memory_order::relaxed) != 0;
 	}
 
 	~async_image_loader(){
-		working_thread.request_stop();
-		region_queue_cond.notify_one();
+		request_stop_();
 		wait();
 		region_fence_.wait();
 	}
@@ -723,7 +797,7 @@ public:
 	}
 
 	void request_stop() noexcept{
-		async_image_loader_->working_thread.request_stop();
+		async_image_loader_->request_stop();
 		wait_load();
 	}
 
