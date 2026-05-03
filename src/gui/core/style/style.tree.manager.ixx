@@ -81,8 +81,9 @@ public:
 		set(std::to_underlying(variant), std::move(new_style));
 	}
 
-	template <typename Ty>
-	void set(family_variant variant, target_known_node_ptr<Ty>&& new_style) {
+	template <typename E, typename Ty>
+		requires (std::is_enum_v<E> && std::convertible_to<std::underlying_type_t<E>, std::size_t>)
+	void set(E variant, target_known_node_ptr<Ty>&& new_style) {
 		this->set(std::to_underlying(variant), detail::unwrap_tree_ptr(std::move(new_style)));
 	}
 

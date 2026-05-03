@@ -124,6 +124,23 @@ struct draw_debug_background{
 	}
 };
 
+export
+struct draw_filled_rect{
+	using target_type = elem;
+	palette pal{};
+
+	void operator()(const typed_draw_param<elem>& p) const{
+		const elem& e = p.subject();
+		auto color = pal.on_instance(e).mul_a(p->opacity_scl);
+		auto region = p->draw_bound;
+		e.renderer().push(graphic::draw::instruction::rect_aabb{
+			.v00 = region.vert_00(),
+			.v11 = region.vert_11(),
+			.vert_color = {color}
+		});
+	}
+};
+
 }
 
 namespace mo_yanxi::gui::style{

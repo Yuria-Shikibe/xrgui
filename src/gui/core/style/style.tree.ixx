@@ -222,7 +222,7 @@ struct tree_scope{
 
 	FORCE_INLINE void direct(const typed_draw_param<target_type>& p) const{
 		if(!present(child)) return;
-		if(auto entered = this->enter(p.param)){
+		if(auto entered = this->enter(typed_draw_param<target_type>{p.param})){
 			style::draw_direct(child, typed_draw_param<target_type>{entered});
 			if constexpr(!std::is_null_pointer_v<OnLeave>){
 				this->leave(entered);
@@ -243,7 +243,9 @@ private:
 
 public:
 	[[nodiscard]] style_tree_metrics query_metrics(const typed_style_tree_metrics_query_param<target_type>& p = {}) const noexcept{
-		return style::query_metrics(child, p);
+		auto rst = style::query_metrics(child, p);
+		rst.merge_from(get_scope_inset(on_enter));
+		return rst;
 	}
 };
 

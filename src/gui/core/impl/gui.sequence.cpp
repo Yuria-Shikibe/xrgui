@@ -126,12 +126,17 @@ void sequence::layout_elem(){
 	}
 
 	auto [majorTarget, minorTarget] = layout::get_vec_ptr(policy_);
+	auto [majorTarget_b, minorTarget_b] = layout::get_vec_ptr<bool>(policy_);
 
 	gch::small_vector<float, 16, mr::unvs_allocator<float>> sizes{};
 	sizes.reserve(cells_.size());
 
 	auto content_sz = content_extent();
-	auto [masterings, passives] = get_list_layout_minor_mastering_length(*this, content_sz.*majorTarget, &sizes);
+	auto major_max = content_sz.*majorTarget;
+	if(restriction_extent.get_pending().*majorTarget_b){
+		major_max = std::numeric_limits<float>::infinity();
+	}
+	auto [masterings, passives] = get_list_layout_minor_mastering_length(*this, major_max, &sizes);
 
 	if(expand_policy_ != layout::expand_policy::passive){
 		math::vec2 size;

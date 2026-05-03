@@ -1,6 +1,9 @@
 module mo_yanxi.gui.default_config.scene;
 
 import mo_yanxi.gui.examples.default_config.constants;
+import mo_yanxi.gui.markdown_compound;
+import mo_yanxi.gui.style.elem_style_draw_primitives;
+import mo_yanxi.gui.style.tree.bounds;
 
 void mo_yanxi::gui::example::set_cursors(scene& scene){
 	auto& cm = scene.resources().cursor_collection_manager;
@@ -56,75 +59,117 @@ mo_yanxi::gui::example::make_style_result mo_yanxi::gui::example::make_styles(sc
 				.back_palette = {},
 			}));
 
-		style::spec::create_entry e{
+#pragma region ElemStyles
+		{
+			style::spec::create_entry e{
 				.edge = {assets::builtin::default_round_square_boarder_thin, {pal_front_distributor}},
 				.base = {},
 				.back = {assets::builtin::default_round_square_base, {pal_back_distributor}}
 			};
 
-		auto [itr, rst] = manager.register_style<elem>(style::make_tree_node_ptr(e.make_general()));
-		auto& col = itr->second;
-		auto slice = style::style_tree_slice<elem>{col};
+			auto [itr, rst] = manager.register_style<elem>(style::make_tree_node_ptr(e.make_general()));
+			auto& col = itr->second;
+			auto slice = style::style_tree_slice<elem>{col};
 
-		col.default_family.set(style::family_variant::edge_only, style::make_tree_node_ptr(e.make_edge_only()));
-		col.default_family.set(style::family_variant::base_only, style::make_tree_node_ptr(e.make_back_only()));
+			col.default_family.set(style::family_variant::edge_only, style::make_tree_node_ptr(e.make_edge_only()));
+			col.default_family.set(style::family_variant::base_only, style::make_tree_node_ptr(e.make_back_only()));
 
-		static constexpr auto color_to_dark = [](graphic::color c){
-			return c.set_value(.12f).shift_saturation(-.05f);
-		};
+			static constexpr auto color_to_dark = [](graphic::color c){
+				return c.set_value(.12f).shift_saturation(-.05f);
+			};
 
-		{
-			auto gst = e;
-			auto& cursor_ignored_node = *pal_front_distributor_cursor_ignored;
-			gst.edge.pal = {cursor_ignored_node};
-			auto back_pal = gst.back.pal.node.get_value().copy();
-			back_pal.set_cursor_ignored();
-			gst.back.pal = {back_pal};
-			col.default_family.set(style::family_variant::general_static,
-			                       style::make_tree_node_ptr(gst.make_general()));
+			{
+				auto gst = e;
+				auto& cursor_ignored_node = *pal_front_distributor_cursor_ignored;
+				gst.edge.pal = {cursor_ignored_node};
+				auto back_pal = gst.back.pal.node.get_value().copy();
+				back_pal.set_cursor_ignored();
+				gst.back.pal = {back_pal};
+				col.default_family.set(style::family_variant::general_static,
+									   style::make_tree_node_ptr(gst.make_general()));
+			}
+
+			{
+				auto gst = e;
+				static constexpr auto baseColor = graphic::colors::aqua.create_lerp(graphic::colors::AQUA_SKY, .5f);
+				gst.edge.pal = {style::make_theme_palette(baseColor)};
+				gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
+				col.default_family.set(style::family_variant::accent, style::make_tree_node_ptr(gst.make_general()));
+			}
+
+			{
+				auto gst = e;
+				static constexpr auto baseColor = graphic::colors::red_dusted.create_lerp(graphic::colors::white, .1f);
+				gst.edge.pal = {style::make_theme_palette(baseColor)};
+				gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
+				col.default_family.set(style::family_variant::invalid, style::make_tree_node_ptr(gst.make_general()));
+			}
+
+			{
+				auto gst = e;
+				static constexpr auto baseColor = graphic::color::from_rgba8888(0XDBBB6AFF).create_lerp(
+					graphic::colors::pale_yellow, .5f);
+				gst.edge.pal = {style::make_theme_palette(baseColor)};
+				gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
+				col.default_family.set(style::family_variant::warning, style::make_tree_node_ptr(gst.make_general()));
+			}
+
+			{
+				auto gst = e;
+				static constexpr auto baseColor = graphic::colors::pale_green;
+				gst.edge.pal = {style::make_theme_palette(baseColor)};
+				gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
+				col.default_family.set(style::family_variant::accepted, style::make_tree_node_ptr(gst.make_general()));
+			}
+
+			{
+				auto gst = e;
+				gst.base.patch = {assets::builtin::default_round_square_base};
+				auto base_pal = gst.back.pal.node.get_value().copy();
+				base_pal.mul_alpha(2.f);
+				gst.base.pal = {base_pal};
+				col.default_family.set(style::family_variant::solid,
+									   style::make_tree_node_ptr(gst.make_general_with_base()));
+			}
 		}
+#pragma endregion
 
 		{
-			auto gst = e;
-			static constexpr auto baseColor = graphic::colors::aqua.create_lerp(graphic::colors::AQUA_SKY, .5f);
-			gst.edge.pal = {style::make_theme_palette(baseColor)};
-			gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
-			col.default_family.set(style::family_variant::accent, style::make_tree_node_ptr(gst.make_general()));
-		}
+			style::spec::create_entry e{
+					.base = {assets::builtin::default_round_square_base, {style::pal::pastel_gray.copy().mul_rgb(.3f).mul_alpha(.5f)}},
+				};
 
-		{
-			auto gst = e;
-			static constexpr auto baseColor = graphic::colors::red_dusted.create_lerp(graphic::colors::white, .1f);
-			gst.edge.pal = {style::make_theme_palette(baseColor)};
-			gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
-			col.default_family.set(style::family_variant::invalid, style::make_tree_node_ptr(gst.make_general()));
-		}
+			auto&& slice = manager.get_slice<elem>().value();
+			auto [itr, suc] = slice.insert_or_assign("markdown", style::style_tree_family{});
+			itr->second.set(md::styles::code_block, style::make_tree_node_ptr(e.make_base_only()));
 
-		{
-			auto gst = e;
-			static constexpr auto baseColor = graphic::color::from_rgba8888(0XDBBB6AFF).create_lerp(
-				graphic::colors::pale_yellow, .5f);
-			gst.edge.pal = {style::make_theme_palette(baseColor)};
-			gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
-			col.default_family.set(style::family_variant::warning, style::make_tree_node_ptr(gst.make_general()));
-		}
+			static constexpr auto quote_bar_color = graphic::color{0.40f, 0.68f, 1.0f, 1.0f};
+			static constexpr auto quote_bg_color  = graphic::color{0.08f, 0.13f, 0.18f, 0.80f};
+			static constexpr float quote_bar_width = 6.f;
 
-		{
-			auto gst = e;
-			static constexpr auto baseColor = graphic::colors::pale_green;
-			gst.edge.pal = {style::make_theme_palette(baseColor)};
-			gst.back.pal = {style::make_theme_palette(color_to_dark(baseColor))};
-			col.default_family.set(style::family_variant::accepted, style::make_tree_node_ptr(gst.make_general()));
-		}
-
-		{
-			auto gst = e;
-			gst.base.patch = {assets::builtin::default_round_square_base};
-			auto base_pal = gst.back.pal.node.get_value().copy();
-			base_pal.mul_alpha(2.f);
-			gst.base.pal = {base_pal};
-			col.default_family.set(style::family_variant::solid,
-			                       style::make_tree_node_ptr(gst.make_general_with_base()));
+			itr->second.set(md::styles::quote, style::make_tree_node_ptr(
+				style::tree_tuple_fork{
+					style::layer_router{
+						style_config{0b10},
+						style::tree_leaf{style::primitives::draw_filled_rect{quote_bg_color}}
+					},
+					style::layer_router{
+						style_config{0b01},
+						style::tree_scope{
+							style::bounds::bounds_side_strip{style::bounds::side_dir::left, quote_bar_width},
+							nullptr,
+							style::tree_leaf{style::primitives::draw_filled_rect{quote_bar_color}}
+						}
+					},
+					style::tree_metrics_leaf{
+						style::bounds::side_strip_inset{style::bounds::side_dir::left, quote_bar_width},
+						std::in_place_type<elem>
+					},
+					style::tree_metrics_leaf{
+						style::spec::static_metrics{gui::default_boarder},
+					}
+				}
+			));
 		}
 	}
 

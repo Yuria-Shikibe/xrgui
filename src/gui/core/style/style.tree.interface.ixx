@@ -112,10 +112,12 @@ using node_target_t = typename node_trait<std::remove_cvref_t<T>>::target_type;
 
 export
 struct style_tree_metrics{
-	align::spacing inset{};
+	align::spacing inset{};      // synthesized: max-merge from children
+	align::spacing inherited{};  // inherited: additive accumulation from scopes
 
 	[[nodiscard]] constexpr bool empty() const noexcept{
-		return inset.left == 0.f && inset.top == 0.f && inset.right == 0.f && inset.bottom == 0.f;
+		return inset.left == 0.f && inset.top == 0.f && inset.right == 0.f && inset.bottom == 0.f
+			&& inherited.left == 0.f && inherited.top == 0.f && inherited.right == 0.f && inherited.bottom == 0.f;
 	}
 
 	constexpr void merge_from(const style_tree_metrics& rhs) noexcept{
@@ -123,6 +125,20 @@ struct style_tree_metrics{
 		inset.top = (std::max)(inset.top, rhs.inset.top);
 		inset.right = (std::max)(inset.right, rhs.inset.right);
 		inset.bottom = (std::max)(inset.bottom, rhs.inset.bottom);
+
+		inherited.left   += rhs.inherited.left;
+		inherited.top    += rhs.inherited.top;
+		inherited.right  += rhs.inherited.right;
+		inherited.bottom += rhs.inherited.bottom;
+	}
+
+	[[nodiscard]] constexpr align::spacing total_inset() const noexcept{
+		return {
+			inset.left   + inherited.left,
+			inset.right  + inherited.right,
+			inset.bottom + inherited.bottom,
+			inset.top    + inherited.top
+		};
 	}
 
 	[[nodiscard]] friend constexpr style_tree_metrics operator|(style_tree_metrics lhs,
@@ -251,6 +267,21 @@ struct present_t{
 }
 
 export constexpr inline cpo::present_t present;
+
+inline namespace cpo{
+struct get_scope_inset_t{
+	template <typename T>
+	[[nodiscard]] FORCE_INLINE style_tree_metrics operator()(const T& enter_fn) const noexcept{
+		if constexpr(requires{{ enter_fn.scope_inset() } -> std::convertible_to<style_tree_metrics>;}){
+			return enter_fn.scope_inset();
+		} else{
+			return {};
+		}
+	}
+};
+}
+
+export constexpr inline cpo::get_scope_inset_t get_scope_inset;
 
 inline namespace cpo{
 struct query_metrics_t{

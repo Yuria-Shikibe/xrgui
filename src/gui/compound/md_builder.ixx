@@ -1,20 +1,34 @@
-export module mo_yanxi.gui.markdown_builder;
+module;
+
+export module mo_yanxi.gui.markdown_compound;
 
 import std;
 
 export import mo_yanxi.gui.markdown;
-export import mo_yanxi.gui.elem.sequence;
-export import mo_yanxi.gui.elem.table;
-export import mo_yanxi.gui.elem.label;
-export import mo_yanxi.font.manager;
-export import mo_yanxi.graphic.color;
+import mo_yanxi.gui.elem.sequence;
+import mo_yanxi.gui.elem.table;
+import mo_yanxi.gui.elem.label;
+import mo_yanxi.font.manager;
+import mo_yanxi.graphic.color;
 import mo_yanxi.unicode;
 import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.utility;
+import mo_yanxi.typesetting.util;
 
 namespace mo_yanxi::gui::md {
 
+namespace styles{
+export
+enum variants{
+	none,
+	code_block,
+	quote,
+	seperator
+};
+}
+
 export struct markdown_config {
-	std::array<float, 6> heading_sizes{32.f, 26.f, 22.f, 18.f, 16.f, 14.f};
+	std::array<float, 6> heading_sizes{56.f, 44.f, 32.f, 24.f, 20.f, 16.f};
 	graphic::color link_color{0.40f, 0.68f, 1.0f, 1.0f};
 	graphic::color code_bg_color{0.16f, 0.18f, 0.22f, 1.0f};
 	graphic::color quote_bar_color{0.40f, 0.68f, 1.0f, 1.0f};
@@ -24,11 +38,23 @@ export struct markdown_config {
 	float block_pad{8.f};
 	float heading_pad{10.f};
 	float table_pad{4.f};
-	float code_block_font_size{14.f};
-	float body_font_size{16.f};
+
+	graphic::color table_bg_color{0.12f, 0.14f, 0.18f, 0.50f};
+	graphic::color table_grid_color{0.35f, 0.40f, 0.48f, 0.80f};
+	graphic::color table_header_bg_color{0.16f, 0.20f, 0.28f, 0.70f};
+	graphic::color table_even_row_bg_color{0.14f, 0.16f, 0.22f, 0.35f};
+	float table_grid_width{1.f};
+	float code_block_font_size{typesetting::glyph_size::pt_14};
+	float body_font_size{typesetting::glyph_size::standard_size};
 	float quote_bar_width{4.f};
 	float quote_indent{12.f};
-	float list_marker_width{28.f};
+	math::vec2 ppi{typesetting::glyph_size::screen_ppi};
+
+	std::string_view style_family_name{"markdown"};
+
+	float to_px(float pt) const noexcept {
+		return typesetting::glyph_size::get_glyph_std_size_at(pt, ppi).x;
+	}
 };
 
 export inline std::optional<std::u32string> try_read_markdown_utf8_file(const std::filesystem::path& path) {
@@ -90,6 +116,7 @@ std::u32string color_tag(const graphic::color& color) {
 		return static_cast<unsigned>(std::clamp(std::lround(v * 255.f), 0l, 255l));
 	};
 
+	//TODO use color's own formatter
 	std::u32string out;
 	append_utf8(out, std::format("{{c:#{:02X}{:02X}{:02X}{:02X}}}",
 		to_u8(color.r), to_u8(color.g), to_u8(color.b), to_u8(color.a)));
@@ -108,77 +135,139 @@ std::u32string rich_size_wrap(std::u32string body, float size, bool bold = false
 	return out;
 }
 
-struct markdown_block_label : direct_label {
-	graphic::color block_color{};
-	graphic::color strip_color{};
-	float strip_width{};
-	bool draw_block_background{};
+struct markdown_separator : elem {
+	graphic::color line_color{0.50f, 0.54f, 0.60f, 1.0f};
+	float stroke_width{2.f};
 
-	using direct_label::direct_label;
+	using elem::elem;
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override {
-		direct_label::record_draw_layer(call_stack_builder);
-
-		call_stack_builder.push_call_noop(*this, [](const markdown_block_label& s, const draw_call_param& p) static {
-			if(!s.draw_block_background) return;
-			if(p.layer_param.is_top()) return;
+		call_stack_builder.push_call_noop(*this, [](const markdown_separator& s, const draw_call_param& p) static {
+			if(!p.layer_param.is_top()) return;
 			if(!util::is_draw_param_valid(s, p)) return;
 
-			auto region = s.bound_abs().intersection_with(p.draw_bound);
-			auto v00 = region.vert_00();
-			auto v11 = region.vert_11();
-			auto fill = s.block_color.copy().mul_a(util::get_final_draw_opacity(s, p));
-			s.renderer().push(graphic::draw::instruction::rect_aabb{
-				.v00 = v00,
-				.v11 = v11,
-				.vert_color = {fill}
-			});
+			auto bounds = s.content_bound_abs();
+			auto mid_y = (bounds.vert_00().y + bounds.vert_11().y) * 0.5f;
+			auto color = s.line_color.copy().mul_a(util::get_final_draw_opacity(s, p));
 
-			if(s.strip_width > 0.f) {
-				auto strip = s.strip_color.copy().mul_a(util::get_final_draw_opacity(s, p));
-				s.renderer().push(graphic::draw::instruction::rect_aabb{
-					.v00 = v00,
-					.v11 = {std::min(v00.x + s.strip_width, v11.x), v11.y},
-					.vert_color = {strip}
-				});
-			}
+			s.renderer().push(graphic::draw::instruction::line{
+				.src = {bounds.vert_00().x, mid_y},
+				.dst = {bounds.vert_11().x, mid_y},
+				.color = {color, color},
+				.stroke = s.stroke_width,
+			});
 		});
 	}
 };
 
-struct markdown_block_sequence : sequence {
-	graphic::color block_color{};
-	graphic::color strip_color{};
-	float strip_width{};
-	bool draw_block_background{};
+struct md_table : gui::table {
+	 markdown_config config_{};
 
-	using sequence::sequence;
+	using table::table;
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override {
-		sequence::record_draw_layer(call_stack_builder);
+		table::record_draw_layer(call_stack_builder);
 
-		call_stack_builder.push_call_noop(*this, [](const markdown_block_sequence& s, const draw_call_param& p) static {
-			if(!s.draw_block_background) return;
-			if(p.layer_param.is_top()) return;
-			if(!util::is_draw_param_valid(s, p)) return;
+		return;
+		
+		call_stack_builder.push_call_noop(*this, [](const md_table& t, const draw_call_param& p) static {
+			if(!p.layer_param.is_top()) return;
+			if(!util::is_draw_param_valid(t, p)) return;
 
-			auto region = s.bound_abs().intersection_with(p.draw_bound);
-			auto v00 = region.vert_00();
-			auto v11 = region.vert_11();
-			auto fill = s.block_color.copy().mul_a(util::get_final_draw_opacity(s, p));
-			s.renderer().push(graphic::draw::instruction::rect_aabb{
-				.v00 = v00,
-				.v11 = v11,
-				.vert_color = {fill}
-			});
+			auto cells = t.cells();
+			if(cells.empty()) return;
 
-			if(s.strip_width > 0.f) {
-				auto strip = s.strip_color.copy().mul_a(util::get_final_draw_opacity(s, p));
-				s.renderer().push(graphic::draw::instruction::rect_aabb{
-					.v00 = v00,
-					.v11 = {std::min(v00.x + s.strip_width, v11.x), v11.y},
-					.vert_color = {strip}
-				});
+			auto content_origin = t.content_src_pos_abs();
+			auto content_extent = t.content_bound_abs().extent();
+			auto opacity = util::get_final_draw_opacity(t, p);
+			auto& renderer = t.renderer();
+			auto& cfg = t.config_;
+
+			std::uint32_t num_cols = 0;
+			for(auto it = cells.begin(); it != cells.end(); ++it) {
+				++num_cols;
+				if(it->cell.end_line) break;
+			}
+			if(num_cols == 0) return;
+
+			renderer.update_state(fx::batch_draw_mode::def);
+
+			auto bg_color = cfg.table_bg_color.copy().mul_a(opacity);
+			renderer << graphic::draw::instruction::rect_aabb{
+				.v00 = content_origin,
+				.v11 = content_origin + content_extent,
+				.vert_color = {bg_color}
+			};
+
+			state_guard g{renderer, fx::make_blend_write_mask(false)};
+
+			auto grid_color = cfg.table_grid_color.copy().mul_a(opacity);
+			float grid_width = cfg.table_grid_width;
+			auto header_color = cfg.table_header_bg_color.copy().mul_a(opacity);
+			auto even_color = cfg.table_even_row_bg_color.copy().mul_a(opacity);
+
+			auto it = cells.begin();
+			for(std::uint32_t row = 0; it != cells.end(); ++row) {
+				float row_top = std::numeric_limits<float>::max();
+				float row_bottom = std::numeric_limits<float>::lowest();
+
+				std::uint32_t col = 0;
+				for(; col < num_cols && it != cells.end(); ++col, ++it) {
+					const auto& region = it->cell.allocated_region;
+					float cell_top = content_origin.y + region.src.y;
+					float cell_bottom = cell_top + region.extent().y;
+					float cell_left = content_origin.x + region.src.x;
+					float cell_right = cell_left + region.extent().x;
+
+					if(cell_top < row_top) row_top = cell_top;
+					if(cell_bottom > row_bottom) row_bottom = cell_bottom;
+
+					renderer << graphic::draw::instruction::line{
+						.src = {cell_right, cell_top},
+						.dst = {cell_right, cell_bottom},
+						.color = {grid_color, grid_color},
+						.stroke = grid_width,
+					};
+
+					renderer << graphic::draw::instruction::line{
+						.src = {cell_left, cell_bottom},
+						.dst = {cell_right, cell_bottom},
+						.color = {grid_color, grid_color},
+						.stroke = grid_width,
+					};
+
+					if(row == 0) {
+						renderer << graphic::draw::instruction::line{
+							.src = {cell_left, cell_top},
+							.dst = {cell_right, cell_top},
+							.color = {grid_color, grid_color},
+							.stroke = grid_width,
+						};
+					}
+
+					if(col == 0) {
+						renderer << graphic::draw::instruction::line{
+							.src = {cell_left, cell_top},
+							.dst = {cell_left, cell_bottom},
+							.color = {grid_color, grid_color},
+							.stroke = grid_width,
+						};
+					}
+				}
+
+				if(row == 0) {
+					renderer << graphic::draw::instruction::rect_aabb{
+						.v00 = {content_origin.x, row_top},
+						.v11 = {content_origin.x + content_extent.x, row_bottom},
+						.vert_color = {header_color}
+					};
+				} else if((row & 1) == 0) {
+					renderer << graphic::draw::instruction::rect_aabb{
+						.v00 = {content_origin.x, row_top},
+						.v11 = {content_origin.x + content_extent.x, row_bottom},
+						.vert_color = {even_color}
+					};
+				}
 			}
 		});
 	}
@@ -246,18 +335,18 @@ struct inline_renderer {
 direct_label& setup_label_base(direct_label& label, const markdown_config& config) {
 	label.set_style();
 	label.set_fit(false);
-	label.set_expand_policy(layout::expand_policy::prefer);
+	label.set_expand_policy(layout::expand_policy::resize_to_fit);
 	label.text_entire_align = align::pos::top_left;
 
 	typesetting::layout_config typeset = {};
-	typeset.default_font_size = math::vec2{config.body_font_size, config.body_font_size};
+	typeset.default_font_size = math::vec2{config.to_px(config.body_font_size), config.to_px(config.body_font_size)};
 	label.set_typesetting_config(typeset);
 	return label;
 }
 
 void apply_code_font(direct_label& label, const markdown_config& config) {
 	typesetting::layout_config typeset = {};
-	typeset.default_font_size = math::vec2{config.code_block_font_size, config.code_block_font_size};
+	typeset.default_font_size = math::vec2{config.to_px(config.code_block_font_size), config.to_px(config.code_block_font_size)};
 	if(font::default_font_manager) {
 		typeset.rich_text_fallback_style.family = font::default_font_manager->find_family(std::string_view{"mono"});
 	}
@@ -266,19 +355,27 @@ void apply_code_font(direct_label& label, const markdown_config& config) {
 
 create_handle<direct_label, sequence::cell_type> append_rich_label(
 	sequence& parent,
-	const std::u32string_view text,
+	std::u32string&& text,
 	const markdown_config& config
 ) {
 	auto hdl = parent.create_back([&](direct_label& label) {
 		setup_label_base(label, config);
-		label.set_tokenized_text(typesetting::tokenized_text{text, typesetting::tokenize_tag::def});
+		label.set_tokenized_text(typesetting::tokenized_text{std::move(text), typesetting::tokenize_tag::def});
 	});
 	hdl.cell().set_pending();
 	hdl.cell().set_pad({config.block_pad, config.block_pad});
 	return hdl;
 }
 
-create_handle<markdown_block_label, sequence::cell_type> append_raw_label(
+create_handle<direct_label, sequence::cell_type> append_rich_label(
+	sequence& parent,
+	const std::u32string_view text,
+	const markdown_config& config
+) {
+	return append_rich_label(parent, std::u32string{text}, config);
+}
+
+create_handle<direct_label, sequence::cell_type> append_raw_label(
 	sequence& parent,
 	std::u32string text,
 	const markdown_config& config,
@@ -286,19 +383,16 @@ create_handle<markdown_block_label, sequence::cell_type> append_raw_label(
 	bool quote_style = false,
 	typesetting::tokenize_tag tokenize_tag = typesetting::tokenize_tag::raw
 ) {
-	auto hdl = parent.create_back([&](markdown_block_label& label) {
+	auto hdl = parent.create_back([&](direct_label& label) {
 		setup_label_base(label, config);
 		if(code_block_style) {
 			apply_code_font(label, config);
-			label.draw_block_background = true;
-			label.block_color = config.code_bg_color;
+			util::sync_set_elem_style(label, styles::code_block, "markdown");
 			label.set_self_boarder({6.f, 6.f, 6.f, 6.f});
 		}
 		if(quote_style) {
-			label.draw_block_background = true;
-			label.block_color = config.quote_bg_color;
-			label.strip_width = config.quote_bar_width;
-			label.strip_color = config.quote_bar_color;
+			label.set_style();
+
 			label.set_self_boarder({8.f, 8.f, 8.f + config.quote_indent, 8.f});
 			label.text_color_scl = config.quote_text_color;
 		}
@@ -310,24 +404,20 @@ create_handle<markdown_block_label, sequence::cell_type> append_raw_label(
 }
 
 sequence& append_block_container(sequence& parent, const markdown_config& config, float left_indent = 0.f, bool quote_style = false) {
-	auto hdl = parent.create_back([&](markdown_block_sequence& seq) {
+	auto hdl = parent.create_back([&](sequence& seq) {
 		seq.set_style();
-		seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
-		seq.set_expand_policy(layout::expand_policy::prefer);
+		seq.set_layout_spec(layout::layout_policy::hori_major);
 		seq.template_cell.set_pending();
 		seq.template_cell.set_pad({config.block_pad, config.block_pad});
 		if(quote_style) {
-			seq.draw_block_background = true;
-			seq.block_color = config.quote_bg_color;
-			seq.strip_width = config.quote_bar_width;
-			seq.strip_color = config.quote_bar_color;
+			util::sync_set_elem_style(seq, styles::quote, config.style_family_name);
 		}
 	});
 	hdl.cell().set_pending();
 	hdl.cell().set_pad({config.block_pad, config.block_pad});
-	if(left_indent > 0.f) {
-		hdl.elem().set_self_boarder({0.f, 0.f, left_indent, 0.f});
-	}
+	// if(left_indent > 0.f) {
+	// 	hdl.elem().set_self_boarder({});
+	// }
 	return hdl.elem();
 }
 
@@ -336,7 +426,6 @@ void build_blocks(sequence& parent, const md::node_list& nodes, const markdown_c
 void build_list(sequence& parent, const md::list& node, const markdown_config& config) {
 	auto table_hdl = parent.create_back([&](gui::table& tbl) {
 		tbl.set_style();
-		tbl.set_expand_policy(layout::expand_policy::prefer);
 		tbl.set_entire_align(align::pos::top_left);
 		tbl.template_cell.set_pad(config.table_pad);
 	});
@@ -347,37 +436,46 @@ void build_list(sequence& parent, const md::list& node, const markdown_config& c
 	inline_renderer render{config};
 	std::uint32_t number = node.start_number;
 
-	for(const auto& item : node.items) {
-		auto marker_hdl = tbl.create_back([&](direct_label& label) {
-			setup_label_base(label, config);
-			label.text_entire_align = align::pos::top_right;
-			label.text_color_scl = config.bullet_color;
-			std::u32string marker = node.ordered ? std::u32string{} : std::u32string{U"•"};
-			if(node.ordered) {
-				append_utf8(marker, std::format("{}.", number));
-			}
-			label.set_tokenized_text(typesetting::tokenized_text{std::move(marker), typesetting::tokenize_tag::raw});
-		});
-		marker_hdl.cell().set_width(config.list_marker_width).set_pending({false, true});
+	for(const auto& item : node.items){
+		{
+			auto marker_hdl = tbl.create_back([&](direct_label& label){
+				setup_label_base(label, config);
+				label.text_entire_align = align::pos::top_right;
+				label.text_color_scl = config.bullet_color;
+				std::u32string marker = node.ordered ? std::u32string{} : std::u32string{U"•"};
+				if(node.ordered){
+					append_utf8(marker, std::format("{}.", number));
+				}
+				label.set_tokenized_text(typesetting::tokenized_text{std::move(marker), typesetting::tokenize_tag::raw});
+			});
+			marker_hdl.cell().set_pending({true, true});
+			marker_hdl.cell().unsaturate_cell_align = align::pos::top_left;
+			marker_hdl.cell().unsaturate_cell_elem_align = align::pos::top_left;
 
-		auto content_hdl = tbl.create_back([&](sequence& seq) {
-			seq.set_style();
-			seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
-			seq.set_expand_policy(layout::expand_policy::prefer);
-			seq.template_cell.set_pending();
-			seq.template_cell.set_pad({2.f, 2.f});
-			build_blocks(seq, item.blocks, config);
-		});
-		content_hdl.cell().set_pending({true, true}).set_width_passive().set_height_passive();
+		}
+
+		{
+			//TODO this cannot work for nested list, considering use other layouts
+			auto content_hdl = tbl.create_back([&](sequence& seq){
+				seq.set_style();
+				seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
+				seq.template_cell.set_pending();
+				seq.template_cell.set_pad({2.f, 2.f});
+				build_blocks(seq, item.blocks, config);
+			});
+			content_hdl.cell().set_pending({false, true}).set_width_passive();
+			content_hdl.cell().unsaturate_cell_align = align::pos::none;
+			content_hdl.cell().unsaturate_cell_elem_align = align::pos::top_left;
+		}
 		tbl.end_line();
 		++number;
 	}
 }
 
 void build_table(sequence& parent, const md::table& node, const markdown_config& config) {
-	auto table_hdl = parent.create_back([&](gui::table& tbl) {
+	auto table_hdl = parent.create_back([&](md_table& tbl) {
+		tbl.config_ = config;
 		tbl.set_style();
-		tbl.set_expand_policy(layout::expand_policy::prefer);
 		tbl.set_entire_align(align::pos::top_left);
 		tbl.template_cell.set_pad(config.table_pad);
 	});
@@ -390,13 +488,13 @@ void build_table(sequence& parent, const md::table& node, const markdown_config&
 	for(std::uint32_t r = 0; r < node.rows; ++r) {
 		auto row = node.get_row(r);
 		for(std::uint32_t c = 0; c < row.size(); ++c) {
+			auto text = render(row[c].children);
+			if(r == 0)
+				text = rich_size_wrap(std::move(text), config.to_px(config.body_font_size), true);
+
 			auto cell_hdl = tbl.create_back([&](direct_label& label) {
 				setup_label_base(label, config);
-				auto text = render(row[c].children);
-				if(r == 0) {
-					text = rich_size_wrap(std::move(text), config.body_font_size, true);
-				}
-				label.set_tokenized_text(typesetting::tokenized_text{text, typesetting::tokenize_tag::def});
+				label.set_tokenized_text(typesetting::tokenized_text{std::move(text), typesetting::tokenize_tag::def});
 				switch(c < node.alignments.size() ? node.alignments[c] : table_align::none) {
 				case table_align::left:
 					label.text_entire_align = align::pos::center_left;
@@ -412,7 +510,7 @@ void build_table(sequence& parent, const md::table& node, const markdown_config&
 					break;
 				}
 			});
-			cell_hdl.cell().set_pending({true, false}).set_width_passive().set_height_passive();
+			cell_hdl.cell().set_pending({true, true});
 		}
 		tbl.end_line();
 	}
@@ -446,37 +544,45 @@ void build_blockquote(sequence& parent, const md::blockquote& node, const markdo
 	build_blocks(container, node.children, config);
 }
 
-void build_blocks(sequence& parent, const md::node_list& nodes, const markdown_config& config) {
+void build_blocks(sequence& parent, const node_list& nodes, const markdown_config& config) {
 	inline_renderer render{config};
 
-	for(const md::ast_node& node : nodes) {
-		std::visit([&]<typename T0>(const T0& val) {
-			using node_type = std::remove_cvref_t<T0>;
-
-			if constexpr(std::is_same_v<node_type, md::paragraph>) {
-				auto text = render(val.children);
-				if(!text.empty()) {
-					md::append_rich_label(parent, text, config);
+	for(const ast_node& node : nodes) {
+		std::visit(overload_def_noop{
+			std::in_place_type<void>,
+			[&](const paragraph& val){
+				if(auto text = render(val.children); !text.empty()) {
+					append_rich_label(parent, std::move(text), config);
 				}
-			} else if constexpr(std::is_same_v<node_type, md::heading>) {
-				auto text = md::rich_size_wrap(render(val.children), config.heading_sizes[std::min<std::size_t>(val.level - 1, config.heading_sizes.size() - 1)], true);
-				auto hdl = md::append_rich_label(parent, text, config);
+			},
+			[&](const heading& val){
+				auto text = rich_size_wrap(render(val.children), config.to_px(config.heading_sizes[std::min<std::size_t>(val.level - 1, config.heading_sizes.size() - 1)]), true);
+				auto hdl = append_rich_label(parent, text, config);
 				hdl.cell().set_pad({config.heading_pad, config.heading_pad});
-			} else if constexpr(std::is_same_v<node_type, md::code_block>) {
+			},
+			[&](const code_block& val){
 				std::u32string text = val.content.empty() ? U" " : std::u32string{val.content};
 				append_raw_label(parent, std::move(text), config, true, false);
-			} else if constexpr(std::is_same_v<node_type, md::table>) {
-				md::build_table(parent, val, config);
-			} else if constexpr(std::is_same_v<node_type, md::list>) {
-				md::build_list(parent, val, config);
-			} else if constexpr(std::is_same_v<node_type, md::blockquote>) {
-				md::build_blockquote(parent, val, config);
-			} else if constexpr(std::is_same_v<node_type, md::thematic_break>) {
-				// TODO use separator instead.
-				auto hdl = append_rich_label(parent, U"{c:#7F8A99FF}--------------------------------{/c}", config);
+			},
+			[&](const table& val){
+				build_table(parent, val, config);
+			},
+			[&](const list& val){
+				build_list(parent, val, config);
+			},
+			[&](const blockquote& val){
+				build_blockquote(parent, val, config);
+			},
+			[&](const thematic_break& val){
+				auto hdl = parent.create_back([&](markdown_separator& sep) {
+					sep.set_style();
+				});
+				hdl.cell().set_pending();
+				hdl.cell().margin.set_hori(12);
 				hdl.cell().set_pad({config.block_pad * 0.5f, config.block_pad * 0.5f});
-			}
+			},
 		}, node.data);
+
 	}
 }
 
@@ -499,10 +605,10 @@ export inline elem_ptr build_markdown(
 	elem_ptr root{scene, parent, [text = std::u32string{markdown_text}, config](sequence& seq) {
 		seq.set_style();
 		seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
-		seq.set_expand_policy(layout::expand_policy::prefer);
 		seq.template_cell.set_pending();
 		seq.template_cell.set_pad({config.block_pad, config.block_pad});
 		append_markdown(seq, text, config);
+		seq.notify_isolated_layout_changed();
 	}};
 
 	return root;

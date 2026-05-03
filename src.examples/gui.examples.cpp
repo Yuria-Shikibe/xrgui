@@ -20,6 +20,7 @@ import mo_yanxi.react_flow.common;
 
 import mo_yanxi.gui.elem.scaling_stack;
 import mo_yanxi.gui.elem.sequence;
+import mo_yanxi.gui.elem.flex_wrap;
 import mo_yanxi.gui.elem.overflow_sequence;
 import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.elem.collapser;
@@ -36,7 +37,7 @@ import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.viewport;
 import mo_yanxi.gui.elem.check_box;
 import mo_yanxi.gui.elem.flipper;
-import mo_yanxi.gui.markdown_builder;
+import mo_yanxi.gui.markdown_compound;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.font;
@@ -516,34 +517,34 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 
 	auto make_create_table = [&] -> std::vector<test_entry>{
 		std::vector<test_entry> tests{
-			test_entry{
-				"markdown preview", [](scroll_adaptor<sequence>& pane){
-					pane.set_overlay_bar(true);
-					pane.set_layout_spec(layout::layout_policy::none);
-					auto& seq = pane.get_elem();
-					seq.set_style();
-					seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
-					seq.set_expand_policy(layout::expand_policy::prefer);
-					seq.template_cell.set_pending();
+				test_entry{
+					"markdown preview", [](scroll_adaptor<sequence>& pane){
+						pane.set_overlay_bar(true);
+						pane.set_layout_spec(layout::layout_policy::none);
+						auto& seq = pane.get_elem();
+						seq.set_style();
+						seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
+						seq.template_cell.set_pending();
 					seq.template_cell.set_pad({8.f, 8.f});
 
 					const auto path = std::filesystem::current_path().append("assets/markdown/preview.md").make_preferred();
-					if(auto text = md::try_read_markdown_utf8_file(path)) {
-						md::append_markdown(seq, *text);
-					} else {
-						seq.create_back([&](direct_label& label){
-							label.set_style();
+						if(auto text = md::try_read_markdown_utf8_file(path)) {
+							md::append_markdown(seq, *text);
+						} else {
+							seq.create_back([&](direct_label& label){
+								label.set_style();
 							label.set_fit(false);
 							label.set_expand_policy(layout::expand_policy::prefer);
 							label.text_entire_align = align::pos::top_left;
 							std::u32string error_text = U"{c:#FF8080}Failed to load markdown file:\n";
 							error_text.append(path.u32string());
 							error_text += U"{/c}";
-							label.set_tokenized_text(typesetting::tokenized_text{error_text, typesetting::tokenize_tag::def});
-						}).cell().set_pending();
+								label.set_tokenized_text(typesetting::tokenized_text{error_text, typesetting::tokenize_tag::def});
+							}).cell().set_pending();
+						}
+						seq.notify_isolated_layout_changed();
 					}
-				}
-			},
+				},
 				test_entry{
 					"layout test", [](scroll_adaptor<table>& pane){
 						pane.set_style();
@@ -583,6 +584,50 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 							e.set_fit_type(label_fit_type::fix);
 							e.set_text("Test Test Test Test Test Test Test Test Test Test ");
 						}).cell().set_pending({false, true});
+					}
+				},
+				test_entry{
+					"flex wrap", [](scroll_adaptor<flex_wrap>& pane){
+						pane.set_style();
+						pane.set_overlay_bar(true);
+						pane.set_layout_spec(layout::layout_policy::none);
+
+						auto& wrap = pane.get_elem();
+						wrap.set_style();
+						wrap.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
+						wrap.set_expand_policy(layout::expand_policy::prefer);
+						wrap.set_line_spacing(12.f);
+						wrap.template_cell.set_pad(8.f);
+
+						constexpr std::array item_sizes{
+							math::vec2{120.f, 52.f},
+							math::vec2{220.f, 72.f},
+							math::vec2{160.f, 44.f},
+							math::vec2{280.f, 96.f},
+							math::vec2{140.f, 60.f},
+							math::vec2{180.f, 80.f},
+							math::vec2{240.f, 56.f},
+							math::vec2{110.f, 68.f},
+							math::vec2{200.f, 48.f},
+							math::vec2{150.f, 88.f},
+						};
+
+						for(const auto& [idx, size] : item_sizes | std::views::enumerate){
+							auto tile = wrap.create_back([idx](label& l){
+								l.set_style(static_cast<style::family_variant>(idx % 5 + 1));
+								l.set_fit_type(label_fit_type::scl);
+								l.text_entire_align = align::pos::center;
+								l.set_text(std::format("tile {}", idx));
+							});
+							tile.cell().set_size(size);
+							if(idx % 3 == 0){
+								tile.cell().unsaturate_cell_align = align::pos::top_center;
+							} else if(idx % 3 == 1){
+								tile.cell().unsaturate_cell_align = align::pos::center;
+							} else{
+								tile.cell().unsaturate_cell_align = align::pos::bottom_center;
+							}
+						}
 					}
 				},
 				test_entry{

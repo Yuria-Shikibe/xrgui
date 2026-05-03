@@ -37,9 +37,19 @@ void elem::post_task(this E& e, Fn&& fn){
 namespace util{
 
 export
-void sync_set_elem_style(elem& e, style::family_variant v){
+template <typename E>
+	requires (std::is_enum_v<E> && std::convertible_to<std::underlying_type_t<E>, std::size_t>)
+void sync_set_elem_style(elem& e, E v){
 	e.sync_run([v](elem& el){
 		el.set_style(el.get_style_tree_manager().get_default<elem>(v));
+	});
+}
+export
+template <typename E>
+	requires (std::is_enum_v<E> && std::convertible_to<std::underlying_type_t<E>, std::size_t>)
+void sync_set_elem_style(elem& e, E v, std::string_view style_family_name){
+	e.sync_run([v, style_family_name](elem& el){
+		el.set_style(el.get_style_tree_manager().get_slice<elem>().value().get_or_default(style_family_name, std::to_underlying(v)));
 	});
 }
 

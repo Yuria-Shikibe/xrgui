@@ -194,16 +194,36 @@ private:
 
 	static constexpr bool is_table_row(std::u32string_view line) noexcept {
 		line = trim_whitespace(line);
-		return !line.empty() && line.find(U'|') != std::u32string_view::npos;
+		if(line.empty() || line.find(U'|') == std::u32string_view::npos) return false;
+		return split_table_cells(line).size() >= 2;
+	}
+
+	static constexpr bool is_table_divider_cell(std::u32string_view cell) noexcept {
+		cell = trim_whitespace(cell);
+		if(cell.empty()) return false;
+
+		if(cell.front() == U':') {
+			cell.remove_prefix(1);
+		}
+		if(!cell.empty() && cell.back() == U':') {
+			cell.remove_suffix(1);
+		}
+
+		if(cell.size() < 3) return false;
+		return std::ranges::all_of(cell, [](char32_t c) {
+			return c == U'-';
+		});
 	}
 
 	static constexpr bool is_table_divider(std::u32string_view line) noexcept {
 		line = trim_whitespace(line);
 		if(line.empty() || line.find(U'|') == std::u32string_view::npos) return false;
-		for(char32_t c : line) {
-			if(c != U'|' && c != U'-' && c != U':' && c != U' ' && c != U'\t') return false;
-		}
-		return true;
+
+		auto cells = split_table_cells(line);
+		if(cells.size() < 2) return false;
+		return std::ranges::all_of(cells, [](std::u32string_view cell) {
+			return is_table_divider_cell(cell);
+		});
 	}
 
 	constexpr bool is_table_start(std::u32string_view text_block, std::size_t current_pos) const noexcept {
@@ -211,14 +231,18 @@ private:
 		if(line_end == std::u32string_view::npos) return false;
 
 		std::u32string_view line1 = text_block.substr(current_pos, line_end - current_pos);
-		if(!is_table_row(line1)) return false;
+		if(!is_table_row(line1) || is_table_divider(line1)) return false;
 
 		std::size_t pos2 = line_end + 1;
 		std::size_t line2_end = text_block.find(U'\n', pos2);
 		if(line2_end == std::u32string_view::npos) line2_end = text_block.size();
 
 		std::u32string_view line2 = text_block.substr(pos2, line2_end - pos2);
-		return is_table_divider(line2);
+		if(!is_table_divider(line2)) return false;
+
+		auto header_cells = split_table_cells(line1);
+		auto divider_cells = split_table_cells(line2);
+		return !header_cells.empty() && header_cells.size() == divider_cells.size();
 	}
 
 	static constexpr std::vector<std::u32string_view> split_table_cells(std::u32string_view line) {
@@ -238,6 +262,16 @@ private:
 			start = end + 1;
 		}
 		return cells;
+	}
+
+	static constexpr std::u32string_view strip_list_continuation_prefix(std::u32string_view line, const list_marker_info& marker) noexcept {
+		const std::size_t leading = count_leading_spaces(line);
+		if(leading <= marker.indent) {
+			return line.substr(std::min(marker.indent, line.size()));
+		}
+
+		const std::size_t removable = std::min(line.size(), marker.indent + std::min(marker.marker_width, leading - marker.indent));
+		return line.substr(removable);
 	}
 
 	static constexpr std::vector<table_align> parse_table_alignments(const std::vector<std::u32string_view>& cells) {
@@ -394,6 +428,7 @@ private:
 
 				std::size_t scan_pos = current_pos;
 				while(scan_pos < text_block.size()) {
+					std::size_t item_abs_pos = base_pos + scan_pos;
 					std::size_t item_line_end = text_block.find(U'\n', scan_pos);
 					if(item_line_end == std::u32string_view::npos) item_line_end = text_block.size();
 					std::u32string_view item_line = text_block.substr(scan_pos, item_line_end - scan_pos);
@@ -421,18 +456,19 @@ private:
 
 						auto nested_marker = parse_list_marker(nested_line);
 						if(nested_marker.valid && nested_marker.indent <= marker.indent) break;
-						if(!nested_marker.valid && count_leading_spaces(nested_line) <= marker.indent && !is_blockquote_line(nested_line)) break;
+				if(!nested_marker.valid && (count_heading_level(nested_line) > 0 || nested_line.starts_with(U"```") ||
+					is_thematic_break_line(nested_line) || is_blockquote_line(nested_line) || is_table_start(text_block, next_pos)))
+					break;
+				if(!nested_marker.valid && count_leading_spaces(nested_line) <= marker.indent) break;
 
 						item_content.push_back(U'\n');
-						std::u32string_view append_line = nested_line;
-						const std::size_t removable = std::min(marker.indent + 2, append_line.size());
-						append_line.remove_prefix(removable);
+						std::u32string_view append_line = strip_list_continuation_prefix(nested_line, marker);
 						item_content.append(append_line.begin(), append_line.end());
 						next_pos = std::min(nested_line_end + 1, text_block.size());
 					}
 
 					list_item item;
-					item.blocks = parse_blocks(item_content, current_abs_pos + item_marker.marker_width);
+					item.blocks = parse_blocks(item_content, item_abs_pos + item_marker.indent + item_marker.marker_width);
 					list_node.items.push_back(std::move(item));
 					scan_pos = next_pos;
 				}
@@ -444,7 +480,6 @@ private:
 
 			if(is_table_start(text_block, current_pos)) {
 				table tbl_node;
-				bool is_header = true;
 				bool has_divider = false;
 				std::size_t scan_pos = current_pos;
 
@@ -455,7 +490,7 @@ private:
 					std::u32string_view scan_line = text_block.substr(scan_pos, next_line_end - scan_pos);
 					if(!is_table_row(scan_line)) break;
 
-					if(is_header && !has_divider && is_table_divider(scan_line)) {
+					if(!has_divider && is_table_divider(scan_line)) {
 						has_divider = true;
 						auto align_texts = split_table_cells(scan_line);
 						tbl_node.alignments = parse_table_alignments(align_texts);
@@ -465,16 +500,15 @@ private:
 					}
 
 					auto cells_text = split_table_cells(scan_line);
-					if(is_header && !has_divider) {
+					if(!has_divider) {
 						tbl_node.cols = static_cast<std::uint32_t>(cells_text.size());
 						tbl_node.alignments.resize(tbl_node.cols, table_align::none);
-						is_header = false;
 					}
 
 					for(std::uint32_t i = 0; i < tbl_node.cols; ++i) {
 						table_cell cell;
 						if(i < cells_text.size()) {
-							cell.children = parse_inlines(cells_text[i], current_abs_pos);
+							cell.children = parse_inlines(cells_text[i], base_pos + static_cast<std::size_t>(cells_text[i].data() - text_block.data()));
 						}
 						tbl_node.cells.push_back(std::move(cell));
 					}

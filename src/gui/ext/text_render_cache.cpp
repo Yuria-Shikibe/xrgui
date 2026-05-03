@@ -25,6 +25,7 @@ void record_glyph_draw_instructions(
 	using namespace mo_yanxi::graphic::draw::instruction;
 
 	buffer.clear();
+	if(glyph_layout.lines.empty())return;
 	buffer.reserve_heads(glyph_layout.elems.size() + glyph_layout.underlines.size() + glyph_layout.wrap_frames.size() * 3);
 	buffer.reserve_bytes(glyph_layout.elems.size() * sizeof(rect_aabb) + glyph_layout.underlines.size() * sizeof(line));
 

@@ -9,6 +9,9 @@
 ### 表格和Collapser
 ![table.avif](screen_shots/animation/table.avif)
 
+---
+### flex-wrap
+![flex_wrap.avif](screen_shots/animation/flex_wrap.avif)
 
 ---
 ### 文本输入框和富文本

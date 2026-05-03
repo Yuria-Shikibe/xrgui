@@ -213,11 +213,19 @@ public:
 	}
 
 	[[nodiscard]] bool is_hori_scroll_active() const noexcept{
-		return item_extent().x > content_width();
+		float effective_w = content_width();
+		if(!overlay_scroll_bars_ && (item_extent_cache_.y > content_height())){
+			effective_w -= scroll_bar_stroke_;
+		}
+		return item_extent_cache_.x > math::max(0.0f, effective_w);
 	}
 
 	[[nodiscard]] bool is_vert_scroll_active() const noexcept{
-		return item_extent().y > content_height();
+		float effective_h = content_height();
+		if(!overlay_scroll_bars_ && (item_extent_cache_.x > content_width())){
+			effective_h -= scroll_bar_stroke_;
+		}
+		return item_extent_cache_.y > math::max(0.0f, effective_h);
 	}
 
 	[[nodiscard]] math::vec2 scrollable_extent() const noexcept{
@@ -552,6 +560,25 @@ public:
 	}
 
 private:
+	[[nodiscard]] layout::layout_policy effective_item_layout_policy() const noexcept{
+		const auto policy = get_layout_policy();
+		if(policy != layout::layout_policy::none){
+			return policy;
+		}
+
+		if constexpr(is_elem_child){
+			switch(get_elem().get_layout_policy()){
+			case layout::layout_policy::hori_major:
+			case layout::layout_policy::vert_major:
+				return get_elem().get_layout_policy();
+			default:
+				break;
+			}
+		}
+
+		return layout::layout_policy::none;
+	}
+
 	void update_item_layout(){
 		force_hori_scroll_enabled_ = false;
 		force_vert_scroll_enabled_ = false;
@@ -561,7 +588,7 @@ private:
 		}
 
 		math::bool2 fill_mask{};
-		switch(get_layout_policy()){
+		switch(effective_item_layout_policy()){
 		case layout::layout_policy::hori_major : fill_mask = {true, false};
 			break;
 		case layout::layout_policy::vert_major : fill_mask = {false, true};
@@ -576,7 +603,9 @@ private:
 		if constexpr(is_elem_child){
 			util::set_fill_parent(get_elem(), content_extent(), fill_mask, !fill_mask);
 			bound = static_cast<const elem&>(get_elem()).restriction_extent;
-			adaptor_set_prefer_extent(get_viewport_extent());
+			if(effective_item_layout_policy() != layout::layout_policy::none){
+				adaptor_set_prefer_extent(get_viewport_extent());
+			}
 		} else{
 			bound = util::get_fill_parent_restriction(content_extent(), fill_mask, !fill_mask);
 		}
@@ -588,7 +617,7 @@ private:
 				bool need_elem_relayout = false;
 				const float bar_occupied_size = overlay_scroll_bars_ ? 0.0f : scroll_bar_stroke_;
 
-				switch(get_layout_policy()){
+				switch(effective_item_layout_policy()){
 				case layout_policy::hori_major :{
 					if(sz->y > content_height()){
 						bound.set_width(math::clamp_positive(bound.potential_width() - bar_occupied_size));
@@ -631,7 +660,7 @@ private:
 				auto elemSz = item_extent();
 				const float bar_occupied_size = overlay_scroll_bars_ ? 0.0f : scroll_bar_stroke_;
 
-				switch(get_layout_policy()){
+				switch(effective_item_layout_policy()){
 				case layout_policy::hori_major :{
 					if(elemSz.x > content_width()){
 						elemSz.y = content_height();
@@ -661,7 +690,7 @@ private:
 	void deduced_set_child_fill_parent(elem& element) const noexcept{
 		using namespace layout;
 		element.restriction_extent = extent_by_external;
-		switch(get_layout_policy()){
+		switch(effective_item_layout_policy()){
 		case layout_policy::hori_major :{
 			element.set_fill_parent({true, false}, propagate_mask::none);
 			element.restriction_extent.set_width(content_width());

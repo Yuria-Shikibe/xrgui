@@ -94,18 +94,6 @@ export struct atlas_glyph_key{
 	constexpr bool operator==(const atlas_glyph_key&) const noexcept = default;
 };
 
-export struct atlas_glyph_record{
-	graphic::allocated_image_region* region{};
-	bool drawable{};
-
-	[[nodiscard]] glyph_borrow borrow() const{
-		assert(region != nullptr);
-		auto borrowed = region->make_universal_borrow<glyph_texture_region>();
-		assert(borrowed.has_value());
-		return std::move(*borrowed);
-	}
-};
-
 export struct resolved_glyph_entry{
 	font_face_handle* face{};
 	glyph_index_t glyph_index{};
@@ -240,9 +228,9 @@ private:
 
 	font_family* default_family{};
 	using resolve_cache_t = gtl::parallel_flat_hash_map<resolve_key, resolved_codepoint>;
-	using atlas_glyph_cache_t = gtl::parallel_flat_hash_map<atlas_glyph_key, atlas_glyph_record>;
+	using glyph_drawable_cache_t = gtl::parallel_flat_hash_map<atlas_glyph_key, bool>;
 	resolve_cache_t resolve_cache_{};
-	atlas_glyph_cache_t atlas_glyph_cache_{};
+	glyph_drawable_cache_t glyph_drawable_cache_{};
 
     using handle_vector_t = std::vector<font_face_handle>;
     using recipe_map_t = std::unordered_map<family_style_key, handle_vector_t>;
@@ -385,43 +373,42 @@ public:
 		};
 	}
 
-	[[nodiscard]] atlas_glyph_record get_glyph_record(font_face_handle& handle, glyph_index_t gid){
+	[[nodiscard]] std::optional<glyph_borrow> borrow_glyph_region(font_face_handle& handle, glyph_index_t gid){
 		const atlas_glyph_key key{handle.get_source(), gid};
-		atlas_glyph_record* cached_record = nullptr;
-		atlas_glyph_cache_.if_contains(key, [&](atlas_glyph_cache_t::value_type& value){
-			cached_record = &value.second;
+
+		bool* cached_drawable = nullptr;
+		glyph_drawable_cache_.if_contains(key, [&](glyph_drawable_cache_t::value_type& value){
+			cached_drawable = &value.second;
 		});
-		if(cached_record != nullptr){
-			return *cached_record;
+		if(cached_drawable != nullptr && !*cached_drawable){
+			return std::nullopt;
+		}
+
+		auto name = make_glyph_region_name(handle.get_source(), gid);
+		if(auto* region = page().find(name)){
+			if(auto borrowed = region->make_universal_borrow<glyph_texture_region>()){
+				return std::move(*borrowed);
+			}
 		}
 
 		auto acquired = handle.obtain(gid, atlas_glyph_size);
-		atlas_glyph_record record{
-			.region = nullptr,
-			.drawable = acquired.has_drawable_glyph()
+		if(!acquired.has_drawable_glyph()){
+			glyph_drawable_cache_.try_emplace(key, false);
+			return std::nullopt;
+		}
+
+		auto crop = acquired.generator.crop(gid);
+		crop.meta = handle.get_source();
+		auto load = graphic::sdf_load{
+			std::move(crop),
+			acquired.extent()
 		};
+		auto reg = page().register_named_region(std::move(name), graphic::image_load_description{std::move(load)});
+		glyph_drawable_cache_.try_emplace(key, true);
 
-		if(record.drawable){
-			auto crop = acquired.generator.crop(gid);
-			crop.meta = handle.get_source();
-			auto load = graphic::sdf_load{
-				std::move(crop),
-				acquired.extent()
-			};
-			auto name = make_glyph_region_name(handle.get_source(), gid);
-			auto reg = page().register_named_region(std::move(name), graphic::image_load_description{std::move(load)});
-			record.region = std::addressof(reg.region);
-		}
-
-		auto [it, inserted] = atlas_glyph_cache_.try_emplace(key, record);
-		if(!inserted){
-			atlas_glyph_cache_.modify_if(key, [&](atlas_glyph_cache_t::value_type& value){
-				if(value.second.region == nullptr && record.region != nullptr){
-					value.second = record;
-				}
-			});
-		}
-		return it->second;
+		auto borrowed = reg.region.make_universal_borrow<glyph_texture_region>();
+		assert(borrowed.has_value());
+		return std::move(*borrowed);
 	}
 
 	[[nodiscard]] glyph_metrics get_glyph_metrics_exact(font_face_handle& handle, const glyph_identity key){
@@ -440,8 +427,8 @@ public:
 	[[nodiscard]] glyph get_glyph_exact(
 	font_face_handle& handle, const glyph_identity key){
 		const glyph_metrics metrics = get_glyph_metrics_exact(handle, key);
-		if(const auto atlas = get_glyph_record(handle, key.index); atlas.drawable){
-			return glyph{atlas.borrow(), metrics};
+		if(auto borrowed = borrow_glyph_region(handle, key.index)){
+			return glyph{std::move(*borrowed), metrics};
 		}
 
 		return glyph{metrics};

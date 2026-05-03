@@ -228,14 +228,21 @@ struct async_loader_task{
 #pragma endregion
 
 export struct image_atlas;
+export
+struct image_page;
 
 struct async_image_loader_cpu_worker{
 	lru_cache<const font::font_face_meta*, font::msdf_handle_wrapper, 4> font_cache_;
 	std::jthread work_thread{};
 };
 
+[[nodiscard]] inline vk::texture* image_loader_cancelled_texture_token() noexcept{
+	return reinterpret_cast<vk::texture*>(static_cast<std::uintptr_t>(1));
+}
+
 struct async_image_loader{
 	friend struct image_atlas;
+	friend struct image_page;
 
 private:
 	VkQueue working_queue_{};
@@ -250,7 +257,7 @@ private:
 	std::multimap<VkDeviceSize, vk::buffer> stagings{};
 
 	std::mutex load_queue_mutex_{};
-	ccur::condition_variable_single load_queue_cond_{};
+	std::condition_variable load_queue_cond_{};
 
 	std::mutex gpu_queue_mutex_{};
 	ccur::condition_variable_single gpu_queue_cond_{};
@@ -260,6 +267,7 @@ private:
 	circular_queue<allocated_image_load_description> load_queue{};
 	ccur::mpsc_queue<prepared_image_upload> prepared_queue_{};
 	std::atomic_uint outstanding_work_count_{0};
+	std::atomic_bool stop_requested_{false};
 
 	// vk::resource_descriptor_heap* target_descriptor_heap_{};
 	std::uint32_t target_descriptor_heap_section_{};
@@ -277,9 +285,7 @@ private:
 	}
 
 	void notify_cpu_workers_() noexcept{
-		for(std::size_t i = 0; i < cpu_workers_.size(); ++i){
-			load_queue_cond_.notify_one();
-		}
+		load_queue_cond_.notify_all();
 	}
 
 	void on_work_item_finished_() noexcept{
@@ -288,7 +294,58 @@ private:
 		outstanding_work_count_.notify_all();
 	}
 
+	void abandon_work_items_(const std::size_t count) noexcept{
+		if(count == 0)return;
+		const auto prev = outstanding_work_count_.fetch_sub(static_cast<unsigned>(count), std::memory_order::acq_rel);
+		assert(prev >= count);
+		outstanding_work_count_.notify_all();
+	}
+
+	[[nodiscard]] bool stop_requested() const noexcept{
+		return stop_requested_.load(std::memory_order::acquire);
+	}
+
+	static void cancel_texture_wait_(std::atomic<vk::texture*>* done_ptr) noexcept{
+		if(done_ptr == nullptr)return;
+
+		auto* expected = static_cast<vk::texture*>(nullptr);
+		if(done_ptr->compare_exchange_strong(expected, image_loader_cancelled_texture_token(), std::memory_order::acq_rel)){
+			done_ptr->notify_one();
+		}
+	}
+
+	void discard_texture_alloc_queue_(circular_queue<texture_allocation_request>& queue) noexcept{
+		std::size_t discard_count{};
+		queue.for_each([&](auto, texture_allocation_request& request){
+			cancel_texture_wait_(request.done_ptr);
+			++discard_count;
+		});
+		queue.clear();
+		abandon_work_items_(discard_count);
+	}
+
+	void discard_pending_work_() noexcept{
+		{
+			std::lock_guard lock(load_queue_mutex_);
+			const auto discard_count = load_queue.size();
+			load_queue.clear();
+			abandon_work_items_(discard_count);
+		}
+
+		{
+			std::lock_guard lock(gpu_queue_mutex_);
+			discard_texture_alloc_queue_(alloc_queue);
+		}
+
+		auto prepared = prepared_queue_.dump();
+		abandon_work_items_(prepared.size());
+	}
+
 	void request_stop_() noexcept{
+		if(stop_requested_.exchange(true, std::memory_order::acq_rel)){
+			return;
+		}
+		discard_pending_work_();
 		for(auto& worker : cpu_workers_){
 			worker.work_thread.request_stop();
 		}
@@ -297,94 +354,11 @@ private:
 		gpu_queue_cond_.notify_one();
 	}
 
-	static void gpu_work_func(std::stop_token stop_token, async_image_loader& self) try {
-		circular_queue<texture_allocation_request> texture_alloc_queue{};
+	static void gpu_work_func(std::stop_token stop_token, async_image_loader& self);
 
-		while (true) {
-			texture_alloc_queue.clear();
+	static void cpu_work_func(std::stop_token stop_token, async_image_loader& self, unsigned worker_index);
 
-			{
-				std::unique_lock lock(self.gpu_queue_mutex_);
-
-				self.gpu_queue_cond_.wait(lock, [&]{
-					return !self.alloc_queue.empty() || !self.prepared_queue_.empty() || (stop_token.stop_requested() && self.outstanding_work_count_.load(std::memory_order::acquire) == 0);
-				});
-
-
-				if (stop_token.stop_requested() && self.alloc_queue.empty() && self.prepared_queue_.empty() && self.outstanding_work_count_.load(std::memory_order::acquire) == 0) {
-					break;
-				}
-
-
-				if (!self.alloc_queue.empty()) {
-					std::ranges::swap(texture_alloc_queue, self.alloc_queue);
-				}
-			}
-
-			texture_alloc_queue.for_each([&](auto, texture_allocation_request& r){
-				self.load(r);
-				self.on_work_item_finished_();
-			});
-
-			while(auto prepared = self.prepared_queue_.try_consume()){
-				self.load(std::move(*prepared));
-				self.on_work_item_finished_();
-			}
-		}
-
-		self.region_fence_.wait();
-	} catch(...){
-		std::println(std::cerr, "Image GPU Loader Thread Exceptionally Exited");
-		throw;
-	}
-
-	static void cpu_work_func(std::stop_token stop_token, async_image_loader& self, unsigned worker_index) try {
-		auto& worker = self.cpu_workers_[worker_index];
-		while (true) {
-			allocated_image_load_description item{};
-
-			{
-				std::unique_lock lock(self.load_queue_mutex_);
-
-				self.load_queue_cond_.wait(lock, [&]{
-					return !self.load_queue.empty() || stop_token.stop_requested();
-				});
-
-				if (stop_token.stop_requested() && self.load_queue.empty()) {
-					break;
-				}
-
-				item = std::move(self.load_queue.front());
-				self.load_queue.pop_front();
-			}
-
-			if(auto* sdf = std::get_if<sdf_load>(&item.desc.raw)){
-				std::visit([&](auto& gen){
-					using T = std::decay_t<decltype(gen)>;
-					if constexpr(std::same_as<T, msdf::msdf_glyph_generator_crop>){
-						if(const auto* meta = gen.meta){
-							auto* cached = worker.font_cache_.get(meta);
-							if(cached == nullptr){
-								worker.font_cache_.emplace(meta, font::msdf_handle_wrapper{font::font_face_handle{meta->data(), meta}});
-								cached = worker.font_cache_.get(meta);
-							}
-							if(cached != nullptr){
-								gen.msdf_face = cached->msdf_handle;
-							}
-						}
-					}
-				}, sdf->generator);
-			}
-
-			self.prepared_queue_.push(self.prepare(std::move(item)));
-			self.gpu_queue_cond_.notify_one();
-		}
-	} catch(...){
-		std::println(std::cerr, "Image CPU Worker {} Exceptionally Exited", worker_index);
-		throw;
-	}
-
-	[[nodiscard]] prepared_image_upload prepare(allocated_image_load_description&& desc) const;
+	[[nodiscard]] std::optional<prepared_image_upload> prepare(allocated_image_load_description&& desc) const;
 
 	void load(prepared_image_upload&& desc);
 
@@ -407,22 +381,38 @@ public:
 		// return target_descriptor_heap_->push_back_images(target_descriptor_heap_section_, std::span(&create_info, 1), image_layout, type);
 	}
 
-	void push(allocated_image_load_description&& desc){
+	[[nodiscard]] bool push(allocated_image_load_description&& desc){
+		if(stop_requested())return false;
 		outstanding_work_count_.fetch_add(1, std::memory_order::acq_rel);
 		{
 			std::lock_guard lock(load_queue_mutex_);
+			if(stop_requested()){
+				abandon_work_items_(1);
+				return false;
+			}
 			load_queue.emplace_back(std::move(desc));
 		}
 		load_queue_cond_.notify_one();
+		return true;
 	}
 
-	void push(const texture_allocation_request& desc){
+	[[nodiscard]] bool push(const texture_allocation_request& desc){
+		if(stop_requested()){
+			cancel_texture_wait_(desc.done_ptr);
+			return false;
+		}
 		outstanding_work_count_.fetch_add(1, std::memory_order::acq_rel);
 		{
 			std::lock_guard lock(gpu_queue_mutex_);
+			if(stop_requested()){
+				cancel_texture_wait_(desc.done_ptr);
+				abandon_work_items_(1);
+				return false;
+			}
 			alloc_queue.push_back(desc);
 		}
 		gpu_queue_cond_.notify_one();
+		return true;
 	}
 
 public:
@@ -485,7 +475,6 @@ struct image_page_config{
 	std::uint32_t margin{4};
 };
 
-export
 struct image_page{
 private:
 	async_image_loader* loader_{};
@@ -509,17 +498,25 @@ public:
 		async_image_loader& loader,
 		const image_page_config& config = {})
 	:
-	loader_(&loader),
-	config_(config){
-		loader_->push(texture_allocation_request{
+		loader_(&loader),
+		config_(config){
+		if(!loader_->push(texture_allocation_request{
 					.extent = {config_.extent.x, config_.extent.y},
 					.clear_color_value = config_.clear_color,
 					.done_ptr = &ptr_to_texture_temp_
-				});
+				})){
+			throw image_loader_stopped{};
+		}
 
 		sub_page* sub_page = &*subpages_.emplace(config_.extent);
 		ptr_to_texture_temp_.wait(nullptr, std::memory_order::relaxed);
-		sub_page->texture = std::move(*ptr_to_texture_temp_.load(std::memory_order::acquire));
+		auto* texture = ptr_to_texture_temp_.load(std::memory_order::acquire);
+		if(texture == image_loader_cancelled_texture_token()){
+			ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
+			ptr_to_texture_temp_.notify_one();
+			throw image_loader_stopped{};
+		}
+		sub_page->texture = std::move(*texture);
 		ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
 		ptr_to_texture_temp_.notify_one();
 
@@ -544,13 +541,15 @@ public:
 
 private:
 	allocated_image_region async_load(image_load_description&& desc, page_acquire_result&& result) const{
-		loader_->push({
+		if(!loader_->push({
 				.texture = *result.handle,
 				.mip_level = result.handle->get_mip_level(),
 				.layer_index = 0,
 				.desc = std::move(desc),
 				.region = result.region.get_region()
-			});
+			})){
+			throw image_loader_stopped{};
+		}
 
 		return std::move(result.region);
 	}
@@ -559,12 +558,20 @@ public:
 	allocated_image_region async_allocate(
 		image_load_description&& desc
 	){
+		if(loader_->stop_requested()){
+			throw image_loader_stopped{};
+		}
+
 		const auto extent = desc.get_extent();
 		if(extent.x + config_.margin > config_.extent.x || extent.y + config_.margin > config_.extent.y){
 			throw bad_image_allocation{};
 		}
 
 		while(true){
+			if(loader_->stop_requested()){
+				throw image_loader_stopped{};
+			}
+
 			//TODO optimize the mutex
 			{
 				std::lock_guard _{subpage_mtx_};
@@ -596,15 +603,23 @@ public:
 					}
 
 
-					loader_->push(texture_allocation_request{
+					if(!loader_->push(texture_allocation_request{
 							.extent = {config_.extent.x, config_.extent.y},
 							.clear_color_value = config_.clear_color,
 							.done_ptr = &ptr_to_texture_temp_
-						});
+						})){
+						throw image_loader_stopped{};
+					}
 
 
 					ptr_to_texture_temp_.wait(nullptr, std::memory_order::relaxed);
-					sub_page->texture = std::move(*ptr_to_texture_temp_.load(std::memory_order::acquire));
+					auto* texture = ptr_to_texture_temp_.load(std::memory_order::acquire);
+					if(texture == image_loader_cancelled_texture_token()){
+						ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
+						ptr_to_texture_temp_.notify_one();
+						throw image_loader_stopped{};
+					}
+					sub_page->texture = std::move(*texture);
 					ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
 					ptr_to_texture_temp_.notify_one();
 
@@ -638,9 +653,16 @@ public:
 
 				sub_page = task_post_lock_.load(std::memory_order_acquire);
 				while(sub_page == nullptr){
+					if(loader_->stop_requested()){
+						throw image_loader_stopped{};
+					}
 					task_post_lock_.wait(nullptr, std::memory_order_relaxed);
 					sub_page = task_post_lock_.load(std::memory_order_acquire);
 				}
+			}
+
+			if(loader_->stop_requested()){
+				throw image_loader_stopped{};
 			}
 
 			if(auto rst = sub_page->acquire(extent, config_.margin)){

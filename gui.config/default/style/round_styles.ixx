@@ -21,6 +21,7 @@ export import mo_yanxi.gui.fx.fringe;
 
 export import mo_yanxi.gui.style.tree;
 export import mo_yanxi.gui.style.tree.draw;
+import mo_yanxi.gui.style.tree.bounds;
 
 namespace mo_yanxi::gui::style::spec{
 export
@@ -270,6 +271,18 @@ struct create_entry{
 			};
 	}
 
+	[[nodiscard]] auto make_base_only() const {
+		return tree_tuple_fork{
+			tree_direct{
+				layer_router{
+					style_config{0b01},
+					tree_leaf{primitives::draw_nine_patch{base}}
+				}
+			},
+			tree_metrics_leaf{static_metrics{boarder}}
+		};
+	}
+
 	[[nodiscard]] auto make_general() const {
 		return tree_direct{
 			tree_tuple_fork{
@@ -294,6 +307,33 @@ struct create_entry{
 					tree_tuple_fork{
 						tree_leaf{primitives::draw_nine_patch{base}},
 						tree_leaf{primitives::draw_nine_patch_hollow{edge}}
+					}
+				},
+				layer_router{
+					style_config{0b10},
+					tree_leaf{primitives::draw_nine_patch{back}}
+				},
+				tree_metrics_leaf{static_metrics{boarder}}
+			}
+		};
+	}
+
+	[[nodiscard]] auto make_general_with_side_bar(
+		bounds::side_dir side,
+		float bar_width,
+		const primitives::nine_patch_draw_entry& bar_patch) const
+	{
+		return tree_direct{
+			tree_tuple_fork{
+				layer_router{
+					style_config{0b01},
+					tree_tuple_fork{
+						tree_leaf{primitives::draw_nine_patch_hollow{edge}},
+						tree_scope{
+							bounds::bounds_side_strip{side, bar_width},
+							nullptr,
+							tree_leaf{primitives::draw_nine_patch{bar_patch}}
+						}
 					}
 				},
 				layer_router{

@@ -7,6 +7,7 @@ export module mo_yanxi.gui.style.tree.bounds;
 import std;
 import mo_yanxi.math;
 export import mo_yanxi.gui.style.tree;
+import mo_yanxi.gui.infrastructure;
 
 namespace mo_yanxi::gui::style::bounds{
 
@@ -64,27 +65,46 @@ struct bounds_side_strip{
 	side_dir side{};
 	float stroke{};
 
-	template <typename Target>
-	draw_call_param operator()(const auto& self, const typed_draw_param<Target>& p) const{
+	draw_call_param operator()(const typed_draw_param<elem>& p) const{
 		if(!p || stroke <= 0.f) return {};
 
 		auto result = p.param;
 		switch(side){
 			using enum side_dir;
 		case left:
-			result.draw_bound = {p->draw_bound.src, {stroke, p->draw_bound.extent().y}};
+			result.draw_bound = math::frect{tags::from_vertex,
+				p->draw_bound.src,
+				p->draw_bound.src + math::vec2{stroke, p->draw_bound.extent().y}};
 			break;
-		case right:
-			result.draw_bound = {p->draw_bound.vert_01(), {-stroke, p->draw_bound.extent().y}};
-			break;
-		case top:
-			result.draw_bound = {p->draw_bound.src, {p->draw_bound.extent().x, stroke}};
-			break;
-		case bottom:
-			result.draw_bound = {p->draw_bound.vert_10(), {p->draw_bound.extent().x, -stroke}};
+		case right:{
+			auto s = p->draw_bound.vert_01();
+			result.draw_bound = math::frect{tags::from_vertex, s, s + math::vec2{-stroke, p->draw_bound.extent().y}};
 			break;
 		}
+		case top:
+			result.draw_bound = math::frect{tags::from_vertex,
+				p->draw_bound.src,
+				p->draw_bound.src + math::vec2{p->draw_bound.extent().x, stroke}};
+			break;
+		case bottom:{
+			auto s = p->draw_bound.vert_10();
+			result.draw_bound = math::frect{tags::from_vertex, s, s + math::vec2{p->draw_bound.extent().x, -stroke}};
+			break;
+		}
+		}
 		return result.draw_bound.is_roughly_zero_area(0.01f) ? draw_call_param{} : result;
+	}
+
+	[[nodiscard]] style_tree_metrics scope_inset() const noexcept{
+		style_tree_metrics rst{};
+		switch(side){
+			using enum side_dir;
+		case left:   rst.inherited.left   = stroke; break;
+		case right:  rst.inherited.right  = stroke; break;
+		case top:    rst.inherited.top    = stroke; break;
+		case bottom: rst.inherited.bottom = stroke; break;
+		}
+		return rst;
 	}
 };
 
@@ -97,10 +117,10 @@ struct side_strip_inset{
 		style_tree_metrics rst{};
 		switch(side){
 			using enum side_dir;
-		case left:   rst.inset.left   = width; break;
-		case right:  rst.inset.right  = width; break;
-		case top:    rst.inset.top    = width; break;
-		case bottom: rst.inset.bottom = width; break;
+		case left:   rst.inherited.left   = width; break;
+		case right:  rst.inherited.right  = width; break;
+		case top:    rst.inherited.top    = width; break;
+		case bottom: rst.inherited.bottom = width; break;
 		}
 		return rst;
 	}

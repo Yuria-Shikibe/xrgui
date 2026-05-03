@@ -440,8 +440,7 @@ public:
 		this->style_ = std::move(style);
 		get_scene().notify_display_state_changed(get_channel());
 
-		auto inset = style::query_metrics(this->style_, {}).inset;
-		if(util::try_modify(style_boarder_cache_, style ? style::query_metrics(this->style_, {}).inset : gui::boarder{})){
+		if(util::try_modify(style_boarder_cache_, style ? style::query_metrics(this->style_, {}).total_inset() : gui::boarder{})){
 			notify_isolated_layout_changed();
 		}
 	}

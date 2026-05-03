@@ -106,7 +106,7 @@ target("xrgui.default")
 
     add_files("gui.config/**.ixx", {public = true})
     add_files("gui.config/**.cpp")
-
+    set_policy("build.c++.modules", true)
 
     add_rules("media.svg_to_bin")
     add_files("properties/assets_raw/gen/**.svg")

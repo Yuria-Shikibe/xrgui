@@ -195,8 +195,8 @@ protected:
 			min_pos.*state_.major_p -= pad;
 			max_pos.*state_.major_p += pad;
 			
-			min_pos.*state_.minor_p -= (layout_buffer_.line_bound.ascender + pad);
-			max_pos.*state_.minor_p += (layout_buffer_.line_bound.descender + pad);
+			min_pos.*state_.minor_p -= (layout_buffer_.line_bound.ascender + math::sqrt(pad));
+			max_pos.*state_.minor_p += (layout_buffer_.line_bound.descender + math::sqrt(pad));
 
 			wf.start = min_pos;
 			wf.end = max_pos;
@@ -598,9 +598,9 @@ private:
 				auto* face = resolved.face;
 				auto index = resolved.glyph_index;
 				font::glyph_identity id{index, snapped_base_size};
-				const auto record = manager_->get_glyph_record(*face, index);
 				const auto m = manager_->get_glyph_metrics_exact(*face, id);
-				font::glyph g = record.drawable ? font::glyph{record.borrow(), m} : font::glyph{m};
+				auto opt_borrow = manager_->borrow_glyph_region(*face, index);
+				font::glyph g = opt_borrow ? font::glyph{std::move(*opt_borrow), m} : font::glyph{m};
 				const auto advance = m.advance * base_scale_factor;
 				math::vec2 adv{};
 				const float fallback_adv = (std::abs(advance.*state_.major_p) > 0.001f)
@@ -820,10 +820,10 @@ private:
 			}
 
 			const font::glyph_identity glyph_id{gid, metrics.snapped_size};
-			const auto record = manager_->get_glyph_record(face, gid);
 			const auto exact_metrics = manager_->get_glyph_metrics_exact(face, glyph_id);
-			const font::glyph loaded_glyph = record.drawable
-				? font::glyph{record.borrow(), exact_metrics}
+			auto opt_borrow = manager_->borrow_glyph_region(face, gid);
+			const font::glyph loaded_glyph = opt_borrow
+				? font::glyph{std::move(*opt_borrow), exact_metrics}
 				: font::glyph{exact_metrics};
 			const math::vec2 run_advance{
 					font::normalize_len(pos[i].x_advance) * metrics.run_scale_factor.x,

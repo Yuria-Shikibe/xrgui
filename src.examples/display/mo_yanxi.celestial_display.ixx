@@ -2,7 +2,7 @@ module;
 
 export module mo_yanxi.celestial_display;
 
-export import mo_yanxi.graphic.gradient;
+export import mo_yanxi.graphic.color;
 import std;
 import mo_yanxi.math.vector2;
 import mo_yanxi.math;

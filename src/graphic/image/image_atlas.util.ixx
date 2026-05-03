@@ -31,6 +31,11 @@ struct bad_image_asset : public std::exception{
 	[[nodiscard]] bad_image_asset() = default;
 };
 
+export
+struct image_loader_stopped : public std::exception{
+	[[nodiscard]] image_loader_stopped() = default;
+};
+
 using region_type = combined_image_region<size_awared_uv<uniformed_rect_uv>>;
 
 export
