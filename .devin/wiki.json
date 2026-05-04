@@ -1,0 +1,89 @@
+{
+  "repo_notes": [
+    {
+      "content": "XRGUI is a modern C++23 GUI library built on Vulkan, using C++ modules (.ixx files) extensively. The codebase lives under src/. The most critical architectural domains are: (1) the layout system — how widgets compute and propagate sizes via cells, policies, and sequences; (2) the style tree — a composable, monadic-ish declarative graph that drives GPU rendering, with rich extension points; (3) the drawing pipeline — instruction batching, mesh-shader-based GPU execution, and the Vulkan renderer backend; (4) the event/interaction system — MPSC input queue, scene-level DFS hit-test dispatch, and key-binding management. Each of these four domains has clear extension patterns that developers must understand. The backends live under src.backends/ (universal core, vulkan renderer, vulkan_glfw windowing). The example app is under src.examples/ with entry at main.cpp. The project uses xmake as its build system."
+    }
+  ],
+  "pages": [
+    {
+      "title": "Architecture Overview",
+      "purpose": "High-level map of the entire XRGUI codebase: src/ core library, src.backends/ backend stack, src.examples/ app. Explain the layer separation between core GUI logic, rendering backends, and platform abstraction. Cover the C++23 module system (.ixx files) and the xmake build configuration.",
+      "parent": null
+    },
+    {
+      "title": "Layout System",
+      "purpose": "Document how layout is computed and extended. Cover: layout_policy (none/hori_major/vert_major) and layout_specifier (4-slot inheritance resolution) in src/gui/core/layout/policy.ixx; stated_size categories (passive/scaling/mastering/pending); the cell system (basic_cell, partial_mastering_cell, mastering_cell) in src/gui/core/layout/cell.ixx; the sequence container (src/gui/core/elements/gui.sequence.ixx) as the primary linear layout engine; grid and table layout (gui.grid.ixx, gui.table.ixx); clamped_size constraints; how elem::notify_layout_changed, pre_acquire_size, and layout_elem virtual methods drive the two-pass layout protocol. Highlight extension points: overriding pre_acquire_size_impl for custom sizing, implementing layout_elem for custom containers, creating new cell types.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Layout: Size Policies and Cells",
+      "purpose": "Deep-dive on the size-policy model. Detail stated_size (passive/weighted sharing, scaling/aspect-ratio, mastering/fixed, pending/deferred) and stated_extent in src/gui/core/layout/policy.ixx (~line 349). Explain how cells bridge policy to actual positioning: basic_cell with apply_to/update_relative_src, partial_mastering_cell for unidimensional sequence children, mastering_cell with padding and alignment for grid/table. Cover directional_layout_specifier and how layout_specifier::resolve(parent_policy) enables policy inheritance.",
+      "parent": "Layout System"
+    },
+    {
+      "title": "Layout: Sequence and Container Patterns",
+      "purpose": "Document sequence (src/gui/core/elements/gui.sequence.ixx) — the primary linear layout engine. Explain how it extends celled_group<cell_adaptor<partial_mastering_cell>>, arranges children along a directional_layout_specifier, allocates passive/weighted shares, supports align_to_tail_ and expand_policy. Cover associated containers: grid, table, flex_wrap, scaling_stack, split_pane, scroll_pane, collapser, flipper. Detail how universal_group (src/gui/core/elements/gui.universal_group.ixx) serves as the celled group template base.",
+      "parent": "Layout System"
+    },
+    {
+      "title": "Style Tree: Composable Declarative Drawing Graph",
+      "purpose": "Document the style tree — XRGUI's core innovation for declarative GPU drawing. Cover the fundamental protocols in src/gui/core/style/style.tree.interface.ixx: node_trait (target_type extraction), style_tree_bool_testable (present check), style_tree_recordable (record/record_draw dispatch), style_tree_metrics_queryable (inset queries), style_tree_direct_drawable (direct draw). Explain the CPO system: style::present(), style::draw_record(), style::draw_direct(), style::query_metrics(). Detail how these enable type-erased, polymorphic style composition without virtual inheritance.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Style Tree: Nodes and Combinators",
+      "purpose": "Explore the node types in src/gui/core/style/style.tree.ixx. Leaf nodes: tree_leaf<DrawFn> (functor wrapping typed_draw_param<T>) and tree_metrics_leaf. Combinators: tree_fork (homogeneous child branching), tree_tuple_fork (heterogeneous children), tree_scope<OnEnter, OnLeave, Child> (push/pop draw parameter transformation — the primary mechanism for clipping, color changes, offsets), tree_direct (forwarding), tree_router_static/dynamic (conditional rendering), layer_router (render layer filtering). Cover the type-erasure layer: style_tree_type_erased_ptr, target_known_node_ptr, style_tree_node<Derived> CRTP, bound_tree_node<Comp>. Explain how these compose to form arbitrarily complex drawing pipelines.",
+      "parent": "Style Tree: Composable Declarative Drawing Graph"
+    },
+    {
+      "title": "Style Tree: Manager, Registration, and Extending",
+      "purpose": "Document the style registration and extension mechanism. Cover style_tree_manager (src/gui/core/style/style.tree.manager.ixx) — the global registry keyed by type_identity_index. Explain style_tree_family (variant-indexed by family_variant: general/accent/warning/etc.) and style_tree_collection (named styles with defaults). Detail how elem binds to a named style via target_known_node_ptr and how set_style()/record_draw_layer() traverse the tree. Extension points: registering custom styles via register_style<Target>(), creating new tree combinators with record()/direct()/query_metrics(), using tree_scope with lambdas for parameter transformation, adding family_variant values for state-dependent styling. Cover the palette system (style.palette.ixx) and draw primitives (style.tree.draw.ixx: draw_nine_patch, draw_row_patch).",
+      "parent": "Style Tree: Composable Declarative Drawing Graph"
+    },
+    {
+      "title": "Drawing Pipeline: Instruction System",
+      "purpose": "Document the CPU-side instruction batching system. Cover the instruction types (src/graphic/instruction_draw/instruction.general.ixx): instr_type enum (triangle, quad, rectangle, line, line_segments, poly, row_patch, constrained_curve, etc.), instruction_head {type, payload_size, vertex_count, primitive_count}, 16-byte alignment. Explain the emit_t CPO — how known instructions are pushed and how custom types implement operator()(emit_t, Sink&) for transparent extension. Cover the extension instructions in src/gui/ext/instruction.extension.ixx (nine_patch_draw, row_patch_draw, circle). Detail contiguous_draw_list, section_state_delta_set, data entry groups.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Drawing Pipeline: Batching and Renderer Frontend",
+      "purpose": "Document draw_list_context (src/graphic/instruction_draw/batch.frontend.ixx) — the host-side batching engine. Explain state_tracker deduplication, section breaks on state changes, uniform data grouping (per-timeline vs per-draw-call), image_view_history_dynamic deduplication. Cover status_push_stack for push/pop state management. Then document renderer_frontend (src/gui/core/draw/gui.renderer.frontend.ixx) — the main drawing API: instruction pushing via emit_stream_sink, state management (blend/scissor/viewport/push-constants), viewport stack with layer_viewport, RAII guards (viewport_guard, scissor_guard, color_guard, transform_guard, state_guard), automatic UBO management (ubo_screen_info, ubo_layer_info). Cover draw_recorder — the function_call_stack used by the style tree to accumulate draw calls.",
+      "parent": "Drawing Pipeline: Instruction System"
+    },
+    {
+      "title": "Drawing Pipeline: Vulkan Backend and Mesh Shaders",
+      "purpose": "Document the Vulkan rendering backend. Cover backend::vulkan::renderer (src.backends/vulkan/renderer_v2.ixx): batch_host (draw_list_context), batch_device (batch_vulkan_executor for GPU upload), attachment_manager (MSAA draw/blit attachments), graphic_pipeline_manager (pre-configured pipeline variants), compute_pipeline_manager (blit/merge compute). Explain the render flow: UI thread records into batch_host -> end_rendering() finalizes groups -> upload() transfers to GPU -> create_command() records vkCmd... via command_recording_context. Cover pipeline configurations: basic, outlined SDF, coordinate draw, mask write, mask apply (src/gui/core/draw/gui.draw_config.ixx). Explain mesh shader based instruction resolution (ui.instruction_resolve_comp.spv) and how it eliminates CPU vertex generation. Cover the compositor post-process DAG: bloom -> tonemapping pipeline configured in main.cpp.",
+      "parent": "Drawing Pipeline: Batching and Renderer Frontend"
+    },
+    {
+      "title": "Event and Interaction System",
+      "purpose": "Document the input pipeline from hardware to element handlers. Cover: input_event_queue (src/gui/core/input/input_event_queue.ixx) — the MPSC double-buffered event queue; GLFW callbacks in src.backends/vulkan_glfw/window.callback.ixx bridging OS events into the queue; scene_base (src/gui/core/infrastructure/scene.ixx) — the central dispatcher with scene_submodule::input that performs DFS tree walk (util::dfs_record_inbound_element) to find the deepest element under cursor, manages mouse_states_ and inbounds_ double-buffering, handles focus tracking (focus_scroll, focus_cursor, focus_key). Detail the event types in src/gui/core/infrastructure/events.ixx: click, scroll, cursor_move, drag, op_afterwards (intercepted/fall_through propagation control). Show how events flow from scene to elem virtual handlers.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Interaction: Element Event Handling and Cursor States",
+      "purpose": "Document the per-element event dispatch model. Cover elem (src/gui/core/infrastructure/element.ixx, lines ~357-426): virtual handlers — on_key_input(key_set), on_unicode_input(char32_t), on_click(click, span<elem*>), on_drag(drag), on_cursor_moved(cursor_move), on_scroll(scroll, span<elem*>), on_esc(), on_inbound_changed(bool), on_focus_changed(bool), on_display_state_changed(bool). Detail cursor_states — the per-element state accumulator tracking inbound/focused/pressed booleans and time accumulators (time_inbound, time_focus, time_stagnate, time_pressed, time_tooltip) for hover/press/tooltip animations. Cover interactivity_flag (flags.ixx): disabled, children_only, self_interactable, ppgt_interactable, intercept — controlling event propagation through the tree.",
+      "parent": "Event and Interaction System"
+    },
+    {
+      "title": "Interaction: Key Binding and Input Contexts",
+      "purpose": "Document the key-binding abstraction layer. Cover key_constants (src/gui/core/input/key_constants.ixx): key_set combined from key_code, mouse button, act (release/press/repeat/continuous/double_press), and mode (shift/ctrl/alt/super modifiers). Explain key_mapping_interface (src/gui/core/input/key_binding.ixx, ~line 182): plf::hive-based sparse binding storage, state tracking (pressed/repeating/released), double-click detection (30-tick window), continuous trigger, pos_binding for cursor/scroll/velocity, inbound_binding. Detail key_mapping<ParamTy...> template with contextual parameters. Cover key_mapping_manager — the hierarchical stack of input contexts enabling modal key-binding switching. Show how custom input handlers are registered and how the manager resolves bindings through the stack.",
+      "parent": "Event and Interaction System"
+    },
+    {
+      "title": "Element Tree Infrastructure",
+      "purpose": "Document the core element infrastructure beyond events. Cover elem_ptr (src/gui/core/infrastructure/elem_ptr.ixx) — the shared pointer ownership model for the element tree. Detail object_pool (src/gui/core/infrastructure/object_pool.ixx) for fast allocation. Cover overlay_manager (overlay_manager.ixx) and tooltip_manager (tooltip_manager.ixx) for floating UI. Explain async task dispatch (elem_async_task.ixx) and cursor management (cursor.ixx, cursor_states). Detail elem lifecycle: constructor, display state changes, layout propagation, draw recording, and destruction. Cover the font system integration (src/font/) and how text elements interact with layout and drawing.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Backend Stack and Platform Integration",
+      "purpose": "Document the backend architecture: universal/ (main_loop.ixx — frame scheduling with thread_sync_controller, real-time priority jthread), vulkan/ (renderer_v2.ixx, pipeline_manager.ixx, attachment_manager.ixx — the full Vulkan backend), vulkan_glfw/ (glfw_instance.ixx, window.ixx, window.callback.ixx, communicator.ixx — GLFW3 windowing and OS integration). Explain how the platform-surface abstraction isolates backend complexity. Cover the main_loop template (src.backends/universal/main_loop.ixx, ~line 87): UI thread management, permit_burst()/wait_term() frame pacing, scene update cycle, render dispatch. Detail communicator.ixx for clipboard, IME, cursor visibility platform services.",
+      "parent": "Architecture Overview"
+    },
+    {
+      "title": "Example Application Walkthrough",
+      "purpose": "Document the example app in src.examples/ (main.cpp, gui.assets.cpp) as the canonical integration reference. Walk through: renderer initialization, compositor graph setup (highlight extraction -> bloom -> tonemap merge), scene creation, style registration, widget tree construction, main loop. Cover how it wires all four core systems together — layout, style tree, drawing pipeline, and events — into a working application. Note the generated asset pipeline: xmake gen_slang for shaders, xmake gen_icon for icons, and build/.assets/includes/assets_summary.h auto-generation.",
+      "parent": "Architecture Overview"
+    }
+  ]
+}
