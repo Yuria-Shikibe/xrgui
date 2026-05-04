@@ -588,47 +588,52 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 					}
 				},
 				test_entry{
-					"flex wrap", [](scroll_adaptor<flex_wrap>& pane){
-						pane.set_style();
-						pane.set_overlay_bar(true);
-						pane.set_layout_spec(layout::layout_policy::none);
+					"flex wrap", [](split_pane& p){
+						p.set_layout_spec(layout::layout_policy::vert_major);
+						p.create_head([](scroll_adaptor<flex_wrap>& pane){
+							pane.set_style();
+							pane.set_overlay_bar(true);
+							pane.set_layout_spec(layout::layout_policy::none);
 
-						auto& wrap = pane.get_elem();
-						wrap.set_style();
-						wrap.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
-						wrap.set_expand_policy(layout::expand_policy::prefer);
-						wrap.set_line_spacing(12.f);
-						wrap.template_cell.set_pad(8.f);
+							auto& wrap = pane.get_elem();
+							wrap.set_style();
+							wrap.set_layout_spec(
+								layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
+							wrap.set_expand_policy(layout::expand_policy::prefer);
+							wrap.set_line_spacing(12.f);
+							wrap.template_cell.set_pad(8.f);
 
-						constexpr std::array item_sizes{
-							math::vec2{120.f, 52.f},
-							math::vec2{220.f, 72.f},
-							math::vec2{160.f, 44.f},
-							math::vec2{280.f, 96.f},
-							math::vec2{140.f, 60.f},
-							math::vec2{180.f, 80.f},
-							math::vec2{240.f, 56.f},
-							math::vec2{110.f, 68.f},
-							math::vec2{200.f, 48.f},
-							math::vec2{150.f, 88.f},
-						};
+							constexpr std::array item_sizes{
+									math::vec2{120.f, 52.f},
+									math::vec2{220.f, 72.f},
+									math::vec2{160.f, 44.f},
+									math::vec2{280.f, 96.f},
+									math::vec2{140.f, 60.f},
+									math::vec2{180.f, 80.f},
+									math::vec2{240.f, 56.f},
+									math::vec2{110.f, 68.f},
+									math::vec2{200.f, 48.f},
+									math::vec2{150.f, 88.f},
+								};
 
-						for(const auto& [idx, size] : item_sizes | std::views::enumerate){
-							auto tile = wrap.create_back([idx](label& l){
-								l.set_style(static_cast<style::family_variant>(idx % 5 + 1));
-								l.set_fit_type(label_fit_type::scl);
-								l.text_entire_align = align::pos::center;
-								l.set_text(std::format("tile {}", idx));
-							});
-							tile.cell().set_size(size);
-							if(idx % 3 == 0){
-								tile.cell().unsaturate_cell_align = align::pos::top_center;
-							} else if(idx % 3 == 1){
-								tile.cell().unsaturate_cell_align = align::pos::center;
-							} else{
-								tile.cell().unsaturate_cell_align = align::pos::bottom_center;
+							for(const auto& [idx, size] : item_sizes | std::views::enumerate){
+								auto tile = wrap.create_back([idx](label& l){
+									l.set_style(static_cast<style::family_variant>(idx % 5 + 1));
+									l.set_fit_type(label_fit_type::scl);
+									l.text_entire_align = align::pos::center;
+									l.set_text(std::format("tile {}", idx));
+								});
+								tile.cell().set_size(size);
+								if(idx % 3 == 0){
+									tile.cell().unsaturate_cell_align = align::pos::top_center;
+								} else if(idx % 3 == 1){
+									tile.cell().unsaturate_cell_align = align::pos::center;
+								} else{
+									tile.cell().unsaturate_cell_align = align::pos::bottom_center;
+								}
 							}
-						}
+						});
+						p.create_body([](elem&){});
 					}
 				},
 				test_entry{

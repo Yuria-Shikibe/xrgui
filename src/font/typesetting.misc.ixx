@@ -378,7 +378,7 @@ export struct layout_config{
 	math::optional_vec2<float> default_font_size{math::nullopt_vec2<float>};
 	linefeed_type line_feed_type;
 	float tab_scale = 4.f;
-	float line_spacing_scale = 1.5f;
+	float line_spacing_scale = 1.1f;
 	float line_spacing_fixed_distance = 0.f;
 	char32_t wrap_indicator_char = U'\u2925';
 	math::optional_vec2<float> screen_ppi{math::nullopt_vec2<float>};

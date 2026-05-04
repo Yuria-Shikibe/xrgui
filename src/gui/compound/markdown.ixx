@@ -1,3 +1,5 @@
+module;
+#include <cassert>
 export module mo_yanxi.gui.markdown;
 
 import std;
@@ -84,19 +86,23 @@ export struct table {
 	std::vector<table_cell> cells{};
 
 	auto get_grid() noexcept {
+		assert(cells.size() == static_cast<std::size_t>(rows) * cols);
 		return std::mdspan(cells.data(), rows, cols);
 	}
 
 	auto get_grid() const noexcept {
+		assert(cells.size() == static_cast<std::size_t>(rows) * cols);
 		return std::mdspan(cells.data(), rows, cols);
 	}
 
 	std::span<table_cell> get_row(std::uint32_t row_idx) {
+		assert(cells.size() == static_cast<std::size_t>(rows) * cols);
 		if(row_idx >= rows) return {};
 		return std::span<table_cell>(cells.data() + row_idx * cols, cols);
 	}
 
 	std::span<const table_cell> get_row(std::uint32_t row_idx) const {
+		assert(cells.size() == static_cast<std::size_t>(rows) * cols);
 		if(row_idx >= rows) return {};
 		return std::span<const table_cell>(cells.data() + row_idx * cols, cols);
 	}
@@ -131,6 +137,9 @@ public:
 
 private:
 	std::u32string_view input_data_;
+
+	static constexpr std::size_t max_block_depth = 128;
+	static constexpr std::size_t max_inline_depth = 64;
 
 	static constexpr bool is_blank_line(std::u32string_view line) noexcept {
 		return std::ranges::all_of(line, [](char32_t c) {
@@ -198,6 +207,25 @@ private:
 			}
 		}
 		return result;
+	}
+
+	static constexpr bool needs_line_break_normalize(std::u32string_view content) noexcept {
+		for(std::size_t i = 0; i < content.size(); ++i) {
+			char32_t c = content[i];
+			if(c == U'\r') return true;
+			if(c == U'\n') {
+				if(i > 0 && content[i - 1] == U'\\') return true;
+				std::size_t j = i;
+				std::size_t space_count = 0;
+				while(j > 0 && space_count < 2) {
+					--j;
+					if(content[j] == U' ') ++space_count;
+					else break;
+				}
+				if(space_count >= 2) return true;
+			}
+		}
+		return false;
 	}
 
 	static constexpr std::size_t count_leading_spaces(std::u32string_view line) noexcept {
@@ -274,6 +302,34 @@ private:
 		auto header_cells = split_table_cells(line1);
 		auto divider_cells = split_table_cells(line2);
 		return !header_cells.empty() && header_cells.size() == divider_cells.size();
+	}
+
+	struct table_preparse_result {
+		bool valid{};
+		std::vector<std::u32string_view> header_cells;
+		std::vector<table_align> alignments;
+		std::size_t divider_line_end{};
+	};
+
+	constexpr table_preparse_result preparse_table_header(std::u32string_view text_block, std::size_t current_pos) const noexcept {
+		table_preparse_result result;
+		std::size_t line1_end = text_block.find(U'\n', current_pos);
+		if(line1_end == std::u32string_view::npos) return result;
+		std::u32string_view line1 = text_block.substr(current_pos, line1_end - current_pos);
+		if(!is_table_row(line1) || is_table_divider(line1)) return result;
+		std::size_t line2_start = line1_end + 1;
+		std::size_t line2_end = text_block.find(U'\n', line2_start);
+		if(line2_end == std::u32string_view::npos) line2_end = text_block.size();
+		std::u32string_view line2 = text_block.substr(line2_start, line2_end - line2_start);
+		if(!is_table_divider(line2)) return result;
+		auto header_cells = split_table_cells(line1);
+		auto divider_cells = split_table_cells(line2);
+		if(header_cells.empty() || header_cells.size() != divider_cells.size()) return result;
+		result.header_cells = std::move(header_cells);
+		result.alignments = parse_table_alignments(divider_cells);
+		result.divider_line_end = line2_end;
+		result.valid = true;
+		return result;
 	}
 
 	static constexpr std::vector<std::u32string_view> split_table_cells(std::u32string_view line) {
@@ -369,7 +425,8 @@ private:
 		return line.starts_with(U">");
 	}
 
-	constexpr node_list parse_blocks(std::u32string_view text_block, std::size_t base_pos) const {
+	constexpr node_list parse_blocks(std::u32string_view text_block, std::size_t base_pos, std::size_t depth = 0) const {
+		if(depth >= max_block_depth) return {};
 		node_list blocks;
 		std::size_t current_pos = 0;
 
@@ -409,15 +466,15 @@ private:
 				std::size_t block_end = text_block.find(U"\n```", line_end);
 
 				code_block cb_node;
-				cb_node.language.assign(lang.begin(), lang.end());
+				cb_node.language = lang;
 
 				if(block_end != std::u32string_view::npos) {
 					auto content = text_block.substr(line_end + 1, block_end - (line_end + 1));
-					cb_node.content.assign(content.begin(), content.end());
-					current_pos = std::min(block_end + 4, text_block.size());
-				} else {
-					auto content = text_block.substr(std::min(line_end + 1, text_block.size()));
-					cb_node.content.assign(content.begin(), content.end());
+				cb_node.content = content;
+				current_pos = std::min(block_end + 4, text_block.size());
+			} else {
+				auto content = text_block.substr(std::min(line_end + 1, text_block.size()));
+				cb_node.content = content;
 					current_pos = text_block.size();
 				}
 				blocks.push_back(ast_node{current_abs_pos, std::move(cb_node)});
@@ -446,7 +503,7 @@ private:
 				}
 
 				blockquote quote_node;
-				quote_node.children = parse_blocks(content, quote_start);
+				quote_node.children = parse_blocks(content, quote_start, depth + 1);
 				blocks.push_back(ast_node{quote_start, std::move(quote_node)});
 				current_pos = scan_pos;
 				continue;
@@ -499,7 +556,7 @@ private:
 					}
 
 					list_item item;
-					item.blocks = parse_blocks(item_content, item_abs_pos + item_marker.indent + item_marker.marker_width);
+					item.blocks = parse_blocks(item_content, item_abs_pos + item_marker.indent + item_marker.marker_width, depth + 1);
 					list_node.items.push_back(std::move(item));
 					scan_pos = next_pos;
 				}
@@ -509,48 +566,41 @@ private:
 				continue;
 			}
 
-			if(is_table_start(text_block, current_pos)) {
-				table tbl_node;
-				bool has_divider = false;
-				std::size_t scan_pos = current_pos;
+		if(auto ppt = preparse_table_header(text_block, current_pos); ppt.valid) {
+			table tbl_node;
+			tbl_node.cols = static_cast<std::uint32_t>(ppt.header_cells.size());
+			tbl_node.alignments = std::move(ppt.alignments);
 
-				while(scan_pos < text_block.size()) {
-					std::size_t next_line_end = text_block.find(U'\n', scan_pos);
-					if(next_line_end == std::u32string_view::npos) next_line_end = text_block.size();
-
-					std::u32string_view scan_line = text_block.substr(scan_pos, next_line_end - scan_pos);
-					if(!is_table_row(scan_line)) break;
-
-					if(!has_divider && is_table_divider(scan_line)) {
-						has_divider = true;
-						auto align_texts = split_table_cells(scan_line);
-						tbl_node.alignments = parse_table_alignments(align_texts);
-						tbl_node.alignments.resize(tbl_node.cols, table_align::none);
-						scan_pos = std::min(next_line_end + 1, text_block.size());
-						continue;
-					}
-
-					auto cells_text = split_table_cells(scan_line);
-					if(!has_divider) {
-						tbl_node.cols = static_cast<std::uint32_t>(cells_text.size());
-						tbl_node.alignments.resize(tbl_node.cols, table_align::none);
-					}
-
-					for(std::uint32_t i = 0; i < tbl_node.cols; ++i) {
-						table_cell cell;
-						if(i < cells_text.size()) {
-							cell.children = parse_inlines(cells_text[i], base_pos + static_cast<std::size_t>(cells_text[i].data() - text_block.data()));
-						}
-						tbl_node.cells.push_back(std::move(cell));
-					}
-					++tbl_node.rows;
-					scan_pos = std::min(next_line_end + 1, text_block.size());
-				}
-
-				blocks.push_back(ast_node{current_abs_pos, std::move(tbl_node)});
-				current_pos = scan_pos;
-				continue;
+			for(auto& cv : ppt.header_cells) {
+				table_cell cell;
+				cell.children = parse_inlines(cv, base_pos + static_cast<std::size_t>(cv.data() - text_block.data()));
+				tbl_node.cells.push_back(std::move(cell));
 			}
+			++tbl_node.rows;
+
+			std::size_t scan_pos = std::min(ppt.divider_line_end + 1, text_block.size());
+			while(scan_pos < text_block.size()) {
+				std::size_t next_line_end = text_block.find(U'\n', scan_pos);
+				if(next_line_end == std::u32string_view::npos) next_line_end = text_block.size();
+				std::u32string_view scan_line = text_block.substr(scan_pos, next_line_end - scan_pos);
+				if(!is_table_row(scan_line)) break;
+
+				auto cells_text = split_table_cells(scan_line);
+				for(std::uint32_t i = 0; i < tbl_node.cols; ++i) {
+					table_cell cell;
+					if(i < cells_text.size()) {
+						cell.children = parse_inlines(cells_text[i], base_pos + static_cast<std::size_t>(cells_text[i].data() - text_block.data()));
+					}
+					tbl_node.cells.push_back(std::move(cell));
+				}
+				++tbl_node.rows;
+				scan_pos = std::min(next_line_end + 1, text_block.size());
+			}
+
+			blocks.push_back(ast_node{current_abs_pos, std::move(tbl_node)});
+			current_pos = scan_pos;
+			continue;
+		}
 
 			std::size_t para_end = current_pos;
 			while(para_end < text_block.size()) {
@@ -566,20 +616,30 @@ private:
 				para_end = std::min(next_line_end + 1, text_block.size());
 			}
 
-			std::u32string_view para_content = text_block.substr(current_pos, para_end - current_pos);
-			paragraph p_node;
-			auto normalized = normalize_paragraph_line_breaks(para_content);
-			std::u32string_view normalized_view = normalized;
-			auto trimmed = trim_whitespace(normalized_view);
-			p_node.children = parse_inlines(trimmed, current_abs_pos);
-			blocks.push_back(ast_node{current_abs_pos, std::move(p_node)});
-			current_pos = para_end;
+		std::u32string_view para_content = text_block.substr(current_pos, para_end - current_pos);
+		paragraph p_node;
+		std::u32string normalize_buffer;
+		std::u32string_view content_for_inlines;
+		if(needs_line_break_normalize(para_content)) {
+			normalize_buffer = normalize_paragraph_line_breaks(para_content);
+			content_for_inlines = trim_whitespace(std::u32string_view{normalize_buffer});
+		} else {
+			content_for_inlines = trim_whitespace(para_content);
+		}
+		p_node.children = parse_inlines(content_for_inlines, current_abs_pos);
+		blocks.push_back(ast_node{current_abs_pos, std::move(p_node)});
+		current_pos = para_end;
 		}
 
 		return blocks;
 	}
 
-	constexpr node_list parse_inlines(std::u32string_view inline_text, std::size_t base_pos) const {
+	constexpr node_list parse_inlines(std::u32string_view inline_text, std::size_t base_pos, std::size_t depth = 0) const {
+		if(depth >= max_inline_depth) {
+			text t_node;
+			t_node.content.assign(inline_text.begin(), inline_text.end());
+			return {ast_node{base_pos, std::move(t_node)}};
+		}
 		node_list inlines;
 		std::size_t current_pos = 0;
 		std::size_t text_start = 0;
@@ -621,12 +681,12 @@ private:
 				if(end_star != std::u32string_view::npos) {
 					std::u32string_view inner_content = inline_text.substr(current_pos + offset, end_star - current_pos - offset);
 					if(is_strong) {
-						strong_emphasis se_node;
-						se_node.children = parse_inlines(inner_content, current_abs_pos + offset);
-						inlines.push_back(ast_node{current_abs_pos, std::move(se_node)});
-					} else {
-						emphasis e_node;
-						e_node.children = parse_inlines(inner_content, current_abs_pos + offset);
+				strong_emphasis se_node;
+				se_node.children = parse_inlines(inner_content, current_abs_pos + offset, depth + 1);
+				inlines.push_back(ast_node{current_abs_pos, std::move(se_node)});
+			} else {
+				emphasis e_node;
+				e_node.children = parse_inlines(inner_content, current_abs_pos + offset, depth + 1);
 						inlines.push_back(ast_node{current_abs_pos, std::move(e_node)});
 					}
 					current_pos = end_star + offset;
@@ -643,7 +703,7 @@ private:
 						flush_text();
 						image img_node;
 						std::u32string_view alt_content = inline_text.substr(current_pos + 2, end_bracket - current_pos - 2);
-						img_node.alt = parse_inlines(alt_content, current_abs_pos + 2);
+						img_node.alt = parse_inlines(alt_content, current_abs_pos + 2, depth + 1);
 						auto url = inline_text.substr(end_bracket + 2, end_paren - end_bracket - 2);
 						img_node.url.assign(url.begin(), url.end());
 						inlines.push_back(ast_node{current_abs_pos, std::move(img_node)});
@@ -662,7 +722,7 @@ private:
 						flush_text();
 						link l_node;
 						std::u32string_view title_content = inline_text.substr(current_pos + 1, end_bracket - current_pos - 1);
-						l_node.children = parse_inlines(title_content, current_abs_pos + 1);
+						l_node.children = parse_inlines(title_content, current_abs_pos + 1, depth + 1);
 						auto url = inline_text.substr(end_bracket + 2, end_paren - end_bracket - 2);
 						l_node.url.assign(url.begin(), url.end());
 						inlines.push_back(ast_node{current_abs_pos, std::move(l_node)});

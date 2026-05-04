@@ -25,7 +25,6 @@ enum variants{
 	none,
 	code_block,
 	quote,
-	seperator
 };
 }
 
@@ -37,7 +36,7 @@ export struct markdown_config {
 	graphic::color quote_bg_color{0.08f, 0.13f, 0.18f, 0.80f};
 	graphic::color quote_text_color{0.78f, 0.84f, 0.92f, 1.0f};
 	graphic::color bullet_color{0.72f, 0.74f, 0.78f, 1.0f};
-	float block_pad{8.f};
+	float block_pad{12.f};
 	float heading_pad{10.f};
 	float table_pad{4.f};
 
@@ -56,6 +55,19 @@ export struct markdown_config {
 
 	float to_px(float pt) const noexcept {
 		return typesetting::glyph_size::get_glyph_std_size_at(pt, ppi).x;
+	}
+
+	float body_font_size_px() const noexcept {
+		return to_px(body_font_size);
+	}
+
+	float code_block_font_size_px() const noexcept {
+		return to_px(code_block_font_size);
+	}
+
+	float heading_size_px(std::uint32_t level) const noexcept {
+		auto idx = std::min<std::size_t>(level - 1, heading_sizes.size() - 1);
+		return to_px(heading_sizes[idx]);
 	}
 };
 
@@ -114,14 +126,10 @@ std::u32string escape_rich_text_literal(std::u32string_view text) {
 }
 
 std::u32string color_tag(const graphic::color& color) {
-	auto to_u8 = [](float v) {
-		return static_cast<unsigned>(std::clamp(std::lround(v * 255.f), 0l, 255l));
-	};
-
-	//TODO use color's own formatter
-	std::u32string out;
-	append_utf8(out, std::format("{{c:#{:02X}{:02X}{:02X}{:02X}}}",
-		to_u8(color.r), to_u8(color.g), to_u8(color.b), to_u8(color.a)));
+	auto hex = std::format("{:#a}", color);
+	std::u32string out{U"{c:"};
+	append_utf8(out, hex);
+	out += U'}';
 	return out;
 }
 
@@ -165,10 +173,7 @@ struct markdown_separator : elem {
 struct md_table : gui::grid {
 	markdown_config config_{};
 
-	[[nodiscard]] md_table(scene& scene, elem* parent,
-		math::vector2<grid_dim_spec>&& extent_spec,
-		std::uint32_t num_cols, std::uint32_t num_rows)
-		: grid(scene, parent, std::move(extent_spec)){}
+	using grid::grid;
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override {
 		call_stack_builder.push_call_noop(*this, [](const md_table& t, const draw_call_param& p) static {
@@ -343,6 +348,12 @@ struct inline_renderer {
 		std::visit([&](const auto& val) { append(out, val); }, node.data);
 	}
 
+	void append_children_to(std::u32string& out, const md::node_list& nodes) const {
+		for(const md::ast_node& node : nodes) {
+			append_node(out, node);
+		}
+	}
+
 	void append(std::u32string& out, const md::text& node) const {
 		append_u32(out, node.content);
 	}
@@ -394,14 +405,16 @@ direct_label& setup_label_base(direct_label& label, const markdown_config& confi
 	label.text_entire_align = align::pos::top_left;
 
 	typesetting::layout_config typeset = {};
-	typeset.default_font_size = math::vec2{config.to_px(config.body_font_size), config.to_px(config.body_font_size)};
+	auto body_px = config.body_font_size_px();
+	typeset.default_font_size = math::vec2{body_px, body_px};
 	label.set_typesetting_config(typeset);
 	return label;
 }
 
 void apply_code_font(direct_label& label, const markdown_config& config) {
 	typesetting::layout_config typeset = {};
-	typeset.default_font_size = math::vec2{config.to_px(config.code_block_font_size), config.to_px(config.code_block_font_size)};
+	auto code_px = config.code_block_font_size_px();
+	typeset.default_font_size = math::vec2{code_px, code_px};
 	if(font::default_font_manager) {
 		typeset.rich_text_fallback_style.family = font::default_font_manager->find_family(std::string_view{"mono"});
 	}
@@ -420,14 +433,6 @@ create_handle<direct_label, sequence::cell_type> append_rich_label(
 	hdl.cell().set_pending();
 	hdl.cell().set_pad({config.block_pad, config.block_pad});
 	return hdl;
-}
-
-create_handle<direct_label, sequence::cell_type> append_rich_label(
-	sequence& parent,
-	const std::u32string_view text,
-	const markdown_config& config
-) {
-	return append_rich_label(parent, std::u32string{text}, config);
 }
 
 create_handle<direct_label, sequence::cell_type> append_raw_label(
@@ -479,6 +484,7 @@ sequence& append_block_container(sequence& parent, const markdown_config& config
 void build_blocks(sequence& parent, const md::node_list& nodes, const markdown_config& config, std::uint32_t depth = 0);
 
 void build_list(sequence& parent, const md::list& node, const markdown_config& config, std::uint32_t depth = 0) {
+	if(depth > 128) return;
 	const auto item_count = static_cast<std::uint32_t>(node.items.size());
 	if(item_count == 0) return;
 
@@ -495,6 +501,7 @@ void build_list(sequence& parent, const md::list& node, const markdown_config& c
 
 	// Row spec: [pending] * item_count
 	grid_mixed row_spec;
+	row_spec.heads.reserve(static_cast<std::size_t>(item_count) * 2);
 	for(std::uint32_t i = 0; i < item_count; ++i){
 		row_spec.heads.push_back({
 			layout::stated_size{layout::size_category::mastering, 60},
@@ -583,16 +590,18 @@ void build_table(sequence& parent, const md::table& node, const markdown_config&
 	auto table_hdl = parent.create_back([&](scroll_adaptor<md_table>& s) {
 		s.set_layout_spec(layout::layout_policy::vert_major);
 		s.set_expand_policy(layout::expand_policy::resize_to_fit);
+		s.set_overlay_bar(true);
+		s.set_style();
 
 		auto& tbl = s.get_elem();
+		tbl.set_style();
+		tbl.set_extent_spec(math::vector2<grid_dim_spec>{
+		   grid_all_pending{num_cols, {config.table_pad, config.table_pad}},
+		   grid_all_pending{num_rows, {config.table_pad, config.table_pad}}
+	   });
 		tbl.set_expand_policy(layout::expand_policy::resize_to_fit);
 		tbl.config_ = config;
-		// tbl.set_style();
-	}, layout::layout_specifier::fixed(layout::layout_policy::vert_major),
-	   math::vector2<grid_dim_spec>{
-		   grid_all_pending{num_cols, {config.table_pad, config.table_pad}},
-	   	grid_all_pending{num_rows, {config.table_pad, config.table_pad}}
-	   });
+	}, layout::layout_specifier::fixed(layout::layout_policy::vert_major));
 
 	table_hdl.cell().set_pending();
 	table_hdl.cell().set_pad({config.block_pad, config.block_pad});
@@ -605,7 +614,7 @@ void build_table(sequence& parent, const md::table& node, const markdown_config&
 		for(std::uint32_t c = 0; c < num_cols; ++c) {
 			auto text = render(row[c].children);
 			if(r == 0)
-				text = rich_size_wrap(std::move(text), config.to_px(config.body_font_size), true);
+				text = rich_size_wrap(std::move(text), config.body_font_size_px(), true);
 
 			auto cell_hdl = tbl.get_elem().create_back([&](direct_label& label) {
 				label.set_self_boarder(gui::boarder{}.set(4));
@@ -635,18 +644,19 @@ void build_table(sequence& parent, const md::table& node, const markdown_config&
 }
 
 void build_blockquote(sequence& parent, const md::blockquote& node, const markdown_config& config, std::uint32_t depth = 0) {
+	if(depth > 128) return;
 	std::u32string combined;
 	inline_renderer render{config};
 	bool all_paragraph_like = true;
 	for(const auto& child : node.children) {
 		if(const auto* para = std::get_if<md::paragraph>(&child.data)) {
 			if(!combined.empty()) combined += U"\n\n";
-			combined += render(para->children);
+			render.append_children_to(combined, para->children);
 			continue;
 		}
 		if(const auto* heading = std::get_if<md::heading>(&child.data)) {
 			if(!combined.empty()) combined += U"\n\n";
-			combined += render(heading->children);
+			render.append_children_to(combined, heading->children);
 			continue;
 		}
 		all_paragraph_like = false;
@@ -663,6 +673,7 @@ void build_blockquote(sequence& parent, const md::blockquote& node, const markdo
 }
 
 void build_blocks(sequence& parent, const node_list& nodes, const markdown_config& config, std::uint32_t depth) {
+	if(depth > 128) return;
 	inline_renderer render{config};
 
 	for(const ast_node& node : nodes) {
@@ -673,9 +684,9 @@ void build_blocks(sequence& parent, const node_list& nodes, const markdown_confi
 					append_rich_label(parent, std::move(text), config);
 				}
 			},
-			[&](const heading& val){
-				auto text = rich_size_wrap(render(val.children), config.to_px(config.heading_sizes[std::min<std::size_t>(val.level - 1, config.heading_sizes.size() - 1)]), true);
-				auto hdl = append_rich_label(parent, text, config);
+		[&](const heading& val){
+			auto text = rich_size_wrap(render(val.children), config.heading_size_px(val.level), true);
+			auto hdl = append_rich_label(parent, std::move(text), config);
 				hdl.cell().set_pad({config.heading_pad, config.heading_pad});
 			},
 			[&](const code_block& val){

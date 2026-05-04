@@ -430,6 +430,14 @@ public:
 	[[nodiscard]] grid(scene& scene, elem* parent, math::vector2<grid_dim_spec>&& extent_spec)
 	: universal_group(scene, parent), extent_spec_(std::move(extent_spec)){}
 
+	void set_extent_spec(math::vector2<grid_dim_spec>&& extent_spec){
+		extent_spec_ = std::move(extent_spec);
+		need_relayout_head_ = true;
+		cell_layout_state_.clear();
+		grid_table_head_.clear();
+		notify_isolated_layout_changed();
+	}
+
 	[[nodiscard]] math::usize2 grid_extent() const noexcept{
 		return {extent_spec_.x.size(), extent_spec_.y.size()};
 	}
@@ -774,6 +782,12 @@ private:
 			}
 			grid_table_head_[columns + row] = pending_height + extent_spec_.y.pad_at(row).length();
 			pending_rows_total_content_height += pending_height;
+		}
+		if(row_span[0].pending()){
+			grid_table_head_[columns] -= rPrev;
+		}
+		if(row_span[rows - 1].pending()){
+			grid_table_head_.back() -= rPost;
 		}
 		mastering_size.y += pending_rows_total_content_height;
 

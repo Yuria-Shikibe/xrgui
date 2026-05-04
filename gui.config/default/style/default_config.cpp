@@ -143,24 +143,23 @@ mo_yanxi::gui::example::make_style_result mo_yanxi::gui::example::make_styles(sc
 			auto [itr, suc] = slice.insert_or_assign("markdown", style::style_tree_family{});
 			itr->second.set(md::styles::code_block, style::make_tree_node_ptr(e.make_base_only()));
 
-			static constexpr auto quote_bar_color = graphic::color{0.40f, 0.68f, 1.0f, 1.0f};
-			static constexpr auto quote_bg_color  = graphic::color{0.08f, 0.13f, 0.18f, 0.80f};
+			static constexpr auto quote_bar_color = graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .3f);
+			static constexpr auto quote_bg_color  = graphic::colors::dark_gray.copy_set_a(.5f);
 			static constexpr float quote_bar_width = 6.f;
 
 			itr->second.set(md::styles::quote, style::make_tree_node_ptr(
 				style::tree_tuple_fork{
-					style::layer_router{
-						style_config{0b10},
-						style::tree_leaf{style::primitives::draw_filled_rect{quote_bg_color}}
-					},
-					style::layer_router{
-						style_config{0b01},
-						style::tree_scope{
-							style::bounds::bounds_side_strip{style::bounds::side_dir::left, quote_bar_width},
-							nullptr,
-							style::tree_leaf{style::primitives::draw_filled_rect{quote_bar_color}}
+					style::tree_direct{style::layer_router{
+						style_config{0b1},
+						style::tree_tuple_fork{
+							style::tree_leaf{style::primitives::draw_filled_rect{quote_bg_color}},
+							style::tree_scope{
+								style::bounds::bounds_side_strip{style::bounds::side_dir::left, quote_bar_width},
+								nullptr,
+								style::tree_leaf{style::primitives::draw_filled_rect{quote_bar_color}}
+							}
 						}
-					},
+					}},
 					style::tree_metrics_leaf{
 						style::bounds::side_strip_inset{style::bounds::side_dir::left, quote_bar_width},
 						std::in_place_type<elem>

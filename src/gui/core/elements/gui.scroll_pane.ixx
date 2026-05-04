@@ -580,12 +580,20 @@ protected:
 
 		auto sz = adaptor_pre_acq_size(childBound);
 		if(!sz) return std::nullopt;
+		const float intrinsic_major = (*sz).*major;
+		const float intrinsic_minor = (*sz).*minor;
 
 		if(expand_policy_ == layout::expand_policy::prefer){
 			if(auto pref = get_prefer_content_extent()){
 				auto& szVal = *sz;
 				szVal.*major = std::max(szVal.*major, (*pref).*major);
 			}
+		}
+
+		if(bar_caps_size && !overlay_scroll_bars_ && intrinsic_minor > content_extent().*minor){
+			auto& szVal = *sz;
+			const float major_spare = std::fdim(szVal.*major, intrinsic_major);
+			szVal.*major += math::clamp_positive(scroll_bar_stroke_ - major_spare);
 		}
 
 		return *sz + boarder_extent();
@@ -677,14 +685,19 @@ private:
 					}
 				} else{
 					if(sz.*major > content_extent().*major){
-						if(bound.get_pending().*depMajor){
-							need_self_relayout = true;
-						} else{
-							float newMinor = math::clamp_positive(bound.potential_extent().*minor - bar_occupied_size);
-							bound.set_minor(policy, newMinor);
-							need_elem_relayout = true;
-							if(policy == layout_policy::hori_major) force_hori_scroll_enabled_ = true;
-							else force_vert_scroll_enabled_ = true;
+						const float minor_spare = std::fdim(content_extent().*minor, sz.*minor);
+						const float bar_minor_shortage = math::clamp_positive(bar_occupied_size - minor_spare);
+						if(policy == layout_policy::hori_major) force_hori_scroll_enabled_ = true;
+						else force_vert_scroll_enabled_ = true;
+
+						if(bar_minor_shortage > 0.0f){
+							if(bound.get_pending().*depMajor){
+								need_self_relayout = true;
+							} else{
+								float newMinor = math::clamp_positive(bound.potential_extent().*minor - bar_minor_shortage);
+								bound.set_minor(policy, newMinor);
+								need_elem_relayout = true;
+							}
 						}
 					}
 				}
@@ -715,8 +728,12 @@ private:
 				const float bar_occupied_size = overlay_scroll_bars_ ? 0.0f : scroll_bar_stroke_;
 
 				if(elemSz.*major > content_extent().*major){
-					elemSz.*minor = content_extent().*minor;
-					elemSz.*major += static_cast<float>(bar_caps_size) * bar_occupied_size;
+					const float minor_spare = std::fdim(content_extent().*minor, elemSz.*minor);
+					const float bar_minor_shortage = math::clamp_positive(bar_occupied_size - minor_spare);
+					if(bar_minor_shortage > 0.0f){
+						elemSz.*minor = content_extent().*minor;
+						elemSz.*major += static_cast<float>(bar_caps_size) * bar_minor_shortage;
+					}
 				}
 
 				elemSz += boarder().extent();
