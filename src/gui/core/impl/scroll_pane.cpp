@@ -127,8 +127,14 @@ namespace mo_yanxi::gui{
 		util::update_insert(
 			*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 		auto cmp = -e.delta;
-		if(input_handle::matched(e.mode, input_handle::mode::shift) || (is_hori_scroll_enabled() && !
-			is_vert_scroll_enabled())){
+		const bool should_swap_for_shift = input_handle::matched(e.mode, input_handle::mode::shift);
+		const bool should_swap_for_hori_only = is_hori_scroll_enabled()
+			&& !is_vert_scroll_enabled()
+			// Preserve native horizontal wheel / touchpad input. Only reinterpret vertical wheel
+			// delta as horizontal scrolling when there is no horizontal delta available.
+			&& std::abs(cmp.x) <= 0.001f
+			&& std::abs(cmp.y) > 0.001f;
+		if(should_swap_for_shift || should_swap_for_hori_only){
 			cmp.swap_xy();
 		}
 

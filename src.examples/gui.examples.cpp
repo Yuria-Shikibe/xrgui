@@ -562,6 +562,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 							e.set_expand_policy(layout::expand_policy::passive);
 							e.template_cell.set_size({layout::size_category::scaling});
 							e.template_cell.set_pad({4, 4});
+							util::sync_set_elem_style(e, style::family_variant::accepted);
 							e.emplace_back<elem>();
 							e.emplace_back<elem>();
 							e.emplace_back<elem>();
@@ -589,6 +590,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 				},
 				test_entry{
 					"flex wrap", [](split_pane& p){
+						p.set_expand_policy(layout::expand_policy::passive);
 						p.set_layout_spec(layout::layout_policy::vert_major);
 						p.create_head([](scroll_adaptor<flex_wrap>& pane){
 							pane.set_style();
@@ -596,10 +598,9 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 							pane.set_layout_spec(layout::layout_policy::none);
 
 							auto& wrap = pane.get_elem();
-							wrap.set_style();
-							wrap.set_layout_spec(
-								layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
-							wrap.set_expand_policy(layout::expand_policy::prefer);
+							// wrap.set_style();
+							wrap.set_layout_spec(layout::layout_policy::hori_major);
+							wrap.set_expand_policy(layout::expand_policy::resize_to_fit);
 							wrap.set_line_spacing(12.f);
 							wrap.template_cell.set_pad(8.f);
 

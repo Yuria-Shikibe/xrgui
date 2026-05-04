@@ -128,32 +128,48 @@ private:
 			return self.parent_ref<sequence, true>().parent_ref<numeric_input_area<T>, true>();
 		}
 
-		events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-			if(!is_disabled() && event.key.on_release() && event.within_elem(*this)){
-				numeric_input_area& area = get_area();
-				auto current = area.get_current_value();
-				auto step = area.move_step_;
+			events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+				if(!is_disabled() && event.key.on_release() && event.within_elem(*this)){
+					numeric_input_area& area = get_area();
+					auto current = area.get_current_value();
+					auto step = area.move_step_;
 
-				value_type next_val = current;
+					value_type next_val = current;
 
-				if(decr_){
-					// 防下溢处理（针对无符号整数 std::uint32_t 等）并结合 from 钳制
-					if (current >= step && (current - step) >= area.valid_rng.from) {
-						next_val = current - step;
-					} else {
-						next_val = area.valid_rng.from;
+					if(decr_){
+						if constexpr (std::is_signed_v<value_type>) {
+							if (step > 0 && current >= area.valid_rng.from + step) {
+								next_val = current - step;
+							} else {
+								next_val = area.valid_rng.from;
+							}
+						} else {
+							// 无符号整数需要先判断再做减法，避免回绕
+							if (current >= step && (current - step) >= area.valid_rng.from) {
+								next_val = current - step;
+							} else {
+								next_val = area.valid_rng.from;
+							}
+						}
+					}else{
+						if constexpr (std::is_signed_v<value_type>) {
+							if (step > 0 && current <= area.valid_rng.to - step) {
+								next_val = current + step;
+							} else {
+								next_val = area.valid_rng.to;
+							}
+						} else {
+							// 无符号整数减法前先判断，避免 to - current 下溢
+							if ((area.valid_rng.to - current) >= step) {
+								next_val = current + step;
+							} else {
+								next_val = area.valid_rng.to;
+							}
+						}
 					}
-				}else{
-					// 防上溢处理并结合 to 钳制
-					if ((area.valid_rng.to - current) >= step) {
-						next_val = current + step;
-					} else {
-						next_val = area.valid_rng.to;
-					}
+
+					area.set_value(next_val);
 				}
-
-				area.set_value(next_val);
-			}
 			return events::op_afterwards::intercepted;
 		}
 	};

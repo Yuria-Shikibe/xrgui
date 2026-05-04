@@ -222,17 +222,17 @@ public:
 	[[nodiscard]] bool is_hori_scroll_active() const noexcept{
 		float effective_w = content_width();
 		if(!overlay_scroll_bars_ && (item_extent_cache_.y > content_height())){
-			effective_w -= scroll_bar_stroke_;
+			effective_w = math::fdim(effective_w, scroll_bar_stroke_);
 		}
-		return item_extent_cache_.x > math::max(0.0f, effective_w);
+		return item_extent_cache_.x > effective_w;
 	}
 
 	[[nodiscard]] bool is_vert_scroll_active() const noexcept{
 		float effective_h = content_height();
 		if(!overlay_scroll_bars_ && (item_extent_cache_.x > content_width())){
-			effective_h -= scroll_bar_stroke_;
+			effective_h = math::fdim(effective_h, scroll_bar_stroke_);
 		}
-		return item_extent_cache_.y > math::max(0.0f, effective_h);
+		return item_extent_cache_.y > effective_h;
 	}
 
 	[[nodiscard]] math::vec2 scrollable_extent() const noexcept{
@@ -465,14 +465,14 @@ public:
 					return {
 							.current_subject = &s,
 							.draw_bound = p.draw_bound.copy().move(s.scroll_.temp),
-							.opacity_scl = p.opacity_scl,
+							.opacity_scl = util::get_final_draw_opacity(s, p),
 							.layer_param = p.layer_param
 						};
 				} else{
 					return {
 							.current_subject = &s,
 							.draw_bound = p.draw_bound,
-							.opacity_scl = p.opacity_scl,
+							.opacity_scl = util::get_final_draw_opacity(s, p),
 							.layer_param = p.layer_param
 						};
 				}

@@ -143,7 +143,7 @@ struct draw_round_slider{
 		element.renderer() << fx::nine_patch_draw<&image_nine_region::get_row_coords_scaled>{
 			.patch = &entry.handle_shape,
 			.region = {pos2, extent},
-			.color = color.mul(1.05f),
+			.color = color.mul(1.05f).mul_a(.5f),
 		};
 	}
 };
