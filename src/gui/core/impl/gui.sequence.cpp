@@ -74,7 +74,7 @@ namespace mo_yanxi::gui{
 
 
 std::optional<math::vec2> sequence::pre_acquire_size_impl(layout::optional_mastering_extent extent){
-	switch(policy_){
+	switch(policy_.self()){
 	case layout::layout_policy::hori_major :{
 		if(extent.width_pending()) return std::nullopt;
 		break;

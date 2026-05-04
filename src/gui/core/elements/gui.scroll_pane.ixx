@@ -55,6 +55,7 @@ protected:
 	math::vec2 saved_scroll_ratio_{};
 
 	layout::layout_specifier layout_policy_{layout::layout_specifier::fixed(layout::layout_policy::hori_major)};
+	layout::expand_policy expand_policy_{layout::expand_policy::passive};
 	bool bar_caps_size{true};
 	bool force_hori_scroll_enabled_{false};
 	bool force_vert_scroll_enabled_{false};
@@ -115,6 +116,16 @@ public:
 		return layout_policy_;
 	}
 
+	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
+		return expand_policy_;
+	}
+
+	void set_expand_policy(layout::expand_policy policy){
+		if(util::try_modify(expand_policy_, policy)){
+			notify_isolated_layout_changed();
+		}
+	}
+
 	[[nodiscard]] float get_scroll_bar_stroke() const noexcept{
 		return scroll_bar_stroke_;
 	}
@@ -139,27 +150,22 @@ public:
 
 	events::op_afterwards on_scroll(const events::scroll e, std::span<elem* const> aboves) override;
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		if(event.key.action == input_handle::act::release){
-			scroll_.apply();
-			saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
-		}
-
-		return elem::on_click(event, aboves);
-	}
 
 	events::op_afterwards on_drag(const events::drag e) override;
+
+public:
+
 #pragma endregion
 
 
 
+protected:
 
 	[[nodiscard]] bool parent_contain_constrain(math::vec2 relative_pos) const noexcept final{
 		return rect{tags::from_extent, content_src_pos_rel(), get_viewport_extent()}.contains_loose(relative_pos) &&
 			elem::parent_contain_constrain(relative_pos);
 	}
 
-public:
 	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
 		return util::update_layout_policy_setting(
 			setting,
@@ -176,6 +182,7 @@ public:
 			}
 		);
 	}
+public:
 
 	void on_inbound_changed(bool is_inbounded, bool changed) override{
 		elem::on_inbound_changed(is_inbounded, changed);
@@ -430,15 +437,6 @@ public:
 		: scroll_adaptor(scene, parent, layout::layout_specifier::fixed(layout::layout_policy::hori_major)){
 	}
 
-	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
-		const auto changed = scroll_adaptor_base::set_layout_policy_impl(setting);
-		if(changed){
-			update_item_layout();
-			return true;
-		}
-		return setting.is_policy();
-	}
-
 	[[nodiscard]] elem_span exposed_children() const noexcept override {
 		if constexpr (is_elem_child){
 			return adaptor_children();
@@ -559,6 +557,50 @@ public:
 		return false;
 	}
 
+
+	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+		if(event.key.action == input_handle::act::release){
+			scroll_.apply();
+			saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
+		}
+
+		return elem::on_click(event, aboves);
+	}
+protected:
+	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
+		const auto policy = effective_item_layout_policy();
+		if(policy == layout::layout_policy::none || expand_policy_ == layout::expand_policy::passive)
+			return std::nullopt;
+
+		auto [major, minor] = layout::get_vec_ptr(policy);
+
+		layout::optional_mastering_extent childBound;
+		childBound.set_major_pending(policy);
+		childBound.set_minor(policy, content_extent().*minor);
+
+		auto sz = adaptor_pre_acq_size(childBound);
+		if(!sz) return std::nullopt;
+
+		if(expand_policy_ == layout::expand_policy::prefer){
+			if(auto pref = get_prefer_content_extent()){
+				auto& szVal = *sz;
+				szVal.*major = std::max(szVal.*major, (*pref).*major);
+			}
+		}
+
+		return *sz + boarder_extent();
+	}
+
+
+	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
+		const auto changed = scroll_adaptor_base::set_layout_policy_impl(setting);
+		if(changed){
+			update_item_layout();
+			return true;
+		}
+		return setting.is_policy();
+	}
+
 private:
 	[[nodiscard]] layout::layout_policy effective_item_layout_policy() const noexcept{
 		const auto policy = get_layout_policy();
@@ -587,60 +629,64 @@ private:
 			this->deduced_set_child_fill_parent(get_elem());
 		}
 
-		math::bool2 fill_mask{};
-		switch(effective_item_layout_policy()){
-		case layout::layout_policy::hori_major : fill_mask = {true, false};
-			break;
-		case layout::layout_policy::vert_major : fill_mask = {false, true};
-			break;
-		case layout::layout_policy::none : fill_mask = {false, false};
-			break;
-		default : std::unreachable();
-		}
 		using namespace layout;
+		const auto policy = effective_item_layout_policy();
+
+		math::bool2 fill_mask{};
+		if(policy == layout_policy::none){
+			fill_mask = {false, false};
+		} else{
+			auto [depMajor, depMinor] = layout::get_vec_ptr<bool>(policy);
+			if(expand_policy_ == expand_policy::passive){
+				fill_mask.*depMajor = true;
+				fill_mask.*depMinor = false;
+			} else{
+				fill_mask.*depMajor = false;
+				fill_mask.*depMinor = true;
+			}
+		}
 
 		optional_mastering_extent bound;
 		if constexpr(is_elem_child){
 			util::set_fill_parent(get_elem(), content_extent(), fill_mask, !fill_mask);
 			bound = static_cast<const elem&>(get_elem()).restriction_extent;
-			if(effective_item_layout_policy() != layout::layout_policy::none){
+			if(policy != layout::layout_policy::none){
 				adaptor_set_prefer_extent(get_viewport_extent());
 			}
 		} else{
 			bound = util::get_fill_parent_restriction(content_extent(), fill_mask, !fill_mask);
 		}
 
-		if(auto sz = adaptor_pre_acq_size(bound)){
+		if(auto szOpt = adaptor_pre_acq_size(bound)){
 			bool need_self_relayout = false;
+			auto& sz = *szOpt;
 
-			if(bar_caps_size){
+			if(bar_caps_size && policy != layout_policy::none){
 				bool need_elem_relayout = false;
 				const float bar_occupied_size = overlay_scroll_bars_ ? 0.0f : scroll_bar_stroke_;
+				auto [major, minor] = layout::get_vec_ptr(policy);
+				auto [depMajor, depMinor] = layout::get_vec_ptr<bool>(policy);
 
-				switch(effective_item_layout_policy()){
-				case layout_policy::hori_major :{
-					if(sz->y > content_height()){
-						bound.set_width(math::clamp_positive(bound.potential_width() - bar_occupied_size));
+				if(expand_policy_ == expand_policy::passive){
+					if(sz.*minor > content_extent().*minor){
+						float newMajor = math::clamp_positive(bound.potential_extent().*major - bar_occupied_size);
+						bound.set_major(policy, newMajor);
 						need_elem_relayout = true;
-						force_vert_scroll_enabled_ = true;
+						if(policy == layout_policy::hori_major) force_vert_scroll_enabled_ = true;
+						else force_hori_scroll_enabled_ = true;
 					}
-					if(bound.width_pending() && sz->x > content_width()){
-						need_self_relayout = true;
+				} else{
+					if(sz.*major > content_extent().*major){
+						if(bound.get_pending().*depMajor){
+							need_self_relayout = true;
+						} else{
+							float newMinor = math::clamp_positive(bound.potential_extent().*minor - bar_occupied_size);
+							bound.set_minor(policy, newMinor);
+							need_elem_relayout = true;
+							if(policy == layout_policy::hori_major) force_hori_scroll_enabled_ = true;
+							else force_vert_scroll_enabled_ = true;
+						}
 					}
-					break;
-				}
-				case layout_policy::vert_major :{
-					if(sz->x > content_width()){
-						bound.set_height(math::clamp_positive(bound.potential_height() - bar_occupied_size));
-						need_elem_relayout = true;
-						force_hori_scroll_enabled_ = true;
-					}
-					if(bound.height_pending() && sz->y > content_height()){
-						need_self_relayout = true;
-					}
-					break;
-				}
-				default : break;
 				}
 
 				if(need_elem_relayout){
@@ -650,32 +696,27 @@ private:
 						adaptor_set_prefer_extent(b.potential_extent());
 					}
 
-					if(auto s = adaptor_pre_acq_size(bound)) sz = s;
+					if(auto s = adaptor_pre_acq_size(bound)) szOpt = s;
 				}
 			}
 
-			adaptor_resize(*sz, propagate_mask::local | propagate_mask::child);
+			if(expand_policy_ == expand_policy::prefer && policy != layout_policy::none){
+				if(auto pref = get_prefer_content_extent()){
+					auto [major, minor] = layout::get_vec_ptr(policy);
+					sz.*major = std::max(sz.*major, (*pref).*major);
+				}
+			}
+
+			adaptor_resize(sz, propagate_mask::local | propagate_mask::child);
 
 			if(need_self_relayout){
+				auto [major, minor] = layout::get_vec_ptr(policy);
 				auto elemSz = item_extent();
 				const float bar_occupied_size = overlay_scroll_bars_ ? 0.0f : scroll_bar_stroke_;
 
-				switch(effective_item_layout_policy()){
-				case layout_policy::hori_major :{
-					if(elemSz.x > content_width()){
-						elemSz.y = content_height();
-						elemSz.x += static_cast<float>(bar_caps_size) * bar_occupied_size;
-					}
-					break;
-				}
-				case layout_policy::vert_major :{
-					if(elemSz.y > content_height()){
-						elemSz.x = content_width();
-						elemSz.y += static_cast<float>(bar_caps_size) * bar_occupied_size;
-					}
-					break;
-				}
-				default : break;
+				if(elemSz.*major > content_extent().*major){
+					elemSz.*minor = content_extent().*minor;
+					elemSz.*major += static_cast<float>(bar_caps_size) * bar_occupied_size;
 				}
 
 				elemSz += boarder().extent();
@@ -690,20 +731,28 @@ private:
 	void deduced_set_child_fill_parent(elem& element) const noexcept{
 		using namespace layout;
 		element.restriction_extent = extent_by_external;
-		switch(effective_item_layout_policy()){
-		case layout_policy::hori_major :{
-			element.set_fill_parent({true, false}, propagate_mask::none);
-			element.restriction_extent.set_width(content_width());
-			break;
+		const auto policy = effective_item_layout_policy();
+
+		if(policy == layout_policy::none){
+			element.set_fill_parent({false, false}, propagate_mask::none);
+			return;
 		}
-		case layout_policy::vert_major :{
-			element.set_fill_parent({false, true}, propagate_mask::none);
-			element.restriction_extent.set_height(content_height());
-			break;
-		}
-		case layout_policy::none : element.set_fill_parent({false, false}, propagate_mask::none);
-			break;
-		default : std::unreachable();
+
+		auto [major, minor] = layout::get_vec_ptr(policy);
+		auto [depMajor, depMinor] = layout::get_vec_ptr<bool>(policy);
+
+		if(expand_policy_ == layout::expand_policy::passive){
+			math::bool2 fill{};
+			fill.*depMajor = true;
+			fill.*depMinor = false;
+			element.set_fill_parent(fill, propagate_mask::none);
+			element.restriction_extent.set_major(policy, content_extent().*major);
+		} else{
+			math::bool2 fill{};
+			fill.*depMajor = false;
+			fill.*depMinor = true;
+			element.set_fill_parent(fill, propagate_mask::none);
+			element.restriction_extent.set_minor(policy, content_extent().*minor);
 		}
 	}
 

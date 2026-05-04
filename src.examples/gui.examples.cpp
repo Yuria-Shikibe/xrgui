@@ -37,7 +37,7 @@ import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.viewport;
 import mo_yanxi.gui.elem.check_box;
 import mo_yanxi.gui.elem.flipper;
-import mo_yanxi.gui.markdown_compound;
+import mo_yanxi.gui.md_builder;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.font;
@@ -530,6 +530,7 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 					const auto path = std::filesystem::current_path().append("assets/markdown/preview.md").make_preferred();
 						if(auto text = md::try_read_markdown_utf8_file(path)) {
 							md::append_markdown(seq, *text);
+							seq._debug_identity = 114;
 						} else {
 							seq.create_back([&](direct_label& label){
 								label.set_style();
@@ -632,7 +633,6 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 				},
 				test_entry{
 					"csv", [](cpd::data_table& table){
-						table._debug_identity = 114;
 						table.get_item() = cpd::data_table_desc::from_csv(LR"(assets/test.csv)");
 						table.notify_isolated_layout_changed();
 					}

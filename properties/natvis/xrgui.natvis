@@ -1,0 +1,616 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+
+  <!-- ====================================================================== -->
+  <!-- 1b. Utility: snap_shot<T>                                             -->
+  <!-- ====================================================================== -->
+
+  <Type Name="mo_yanxi::snap_shot&lt;mo_yanxi::math::vector2&lt;float&gt;&gt;">
+    <DisplayString Condition="base==temp">{{ temp,g } (clean)}</DisplayString>
+    <DisplayString>{{ base,g }} -&gt; {{ temp,g }} (dirty)</DisplayString>
+    <Expand>
+      <Item Name="base">base</Item>
+      <Item Name="temp">temp</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="mo_yanxi::snap_shot&lt;float&gt;">
+    <DisplayString Condition="base==temp">{{ temp }} (clean)}</DisplayString>
+    <DisplayString>{{ base }} -&gt; {{ temp }} (dirty)</DisplayString>
+    <Expand>
+      <Item Name="base">base</Item>
+      <Item Name="temp">temp</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="mo_yanxi::snap_shot&lt;*&gt;">
+    <DisplayString Condition="base==temp">{{ temp }} (clean)}</DisplayString>
+    <DisplayString>{{ base }} -&gt; {{ temp }} (dirty)</DisplayString>
+    <Expand>
+      <Item Name="base">base</Item>
+      <Item Name="temp">temp</Item>
+    </Expand>
+  </Type>
+
+  <!-- ====================================================================== -->
+  <!-- 2. Core GUI infrastructure                                             -->
+  <!-- ====================================================================== -->
+
+  <!-- clamped_size<T> -->
+
+  <Type Name="mo_yanxi::gui::clamped_size&lt;float&gt;">
+    <DisplayString>[min={minimumSize.x,g},{minimumSize.y,g} cur={size.x,g},{size.y,g} max={maximumSize.x,g},{maximumSize.y,g}]</DisplayString>
+    <Expand>
+      <Item Name="[min]">minimumSize</Item>
+      <Item Name="[cur]">size</Item>
+      <Item Name="[max]">maximumSize</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="mo_yanxi::gui::clamped_size&lt;int&gt;">
+    <DisplayString>[min={minimumSize} cur={size} max={maximumSize}]</DisplayString>
+    <Expand>
+      <Item Name="[min]">minimumSize</Item>
+      <Item Name="[cur]">size</Item>
+      <Item Name="[max]">maximumSize</Item>
+    </Expand>
+  </Type>
+
+  <!-- cursor_states -->
+
+  <Type Name="mo_yanxi::gui::cursor_states">
+    <DisplayString>{{inbound={inbound,d} focused={focused,d} pressed={pressed,d}}}</DisplayString>
+    <Expand>
+      <Item Name="inbound">inbound</Item>
+      <Item Name="focused">focused</Item>
+      <Item Name="pressed">pressed</Item>
+      <Item Name="max_duration">maximum_duration</Item>
+      <Item Name="time_inbound">time_inbound</Item>
+      <Item Name="time_focus">time_focus</Item>
+      <Item Name="time_stagnate">time_stagnate</Item>
+      <Item Name="time_pressed">time_pressed</Item>
+      <Item Name="time_tooltip">time_tooltip</Item>
+    </Expand>
+  </Type>
+
+  <!-- layout_state -->
+
+  <Type Name="mo_yanxi::gui::layout_state">
+    <DisplayString>{{children={children_changed_,b} parent={parent_changed_,b} local={local_changed_,b}}}</DisplayString>
+    <Expand>
+      <Item Name="children_changed">children_changed_</Item>
+      <Item Name="parent_changed">parent_changed_</Item>
+      <Item Name="local_changed">local_changed_</Item>
+      <Item Name="context_accept_mask">context_accept_mask</Item>
+      <Item Name="inherent_accept_mask">inherent_accept_mask</Item>
+      <Item Name="inherent_broadcast_mask">inherent_broadcast_mask</Item>
+      <Item Name="intercept_lower_to_isolated">intercept_lower_to_isolated</Item>
+    </Expand>
+  </Type>
+
+  <!-- optional_mastering_extent -->
+
+  <Type Name="mo_yanxi::gui::layout::optional_mastering_extent">
+    <DisplayString>{{{width_}, {height_}}}</DisplayString>
+    <Expand>
+      <Item Name="width">width_</Item>
+      <Item Name="height">height_</Item>
+    </Expand>
+  </Type>
+
+  <!-- elem_ptr (smart pointer to elem) -->
+
+  <Type Name="mo_yanxi::gui::elem_ptr">
+    <DisplayString>{*element,na}</DisplayString>
+    <Expand>
+      <ExpandedItem>*(element)</ExpandedItem>
+    </Expand>
+  </Type>
+
+  <!-- ====================================================================== -->
+  <!-- 2b. THE ROOT: elem                                                     -->
+  <!-- ====================================================================== -->
+
+  <Type Name="mo_yanxi::gui::elem">
+    <DisplayString Condition="invisible">[#{{_debug_identity}}] hidden {{*this,nd}}</DisplayString>
+    <DisplayString Condition="disabled">[#{{_debug_identity}}] disabled {{*this,nd}}</DisplayString>
+    <DisplayString>[#{{_debug_identity}}] pos({{relative_pos_.x,g},{relative_pos_.y,g}}) sz({{size_.size.x,g}}x{{size_.size.y,g}}) parent=0x{{parent_,x}}</DisplayString>
+    <Expand>
+      <Item Name="[_debug_identity]">_debug_identity</Item>
+      <Item Name="[scene*]">scene_</Item>
+      <Item Name="[parent*]">parent_</Item>
+      <Item Name="[rel_pos]">relative_pos_</Item>
+      <Item Name="[abs_pos]">absolute_pos_</Item>
+      <Item Name="[size_clamped]">size_</Item>
+      <Item Name="[preferred_size]">preferred_size_</Item>
+      <Item Name="[fill_parent]">fill_parent_</Item>
+      <Item Name="[restriction]">restriction_extent</Item>
+      <Item Name="[in_scaling]">inherent_scaling_</Item>
+      <Item Name="[ctx_scaling]">context_scaling_</Item>
+      <Item Name="[boarder]">boarder_</Item>
+      <Item Name="[style_boarder]">style_boarder_cache_</Item>
+      <Item Name="[cursor]">cursor_states_</Item>
+      <Item Name="[layout]">layout_state</Item>
+      <Item Name="[interactivity]">interactivity</Item>
+      <Item Name="[channel]">element_channel_</Item>
+      <Item Name="[layer_altitude]">layer_altitude_</Item>
+      <Item Name="[flags:visible]">!invisible</Item>
+      <Item Name="[flags:disabled]">disabled</Item>
+      <Item Name="[flags:toggled]">toggled</Item>
+      <Item Name="[flags:at_display]">is_at_display_stage_</Item>
+      <Item Name="[flags:extend_focus]">extend_focus_until_mouse_drop</Item>
+      <Item Name="[opacity:inherent]">inherent_opacity_</Item>
+      <Item Name="[opacity:propagate]">propagate_opacity_</Item>
+    </Expand>
+  </Type>
+
+  <!-- ====================================================================== -->
+  <!-- 3. Containers & Groups                                                 -->
+  <!-- ====================================================================== -->
+
+  <!-- basic_group -->
+
+  <Type Name="mo_yanxi::gui::basic_group">
+    <DisplayString>{{*this,nd}} children={children_.size()}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[children_count]">children_.size()</Item>
+      <Item Name="[expired_count]">expired_.size()</Item>
+      <ArrayItems>
+        <Size>children_.size()</Size>
+        <ValuePointer>children_._Mypair._Myval2._Myfirst</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- universal_group<CellTy, Adaptor> -->
+
+  <Type Name="mo_yanxi::gui::universal_group&lt;*&gt;">
+    <DisplayString>{{*this,nd}} children={children_.size()} cells={cells_.size()}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[children_count]">children_.size()</Item>
+      <Item Name="[cells_count]">cells_.size()</Item>
+      <Item Name="[smooth_anim]">has_smooth_pos_animation_</Item>
+      <Item Name="[template_cell]">template_cell</Item>
+      <ArrayItems>
+        <Size>children_.size()</Size>
+        <ValuePointer>children_._Mypair._Myval2._Myfirst</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- cell_adaptor<T> -->
+
+  <Type Name="mo_yanxi::gui::cell_adaptor&lt;*&gt;">
+    <DisplayString>cell of {*element,na}</DisplayString>
+    <Expand>
+      <Item Name="[element]">*element</Item>
+      <Item Name="[cell]">cell</Item>
+    </Expand>
+  </Type>
+
+  <!-- ====================================================================== -->
+  <!-- 4. Layout elements                                                     -->
+  <!-- ====================================================================== -->
+
+  <!-- head_body_base -->
+
+  <Type Name="mo_yanxi::gui::head_body_base">
+    <DisplayString>{{*this,nd}} pad={pad_} transp={transpose_head_and_body_,b}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[head]">*items[0]</Item>
+      <Item Name="[body]">*items[1]</Item>
+      <Item Name="[head_size]">item_size[0]</Item>
+      <Item Name="[body_size]">item_size[1]</Item>
+      <Item Name="[pad]">pad_</Item>
+      <Item Name="[transpose]">transpose_head_and_body_</Item>
+      <Item Name="[layout_policy]">layout_policy_</Item>
+    </Expand>
+  </Type>
+
+  <!-- head_body (adds expand_policy_) -->
+
+  <Type Name="mo_yanxi::gui::head_body">
+    <DisplayString>{{*this,nd}} pad={pad_}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[head]">*items[0]</Item>
+      <Item Name="[body]">*items[1]</Item>
+      <Item Name="[head_size]">item_size[0]</Item>
+      <Item Name="[body_size]">item_size[1]</Item>
+      <Item Name="[pad]">pad_</Item>
+      <Item Name="[transpose]">transpose_head_and_body_</Item>
+      <Item Name="[layout_policy]">layout_policy_</Item>
+      <Item Name="[expand_policy]">expand_policy_</Item>
+    </Expand>
+  </Type>
+
+  <!-- collapser -->
+
+  <Type Name="mo_yanxi::gui::collapser">
+    <DisplayString>{{*this,nd}} clicked={clicked_,b} expand_cond={expand_cond_}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[head]">*items[0]</Item>
+      <Item Name="[body]">*items[1]</Item>
+      <Item Name="[pad]">pad_</Item>
+      <Item Name="[transpose]">transpose_head_and_body_</Item>
+      <Item Name="[expand_cond]">expand_cond_</Item>
+      <Item Name="[animator]">animator_</Item>
+      <Item Name="[clicked]">clicked_</Item>
+      <Item Name="[update_opacity]">update_opacity_during_expand_</Item>
+      <Item Name="[settings:enter_spacing]">settings.expand_enter_spacing</Item>
+      <Item Name="[settings:exit_spacing]">settings.expand_exit_spacing</Item>
+      <Item Name="[settings:speed]">settings.expand_speed</Item>
+    </Expand>
+  </Type>
+
+  <!-- sequence -->
+
+  <Type Name="mo_yanxi::gui::sequence">
+    <DisplayString>{{*this,nd}} children={children_.size()} align_to_tail={align_to_tail_,b}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[children_count]">children_.size()</Item>
+      <Item Name="[policy]">policy_</Item>
+      <Item Name="[align_to_tail]">align_to_tail_</Item>
+      <Item Name="[expand_policy]">expand_policy_</Item>
+      <ArrayItems>
+        <Size>children_.size()</Size>
+        <ValuePointer>children_._Mypair._Myval2._Myfirst</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- flex_wrap -->
+
+  <Type Name="mo_yanxi::gui::flex_wrap">
+    <DisplayString>{{*this,nd}} children={children_.size()} wrap_rev={wrap_reverse_,b}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[children_count]">children_.size()</Item>
+      <Item Name="[policy]">policy_</Item>
+      <Item Name="[wrap_reverse]">wrap_reverse_</Item>
+      <Item Name="[line_spacing]">line_spacing_</Item>
+      <Item Name="[expand_policy]">expand_policy_</Item>
+      <ArrayItems>
+        <Size>children_.size()</Size>
+        <ValuePointer>children_._Mypair._Myval2._Myfirst</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- scaling_stack -->
+
+  <Type Name="mo_yanxi::gui::scaling_stack">
+    <DisplayString>{{*this,nd}} children={children_.size()}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[children_count]">children_.size()</Item>
+      <ArrayItems>
+        <Size>children_.size()</Size>
+        <ValuePointer>children_._Mypair._Myval2._Myfirst</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- grid -->
+
+  <Type Name="mo_yanxi::gui::grid">
+    <DisplayString>{{*this,nd}} children={children_.size()} cells={cells_.size()}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[children_count]">children_.size()</Item>
+      <Item Name="[expand_policy]">expand_policy_</Item>
+      <Item Name="[need_relayout]">need_relayout_head_</Item>
+      <ArrayItems>
+        <Size>children_.size()</Size>
+        <ValuePointer>children_._Mypair._Myval2._Myfirst</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- ====================================================================== -->
+  <!-- 5. Special elements                                                    -->
+  <!-- ====================================================================== -->
+
+  <!-- scroll_adaptor_base -->
+
+  <Type Name="mo_yanxi::gui::scroll_adaptor_base">
+    <DisplayString>{{*this,nd}} scroll=({scroll_.base.x,g},{scroll_.base.y,g}) velocity=({scroll_velocity_.x,g},{scroll_velocity_.y,g})</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[scroll_base]">scroll_.base</Item>
+      <Item Name="[scroll_temp]">scroll_.temp</Item>
+      <Item Name="[scroll_velocity]">scroll_velocity_</Item>
+      <Item Name="[scroll_target_vel]">scroll_target_velocity_</Item>
+      <Item Name="[item_extent_cache]">item_extent_cache_</Item>
+      <Item Name="[saved_scroll_ratio]">saved_scroll_ratio_</Item>
+      <Item Name="[sensitivity_mode]">sensitivity_mode</Item>
+      <Item Name="[scroll_scale]">scroll_scale</Item>
+      <Item Name="[bar_stroke]">scroll_bar_stroke_</Item>
+      <Item Name="[bar_caps]">bar_caps_size</Item>
+      <Item Name="[force_hori]">force_hori_scroll_enabled_</Item>
+      <Item Name="[force_vert]">force_vert_scroll_enabled_</Item>
+      <Item Name="[layout_policy]">layout_policy_</Item>
+    </Expand>
+  </Type>
+
+  <!-- slider_base<Dim, Derived> -->
+
+  <Type Name="mo_yanxi::gui::slider_base&lt;1,*&gt;">
+    <DisplayString>{{*this,nd}} val={bar.target[0],g} (base={bar.base[0],g}) sliding={bar.is_sliding(),b}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[bar_base]">bar.base[0]</Item>
+      <Item Name="[bar_target]">bar.target[0]</Item>
+      <Item Name="[bar_temp]">bar.temp[0]</Item>
+      <Item Name="[is_sliding]">bar.is_sliding()</Item>
+      <Item Name="[approach_speed]">approach_speed_scl</Item>
+      <Item Name="[scroll_sens]">scroll_sensitivity[0]</Item>
+      <Item Name="[sensitivity]">sensitivity[0]</Item>
+      <Item Name="[handle_extent]">bar_handle_extent[0]</Item>
+      <Item Name="[smooth_scroll]">smooth_scroll_</Item>
+      <Item Name="[smooth_drag]">smooth_drag_</Item>
+      <Item Name="[smooth_jump]">smooth_jump_</Item>
+      <Item Name="[drag_src]">drag_src_</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="mo_yanxi::gui::slider_base&lt;2,*&gt;">
+    <DisplayString>{{*this,nd}} val=({bar.target[0],g},{bar.target[1],g}) sliding={bar.is_sliding(),b}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[bar_base]">bar.base</Item>
+      <Item Name="[bar_target]">bar.target</Item>
+      <Item Name="[bar_temp]">bar.temp</Item>
+      <Item Name="[is_sliding]">bar.is_sliding()</Item>
+      <Item Name="[approach_speed]">approach_speed_scl</Item>
+      <Item Name="[scroll_sens]">scroll_sensitivity</Item>
+      <Item Name="[sensitivity]">sensitivity</Item>
+      <Item Name="[handle_extent]">bar_handle_extent</Item>
+      <Item Name="[smooth_scroll]">smooth_scroll_</Item>
+      <Item Name="[smooth_drag]">smooth_drag_</Item>
+      <Item Name="[smooth_jump]">smooth_jump_</Item>
+      <Item Name="[drag_src]">drag_src_</Item>
+    </Expand>
+  </Type>
+
+  <!-- flipper<N> -->
+
+  <Type Name="mo_yanxi::gui::flipper&lt;*&gt;">
+    <DisplayString>{{*this,nd}} active={current_active_index_}/{candidates_.size()}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[active_index]">current_active_index_</Item>
+      <Item Name="[expand_policy]">expand_policy_</Item>
+      <ArrayItems>
+        <Size>candidates_.size()</Size>
+        <ValuePointer>candidates_._Elems</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- viewport -->
+
+  <Type Name="mo_yanxi::gui::viewport">
+    <DisplayString>{{*this,nd}} camera({{last_camera_center_pos_.x,g},{last_camera_center_pos_.y,g}})</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[camera_center]">last_camera_center_pos_</Item>
+      <Item Name="[camera]">camera</Item>
+      <Item Name="[clamp_region]">viewport_clamp_region</Item>
+    </Expand>
+  </Type>
+
+  <!-- split_pane -->
+
+  <Type Name="mo_yanxi::gui::split_pane">
+    <DisplayString>{{*this,nd}} seperator={seperator_position_.base,g} drag={current_drag_state_}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[seperator]">seperator_position_</Item>
+      <Item Name="[min_margin]">min_margin</Item>
+      <Item Name="[drag_state]">current_drag_state_</Item>
+      <Item Name="[drag_progress]">drag_progress_</Item>
+    </Expand>
+  </Type>
+
+  <!-- overflow_sequence -->
+
+  <Type Name="mo_yanxi::gui::overflow_sequence">
+    <DisplayString>{{*this,nd}} split={split_index_} overflowed={is_overflowed_,b}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[split_index]">split_index_</Item>
+      <Item Name="[is_overflowed]">is_overflowed_</Item>
+      <Item Name="[requires_scissor]">requires_scissor_</Item>
+      <Item Name="[exposed_children]">exposed_children_.size()</Item>
+      <Item Name="[exposed_cells]">exposed_cells_.size()</Item>
+    </Expand>
+  </Type>
+
+  <!-- progress_bar -->
+
+  <Type Name="mo_yanxi::gui::progress_bar">
+    <DisplayString>{{*this,nd}} state={progress.state} cur={progress.current,g} tgt={progress.target,g}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[progress_state]">progress.state</Item>
+      <Item Name="[progress_target]">progress.target</Item>
+      <Item Name="[progress_current]">progress.current</Item>
+      <Item Name="[progress_speed]">progress.speed_scale</Item>
+      <Item Name="[progress_cur_speed]">progress.current_speed_</Item>
+      <Item Name="[draw_config]">draw_config</Item>
+    </Expand>
+  </Type>
+
+  <!-- ====================================================================== -->
+  <!-- 6. Extended GUI elements                                               -->
+  <!-- ====================================================================== -->
+
+  <!-- direct_label -->
+
+  <Type Name="mo_yanxi::gui::direct_label">
+    <DisplayString>{{*this,nd}} glyphs fit={fit_type_}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[fit_type]">fit_type_</Item>
+      <Item Name="[expand_policy]">expand_policy_</Item>
+      <Item Name="[text_align]">text_entire_align</Item>
+      <Item Name="[max_fit_scale]">max_fit_scale_bound</Item>
+      <Item Name="[color_scl]">text_color_scl</Item>
+      <Item Name="[glyph_layout]">glyph_layout_</Item>
+      <Item Name="[layout_config]">layout_config_</Item>
+      <Item Name="[transform]">transform_config_</Item>
+      <Item Name="[change_mark]">change_mark_</Item>
+    </Expand>
+  </Type>
+
+  <!-- label -->
+
+  <Type Name="mo_yanxi::gui::label">
+    <DisplayString>"{{raw_string_.c_str(),sb}}" {{*this,nd}}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[text]">raw_string_</Item>
+      <Item Name="[fit_type]">fit_type_</Item>
+      <Item Name="[expand_policy]">expand_policy_</Item>
+      <Item Name="[text_align]">text_entire_align</Item>
+      <Item Name="[glyph_layout]">glyph_layout_</Item>
+      <Item Name="[transform]">transform_config_</Item>
+      <Item Name="[change_mark]">change_mark_</Item>
+    </Expand>
+  </Type>
+
+  <!-- text_edit -->
+
+  <Type Name="mo_yanxi::gui::text_edit">
+    <DisplayString>{{*this,nd}} idle={is_idle_,b} view={view_mode_}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[core]">core_</Item>
+      <Item Name="[view_mode]">view_mode_</Item>
+      <Item Name="[is_idle]">is_idle_</Item>
+      <Item Name="[scroll_offset]">scroll_offset_</Item>
+      <Item Name="[caret_cache]">caret_cache_</Item>
+      <Item Name="[glyph_layout]">glyph_layout_</Item>
+      <Item Name="[layout_config]">layout_config_</Item>
+      <Item Name="[change_mark]">change_mark_</Item>
+      <Item Name="[expand_policy]">expand_policy_</Item>
+    </Expand>
+  </Type>
+
+  <!-- image_frame -->
+
+  <Type Name="mo_yanxi::gui::image_frame">
+    <DisplayString>{{*this,nd}} frame={current_frame_index_}/{drawables_.size()}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[current_frame]">current_frame_index_</Item>
+      <Item Name="[drawables_count]">drawables_.size()</Item>
+      <Item Name="[default_style]">default_style</Item>
+    </Expand>
+  </Type>
+
+  <!-- button<T> -->
+
+  <Type Name="mo_yanxi::gui::button&lt;*&gt;">
+    <DisplayString>{{*this,nd}} callback=0x{{callback}}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[callback]">callback</Item>
+    </Expand>
+  </Type>
+
+  <!-- check_box (select_box<2>) -->
+
+  <Type Name="mo_yanxi::gui::select_box&lt;2&gt;">
+    <DisplayString>{{*this,nd}} checked={cur_val_}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[current_value]">cur_val_</Item>
+      <Item Name="[icons]">icons</Item>
+      <Item Name="[mul_color]">mul_color</Item>
+    </Expand>
+  </Type>
+
+  <!-- check_box inherits select_box<2> -->
+
+  <Type Name="mo_yanxi::gui::check_box">
+    <DisplayString>{{*this,nd}} checked={cur_val_}</DisplayString>
+    <Expand>
+      <Item Name="[elem_nature]">this,nd</Item>
+      <Item Name="[current_value]">cur_val_</Item>
+      <Item Name="[icons]">icons</Item>
+      <Item Name="[mul_color]">mul_color</Item>
+      <Item Name="[prov]">prov_</Item>
+    </Expand>
+  </Type>
+
+  <!-- ====================================================================== -->
+  <!-- 7. Infrastructure / Managers                                           -->
+  <!-- ====================================================================== -->
+
+  <!-- overlay_manager -->
+
+  <Type Name="mo_yanxi::gui::overlay_manager">
+    <DisplayString>{{overlays={overlays_.size()} fadings={overlay_fadings_.size()} draw_seq={draw_sequence_.size()}}}</DisplayString>
+    <Expand>
+      <Item Name="[overlays_count]">overlays_.size()</Item>
+      <Item Name="[fadings_count]">overlay_fadings_.size()</Item>
+      <Item Name="[draw_sequence_count]">draw_sequence_.size()</Item>
+    </Expand>
+  </Type>
+
+  <!-- scene_base -->
+
+  <Type Name="mo_yanxi::gui::scene_base">
+    <DisplayString>{{frame={current_frame_} root=0x{{scene_root_,x}}}}</DisplayString>
+    <Expand>
+      <Item Name="[frame]">current_frame_</Item>
+      <Item Name="[time]">current_time_</Item>
+      <Item Name="[scene_root]">scene_root_</Item>
+      <Item Name="[resources]">resources_</Item>
+      <Item Name="[region]">region_</Item>
+      <Item Name="[renderer]">renderer_</Item>
+      <Item Name="[ui_thread]">ui_main_thread_id</Item>
+      <Item Name="[overlay_manager]">overlay_manager_</Item>
+      <Item Name="[tooltip_manager]">tooltip_manager_</Item>
+      <Item Name="[input_handler]">input_handler_</Item>
+    </Expand>
+  </Type>
+
+  <!-- scene -->
+
+  <Type Name="mo_yanxi::gui::scene">
+    <DisplayString>{{frame={current_frame_} root=0x{{scene_root_,x}}}}</DisplayString>
+    <Expand>
+      <Item Name="[frame]">current_frame_</Item>
+      <Item Name="[time]">current_time_</Item>
+      <Item Name="[scene_root]">*scene_root_</Item>
+      <Item Name="[resources]">resources_</Item>
+      <Item Name="[region]">region_</Item>
+      <Item Name="[renderer]">renderer_</Item>
+      <Item Name="[ui_thread]">ui_main_thread_id</Item>
+      <Item Name="[overlay_manager]">overlay_manager_</Item>
+      <Item Name="[tooltip_manager]">tooltip_manager_</Item>
+      <Item Name="[input_handler]">input_handler_</Item>
+    </Expand>
+  </Type>
+
+  <!-- scene_resources -->
+
+  <Type Name="mo_yanxi::gui::scene_resources">
+    <DisplayString>{{heap=0x{{heap}}}}</DisplayString>
+    <Expand>
+      <Item Name="[heap]">heap</Item>
+      <Item Name="[style_tree]">style_tree_manager</Item>
+      <Item Name="[cursor_collection]">cursor_collection_manager</Item>
+      <Item Name="[object_pool]">object_pool</Item>
+    </Expand>
+  </Type>
+
+</AutoVisualizer>

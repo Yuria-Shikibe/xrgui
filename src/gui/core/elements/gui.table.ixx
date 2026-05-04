@@ -51,6 +51,14 @@ class table_layout_context{
 		}
 	};
 
+	struct line_minor_request{
+		float max_pending_size{};
+
+		constexpr void include(const float size) noexcept{
+			max_pending_size = std::max(max_pending_size, size);
+		}
+	};
+
 	layout::layout_policy policy_{};
 	std::span<const std::uint32_t> row_counts_{};
 	table_size_t max_major_size_{};

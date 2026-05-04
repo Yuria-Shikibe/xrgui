@@ -1064,7 +1064,7 @@ private:
 
 		const std::size_t line_elem_end = layout_buffer_.block_span.elem_start;
 		const std::size_t line_ul_end = layout_buffer_.block_span.ul_start;
-		const std::size_t line_wrap_end = layout_buffer_.block_span.wrap_start; 
+		const std::size_t line_wrap_end = results.wrap_frames.size(); 
 		const std::size_t line_cluster_end = enable_cluster_record ? layout_buffer_.block_span.cluster_start : 0;
 
 		bool has_elems = (line_elem_end > layout_buffer_.line_span.elem_start) ||
@@ -1154,6 +1154,7 @@ private:
 		results.lines.push_back(std::move(new_line));
 		state_.prev_line_descender = current_desc;
 
+		layout_buffer_.block_span.wrap_start = line_wrap_end;
 		static_cast<line_data&>(layout_buffer_).clear();
 		layout_buffer_.line_span = layout_buffer_.block_span;
 

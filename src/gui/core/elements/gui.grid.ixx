@@ -57,6 +57,7 @@ enum struct grid_spec_type{
 	all_mastering,
 	all_passive,
 	all_scaling,
+	all_pending,
 	mixed,
 };
 
@@ -162,6 +163,31 @@ export using grid_all_passive = variable_extent<layout::size_category::passive>;
 export using grid_all_scaling = variable_extent<layout::size_category::scaling>;
 
 export
+struct grid_all_pending{
+	std::uint32_t extent{};
+	align::padding1d<float> pad{};
+
+	[[nodiscard]] std::uint32_t size() const noexcept{
+		return extent;
+	}
+
+	[[nodiscard]] layout::stated_size load_to(std::span<layout::stated_size> target) const noexcept{
+		assert(target.size() == size());
+		std::ranges::fill(target, layout::stated_size{layout::size_category::pending, 0});
+		return layout::stated_size{layout::size_category::pending, 0};
+	}
+
+	layout::stated_size operator[](unsigned idx) const noexcept{
+		assert(idx < extent);
+		return layout::stated_size{layout::size_category::pending, 0};
+	}
+
+	[[nodiscard]] align::padding1d<float> pad_at(unsigned idx) const noexcept{
+		return pad;
+	}
+};
+
+export
 struct grid_mixed{
 	struct entry{
 		layout::stated_size value;
@@ -212,6 +238,7 @@ struct grid_dim_spec{
 		grid_all_mastering,
 		grid_all_passive,
 		grid_all_scaling,
+		grid_all_pending,
 		grid_mixed
 	>;
 
@@ -640,15 +667,16 @@ private:
 						sz = rst;
 					}
 
-					switch(sz.type){
-					case layout::size_category::mastering:
-						result.mastering += sz.value;
-						break;
-					case layout::size_category::passive:
-						result.passive += sz.value;
-						break;
-					default: std::unreachable();
-					}
+				switch(sz.type){
+				case layout::size_category::mastering:
+					result.mastering += sz.value;
+					break;
+				case layout::size_category::passive:
+					result.passive += sz.value;
+					break;
+				case layout::size_category::pending: break;
+				default: std::unreachable();
+				}
 				}
 				return result;
 			}
@@ -677,21 +705,77 @@ private:
 		mastering_size.x -= cPrev + cPost;
 		mastering_size.y -= rPrev + rPost;
 
+		grid_table_head_.resize(table_head.size());
+
+		// Resolve pending columns (content-driven widths) before passive distribution
+		mr::vector<float> pending_col_content_widths(columns, 0.f);
+		float pending_cols_total_content_width = 0;
+		for(std::uint32_t col = 0; col < columns; ++col){
+			if(!col_span[col].pending()) continue;
+			float max_width = 0;
+			for(std::uint32_t ci = 0; ci < cells_.size(); ++ci){
+				auto& state = cell_layout_state_[ci];
+				if(state.actual.get_src_x() <= col && col < state.actual.get_end_x()){
+					if(auto sz = cells_[ci].element->pre_acquire_size({layout::pending_size, layout::pending_size})){
+						max_width = std::max(max_width, sz->x);
+					}
+				}
+			}
+			pending_col_content_widths[col] = max_width;
+			pending_cols_total_content_width += max_width;
+		}
+		mastering_size.x += pending_cols_total_content_width;
+
 		auto passives_usable = valid_extent.copy().fdim(mastering_size);
 		auto passive_unit = (passives_usable / math::vec2{result.x.passive, result.y.passive}).nan_to0();
 
-		grid_table_head_.resize(table_head.size());
 		for(std::uint32_t i = 0; i < columns; ++i){
-			grid_table_head_[i] = (col_span[i].mastering() ? col_span[i].value : col_span[i].value * passive_unit.x) + extent_spec_.x.pad_at(i).length();
+			if(col_span[i].pending()){
+				grid_table_head_[i] = pending_col_content_widths[i] + extent_spec_.x.pad_at(i).length();
+			} else{
+				grid_table_head_[i] = (col_span[i].mastering() ? col_span[i].value : col_span[i].value * passive_unit.x) + extent_spec_.x.pad_at(i).length();
+			}
 		}
 		grid_table_head_.front() -= cPrev;
 		grid_table_head_[columns - 1] -= cPost;
 
 		for(std::uint32_t i = 0; i < rows; ++i){
-			grid_table_head_[columns + i] = (row_span[i].mastering() ? row_span[i].value : row_span[i].value * passive_unit.y) + extent_spec_.y.pad_at(i).length();
+			if(row_span[i].pending()){
+				grid_table_head_[columns + i] = extent_spec_.y.pad_at(i).length();
+			} else{
+				grid_table_head_[columns + i] = (row_span[i].mastering() ? row_span[i].value : row_span[i].value * passive_unit.y) + extent_spec_.y.pad_at(i).length();
+			}
 		}
 		grid_table_head_[columns] -= rPrev;
 		grid_table_head_.back() -= rPost;
+
+		// Resolve pending rows
+		float pending_rows_total_content_height = 0;
+		for(std::uint32_t row = 0; row < rows; ++row){
+			if(!row_span[row].pending()) continue;
+			float pending_height = 0;
+			for(std::uint32_t ci = 0; ci < cells_.size(); ++ci){
+				auto& state = cell_layout_state_[ci];
+				if(state.actual.get_src_y() <= row && row < state.actual.get_end_y()){
+					float known_width = 0;
+					for(std::uint32_t c = state.actual.get_src_x(); c < state.actual.get_end_x(); ++c){
+						known_width += grid_table_head_[c];
+					}
+					if(auto sz = cells_[ci].element->pre_acquire_size({known_width, layout::pending_size})){
+						float confirmed_height = 0;
+						for(std::uint32_t r = state.actual.get_src_y(); r < state.actual.get_end_y(); ++r){
+							if(r == row) continue;
+							confirmed_height += grid_table_head_[columns + r];
+						}
+						float overflow = std::max(0.f, sz->y - confirmed_height);
+						pending_height = std::max(pending_height, overflow);
+					}
+				}
+			}
+			grid_table_head_[columns + row] = pending_height + extent_spec_.y.pad_at(row).length();
+			pending_rows_total_content_height += pending_height;
+		}
+		mastering_size.y += pending_rows_total_content_height;
 
 		return {mastering_size, result.x.passive > 0.0f, result.y.passive > 0.0f};
 	}

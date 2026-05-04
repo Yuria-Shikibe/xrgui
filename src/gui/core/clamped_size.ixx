@@ -1,6 +1,6 @@
-//
+module;
 
-//
+#include <cassert>
 
 export module mo_yanxi.gui.util.clamped_size;
 
@@ -75,6 +75,7 @@ export namespace mo_yanxi::gui{
 		 * @return true if size has been changed
 		 */
 		constexpr bool set_size(const extent_type s) noexcept{
+			assert(!s.is_NaN());
 			bool b{};
 			b |= this->set_width(s.x);
 			b |= this->set_height(s.y);

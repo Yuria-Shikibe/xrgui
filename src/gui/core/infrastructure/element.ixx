@@ -568,6 +568,7 @@ public:
 
 	FORCE_INLINE inline std::optional<math::vec2> pre_acquire_size(const layout::optional_mastering_extent extent){
 		return pre_acquire_size_impl(clip_boarder_from(extent, boarder_extent())).transform([&, this](const math::vec2 v){
+			assert(!v.is_NaN());
 			return size_.clamp(v + boarder_extent()).min(extent.potential_extent());
 		});
 	}
@@ -653,7 +654,6 @@ public:
 
 protected:
 	virtual bool resize_impl(const math::vec2 size){
-
 		if(size_.set_size(size)){
 			notify_layout_changed(propagate_mask::all);
 			return true;

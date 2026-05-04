@@ -169,6 +169,37 @@ private:
 		return s.substr(start, end - start);
 	}
 
+	static constexpr std::u32string normalize_paragraph_line_breaks(std::u32string_view content) {
+		std::u32string result;
+		result.reserve(content.size());
+		for(std::size_t i = 0; i < content.size(); ++i) {
+			char32_t c = content[i];
+			if(c == U'\r') {
+				if(i + 1 < content.size() && content[i + 1] == U'\n') {
+					continue;
+				}
+				c = U'\n';
+			}
+			if(c == U'\n') {
+				std::size_t space_count = 0;
+				while(space_count < result.size() && result[result.size() - 1 - space_count] == U' ') {
+					++space_count;
+				}
+				if(!result.empty() && result.back() == U'\\') {
+					result.back() = U'\n';
+				} else if(space_count >= 2) {
+					result.resize(result.size() - space_count);
+					result.push_back(U'\n');
+				} else {
+					result.push_back(U' ');
+				}
+			} else {
+				result.push_back(c);
+			}
+		}
+		return result;
+	}
+
 	static constexpr std::size_t count_leading_spaces(std::u32string_view line) noexcept {
 		std::size_t count = 0;
 		while(count < line.size() && line[count] == U' ') {
@@ -537,8 +568,10 @@ private:
 
 			std::u32string_view para_content = text_block.substr(current_pos, para_end - current_pos);
 			paragraph p_node;
-			auto trimmed = trim_whitespace(para_content);
-			p_node.children = parse_inlines(trimmed, current_abs_pos + (trimmed.data() - para_content.data()));
+			auto normalized = normalize_paragraph_line_breaks(para_content);
+			std::u32string_view normalized_view = normalized;
+			auto trimmed = trim_whitespace(normalized_view);
+			p_node.children = parse_inlines(trimmed, current_abs_pos);
 			blocks.push_back(ast_node{current_abs_pos, std::move(p_node)});
 			current_pos = para_end;
 		}

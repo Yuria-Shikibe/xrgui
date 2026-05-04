@@ -90,10 +90,7 @@ function set_xrgui_deps()
     add_cxflags("/wd4267", "/wd4244", "/wd4305", {tools = {"cl", "clang_cl"}})
 end
 
-target("xrgui.default")
-    set_kind("object")
-    set_languages("c++latest")
-    set_warnings("all", "pedantic")
+function add_defaults()
     set_xrgui_deps()
 
     add_packages("glfw", {public = true})
@@ -106,7 +103,7 @@ target("xrgui.default")
 
     add_files("gui.config/**.ixx", {public = true})
     add_files("gui.config/**.cpp")
-    set_policy("build.c++.modules", true)
+
 
     add_rules("media.svg_to_bin")
     add_files("properties/assets_raw/gen/**.svg")
@@ -182,6 +179,14 @@ target("xrgui.default")
     if is_plat("windows") then
         add_syslinks("imm32", {public = true})
     end
+end
+
+target("xrgui.default")
+    set_kind("object")
+    set_languages("c++latest")
+    set_warnings("all", "pedantic")
+
+    add_defaults()
 target_end()
 
 target("xrgui.example")
@@ -191,11 +196,7 @@ target("xrgui.example")
 
     set_warnings("all", "pedantic")
 
-    if is_mode("release") then
-        set_policy("build.optimization.lto", true)
-    end
-
-     add_deps("xrgui.default")
+    add_defaults()
 
     add_files("src.examples/**.ixx", {public = true})
     add_files("src.examples/**.cpp")

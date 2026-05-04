@@ -122,20 +122,21 @@ namespace mo_yanxi::gui{
 		});
 	}
 
-events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std::span<elem* const> aboves){
-		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
+	events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std::span<elem* const> aboves){
+		if(!(is_hori_scroll_active() || is_vert_scroll_active()))return events::op_afterwards::fall_through;
+		util::update_insert(
+			*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 		auto cmp = -e.delta;
 		if(input_handle::matched(e.mode, input_handle::mode::shift) || (is_hori_scroll_enabled() && !
 			is_vert_scroll_enabled())){
 			cmp.swap_xy();
-			}
+		}
 
 
 		math::vec2 velocity_scale{};
-		if (sensitivity_mode == scroll_pane_mode::absolute) {
+		if(sensitivity_mode == scroll_pane_mode::absolute){
 			velocity_scale = math::vec2{scroll_scale, scroll_scale};
-		} else {
-
+		} else{
 			velocity_scale = get_viewport_extent() * scroll_scale;
 		}
 
@@ -146,7 +147,7 @@ events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std
 
 		scroll_velocity_ = scroll_target_velocity_;
 
-		return {};
+		return events::op_afterwards::intercepted;
 	}
 
 	events::op_afterwards scroll_adaptor_base::on_drag(const events::drag e){

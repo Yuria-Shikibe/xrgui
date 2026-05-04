@@ -196,6 +196,7 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 		auto& head_minor = at_minor(idx_minor);
 
 		float line_minor_size{};
+		line_minor_request line_pending_minor_request{};
 		for(std::uint32_t idx_major = 0; idx_major < row_len; ++idx_major){
 			const auto& elem = line[idx_major];
 			auto& head_major = at_major(idx_major);
@@ -209,7 +210,7 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 				case layout::size_category::scaling :{
 					float valid = math::min(head_major.max_size * head_minor.max_size.value,
 					                        passive_usable_extent.*minor_target);
-					head_minor.max_size.try_promote_by(valid);
+					line_pending_minor_request.include(valid);
 					line_minor_size = math::max(line_minor_size, valid);
 					break;
 				}
@@ -220,7 +221,7 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 
 					if(auto size = get_cached_pre_acquire(cell_idx + idx_major, elem, ext)){
 						float valid = math::min(size.value().*minor_target, passive_usable_extent.*minor_target);
-						head_minor.max_size.try_promote_by(valid);
+						line_pending_minor_request.include(valid);
 						line_minor_size = math::max(line_minor_size, valid);
 					}
 					break;
@@ -228,6 +229,10 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 				default : break;
 				}
 			}
+		}
+
+		if(!head_minor.mastering() && line_pending_minor_request.max_pending_size > 0.f){
+			head_minor.max_size.try_promote_by(line_pending_minor_request.max_pending_size);
 		}
 
 		passive_usable_extent.*minor_target = std::fdim(passive_usable_extent.*minor_target, line_minor_size);

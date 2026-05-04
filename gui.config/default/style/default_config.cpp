@@ -1,7 +1,7 @@
 module mo_yanxi.gui.default_config.scene;
 
 import mo_yanxi.gui.examples.default_config.constants;
-import mo_yanxi.gui.markdown_compound;
+import mo_yanxi.gui.md_builder;
 import mo_yanxi.gui.style.elem_style_draw_primitives;
 import mo_yanxi.gui.style.tree.bounds;
 

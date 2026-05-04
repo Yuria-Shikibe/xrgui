@@ -1,15 +1,17 @@
 module;
 
-export module mo_yanxi.gui.markdown_compound;
+export module mo_yanxi.gui.md_builder;
 
 import std;
 
 export import mo_yanxi.gui.markdown;
-import mo_yanxi.gui.elem.sequence;
-import mo_yanxi.gui.elem.table;
-import mo_yanxi.gui.elem.label;
-import mo_yanxi.font.manager;
-import mo_yanxi.graphic.color;
+export import mo_yanxi.gui.elem.sequence;
+export import mo_yanxi.gui.elem.table;
+export import mo_yanxi.gui.elem.grid;
+export import mo_yanxi.gui.elem.label;
+export import mo_yanxi.gui.elem.scroll_pane;
+export import mo_yanxi.font.manager;
+export import mo_yanxi.graphic.color;
 import mo_yanxi.unicode;
 import mo_yanxi.graphic.draw.instruction;
 import mo_yanxi.utility;
@@ -160,42 +162,40 @@ struct markdown_separator : elem {
 	}
 };
 
-struct md_table : gui::table {
-	 markdown_config config_{};
+struct md_table : gui::grid {
+	markdown_config config_{};
 
-	using table::table;
+	[[nodiscard]] md_table(scene& scene, elem* parent,
+		math::vector2<grid_dim_spec>&& extent_spec,
+		std::uint32_t num_cols, std::uint32_t num_rows)
+		: grid(scene, parent, std::move(extent_spec)){}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override {
-		table::record_draw_layer(call_stack_builder);
-
-		return;
-		
 		call_stack_builder.push_call_noop(*this, [](const md_table& t, const draw_call_param& p) static {
 			if(!p.layer_param.is_top()) return;
 			if(!util::is_draw_param_valid(t, p)) return;
 
-			auto cells = t.cells();
-			if(cells.empty()) return;
+			auto children = t.exposed_children();
+			auto [num_cols, num_rows] = t.grid_extent();
+			if(children.empty() || num_cols == 0 || num_rows == 0) return;
 
 			auto content_origin = t.content_src_pos_abs();
 			auto content_extent = t.content_bound_abs().extent();
+			auto content_left = content_origin.x;
+			auto content_top = content_origin.y;
+			auto content_right = content_left + content_extent.x;
+			auto content_bottom = content_top + content_extent.y;
+
 			auto opacity = util::get_final_draw_opacity(t, p);
 			auto& renderer = t.renderer();
 			auto& cfg = t.config_;
-
-			std::uint32_t num_cols = 0;
-			for(auto it = cells.begin(); it != cells.end(); ++it) {
-				++num_cols;
-				if(it->cell.end_line) break;
-			}
-			if(num_cols == 0) return;
 
 			renderer.update_state(fx::batch_draw_mode::def);
 
 			auto bg_color = cfg.table_bg_color.copy().mul_a(opacity);
 			renderer << graphic::draw::instruction::rect_aabb{
 				.v00 = content_origin,
-				.v11 = content_origin + content_extent,
+				.v11 = {content_right, content_bottom},
 				.vert_color = {bg_color}
 			};
 
@@ -206,69 +206,124 @@ struct md_table : gui::table {
 			auto header_color = cfg.table_header_bg_color.copy().mul_a(opacity);
 			auto even_color = cfg.table_even_row_bg_color.copy().mul_a(opacity);
 
-			auto it = cells.begin();
-			for(std::uint32_t row = 0; it != cells.end(); ++row) {
+			std::vector<float> col_lefts;
+			std::vector<float> col_rights;
+			for(std::uint32_t c = 0; c < num_cols; ++c) {
+				auto* child = children[c];
+				col_lefts.push_back(child->pos_abs().x);
+				col_rights.push_back(child->pos_abs().x + child->extent().x);
+			}
+
+			std::vector<float> col_lines;
+			col_lines.push_back(content_left);
+			for(std::uint32_t c = 0; c + 1 < num_cols; ++c)
+				col_lines.push_back((col_rights[c] + col_lefts[c + 1]) * 0.5f);
+			col_lines.push_back(content_right);
+
+			std::vector<float> row_tops;
+			std::vector<float> row_bottoms;
+
+			for(std::uint32_t r = 0; r < num_rows; ++r) {
 				float row_top = std::numeric_limits<float>::max();
 				float row_bottom = std::numeric_limits<float>::lowest();
 
-				std::uint32_t col = 0;
-				for(; col < num_cols && it != cells.end(); ++col, ++it) {
-					const auto& region = it->cell.allocated_region;
-					float cell_top = content_origin.y + region.src.y;
-					float cell_bottom = cell_top + region.extent().y;
-					float cell_left = content_origin.x + region.src.x;
-					float cell_right = cell_left + region.extent().x;
-
-					if(cell_top < row_top) row_top = cell_top;
-					if(cell_bottom > row_bottom) row_bottom = cell_bottom;
-
-					renderer << graphic::draw::instruction::line{
-						.src = {cell_right, cell_top},
-						.dst = {cell_right, cell_bottom},
-						.color = {grid_color, grid_color},
-						.stroke = grid_width,
-					};
-
-					renderer << graphic::draw::instruction::line{
-						.src = {cell_left, cell_bottom},
-						.dst = {cell_right, cell_bottom},
-						.color = {grid_color, grid_color},
-						.stroke = grid_width,
-					};
-
-					if(row == 0) {
-						renderer << graphic::draw::instruction::line{
-							.src = {cell_left, cell_top},
-							.dst = {cell_right, cell_top},
-							.color = {grid_color, grid_color},
-							.stroke = grid_width,
-						};
-					}
-
-					if(col == 0) {
-						renderer << graphic::draw::instruction::line{
-							.src = {cell_left, cell_top},
-							.dst = {cell_left, cell_bottom},
-							.color = {grid_color, grid_color},
-							.stroke = grid_width,
-						};
-					}
+				for(std::uint32_t c = 0; c < num_cols; ++c) {
+					auto* child = children[r * num_cols + c];
+					float top = child->pos_abs().y;
+					float bottom = top + child->extent().y;
+					if(top < row_top) row_top = top;
+					if(bottom > row_bottom) row_bottom = bottom;
 				}
 
-				if(row == 0) {
+				row_tops.push_back(row_top);
+				row_bottoms.push_back(row_bottom);
+			}
+
+			std::vector<float> row_lines;
+			row_lines.push_back(content_top);
+			for(std::size_t r = 0; r + 1 < row_tops.size(); ++r)
+				row_lines.push_back((row_bottoms[r] + row_tops[r + 1]) * 0.5f);
+			row_lines.push_back(content_bottom);
+
+			for(std::size_t r = 0; r < row_tops.size(); ++r) {
+				if(r == 0) {
 					renderer << graphic::draw::instruction::rect_aabb{
-						.v00 = {content_origin.x, row_top},
-						.v11 = {content_origin.x + content_extent.x, row_bottom},
+						.v00 = {content_left, row_tops[r]},
+						.v11 = {content_right, row_bottoms[r]},
 						.vert_color = {header_color}
 					};
-				} else if((row & 1) == 0) {
+				} else if((r & 1) == 0) {
 					renderer << graphic::draw::instruction::rect_aabb{
-						.v00 = {content_origin.x, row_top},
-						.v11 = {content_origin.x + content_extent.x, row_bottom},
+						.v00 = {content_left, row_tops[r]},
+						.v11 = {content_right, row_bottoms[r]},
 						.vert_color = {even_color}
 					};
 				}
 			}
+
+			for(float x : col_lines) {
+				renderer << graphic::draw::instruction::line{
+					.src = {x, content_top},
+					.dst = {x, content_bottom},
+					.color = {grid_color, grid_color},
+					.stroke = grid_width,
+				};
+			}
+
+			for(float y : row_lines) {
+				renderer << graphic::draw::instruction::line{
+					.src = {content_left, y},
+					.dst = {content_right, y},
+					.color = {grid_color, grid_color},
+					.stroke = grid_width,
+				};
+			}
+		});
+
+		grid::record_draw_layer(call_stack_builder);
+	}
+};
+
+struct markdown_bullet : elem {
+	graphic::color bullet_color{0.72f, 0.74f, 0.78f, 1.0f};
+	bool hollow = false;
+	align::pos anchor = align::pos::center;
+	float size_ratio = 0.75f;
+	float stroke_ratio = 0.3f;
+
+	using elem::elem;
+
+	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
+		return (extent.apply(math::vec2{marker_size, marker_size}), extent.potential_extent());
+	}
+
+	float marker_size{20.f};
+
+	void record_draw_layer(draw_recorder& call_stack_builder) const override {
+		elem::record_draw_layer(call_stack_builder);
+
+		call_stack_builder.push_call_noop(*this, [](const markdown_bullet& s, const draw_call_param& p) static {
+			if(!p.layer_param.is_top()) return;
+			if(!util::is_draw_param_valid(s, p)) return;
+
+			auto bounds = s.content_bound_abs();
+			auto extent = bounds.extent();
+			auto radius = std::min(extent.x, extent.y) * s.size_ratio * 0.5f;
+			auto stroke = radius * s.stroke_ratio;
+
+			auto center = align::get_vert(s.anchor, bounds);
+			auto color = s.bullet_color.copy().mul_a(util::get_final_draw_opacity(s, p));
+
+			math::range radius_range = s.hollow
+				? math::range{radius - stroke, radius}
+				: math::range{0.f, radius};
+
+			s.renderer().push(graphic::draw::instruction::poly{
+				.pos = center,
+				.segments = graphic::draw::instruction::get_circle_vertices(radius),
+				.radius = radius_range,
+				.color = {color, color}
+			});
 		});
 	}
 };
@@ -421,78 +476,139 @@ sequence& append_block_container(sequence& parent, const markdown_config& config
 	return hdl.elem();
 }
 
-void build_blocks(sequence& parent, const md::node_list& nodes, const markdown_config& config);
+void build_blocks(sequence& parent, const md::node_list& nodes, const markdown_config& config, std::uint32_t depth = 0);
 
-void build_list(sequence& parent, const md::list& node, const markdown_config& config) {
-	auto table_hdl = parent.create_back([&](gui::table& tbl) {
-		tbl.set_style();
-		tbl.set_entire_align(align::pos::top_left);
-		tbl.template_cell.set_pad(config.table_pad);
+void build_list(sequence& parent, const md::list& node, const markdown_config& config, std::uint32_t depth = 0) {
+	const auto item_count = static_cast<std::uint32_t>(node.items.size());
+	if(item_count == 0) return;
+
+	// Column spec: [pending (marker), passive (content)]
+	grid_mixed col_spec;
+	col_spec.heads.push_back({
+		layout::stated_size{layout::size_category::pending, 0},
+		align::padding1d{config.table_pad, config.table_pad}
 	});
-	table_hdl.cell().set_pending();
-	table_hdl.cell().set_pad({config.block_pad, config.block_pad});
+	col_spec.heads.push_back({
+		layout::stated_size{layout::size_category::passive, 1},
+		align::padding1d{config.table_pad, config.table_pad}
+	});
 
-	auto& tbl = table_hdl.elem();
+	// Row spec: [pending] * item_count
+	grid_mixed row_spec;
+	for(std::uint32_t i = 0; i < item_count; ++i){
+		row_spec.heads.push_back({
+			layout::stated_size{layout::size_category::mastering, 60},
+			align::padding1d{2.f, 2.f}
+		});
+		row_spec.heads.push_back({
+			layout::stated_size{layout::size_category::pending, 0},
+			align::padding1d{2.f, 2.f}
+		});
+	}
+
+	auto grid_hdl = parent.create_back([&](grid& g) {
+		g.set_style();
+		g.set_expand_policy(layout::expand_policy::resize_to_fit);
+	}, math::vector2<grid_dim_spec>{
+		grid_dim_spec{std::move(col_spec)},
+		grid_dim_spec{std::move(row_spec)}
+	});
+	grid_hdl.cell().set_pending();
+	grid_hdl.cell().set_pad({config.block_pad, config.block_pad});
+
+	auto& g = grid_hdl.elem();
 	inline_renderer render{config};
 	std::uint32_t number = node.start_number;
 
-	for(const auto& item : node.items){
-		{
-			auto marker_hdl = tbl.create_back([&](direct_label& label){
-				setup_label_base(label, config);
-				label.text_entire_align = align::pos::top_right;
-				label.text_color_scl = config.bullet_color;
-				std::u32string marker = node.ordered ? std::u32string{} : std::u32string{U"•"};
-				if(node.ordered){
-					append_utf8(marker, std::format("{}.", number));
-				}
-				label.set_tokenized_text(typesetting::tokenized_text{std::move(marker), typesetting::tokenize_tag::raw});
-			});
-			marker_hdl.cell().set_pending({true, true});
-			marker_hdl.cell().unsaturate_cell_align = align::pos::top_left;
-			marker_hdl.cell().unsaturate_cell_elem_align = align::pos::top_left;
+	for(std::uint32_t row = 0; row < item_count; ++row){
+		const auto& item = node.items[row];
 
+		// Marker in column 0
+		{
+			if(!node.ordered){
+				auto marker_hdl = g.create_back([&](markdown_bullet& bullet){
+					bullet.set_style();
+					bullet.bullet_color = config.bullet_color;
+					bullet.hollow = (depth % 2 != 0);
+					bullet.marker_size = 20.f;
+				});
+				marker_hdl.cell().extent = {
+					{.type = grid_extent_type::src_extent, .desc = {0, 1}},
+					{.type = grid_extent_type::src_extent, .desc = {static_cast<std::uint16_t>(row * 2), 1}}
+				};
+				marker_hdl.cell().unsaturate_cell_elem_align = align::pos::bottom_right;
+			} else {
+				auto marker_hdl = g.create_back([&](direct_label& label){
+					setup_label_base(label, config);
+					label.set_fit_type(label_fit_type::scl);
+					label.text_entire_align = align::pos::top_right;
+					label.text_color_scl = config.bullet_color;
+					std::u32string marker;
+					append_utf8(marker, std::format("{}.", number));
+					label.set_tokenized_text(typesetting::tokenized_text{std::move(marker), typesetting::tokenize_tag::raw});
+				});
+				marker_hdl.cell().extent = {
+					{.type = grid_extent_type::src_extent, .desc = {0, 1}},
+					{.type = grid_extent_type::src_extent, .desc = {static_cast<std::uint16_t>(row * 2), 1}}
+				};
+				marker_hdl.cell().unsaturate_cell_elem_align = align::pos::bottom_right;
+			}
 		}
 
+		// Content in column 1
 		{
-			//TODO this cannot work for nested list, considering use other layouts
-			auto content_hdl = tbl.create_back([&](sequence& seq){
+			auto content_hdl = g.create_back([&](sequence& seq){
 				seq.set_style();
-				seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major));
+				seq.set_layout_spec(layout::layout_policy::hori_major);
 				seq.template_cell.set_pending();
 				seq.template_cell.set_pad({2.f, 2.f});
-				build_blocks(seq, item.blocks, config);
+				build_blocks(seq, item.blocks, config, depth + 1);
 			});
-			content_hdl.cell().set_pending({false, true}).set_width_passive();
-			content_hdl.cell().unsaturate_cell_align = align::pos::none;
-			content_hdl.cell().unsaturate_cell_elem_align = align::pos::top_left;
+			content_hdl.cell().extent = {
+				{.type = grid_extent_type::src_extent, .desc = {1, 1}},
+				{.type = grid_extent_type::src_extent, .desc = {static_cast<std::uint16_t>(row * 2), 2}}
+			};
+			content_hdl.cell().unsaturate_cell_elem_align = align::pos::center_left;
 		}
-		tbl.end_line();
 		++number;
 	}
 }
 
 void build_table(sequence& parent, const md::table& node, const markdown_config& config) {
-	auto table_hdl = parent.create_back([&](md_table& tbl) {
+	const auto num_cols = node.cols;
+	const auto num_rows = node.rows;
+	if(num_cols == 0 || num_rows == 0) return;
+
+
+	auto table_hdl = parent.create_back([&](scroll_adaptor<md_table>& s) {
+		s.set_layout_spec(layout::layout_policy::vert_major);
+		s.set_expand_policy(layout::expand_policy::resize_to_fit);
+
+		auto& tbl = s.get_elem();
+		tbl.set_expand_policy(layout::expand_policy::resize_to_fit);
 		tbl.config_ = config;
-		tbl.set_style();
-		tbl.set_entire_align(align::pos::top_left);
-		tbl.template_cell.set_pad(config.table_pad);
-	});
+		// tbl.set_style();
+	}, layout::layout_specifier::fixed(layout::layout_policy::vert_major),
+	   math::vector2<grid_dim_spec>{
+		   grid_all_pending{num_cols, {config.table_pad, config.table_pad}},
+	   	grid_all_pending{num_rows, {config.table_pad, config.table_pad}}
+	   });
+
 	table_hdl.cell().set_pending();
 	table_hdl.cell().set_pad({config.block_pad, config.block_pad});
 
 	auto& tbl = table_hdl.elem();
 	inline_renderer render{config};
 
-	for(std::uint32_t r = 0; r < node.rows; ++r) {
+	for(std::uint32_t r = 0; r < num_rows; ++r) {
 		auto row = node.get_row(r);
-		for(std::uint32_t c = 0; c < row.size(); ++c) {
+		for(std::uint32_t c = 0; c < num_cols; ++c) {
 			auto text = render(row[c].children);
 			if(r == 0)
 				text = rich_size_wrap(std::move(text), config.to_px(config.body_font_size), true);
 
-			auto cell_hdl = tbl.create_back([&](direct_label& label) {
+			auto cell_hdl = tbl.get_elem().create_back([&](direct_label& label) {
+				label.set_self_boarder(gui::boarder{}.set(4));
 				setup_label_base(label, config);
 				label.set_tokenized_text(typesetting::tokenized_text{std::move(text), typesetting::tokenize_tag::def});
 				switch(c < node.alignments.size() ? node.alignments[c] : table_align::none) {
@@ -510,13 +626,15 @@ void build_table(sequence& parent, const md::table& node, const markdown_config&
 					break;
 				}
 			});
-			cell_hdl.cell().set_pending({true, true});
+			cell_hdl.cell().extent = {
+				{.type = grid_extent_type::src_extent, .desc = {static_cast<std::uint16_t>(c), 1}},
+				{.type = grid_extent_type::src_extent, .desc = {static_cast<std::uint16_t>(r), 1}}
+			};
 		}
-		tbl.end_line();
 	}
 }
 
-void build_blockquote(sequence& parent, const md::blockquote& node, const markdown_config& config) {
+void build_blockquote(sequence& parent, const md::blockquote& node, const markdown_config& config, std::uint32_t depth = 0) {
 	std::u32string combined;
 	inline_renderer render{config};
 	bool all_paragraph_like = true;
@@ -541,10 +659,10 @@ void build_blockquote(sequence& parent, const md::blockquote& node, const markdo
 	}
 
 	auto& container = append_block_container(parent, config, config.quote_indent, true);
-	build_blocks(container, node.children, config);
+	build_blocks(container, node.children, config, depth);
 }
 
-void build_blocks(sequence& parent, const node_list& nodes, const markdown_config& config) {
+void build_blocks(sequence& parent, const node_list& nodes, const markdown_config& config, std::uint32_t depth) {
 	inline_renderer render{config};
 
 	for(const ast_node& node : nodes) {
@@ -568,10 +686,10 @@ void build_blocks(sequence& parent, const node_list& nodes, const markdown_confi
 				build_table(parent, val, config);
 			},
 			[&](const list& val){
-				build_list(parent, val, config);
+				build_list(parent, val, config, depth);
 			},
 			[&](const blockquote& val){
-				build_blockquote(parent, val, config);
+				build_blockquote(parent, val, config, depth);
 			},
 			[&](const thematic_break& val){
 				auto hdl = parent.create_back([&](markdown_separator& sep) {
@@ -589,25 +707,29 @@ void build_blocks(sequence& parent, const node_list& nodes, const markdown_confi
 export inline void append_markdown(
 	sequence& parent,
 	std::u32string_view markdown_text,
-	const markdown_config& config = {}
+	const markdown_config& config = {},
+	std::uint32_t depth = 0
 ) {
 	markdown_parser parser{markdown_text};
+
 	auto ast = parser.parse();
-	build_blocks(parent, ast, config);
+
+	build_blocks(parent, ast, config, depth);
 }
 
 export inline elem_ptr build_markdown(
 	scene& scene,
 	elem* parent,
 	std::u32string_view markdown_text,
-	const markdown_config& config = {}
+	const markdown_config& config = {},
+	std::uint32_t depth = 0
 ) {
-	elem_ptr root{scene, parent, [text = std::u32string{markdown_text}, config](sequence& seq) {
+	elem_ptr root{scene, parent, [text = std::u32string{markdown_text}, config, depth](sequence& seq) {
 		seq.set_style();
 		seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 		seq.template_cell.set_pending();
 		seq.template_cell.set_pad({config.block_pad, config.block_pad});
-		append_markdown(seq, text, config);
+		append_markdown(seq, text, config, depth);
 		seq.notify_isolated_layout_changed();
 	}};
 
