@@ -195,12 +195,21 @@ public:
 
 	bool update(const float delta_in_ticks) override;
 
-	math::vec2 transform_to_content_space(math::vec2 where_relative_in_parent) const noexcept final{
-		return elem::transform_to_content_space(where_relative_in_parent + scroll_.temp);
+	using elem::transform_to_content_space;
+	using elem::transform_from_content_space;
+
+	void transform_to_content_space(std::span<math::vec2> where_relative_in_parent) const noexcept final{
+		elem::transform_to_content_space(where_relative_in_parent);
+		for(auto& pos : where_relative_in_parent){
+			pos += scroll_.temp;
+		}
 	}
 
-	math::vec2 transform_from_content_space(math::vec2 where_relative_in_child) const noexcept final{
-		return elem::transform_from_content_space(where_relative_in_child - scroll_.temp);
+	void transform_from_content_space(std::span<math::vec2> where_relative_in_child) const noexcept final{
+		for(auto& pos : where_relative_in_child){
+			pos -= scroll_.temp;
+		}
+		elem::transform_from_content_space(where_relative_in_child);
 	}
 
 #pragma region ScrollPaneGetters

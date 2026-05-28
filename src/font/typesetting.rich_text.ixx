@@ -70,17 +70,9 @@ struct rich_text_fallback_style {
 	bool enables_underline{false};
 	bool enables_italic{false};
 	bool enables_bold{false};
-	rich_text_token::wrap_frame_type wrap_frame_type;
+	rich_text_token::wrap_frame_type wrap_frame_type{rich_text_token::wrap_frame_type::none};
 
-	constexpr friend bool operator==(const rich_text_fallback_style& lhs, const rich_text_fallback_style& rhs) noexcept {
-		return lhs.offset == rhs.offset
-			&& lhs.color == rhs.color
-			&& lhs.family == rhs.family
-			&& lhs.features == rhs.features
-			&& lhs.enables_underline == rhs.enables_underline
-			&& lhs.enables_italic == rhs.enables_italic
-			&& lhs.enables_bold == rhs.enables_bold;
-	}
+	constexpr friend bool operator==(const rich_text_fallback_style& lhs, const rich_text_fallback_style& rhs) noexcept = default;
 
 
 	// constexpr bool operator==(const rich_text_fallback_style&) const noexcept = default;

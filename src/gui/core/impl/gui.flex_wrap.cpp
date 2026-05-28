@@ -259,6 +259,7 @@ void flex_wrap::layout_elem(){
 		if(auto pref = get_prefer_extent(); pref && expand_policy_ == layout::expand_policy::prefer){
 			resize(pref.value(), propagate_mask::force_upper);
 		}
+		refresh_overflowed_state_from_children();
 		return;
 	}
 
@@ -393,5 +394,7 @@ void flex_wrap::layout_elem(){
 			line_minor_offset += line.minor_capture + line_spacing_;
 		}
 	}
+
+	refresh_overflowed_state_from_children();
 }
 }

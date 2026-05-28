@@ -159,7 +159,8 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 	auto result = events::op_afterwards::fall_through;
 	if(focus_cursor){
 		const std::span rng = inbounds_.get_cur();
-		const auto pos = util::transform_scene2local(rng, inputs_.cursor_pos());
+		auto pos = inputs_.cursor_pos();
+		util::transform_scene2local(rng, std::span{&pos, 1});
 		events::click e{pos, k};
 
 		auto cur = rng.rbegin();
@@ -272,23 +273,21 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
 
 
 	const auto rng = get_inbounds();
-	const auto cursor_transform_delta = util::transform_scene2local(rng, {});
-	const auto cursor_transformed = get_cursor_pos() + cursor_transform_delta;
+	std::array cursor_points{inputs_.last_cursor_pos(), get_cursor_pos()};
+	util::transform_scene2local(rng, std::span<math::vec2>{cursor_points});
 
 	for(const auto& [i, state] : mouse_states_ | std::views::enumerate){
 		if(!state) continue;
 
-		auto src = state.src + cursor_transform_delta;
-		auto dst = cursor_transformed;
+		std::array<math::vec2, 2> drag_points{state.src, get_cursor_pos()};
+		util::transform_scene2local(rng, std::span<math::vec2>{drag_points});
 		const auto mode = inputs_.main_binds.get_mode();
 		events::key_set key{static_cast<std::uint16_t>(i), input_handle::act::ignore, mode};
 
 		auto cur = rng.rbegin();
 		while(cur != rng.rend()){
-			if((*cur)->on_drag({src, dst, key}) != events::op_afterwards::intercepted){
-				const auto delta = util::transform_current2parent(**cur, {});
-				src += delta;
-				dst += delta;
+			if((*cur)->on_drag({drag_points[0], drag_points[1], key}) != events::op_afterwards::intercepted){
+				util::transform_current2parent(**cur, std::span<math::vec2>{drag_points});
 				++cur;
 			}else{
 				break;
@@ -297,9 +296,9 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
 	}
 
 	const auto rst = focus_cursor->on_cursor_moved(
-		events::cursor_move{.src = inputs_.last_cursor_pos() + cursor_transform_delta, .dst = cursor_transformed});
+		events::cursor_move{.src = cursor_points[0], .dst = cursor_points[1]});
 
-	return {rst, get_cursor_style(cursor_transformed)};
+	return {rst, get_cursor_style(cursor_points[1])};
 }
 
 style::cursor_style input::get_cursor_style(math::vec2 cursor_local_pos) const{
@@ -313,8 +312,8 @@ style::cursor_style input::get_cursor_style() const{
 	if(!focus_cursor){
 		return style::cursor_style{style::cursor_type::regular};
 	}
-	const auto cursor_transform_delta = util::transform_scene2local(get_inbounds(), {});
-	const auto cursor_transformed = inputs_.cursor_pos() + cursor_transform_delta;
+	auto cursor_transformed = inputs_.cursor_pos();
+	util::transform_scene2local(get_inbounds(), std::span{&cursor_transformed, 1});
 
 	return focus_cursor->get_cursor_type(cursor_transformed);
 }

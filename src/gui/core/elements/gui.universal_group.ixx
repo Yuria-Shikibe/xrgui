@@ -337,6 +337,10 @@ protected:
 			any_changed = cell.cell.update_relative_src(*cell.element, content_src_pos_abs(), speed) || any_changed;
 		}
 
+		if(any_changed){
+			refresh_overflowed_state_from_children();
+		}
+
 		return any_changed;
 	}
 

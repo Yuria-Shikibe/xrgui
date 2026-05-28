@@ -64,6 +64,13 @@ struct run_style_state{
 	constexpr bool operator==(const run_style_state&) const noexcept = default;
 };
 
+struct hb_font_cache_key{
+	font::font_face_handle* face{};
+	font::glyph_size_type size{};
+
+	constexpr bool operator==(const hb_font_cache_key&) const noexcept = default;
+};
+
 struct persistent_run_state{
 	std::optional<ul_start_info> active_ul_start;
 	std::optional<wrap_start_info> active_wrap_start;
@@ -79,7 +86,7 @@ export
 struct layout_ctx_base{
 protected:
 	font::font_manager* manager_{font::default_font_manager};
-	lru_cache<font::font_face_handle*, font::hb::font_ptr, 4> hb_cache_;
+	lru_cache<hb_font_cache_key, font::hb::font_ptr, 8> hb_cache_;
 	font::hb::buffer_ptr hb_buffer_{font::hb::make_buffer()};
 	std::vector<hb_feature_t> feature_stack_{};
 	layout_state_t state_{};
@@ -116,12 +123,19 @@ public:
 		return state_.target_hb_dir == HB_DIRECTION_TTB || state_.target_hb_dir == HB_DIRECTION_BTT;
 	}
 
-	[[nodiscard]] FORCE_INLINE inline hb_font_t* get_hb_font(font::font_face_handle* face) noexcept{
-		if(const auto ptr = hb_cache_.get(face)) return ptr->get();
+	[[nodiscard]] FORCE_INLINE inline hb_font_t* get_hb_font(
+		font::font_face_handle* face,
+		font::glyph_size_type snapped_size) noexcept{
+		const hb_font_cache_key key{face, snapped_size};
+		if(const auto ptr = hb_cache_.get(key)){
+			hb_ft_font_changed(ptr->get());
+			return ptr->get();
+		}
 		auto new_hb_font = create_harfbuzz_font(*face);
 		hb_ft_font_set_load_flags(new_hb_font.get(), FT_LOAD_NO_HINTING);
+		hb_ft_font_changed(new_hb_font.get());
 		const auto rst = new_hb_font.get();
-		hb_cache_.put(face, std::move(new_hb_font));
+		hb_cache_.put(key, std::move(new_hb_font));
 		return rst;
 	}
 
@@ -643,7 +657,8 @@ private:
 		hb_buffer_guess_segment_properties(hb_buffer_.get());
 
 		const run_metrics metrics = this->calculate_metrics(config_, face);
-		::hb_shape(this->get_hb_font(&face), hb_buffer_.get(), feature_stack_.data(), feature_stack_.size());
+		::hb_shape(this->get_hb_font(&face, metrics.snapped_size), hb_buffer_.get(), feature_stack_.data(),
+			feature_stack_.size());
 
 		unsigned int len;
 		hb_glyph_info_t* infos = hb_buffer_get_glyph_infos(hb_buffer_.get(), &len);

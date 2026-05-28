@@ -53,30 +53,5 @@ using draw_call_stack = function_call_stack<draw_call_param>;
 export
 using draw_recorder = draw_call_stack::function_call_stack_builder;
 
-export
-struct style_config{
-	static constexpr std::size_t max_mask_width = 32;
-	/**
-	 * @brief Empty stands for dynamic
-	 */
-	std::bitset<max_mask_width> used_layer{};
-
-	FORCE_INLINE constexpr bool has_layer(const fx::layer_param& param) const noexcept{
-		if(used_layer.none()) [[unlikely]] {
-			return true;
-		}else [[likely]] {
-			return used_layer[param.layer_index];
-		}
-	}
-};
-
-namespace style{
-export constexpr style_config layer_top_only{{0b1}};
-
-export
-template <unsigned Count>
-	requires (Count < style_config::max_mask_width && Count > 0)
-constexpr style_config layer_draw_until{{(1uz << Count) - 1uz}};
-}
 
 }
