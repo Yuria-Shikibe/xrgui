@@ -478,12 +478,65 @@ struct tree_direct{
 	}
 };
 
+
+constexpr inline std::size_t max_mask_width = 32;
+
+export
+struct style_config{
+	/**
+	 * @brief Empty stands for dynamic
+	 */
+	std::bitset<max_mask_width> used_layer{};
+
+	FORCE_INLINE constexpr bool has_layer(const fx::layer_param& param) const noexcept{
+		if(used_layer.none()) [[unlikely]] {
+			return true;
+		}else [[likely]] {
+			return used_layer[param.layer_index];
+		}
+	}
+};
+
+export
+template <std::uint32_t Layers>
+struct style_config_static{
+
+	FORCE_INLINE static constexpr bool has_layer(const fx::layer_param& param) noexcept{
+		if constexpr (Layers == 0){
+			return true;
+		}else{
+			assert(param.layer_index < std::numeric_limits<decltype(Layers)>::digits);
+			return Layers & (1 << param.layer_index);
+		}
+	}
+};
+
+export constexpr style_config layer_top_only{{0b1}};
+
+export
+template <unsigned Count>
+	requires (Count < max_mask_width && Count > 0)
+constexpr style_config layer_draw_until{{(1uz << Count) - 1uz}};
+
 export
 struct layer_router_pred{
 	style_config config;
 
 	constexpr bool operator()(const draw_call_param& p) const noexcept{
 		return config.has_layer(p.layer_param);
+	}
+};
+
+export
+template <std::size_t Layers>
+struct layer_router_static_pred{
+	constexpr bool operator()(const draw_call_param& param) const noexcept{
+		if constexpr (Layers == 0){
+			return true;
+		}else{
+			assert(param.layer_param.layer_index < std::numeric_limits<decltype(Layers)>::digits);
+			return Layers & (1uz << param.layer_param.layer_index);
+		}
 	}
 };
 
@@ -508,6 +561,29 @@ layer_router(style_config, Child&&) -> layer_router<std::decay_t<Child>>;
 
 template <typename Child>
 layer_router(Child&&) -> layer_router<std::decay_t<Child>>;
+
+export
+template <std::size_t Layers, typename Child>
+struct layer_router_static : tree_router_dynamic<layer_router_static_pred<Layers>, Child>{
+	using base_type = tree_router_dynamic<layer_router_static_pred<Layers>, Child>;
+
+	template <std::size_t L, typename ChildArg>
+	[[nodiscard]] explicit(false) layer_router_static(std::in_place_index_t<L>, ChildArg&& child)
+		: base_type(layer_router_static_pred<Layers>{}, std::forward<ChildArg>(child)){
+	}
+
+	template <typename ChildArg>
+	[[nodiscard]] explicit(false) layer_router_static(ChildArg&& child)
+		: base_type(layer_router_static_pred<1>{}, std::forward<ChildArg>(child)){
+	}
+};
+
+template <std::size_t Layers, typename Child>
+layer_router_static(std::in_place_index_t<Layers>, Child&&) -> layer_router_static<Layers, std::decay_t<Child>>;
+
+template <typename Child>
+layer_router_static(Child&&) -> layer_router_static<1, std::decay_t<Child>>;
+
 
 #pragma region Deductions
 

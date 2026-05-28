@@ -737,13 +737,60 @@ public:
 #pragma endregion
 
 #pragma region Transform
+protected:
+	virtual void transform_to_local_space_impl(std::span<math::vec2> where_relative_in_parent) const noexcept{
+		for(auto& pos : where_relative_in_parent){
+			pos -= relative_pos_;
+		}
+	}
+
+	virtual void transform_from_local_space_impl(std::span<math::vec2> where_relative_in_local) const noexcept{
+		for(auto& pos : where_relative_in_local){
+			pos += relative_pos_;
+		}
+	}
+
 public:
+	void transform_to_local_space(std::span<math::vec2> where_relative_in_parent) const noexcept{
+		transform_to_local_space_impl(where_relative_in_parent);
+	}
+
+	void transform_from_local_space(std::span<math::vec2> where_relative_in_local) const noexcept{
+		transform_from_local_space_impl(where_relative_in_local);
+	}
+
+	void transform_to_local_space(math::vec2& where_relative_in_parent) const noexcept{
+		transform_to_local_space(std::span{&where_relative_in_parent, 1});
+	}
+
+	void transform_from_local_space(math::vec2& where_relative_in_local) const noexcept{
+		transform_from_local_space(std::span{&where_relative_in_local, 1});
+	}
+
+	virtual void transform_to_content_space(std::span<math::vec2> where_relative_in_parent) const noexcept{
+		transform_to_local_space(where_relative_in_parent);
+		const auto offset = content_src_offset();
+		for(auto& pos : where_relative_in_parent){
+			pos -= offset;
+		}
+	}
+
+	virtual void transform_from_content_space(std::span<math::vec2> where_relative_in_child) const noexcept{
+		const auto offset = content_src_offset();
+		for(auto& pos : where_relative_in_child){
+			pos += offset;
+		}
+		transform_from_local_space(where_relative_in_child);
+	}
+
 	[[nodiscard]] virtual math::vec2 transform_to_content_space(math::vec2 where_relative_in_parent) const noexcept{
-		return where_relative_in_parent - content_src_offset() - relative_pos_;
+		transform_to_content_space(std::span{&where_relative_in_parent, 1});
+		return where_relative_in_parent;
 	}
 
 	[[nodiscard]] virtual math::vec2 transform_from_content_space(math::vec2 where_relative_in_child) const noexcept{
-		return where_relative_in_child + content_src_offset() + relative_pos_;
+		transform_from_content_space(std::span{&where_relative_in_child, 1});
+		return where_relative_in_child;
 	}
 
 	[[nodiscard]] bool contains(math::vec2 pos_relative) const noexcept;
@@ -1250,54 +1297,79 @@ unsigned inline get_nest_depth(const elem* where) noexcept{
 	return where ? where->get_altitude() : 0;
 }
 
-math::vec2 inline helper_transform_scene2content(const elem* where, math::vec2 inPos) noexcept{
+void inline helper_transform_scene2content(const elem* where, std::span<math::vec2> inPos) noexcept{
 	if(where){
-		return where->transform_to_content_space(helper_transform_scene2content(where->parent(), inPos));
-	}else{
-		return inPos;
+		helper_transform_scene2content(where->parent(), inPos);
+		where->transform_to_content_space(inPos);
 	}
 }
 
 export
-[[nodiscard]] math::vec2 inline transform_scene2local(const elem& where, math::vec2 inPos) noexcept{
-	const auto position_in_current_relative_space = helper_transform_scene2content(where.parent(), inPos);
-	return position_in_current_relative_space - where.pos_rel();
-}
-
-export
-[[nodiscard]] math::vec2 inline transform_scene2local(std::span<const elem* const> elems, math::vec2 inPos) noexcept{
-	auto cur = elems.begin();
-	const auto end = elems.end();
-	if(cur == end) return inPos;
-	const auto prev = --elems.end();
-
-	math::vec2 pos = inPos;
-	for(; cur != prev; ++cur){
-		pos = (*cur)->transform_to_content_space(pos);
-	}
-
-	return pos - (*cur)->pos_rel();
-}
-export
-[[nodiscard]] math::vec2 inline transform_local2scene(const elem& where, math::vec2 inPos) noexcept{
-	inPos += where.pos_rel();
-
-	auto parent = where.parent();
-	while(parent){
-		inPos = parent->transform_from_content_space(inPos);
-		parent = parent->parent();
-	}
-
+[[nodiscard]] math::vec2 inline helper_transform_scene2content(const elem* where, math::vec2 inPos) noexcept{
+	helper_transform_scene2content(where, std::span{&inPos, 1});
 	return inPos;
 }
 
 export
-[[nodiscard]] math::vec2 inline transform_current2parent(const elem& where, math::vec2 pos_in_local_space) noexcept{
-	pos_in_local_space += where.pos_rel();
-	if(auto p = where.parent()){
-		pos_in_local_space = p->transform_from_content_space(pos_in_local_space) - p->pos_rel();
+void inline transform_scene2local(const elem& where, std::span<math::vec2> inPos) noexcept{
+	helper_transform_scene2content(where.parent(), inPos);
+	where.transform_to_local_space(inPos);
+}
+
+export
+[[nodiscard]] math::vec2 inline transform_scene2local(const elem& where, math::vec2 inPos) noexcept{
+	transform_scene2local(where, std::span{&inPos, 1});
+	return inPos;
+}
+
+export
+void inline transform_scene2local(std::span<const elem* const> elems, std::span<math::vec2> inPos) noexcept{
+	auto cur = elems.begin();
+	const auto end = elems.end();
+	if(cur == end) return;
+	const auto prev = std::prev(end);
+
+	for(; cur != prev; ++cur){
+		(*cur)->transform_to_content_space(inPos);
 	}
 
+	(*cur)->transform_to_local_space(inPos);
+}
+
+export
+[[nodiscard]] math::vec2 inline transform_scene2local(std::span<const elem* const> elems, math::vec2 inPos) noexcept{
+	transform_scene2local(elems, std::span{&inPos, 1});
+	return inPos;
+}
+export
+void inline transform_local2scene(const elem& where, std::span<math::vec2> inPos) noexcept{
+	where.transform_from_local_space(inPos);
+
+	auto parent = where.parent();
+	while(parent){
+		parent->transform_from_content_space(inPos);
+		parent = parent->parent();
+	}
+}
+
+export
+[[nodiscard]] math::vec2 inline transform_local2scene(const elem& where, math::vec2 inPos) noexcept{
+	transform_local2scene(where, std::span{&inPos, 1});
+	return inPos;
+}
+
+export
+void inline transform_current2parent(const elem& where, std::span<math::vec2> pos_in_local_space) noexcept{
+	where.transform_from_local_space(pos_in_local_space);
+	if(auto p = where.parent()){
+		p->transform_from_content_space(pos_in_local_space);
+		p->transform_to_local_space(pos_in_local_space);
+	}
+}
+
+export
+[[nodiscard]] math::vec2 inline transform_current2parent(const elem& where, math::vec2 pos_in_local_space) noexcept{
+	transform_current2parent(where, std::span{&pos_in_local_space, 1});
 	return pos_in_local_space;
 }
 

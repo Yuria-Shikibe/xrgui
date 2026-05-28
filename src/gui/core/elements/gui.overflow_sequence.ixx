@@ -173,6 +173,7 @@ public:
 			}
 
 			old_exposed_children_.clear();
+			refresh_overflowed_state_from_children();
 			return;
 		}
 
@@ -262,6 +263,8 @@ public:
 				currentOff.*minorTarget += cell->cell.pad.post + minor;
 			}
 		}
+
+		refresh_overflowed_state_from_children();
 	}
 
 	void clear() noexcept override {
@@ -272,35 +275,7 @@ public:
 	}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
-		elem::record_draw_layer(call_stack_builder);
-
-		call_stack_builder.push_call_enter(*this, [](const overflow_sequence& s, const draw_call_param& p) static -> draw_call_param{
-			const auto space = s.content_bound_abs().intersection_with(p.draw_bound);
-
-			if (s.requires_scissor_) {
-				s.renderer().push_scissor({s.content_bound_abs()});
-				s.renderer().notify_viewport_changed();
-			}
-
-			return {
-				.current_subject = &s,
-				.draw_bound = s.content_bound_abs().intersection_with(p.draw_bound),
-				.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
-				.layer_param = p.layer_param
-			};
-		});
-
-		for(auto element : exposed_children_){
-			element->record_draw_layer(call_stack_builder);
-		}
-
-		call_stack_builder.push_call_leave(*this, [](const overflow_sequence& s, const draw_call_param& p) static {
-
-			if (s.requires_scissor_) {
-				s.renderer().pop_scissor();
-				s.renderer().notify_viewport_changed();
-			}
-		});
+		basic_group::record_draw_layer(call_stack_builder);
 	}
 
 	struct overflow_layout_info {
@@ -321,6 +296,10 @@ public:
 
 
 protected:
+	[[nodiscard]] bool should_clip_overflow() const noexcept override{
+		return requires_scissor_ || basic_group::should_clip_overflow();
+	}
+
 	overflow_layout_info calculate_overflow_layout(
 		float major_size,
 		float minor_scaling,

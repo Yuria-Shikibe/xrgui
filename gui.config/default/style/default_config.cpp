@@ -149,8 +149,7 @@ mo_yanxi::gui::example::make_style_result mo_yanxi::gui::example::make_styles(sc
 
 			itr->second.set(md::styles::quote, style::make_tree_node_ptr(
 				style::tree_tuple_fork{
-					style::tree_direct{style::layer_router{
-						style_config{0b1},
+					style::tree_direct{style::layer_router_static{
 						style::tree_tuple_fork{
 							style::tree_leaf{style::primitives::draw_filled_rect{quote_bg_color}},
 							style::tree_scope{

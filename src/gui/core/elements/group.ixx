@@ -16,14 +16,39 @@ namespace mo_yanxi::gui{
  */
 export
 struct basic_group : public elem{
+public:
+	enum struct overflowed_state{
+		fully_wrapped,
+		leaked,
+		ignore,
+	};
+
 protected:
 	mr::heap_vector<elem_ptr> expired_{get_heap_allocator<elem_ptr>()};
 	mr::heap_vector<elem_ptr> children_{get_heap_allocator<elem_ptr>()};
+	overflowed_state overflowed_state_{overflowed_state::fully_wrapped};
 
 	void layout_children() const{
 		for(const auto& element : children_){
 			element->try_layout();
 		}
+	}
+
+	void refresh_overflowed_state_from_children(){
+		if(is_overflow_ignored()) return;
+
+		const auto content_bound = rect{tags::from_extent, {}, content_extent()};
+		auto state = overflowed_state::fully_wrapped;
+
+		for(const auto& element : exposed_children()){
+			if(!element || !element->is_visible()) continue;
+			if(!content_bound.contains_loose(element->bound_rel())){
+				state = overflowed_state::leaked;
+				break;
+			}
+		}
+
+		util::try_modify(overflowed_state_, state);
 	}
 
 	virtual void notify_layout_changed_on_element_change(){
@@ -43,6 +68,9 @@ public:
 	virtual void clear(){
 		expired_.clear();
 		children_.clear();
+		if(!is_overflow_ignored()){
+			overflowed_state_ = overflowed_state::fully_wrapped;
+		}
 
 		notify_layout_changed_on_element_change();
 	}
@@ -146,12 +174,18 @@ public:
 	void layout_elem() override{
 		elem::layout_elem();
 		layout_children();
+		refresh_overflowed_state_from_children();
 	}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_enter(*this, [](const basic_group& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
+			if(s.should_clip_overflow()){
+				s.renderer().push_scissor({s.content_bound_abs()});
+				s.renderer().notify_viewport_changed();
+			}
+
 			return {
 				.current_subject = &s,
 				.draw_bound = s.content_bound_abs().intersection_with(p.draw_bound),
@@ -164,7 +198,12 @@ public:
 			element->record_draw_layer(call_stack_builder);
 		}
 
-		call_stack_builder.push_call_leave();
+		call_stack_builder.push_call_leave(*this, [](const basic_group& s, const draw_call_param&) static {
+			if(s.should_clip_overflow()){
+				s.renderer().pop_scissor();
+				s.renderer().notify_viewport_changed();
+			}
+		});
 	}
 
 protected:
@@ -187,6 +226,23 @@ protected:
 
 #pragma region Access
 public:
+	[[nodiscard]] overflowed_state get_overflowed_state() const noexcept{
+		return overflowed_state_;
+	}
+
+	[[nodiscard]] bool is_overflow_ignored() const noexcept{
+		return overflowed_state_ == overflowed_state::ignore;
+	}
+
+	void set_overflow_ignored(const bool ignore){
+		if(ignore){
+			util::try_modify(overflowed_state_, overflowed_state::ignore);
+		} else if(overflowed_state_ == overflowed_state::ignore){
+			overflowed_state_ = overflowed_state::fully_wrapped;
+			notify_isolated_layout_changed();
+		}
+	}
+
 	[[nodiscard]] elem& operator[](std::size_t index) const noexcept{
 		return *children_[index];
 	}
@@ -206,6 +262,10 @@ public:
 #pragma endregion
 
 protected:
+	[[nodiscard]] virtual bool should_clip_overflow() const noexcept{
+		return overflowed_state_ == overflowed_state::leaked;
+	}
+
 	void on_element_add(elem& elem) const{
 		util::set_fill_parent(elem, content_extent());
 		elem.update_abs_src(content_src_pos_abs());
@@ -234,6 +294,7 @@ struct loose_group : basic_group{
 		}
 
 		elem::layout_elem();
+		refresh_overflowed_state_from_children();
 	}
 
 protected:

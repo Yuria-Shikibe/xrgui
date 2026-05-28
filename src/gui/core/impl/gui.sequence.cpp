@@ -122,6 +122,7 @@ void sequence::layout_elem(){
 		if(auto pref = get_prefer_extent(); pref && expand_policy_ == layout::expand_policy::prefer){
 			resize(pref.value(), propagate_mask::force_upper);
 		}
+		refresh_overflowed_state_from_children();
 		return;
 	}
 
@@ -181,5 +182,7 @@ void sequence::layout_elem(){
 
 		currentOff.*minorTarget += cell.cell.pad.post + minor;
 	}
+
+	refresh_overflowed_state_from_children();
 }
 }
