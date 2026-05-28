@@ -69,7 +69,7 @@
 * 圆角Scissor
 * 随屏幕缩放
 * 根据PPI自动控制尺寸？
-* scaling是否控制margin，boarder和padding?
+* scaling是否控制margin，border和padding?
 
 ## 待整理
 * [ ] 有些元素的layout policy是非横即竖的，不能填none，要强硬这块的类型安全

@@ -151,7 +151,7 @@ void mo_yanxi::gui::example::main_loop_fn(struct main_loop<main_loop_payload>& m
 
 		r.update_state(fx::batch_draw_mode::msdf);
 		r << fx::nine_patch_draw_vert_color{
-				.patch = &assets::builtin::default_round_square_boarder,
+				.patch = &assets::builtin::default_round_square_border,
 				.region = {200, 200, 600, 600},
 				.color = {
 					graphic::colors::white, graphic::colors::CYAN, graphic::colors::ROYAL, graphic::colors::GREEN

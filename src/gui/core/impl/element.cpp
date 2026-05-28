@@ -176,7 +176,7 @@ void elem::set_style() noexcept{
 	sync_run([](elem& elem){
 		elem.style_ = {};
 		elem.get_scene().notify_display_state_changed(elem.get_channel());
-		if(util::try_modify(elem.style_boarder_cache_, {})){
+		if(util::try_modify(elem.style_border_cache_, {})){
 			elem.notify_isolated_layout_changed();
 		}
 	});

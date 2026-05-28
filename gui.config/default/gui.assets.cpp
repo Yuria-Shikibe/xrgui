@@ -52,22 +52,22 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 			math::usize2{80u, 64u}, 2
 		});
 
-	auto& boarder = load(page,
+	auto& border = load(page,
 			"edge",
 			graphic::sdf_load{
-				graphic::msdf::msdf_generator{graphic::msdf::create_boarder(8.f, 2.f)}, extent, 3
+				graphic::msdf::msdf_generator{graphic::msdf::create_border(8.f, 2.f)}, extent, 3
 			});
 
-	auto& boarder_thin = load(page,
+	auto& border_thin = load(page,
 		"edge_thin",
 		graphic::sdf_load{
-			graphic::msdf::msdf_generator{graphic::msdf::create_boarder(8.f, 1.f)}, extent, 3
+			graphic::msdf::msdf_generator{graphic::msdf::create_border(8.f, 1.f)}, extent, 3
 		});
 
 	auto& base = load(page,
 		"base",
 		graphic::sdf_load{
-			graphic::msdf::msdf_generator{graphic::msdf::create_solid_boarder(8.f)}, extent, 3
+			graphic::msdf::msdf_generator{graphic::msdf::create_solid_border(8.f)}, extent, 3
 		});
 
 	auto& side_bar = load(page,
@@ -82,14 +82,14 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 
 	builtin_page.insert(shape_id::white, constant_image_region_borrow{});
 	builtin_page.insert(shape_id::row_separator, line);
-	builtin_page.insert(shape_id::round_square_edge, boarder);
-	builtin_page.insert(shape_id::round_square_edge_thin, boarder_thin);
+	builtin_page.insert(shape_id::round_square_edge, border);
+	builtin_page.insert(shape_id::round_square_edge_thin, border_thin);
 	builtin_page.insert(shape_id::round_square_base, base);
 	builtin_page.insert(shape_id::side_bar, side_bar);
 
-	builtin::default_round_square_boarder = {boarder, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_boarder), graphic::msdf::sdf_image_boarder};
-	builtin::default_round_square_boarder_thin = {boarder_thin, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_boarder), graphic::msdf::sdf_image_boarder};
-	builtin::default_round_square_base = {base, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_boarder), graphic::msdf::sdf_image_boarder};
+	builtin::default_round_square_border = {border, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
+	builtin::default_round_square_border_thin = {border_thin, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
+	builtin::default_round_square_base = {base, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
 
 }
 
@@ -138,8 +138,8 @@ void load_default_icons(graphic::image_atlas& image_atlas){
 
 void dispose_generated_shapes(){
 	using namespace assets;
-	builtin::default_round_square_boarder = {};
-	builtin::default_round_square_boarder_thin = {};
+	builtin::default_round_square_border = {};
+	builtin::default_round_square_border_thin = {};
 	builtin::default_round_square_base = {};
 }
 }

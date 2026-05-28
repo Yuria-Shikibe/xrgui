@@ -182,7 +182,7 @@ using spacing = padding2d<float>;
 // 方法：width(), height(), extent(), set(), set_hori(), set_vert(), scl()
 ```
 
-每个元素有 `boarder_` — 元素的边框/内边距，在 `resize` 时从可用空间中扣除。
+每个元素有 `border_` — 元素的边框/内边距，在 `resize` 时从可用空间中扣除。
 
 ### 4.3 `padding1d<T>`
 
@@ -726,7 +726,7 @@ get_extent_ptr<T>(policy) → {major_field, minor_field}
 get_vec_ptr<T>(policy) → {major_field, minor_field}
 
 // 获取填充 extent
-get_pad_extent(policy, boarder) → {major_pad, minor_pad}
+get_pad_extent(policy, border) → {major_pad, minor_pad}
 
 // 转置布局方向
 transpose_layout(policy)  // hori↔vert
@@ -743,7 +743,7 @@ container.set_layout_spec(layout_specifier::transpose());
 ### 9.3 边框裁剪
 
 ```cpp
-clip_boarder_from(extent, boarder_extent)  // 从约束中扣除边框
+clip_border_from(extent, border_extent)  // 从约束中扣除边框
 ```
 
 ---
@@ -856,7 +856,7 @@ struct style_tree_metrics{
 };
 ```
 
-元素的 `boarder_` 由样式 `inset` 合并而来（取每边最大值）。
+元素的 `border_` 由样式 `inset` 合并而来（取每边最大值）。
 
 ---
 

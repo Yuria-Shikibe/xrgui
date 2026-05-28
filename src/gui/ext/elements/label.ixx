@@ -225,7 +225,7 @@ public:
 		if(is_layout_expired_()){
 			auto maxSz = restriction_extent.potential_extent();
 
-			const auto resutlSz = layout_text(maxSz.fdim(boarder_extent()));
+			const auto resutlSz = layout_text(maxSz.fdim(border_extent()));
 			if(resutlSz.updated && !resutlSz.required_extent.equals(content_extent())){
 				notify_layout_changed(propagate_mask::force_upper);
 			}

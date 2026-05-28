@@ -336,7 +336,7 @@ protected:
 
 		auto size = context.allocate_cells(cells_, extent.potential_extent(), get_scaling());
 		if(expand_policy_ == layout::expand_policy::prefer){
-			if(const auto v = get_prefer_extent()) size.max(v.value().copy().fdim(boarder_extent()));
+			if(const auto v = get_prefer_extent()) size.max(v.value().copy().fdim(border_extent()));
 		}
 		extent.apply(size);
 

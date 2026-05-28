@@ -1,7 +1,6 @@
 module;
 
 #include <cassert>
-#include <complex.h>
 #include <mo_yanxi/adapted_attributes.hpp>
 
 export module mo_yanxi.gui.elem.scroll_pane;
@@ -596,7 +595,7 @@ protected:
 			szVal.*major += math::clamp_positive(scroll_bar_stroke_ - major_spare);
 		}
 
-		return *sz + boarder_extent();
+		return *sz + border_extent();
 	}
 
 
@@ -736,7 +735,7 @@ private:
 					}
 				}
 
-				elemSz += boarder().extent();
+				elemSz += border().extent();
 				resize(elemSz);
 			}
 		}

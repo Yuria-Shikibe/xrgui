@@ -62,7 +62,7 @@ mo_yanxi::gui::example::make_style_result mo_yanxi::gui::example::make_styles(sc
 #pragma region ElemStyles
 		{
 			style::spec::create_entry e{
-				.edge = {assets::builtin::default_round_square_boarder_thin, {pal_front_distributor}},
+				.edge = {assets::builtin::default_round_square_border_thin, {pal_front_distributor}},
 				.base = {},
 				.back = {assets::builtin::default_round_square_base, {pal_back_distributor}}
 			};
@@ -165,7 +165,7 @@ mo_yanxi::gui::example::make_style_result mo_yanxi::gui::example::make_styles(sc
 						std::in_place_type<elem>
 					},
 					style::tree_metrics_leaf{
-						style::spec::static_metrics{gui::default_boarder},
+						style::spec::static_metrics{gui::default_border},
 					}
 				}
 			));

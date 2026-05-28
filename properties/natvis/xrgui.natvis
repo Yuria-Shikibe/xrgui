@@ -127,8 +127,8 @@
       <Item Name="[restriction]">restriction_extent</Item>
       <Item Name="[in_scaling]">inherent_scaling_</Item>
       <Item Name="[ctx_scaling]">context_scaling_</Item>
-      <Item Name="[boarder]">boarder_</Item>
-      <Item Name="[style_boarder]">style_boarder_cache_</Item>
+      <Item Name="[border]">border_</Item>
+      <Item Name="[style_border]">style_border_cache_</Item>
       <Item Name="[cursor]">cursor_states_</Item>
       <Item Name="[layout]">layout_state</Item>
       <Item Name="[interactivity]">interactivity</Item>
@@ -408,10 +408,10 @@
   <!-- split_pane -->
 
   <Type Name="mo_yanxi::gui::split_pane">
-    <DisplayString>{{*this,nd}} seperator={seperator_position_.base,g} drag={current_drag_state_}</DisplayString>
+    <DisplayString>{{*this,nd}} separator={separator_position_.base,g} drag={current_drag_state_}</DisplayString>
     <Expand>
       <Item Name="[elem_nature]">this,nd</Item>
-      <Item Name="[seperator]">seperator_position_</Item>
+      <Item Name="[separator]">separator_position_</Item>
       <Item Name="[min_margin]">min_margin</Item>
       <Item Name="[drag_state]">current_drag_state_</Item>
       <Item Name="[drag_progress]">drag_progress_</Item>

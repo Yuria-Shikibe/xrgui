@@ -739,7 +739,7 @@ elem.set_style(style::family_variant::invalid);   // 错误色(红)
 边框和toggle：
 
 ```cpp
-elem.set_self_boarder(gui::boarder{}.set(8));  // 四边8px
+elem.set_self_border(gui::border{}.set(8));  // 四边8px
 elem.set_toggled(true);   // active样式
 elem.set_toggled(false);  // 正常样式
 ```

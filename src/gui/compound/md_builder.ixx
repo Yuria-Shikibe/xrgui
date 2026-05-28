@@ -448,12 +448,12 @@ create_handle<direct_label, sequence::cell_type> append_raw_label(
 		if(code_block_style) {
 			apply_code_font(label, config);
 			util::sync_set_elem_style(label, styles::code_block, "markdown");
-			label.set_self_boarder({6.f, 6.f, 6.f, 6.f});
+			label.set_self_border({6.f, 6.f, 6.f, 6.f});
 		}
 		if(quote_style) {
 			label.set_style();
 
-			label.set_self_boarder({8.f, 8.f, 8.f + config.quote_indent, 8.f});
+			label.set_self_border({8.f, 8.f, 8.f + config.quote_indent, 8.f});
 			label.text_color_scl = config.quote_text_color;
 		}
 		label.set_tokenized_text(typesetting::tokenized_text{std::move(text), tokenize_tag});
@@ -476,7 +476,7 @@ sequence& append_block_container(sequence& parent, const markdown_config& config
 	hdl.cell().set_pending();
 	hdl.cell().set_pad({config.block_pad, config.block_pad});
 	// if(left_indent > 0.f) {
-	// 	hdl.elem().set_self_boarder({});
+	// 	hdl.elem().set_self_border({});
 	// }
 	return hdl.elem();
 }
@@ -617,7 +617,7 @@ void build_table(sequence& parent, const md::table& node, const markdown_config&
 				text = rich_size_wrap(std::move(text), config.body_font_size_px(), true);
 
 			auto cell_hdl = tbl.get_elem().create_back([&](direct_label& label) {
-				label.set_self_boarder(gui::boarder{}.set(4));
+				label.set_self_border(gui::border{}.set(4));
 				setup_label_base(label, config);
 				label.set_tokenized_text(typesetting::tokenized_text{std::move(text), typesetting::tokenize_tag::def});
 				switch(c < node.alignments.size() ? node.alignments[c] : table_align::none) {

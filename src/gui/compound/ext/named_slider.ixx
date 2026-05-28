@@ -47,7 +47,7 @@ public:
 			});
 
 			s.create_back([&](label& value){
-				value.set_self_boarder({.left = 4});
+				value.set_self_border({.left = 4});
 				value.set_style();
 				value.set_fit_type(label_fit_type::scl);
 				value.text_entire_align = align::pos::center_left;

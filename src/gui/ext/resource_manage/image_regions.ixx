@@ -611,8 +611,8 @@ export image_row_patch get_separator_row_patch();
 
 
 
-export inline image_nine_region default_round_square_boarder;
-export inline image_nine_region default_round_square_boarder_thin;
+export inline image_nine_region default_round_square_border;
+export inline image_nine_region default_round_square_border_thin;
 export inline image_nine_region default_round_square_base;
 }
 }

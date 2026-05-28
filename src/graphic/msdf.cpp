@@ -473,19 +473,19 @@ bitmap msdf::load_shape(
 	const svg_info& shape,
 	unsigned w,
 	unsigned h,
-	double range, int boarder){
-	bitmap bitmap = {w + boarder * 2, h + boarder * 2};
+	double range, int border){
+	bitmap bitmap = {w + border * 2, h + border * 2};
 	const auto bound = shape.shape.getBounds();
 	const double width = shape.size.x;
 	const double height = shape.size.y;
 
-	const auto scale = bitmap.extent().sub(boarder * 2, boarder * 2).as<double>().copy().div(width, height);
+	const auto scale = bitmap.extent().sub(border * 2, border * 2).as<double>().copy().div(width, height);
 
 	const msdfgen::Projection projection(
 		msdfgen::Vector2(scale.x, -scale.y),
 		msdfgen::Vector2{
-			+(static_cast<double>(boarder)) / scale.x,
-			-bound.t - bound.b - (static_cast<double>(boarder)) / scale.y
+			+(static_cast<double>(border)) / scale.x,
+			-bound.t - bound.b - (static_cast<double>(border)) / scale.y
 		}
 	);
 
@@ -502,12 +502,12 @@ bitmap msdf::load_shape(
 
 bitmap msdf::load_glyph(
 	msdfgen::FontHandle* face, msdfgen::GlyphIndex code,
-	unsigned target_w, unsigned target_h, int boarder,
+	unsigned target_w, unsigned target_h, int border,
 	double font_w, double font_h,
 	double range){
 	msdfgen::Shape shape;
 	if(msdfgen::loadGlyph(shape, face, code, msdfgen::FONT_SCALING_EM_NORMALIZED)){
-		bitmap bitmap = {target_w + boarder * 2, target_h + boarder * 2};
+		bitmap bitmap = {target_w + border * 2, target_h + border * 2};
 
 		shape.orientContours();
 		shape.normalize();
@@ -518,8 +518,8 @@ bitmap msdf::load_glyph(
 		msdfgen::edgeColoringByDistance(shape, 3.);
 		msdfgen::Bitmap<float, 3> msdf(bitmap.width(), bitmap.height());
 
-		const auto offx = -bound.l + static_cast<double>(boarder) / scale.x;
-		const auto offy = -bound.t - static_cast<double>(boarder) / scale.y;
+		const auto offx = -bound.l + static_cast<double>(border) / scale.x;
+		const auto offy = -bound.t - static_cast<double>(border) / scale.y;
 
 		const msdfgen::SDFTransformation t(
 			msdfgen::Projection(
@@ -534,7 +534,7 @@ bitmap msdf::load_glyph(
 		return bitmap;
 	}
 
-	return {target_w + boarder * 2, target_h + boarder * 2};
+	return {target_w + border * 2, target_h + border * 2};
 }
 
 svg_info handle_nanosvg(NSVGimage* svg_image, bool orientContours){
@@ -610,12 +610,12 @@ math::vec2 msdf_generator::get_extent() const noexcept{
 }
 
 
-msdf_generator::msdf_generator(svg_info&& shape, bool orient_contours, double range, int boarder)
-: shape(std::move(shape)), range(range), boarder(boarder), orient_contours(orient_contours){
+msdf_generator::msdf_generator(svg_info&& shape, bool orient_contours, double range, int border)
+: shape(std::move(shape)), range(range), border(border), orient_contours(orient_contours){
 }
 
-msdf_generator::msdf_generator(std::string str, bool is_memory_data, bool orient_contours, double range, int boarder)
-: path(std::move(str)), state_(is_memory_data ? msdf_generator_state::memory : msdf_generator_state::path), range(range), boarder(boarder), orient_contours(orient_contours){
+msdf_generator::msdf_generator(std::string str, bool is_memory_data, bool orient_contours, double range, int border)
+: path(std::move(str)), state_(is_memory_data ? msdf_generator_state::memory : msdf_generator_state::path), range(range), border(border), orient_contours(orient_contours){
 }
 
 
@@ -744,7 +744,7 @@ void add_ring_contour_split(msdfgen::Shape& shape, double size, double radius, d
     add_split_corner(c_bl, {-1, 0}, {0, -1}, {0, -1}, {1, 0});
 }
 
-svg_info msdf::create_boarder(double radius, double width, double k){
+svg_info msdf::create_border(double radius, double width, double k){
 	using namespace msdfgen;
 
 	Shape shape;
@@ -754,11 +754,11 @@ svg_info msdf::create_boarder(double radius, double width, double k){
 	double k_circle = k;
 
 	// 外圈
-	add_ring_contour_split(shape, boarder_size, radius);
+	add_ring_contour_split(shape, border_size, radius);
 
 	// 2. 内圈：防止内半径出现负数导致的路径翻转交叉
 	double inner_radius = std::max(0.0, radius - width);
-	add_ring_contour_split(shape, boarder_size, inner_radius, width, -1.);
+	add_ring_contour_split(shape, border_size, inner_radius, width, -1.);
 
 	if(!shape.validate()) return {};
 
@@ -770,10 +770,10 @@ svg_info msdf::create_boarder(double radius, double width, double k){
 
 	shape.normalize();
 
-	return {shape, {boarder_size, boarder_size}};
+	return {shape, {border_size, border_size}};
 }
 
-svg_info msdf::create_solid_boarder(double radius, double k){
+svg_info msdf::create_solid_border(double radius, double k){
 	using namespace msdfgen;
 
 	// 创建形状对象
@@ -781,8 +781,8 @@ svg_info msdf::create_solid_boarder(double radius, double k){
 	shape.inverseYAxis = true; // 翻转Y轴坐标（视需求而定）
 
 	constexpr double strokeWidth = 2.0; // 轮廓线宽
-	add_ring_contour_split(shape, boarder_size, radius);
-	// add_ring_contour(shape, boarder_size, radius, k);
+	add_ring_contour_split(shape, border_size, radius);
+	// add_ring_contour(shape, border_size, radius, k);
 	// add_contour(shape, 64, radius - strokeWidth, k, strokeWidth);
 	// 验证形状有效性
 	if(!shape.validate()) return {};
@@ -791,7 +791,7 @@ svg_info msdf::create_solid_boarder(double radius, double k){
 	edgeColoringByDistance(shape, 2.);
 	shape.normalize();
 	// 清理资源
-	return {shape, {boarder_size, boarder_size}};
+	return {shape, {border_size, border_size}};
 }
 
 constexpr double k_circle = 0.5522847498;

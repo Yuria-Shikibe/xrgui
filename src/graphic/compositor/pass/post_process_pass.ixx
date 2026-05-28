@@ -93,6 +93,8 @@ export struct compute_shader_info{
 	vk::shader_module shader;
 	std::string entry_name{"main"};
 	std::optional<VkSpecializationInfo> specialization_info{};
+
+	//TODO make this private?
 	math::u32size2 thread_group_size{1, 1};
 
 	[[nodiscard]] compute_shader_info() = default;

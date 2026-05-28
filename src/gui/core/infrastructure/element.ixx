@@ -35,7 +35,7 @@ import mo_yanxi.function_call_stack;
 
 
 namespace mo_yanxi::gui{
-export constexpr inline boarder default_boarder{8, 8, 8, 8};
+export constexpr inline border default_border{8, 8, 8, 8};
 
 export
 struct overlay_manager;
@@ -214,8 +214,8 @@ private:
 
 	[[nodiscard]] style::target_known_node_ptr<elem> get_elem_default_style_() const;
 
-	boarder boarder_{};
-	boarder style_boarder_cache_{};
+	border border_{};
+	border style_border_cache_{};
 
 	mpsc_action_queue<elem> actions{};
 
@@ -440,7 +440,7 @@ public:
 		this->style_ = std::move(style);
 		get_scene().notify_display_state_changed(get_channel());
 
-		if(util::try_modify(style_boarder_cache_, style ? style::query_metrics(this->style_, {}).total_inset() : gui::boarder{})){
+		if(util::try_modify(style_border_cache_, style ? style::query_metrics(this->style_, {}).total_inset() : gui::border{})){
 			notify_isolated_layout_changed();
 		}
 	}
@@ -560,16 +560,16 @@ protected:
 	}
 
 public:
-	FORCE_INLINE inline std::optional<math::vec2> pre_acquire_size_no_boarder_clip(const layout::optional_mastering_extent extent){
+	FORCE_INLINE inline std::optional<math::vec2> pre_acquire_size_no_border_clip(const layout::optional_mastering_extent extent){
 		return pre_acquire_size_impl(extent).transform([&, this](const math::vec2 v){
-			return size_.clamp(v + boarder_extent()).min(extent.potential_extent());
+			return size_.clamp(v + border_extent()).min(extent.potential_extent());
 		});
 	}
 
 	FORCE_INLINE inline std::optional<math::vec2> pre_acquire_size(const layout::optional_mastering_extent extent){
-		return pre_acquire_size_impl(clip_boarder_from(extent, boarder_extent())).transform([&, this](const math::vec2 v){
+		return pre_acquire_size_impl(clip_border_from(extent, border_extent())).transform([&, this](const math::vec2 v){
 			assert(!v.is_NaN());
-			return size_.clamp(v + boarder_extent()).min(extent.potential_extent());
+			return size_.clamp(v + border_extent()).min(extent.potential_extent());
 		});
 	}
 
@@ -884,19 +884,19 @@ public:
 
 	[[nodiscard]] FORCE_INLINE inline vec2 content_extent() const noexcept{
 		const auto [w, h] = size_.get_size();
-		const auto [bw, bh] = boarder_extent();
+		const auto [bw, bh] = border_extent();
 		return {std::fdim(w, bw), std::fdim(h, bh)};
 	}
 
 	[[nodiscard]] FORCE_INLINE inline float content_width() const noexcept{
 		const auto w = size_.get_width();
-		const auto bw = boarder_.width() + style_boarder_cache_.width();
+		const auto bw = border_.width() + style_border_cache_.width();
 		return std::fdim(w, bw);
 	}
 
 	[[nodiscard]] FORCE_INLINE inline float content_height() const noexcept{
 		const auto v = size_.get_height();
-		const auto bv = boarder_.height() + style_boarder_cache_.height();
+		const auto bv = border_.height() + style_border_cache_.height();
 		return std::fdim(v, bv);
 	}
 
@@ -940,25 +940,25 @@ public:
 		return relative_pos_;
 	}
 
-	[[nodiscard]] FORCE_INLINE inline align::spacing boarder() const noexcept{
-		return boarder_ + style_boarder_cache_;
+	[[nodiscard]] FORCE_INLINE inline align::spacing border() const noexcept{
+		return border_ + style_border_cache_;
 	}
 
-	[[nodiscard]] FORCE_INLINE inline vec2 boarder_extent() const noexcept{
-		return boarder_.extent() + style_boarder_cache_.extent();
+	[[nodiscard]] FORCE_INLINE inline vec2 border_extent() const noexcept{
+		return border_.extent() + style_border_cache_.extent();
 	}
 
 	void restrict_child(elem& child) const{
-		child.restriction_extent = clip_boarder_from(restriction_extent, boarder_extent());
+		child.restriction_extent = clip_border_from(restriction_extent, border_extent());
 		child.resize(content_extent());
 	}
 
 	[[nodiscard]] FORCE_INLINE inline math::vec2 content_src_offset() const noexcept{
-		return boarder_.top_lft() + style_boarder_cache_.top_lft();
+		return border_.top_lft() + style_border_cache_.top_lft();
 	}
 
 	[[nodiscard]] FORCE_INLINE inline rect clip_to_content_bound(rect region) const noexcept{
-		return rect{tags::unchecked, tags::from_extent, region.src + content_src_offset(), region.extent().fdim(boarder_extent())};
+		return rect{tags::unchecked, tags::from_extent, region.src + content_src_offset(), region.extent().fdim(border_extent())};
 	}
 
 	[[nodiscard]] FORCE_INLINE inline rect content_bound_abs() const noexcept{
@@ -977,8 +977,8 @@ public:
 		return pos_rel() + content_src_offset();
 	}
 
-	void set_self_boarder(align::spacing boarder) {
-		if(util::try_modify(boarder_, boarder)){
+	void set_self_border(align::spacing border) {
+		if(util::try_modify(border_, border)){
 			notify_layout_changed(propagate_mask::lower);
 		}
 	}
@@ -1067,7 +1067,7 @@ public:
 
 	[[nodiscard]] FORCE_INLINE inline std::optional<vec2> get_prefer_content_extent() const noexcept{
 		return preferred_size_.transform([this](math::vec2 extent){
-			return extent.fdim(boarder_extent());
+			return extent.fdim(border_extent());
 		});
 	}
 

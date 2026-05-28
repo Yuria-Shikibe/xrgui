@@ -116,13 +116,13 @@ public:
 		call_stack_builder.push_call_leave();
 	}
 
-	rect get_seperator_region_element_local() const noexcept{
+	rect get_separator_region_element_local() const noexcept{
 		const auto [major, minor] = layout::get_vec_ptr(get_layout_policy());
 		auto head_extent = head().extent();
 
 		math::vec2 region_ext;
 		math::vec2 offset{};
-		region_ext.*major = extent().*major - boarder().extent().* major;
+		region_ext.*major = extent().*major - border().extent().* major;
 		region_ext.*minor = pad_;
 
 		offset.*minor += head_extent.*minor;
@@ -300,7 +300,7 @@ protected:
 			math::vec2 size;
 			size.*majorTarget = content_sz.*majorTarget;
 			size.*minorTarget = minor_config.masterings;
-			size += boarder().extent();
+			size += border().extent();
 
 			if(expand_policy_ == layout::expand_policy::prefer){
 				size.max(get_prefer_extent().value_or({}));

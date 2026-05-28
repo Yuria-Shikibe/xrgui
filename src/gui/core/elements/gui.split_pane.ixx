@@ -15,7 +15,7 @@ namespace mo_yanxi::gui{
 export
 struct split_pane : head_body_no_invariant{
 private:
-	snap_shot<float> seperator_position_{.5f};
+	snap_shot<float> separator_position_{.5f};
 	math::range min_margin{0.1f, 0.1f};
 
 
@@ -29,13 +29,13 @@ private:
 	drag_state current_drag_state_{drag_state::idle};
 	float drag_progress_{0.f};
 
-	void update_seperator(){
-		set_head_size({layout::size_category::passive, seperator_position_.base});
-		set_body_size({layout::size_category::passive, 1.f - seperator_position_.base});
+	void update_separator(){
+		set_head_size({layout::size_category::passive, separator_position_.base});
+		set_body_size({layout::size_category::passive, 1.f - separator_position_.base});
 		notify_isolated_layout_changed();
 	}
 
-	void move_seperator(math::vec2 delta){
+	void move_separator(math::vec2 delta){
 		auto [major_p, minor_p] = layout::get_vec_ptr(get_layout_policy());
 		auto offset_in_minor = delta.*minor_p;
 		auto minor_ext = content_extent().*minor_p - pad_;
@@ -43,8 +43,8 @@ private:
 
 
 
-		util::try_modify(seperator_position_.temp,
-		                 math::clamp(seperator_position_.base + delta_offset, min_margin.from, 1.f - min_margin.to));
+		util::try_modify(separator_position_.temp,
+		                 math::clamp(separator_position_.base + delta_offset, min_margin.from, 1.f - min_margin.to));
 	}
 
 public:
@@ -99,9 +99,9 @@ public:
 	}
 
 	void set_split_pos(float p){
-		if(util::try_modify(seperator_position_.base, math::clamp(p, min_margin.from, 1.f - min_margin.to))){
-			seperator_position_.resume();
-			update_seperator();
+		if(util::try_modify(separator_position_.base, math::clamp(p, min_margin.from, 1.f - min_margin.to))){
+			separator_position_.resume();
+			update_separator();
 		}
 	}
 
@@ -129,9 +129,9 @@ public:
 				util::update_insert(*this, update_channel::layout);
 			}
 
-			if(seperator_position_.is_dirty()){
-				seperator_position_.apply();
-				update_seperator();
+			if(separator_position_.is_dirty()){
+				separator_position_.apply();
+				update_separator();
 				return events::op_afterwards::intercepted;
 			}
 		}
@@ -142,7 +142,7 @@ public:
 
 		if(current_drag_state_ == drag_state::idle || current_drag_state_ == drag_state::exiting){
 			const auto cursorlocal = event.src;
-			const auto region = get_seperator_region_element_local();
+			const auto region = get_separator_region_element_local();
 
 			if(!region.contains_loose(cursorlocal - content_src_offset())){
 				return events::op_afterwards::fall_through;
@@ -154,7 +154,7 @@ public:
 		}
 
 
-		move_seperator(event.delta());
+		move_separator(event.delta());
 		return events::op_afterwards::intercepted;
 	}
 
@@ -164,7 +164,7 @@ public:
 		call_stack_builder.push_call_noop(
 			*this, [](const split_pane& s, const draw_call_param& p, draw_call_stack&) static{
 				const rect bound = s.bound_abs();
-				bool enable_split_draw = p.draw_bound.overlap_exclusive(bound) && (s.seperator_position_.is_dirty() || s
+				bool enable_split_draw = p.draw_bound.overlap_exclusive(bound) && (s.separator_position_.is_dirty() || s
 					.drag_progress_ > 0.0f);
 				if(!enable_split_draw) return;
 				const float paneOpacity = util::get_final_draw_opacity(s, p);
@@ -173,7 +173,7 @@ public:
 
 				math::vec2 off{};
 				math::vec2 ext{};
-				off.*minor_p = s.seperator_position_.temp * s.content_extent().*minor_p;
+				off.*minor_p = s.separator_position_.temp * s.content_extent().*minor_p;
 				ext.*major_p = s.content_extent().*major_p;
 
 				src += off;
@@ -203,7 +203,7 @@ public:
 
 
 	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
-		const auto region = get_seperator_region_element_local();
+		const auto region = get_separator_region_element_local();
 		const bool hit = current_drag_state_ == drag_state::dragging || current_drag_state_ == drag_state::entering || region.contains_loose(cursor_pos_at_content_local - content_src_offset());
 
 		if(hit){

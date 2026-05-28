@@ -12,7 +12,7 @@ import mo_yanxi.math;
 import std;
 
 namespace mo_yanxi::graphic::msdf{
-export constexpr inline int sdf_image_boarder = 4;
+export constexpr inline int sdf_image_border = 4;
 export constexpr inline double sdf_image_range = 4.;
 
 
@@ -36,7 +36,7 @@ export
 	const svg_info& shape,
 	unsigned w, unsigned h,
 	double range = sdf_image_range,
-	int boarder = sdf_image_boarder);
+	int border = sdf_image_border);
 
 
 export
@@ -45,7 +45,7 @@ export
 	msdfgen::GlyphIndex code,
 	unsigned target_w,
 	unsigned target_h,
-	int boarder,
+	int border,
 	double font_w,
 	double font_h,
 	double range = sdf_image_range
@@ -66,7 +66,7 @@ private:
 
 public:
 	double range = sdf_image_range;
-	int boarder = sdf_image_boarder;
+	int border = sdf_image_border;
 	bool orient_contours = false;
 
 	[[nodiscard]] const svg_info& get_shape() const;
@@ -75,13 +75,13 @@ public:
 
 	[[nodiscard]] msdf_generator() = default;
 
-	[[nodiscard]] msdf_generator(svg_info&& shape, bool orient_contours = false, double range = sdf_image_range, int boarder = sdf_image_boarder);
+	[[nodiscard]] msdf_generator(svg_info&& shape, bool orient_contours = false, double range = sdf_image_range, int border = sdf_image_border);
 
-	[[nodiscard]] msdf_generator(std::string str, bool is_memory_data = false, bool orient_contours = false, double range = sdf_image_range, int boarder = sdf_image_boarder);
+	[[nodiscard]] msdf_generator(std::string str, bool is_memory_data = false, bool orient_contours = false, double range = sdf_image_range, int border = sdf_image_border);
 
 	bitmap operator ()(const unsigned w, const unsigned h, const unsigned mip_lv) const{
 		auto scl = 1u << mip_lv;
-		auto b = boarder / scl;
+		auto b = border / scl;
 		if(b * 2 >= w || b * 2 >= h){
 			b = 0;
 		}
@@ -89,18 +89,18 @@ public:
 	}
 
 	bitmap operator ()(const unsigned w, const unsigned h) const{
-		return load_shape(get_shape(), w, h, range, boarder);
+		return load_shape(get_shape(), w, h, range, border);
 	}
 };
 
-constexpr unsigned boarder_size = 96;
-constexpr double boarder_range = 4;
+constexpr unsigned border_size = 96;
+constexpr double border_range = 4;
 
 export
-svg_info create_boarder(double radius = 15., double width = 2., double k = 0.5522847498);
+svg_info create_border(double radius = 15., double width = 2., double k = 0.5522847498);
 
 export
-svg_info create_solid_boarder(double radius = 15., double k = 0.5522847498);
+svg_info create_solid_border(double radius = 15., double k = 0.5522847498);
 
 /**
  * @brief 创建超椭圆 (更平滑的胶囊/圆角矩形)

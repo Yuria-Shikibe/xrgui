@@ -31,7 +31,7 @@ import <msdfgen/msdfgen-ext.h>;
 import std;
 
 namespace mo_yanxi::font{
-export constexpr inline math::vec2 font_draw_expand{graphic::msdf::sdf_image_boarder, graphic::msdf::sdf_image_boarder};
+export constexpr inline math::vec2 font_draw_expand{graphic::msdf::sdf_image_border, graphic::msdf::sdf_image_border};
 void check(FT_Error error);
 
 export struct library : exclusive_handle<FT_Library>{
@@ -224,7 +224,7 @@ struct msdf_glyph_generator_base{
 	unsigned font_w{};
 	unsigned font_h{};
 	double range = 0.1;
-	unsigned boarder = sdf_image_boarder;
+	unsigned border = sdf_image_border;
 
 	[[nodiscard]] msdf_glyph_generator_base() noexcept
 		: meta(nullptr){
@@ -241,7 +241,7 @@ struct msdf_glyph_generator_crop : msdf_glyph_generator_base{
 
 	bitmap operator()(const unsigned w, const unsigned h, const unsigned mip_lv) const{
 		auto scl = 1 << mip_lv;
-		auto b = boarder / scl;
+		auto b = border / scl;
 		if(b * 2 >= w || b * 2 >= h){
 			b = 0;
 		}
@@ -271,7 +271,7 @@ export struct acquire_result{
 	}
 
 	[[nodiscard]] inline constexpr math::usize2 extent() const noexcept{
-		return metrics.size.copy().ceil().as<unsigned>() + (graphic::msdf::sdf_image_boarder * 2);
+		return metrics.size.copy().ceil().as<unsigned>() + (graphic::msdf::sdf_image_border * 2);
 	}
 };
 

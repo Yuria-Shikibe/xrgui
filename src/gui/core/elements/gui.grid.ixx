@@ -480,7 +480,7 @@ public:
 				
 				auto rst = update_table_head_size(content_extent());
 				need_relayout_head_ = true; 
-				calc_extent = rst.mastering_size + boarder_extent();
+				calc_extent = rst.mastering_size + border_extent();
 
 				
 				if(rst.has_passive_x) calc_extent.x = std::max(calc_extent.x, target_extent.x);

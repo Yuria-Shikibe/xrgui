@@ -142,7 +142,7 @@ void sequence::layout_elem(){
 		math::vec2 size;
 		size.*majorTarget = content_sz.*majorTarget;
 		size.*minorTarget = masterings;
-		size += boarder().extent();
+		size += border().extent();
 
 		if(expand_policy_ == layout::expand_policy::prefer){
 			size.max(get_prefer_extent().value_or({}));

@@ -141,7 +141,7 @@ struct csv_file_reader : head_body{
 				prog.progress.set_speed(.0001f);
 				prog.draw_config.color = {graphic::colors::white, graphic::colors::white};
 
-				prog.set_self_boarder(gui::boarder{}.set(32));
+				prog.set_self_border(gui::border{}.set(32));
 				prog.set_style(style::make_ring_progress_style(32));
 				prog.set_progress_state(progress_state::rough);
 			});
@@ -1232,7 +1232,7 @@ Edge Cases:
 				test_entry{
 					"color picker", [&](sequence& table){
 						table.set_style();
-						table.set_self_boarder(gui::boarder{}.set(16));
+						table.set_self_border(gui::border{}.set(16));
 						table.set_layout_spec(
 							layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 						table.template_cell.set_pad({16, 16});
@@ -1344,7 +1344,7 @@ Edge Cases:
 		menu_hdl->push_back(
 			elem_ptr{
 				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
-					label.set_self_boarder(boarder{}.set_vert(6));
+					label.set_self_border(border{}.set_vert(6));
 					label.set_style(style::family_variant::base_only);
 					label.set_fit_type(label_fit_type::scl);
 					label.set_text(std::format("[{}]-{}", idx, creator.name));

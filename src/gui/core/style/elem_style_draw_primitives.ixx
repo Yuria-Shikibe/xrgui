@@ -162,7 +162,7 @@ inline auto make_debug_elem_style(){
 				style_config{0b10},
 				tree_leaf{ primitives::draw_debug_background{} }
 			},
-			tree_metrics_leaf{ []{ return style_tree_metrics{.inset = default_boarder}; }, std::in_place_type<elem> }
+			tree_metrics_leaf{ []{ return style_tree_metrics{.inset = default_border}; }, std::in_place_type<elem> }
 		}
 	);
 }

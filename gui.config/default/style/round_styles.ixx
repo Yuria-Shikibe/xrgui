@@ -26,7 +26,7 @@ import mo_yanxi.gui.style.tree.bounds;
 namespace mo_yanxi::gui::style::spec{
 export
 struct static_metrics{
-	gui::boarder value;
+	gui::border value;
 
 	style_tree_metrics operator()(const typed_style_tree_metrics_query_param<elem>& val) const noexcept{
 		return {
@@ -245,7 +245,7 @@ struct create_entry{
 	primitives::nine_patch_draw_entry edge;
 	primitives::nine_patch_draw_entry base;
 	primitives::nine_patch_draw_entry back;
-	gui::boarder boarder{gui::default_boarder};
+	gui::border border{gui::default_border};
 
 	[[nodiscard]] auto make_edge_only() const {
 		return tree_tuple_fork{
@@ -255,7 +255,7 @@ struct create_entry{
 						tree_leaf{primitives::draw_nine_patch_hollow{edge}}
 					}
 				},
-				tree_metrics_leaf{static_metrics{boarder}}
+				tree_metrics_leaf{static_metrics{border}}
 			};
 	}
 
@@ -267,7 +267,7 @@ struct create_entry{
 						tree_leaf{primitives::draw_nine_patch{back}}
 					}
 				},
-				tree_metrics_leaf{static_metrics{auto{boarder}.scl(.3f)}}
+				tree_metrics_leaf{static_metrics{auto{border}.scl(.3f)}}
 			};
 	}
 
@@ -279,7 +279,7 @@ struct create_entry{
 					tree_leaf{primitives::draw_nine_patch{base}}
 				}
 			},
-			tree_metrics_leaf{static_metrics{boarder}}
+			tree_metrics_leaf{static_metrics{border}}
 		};
 	}
 
@@ -294,7 +294,7 @@ struct create_entry{
 					style_config{0b10},
 					tree_leaf{primitives::draw_nine_patch{back}}
 				},
-				tree_metrics_leaf{static_metrics{boarder}}
+				tree_metrics_leaf{static_metrics{border}}
 			}
 		};
 	}
@@ -313,7 +313,7 @@ struct create_entry{
 					style_config{0b10},
 					tree_leaf{primitives::draw_nine_patch{back}}
 				},
-				tree_metrics_leaf{static_metrics{boarder}}
+				tree_metrics_leaf{static_metrics{border}}
 			}
 		};
 	}
@@ -340,7 +340,7 @@ struct create_entry{
 					style_config{0b10},
 					tree_leaf{primitives::draw_nine_patch{back}}
 				},
-				tree_metrics_leaf{static_metrics{boarder}}
+				tree_metrics_leaf{static_metrics{border}}
 			}
 		};
 	}

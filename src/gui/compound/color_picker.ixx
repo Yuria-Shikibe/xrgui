@@ -539,7 +539,7 @@ public:
 				for(int i = 0; i < total; ++i){
 					s.create_back([i](gui::direct_label& e){
 						e.set_style();
-						e.set_self_boarder({.left = 4});
+						e.set_self_border({.left = 4});
 						e.set_fit_type(label_fit_type::scl);
 						e.set_tokenized_text({titles[i]});
 					}).cell().set_passive(1);
@@ -562,7 +562,7 @@ public:
 				s.set_expand_policy(layout::expand_policy::passive);
 				s.create_head([i](gui::direct_label& e) {
 					e.set_style();
-					e.set_self_boarder({.left = 4});
+					e.set_self_border({.left = 4});
 					e.set_fit_type(label_fit_type::scl);
 					e.set_tokenized_text({titles[i]});
 				});

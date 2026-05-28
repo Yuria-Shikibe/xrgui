@@ -135,7 +135,7 @@ struct image_cursor : style::cursor{
 	          std::span<const elem* const> inbound_stack) const override{
 		region.src -= region.extent * .5f;
 
-		region.expand({mo_yanxi::graphic::msdf::sdf_image_boarder + 6, mo_yanxi::graphic::msdf::sdf_image_boarder + 6});
+		region.expand({mo_yanxi::graphic::msdf::sdf_image_border + 6, mo_yanxi::graphic::msdf::sdf_image_border + 6});
 		state_guard g{renderer, gui::fx::batch_draw_mode::msdf};
 		renderer << graphic::draw::instruction::rect_aabb{
 				.generic = {icon_region->view},

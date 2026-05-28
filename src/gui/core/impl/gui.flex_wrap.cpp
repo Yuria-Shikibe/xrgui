@@ -326,7 +326,7 @@ void flex_wrap::layout_elem(){
 		math::vec2 size;
 		size.*major_target = content_sz.*major_target;
 		size.*minor_target = total_minor;
-		size += boarder().extent();
+		size += border().extent();
 
 		if(expand_policy_ == layout::expand_policy::prefer){
 			size.max(get_prefer_extent().value_or({}));
