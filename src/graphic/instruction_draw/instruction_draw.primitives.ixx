@@ -239,7 +239,7 @@ public:
 		const auto vert_nor = calculate_miter_vector(nodeL.pos, nodeC.pos, nodeR.pos);
 		const auto offset = math::fma(bool(where & 1U) ? .5f : -.5f, nodeC.stroke, nodeC.offset);
 
-		return fma(vert_nor, offset, nodeC.pos);
+		return math::fma(vert_nor, offset, nodeC.pos);
 	}
 };
 

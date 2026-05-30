@@ -22,7 +22,12 @@ void main(
     uint3 dispatchThreadID: SV_DispatchThreadID
 ) {
     let pos = dispatchThreadID.xy;
-    
+    uint width;
+    uint height;
+    output.GetDimensions(width, height);
+    if(pos.x >= width || pos.y >= height) {
+        return;
+    }
 
     let sourceColor = input.Load(uint3(pos, 0));
     let luma = pp::luma(sourceColor.rgb);

@@ -108,6 +108,10 @@ void main(
 
 
     let imgSz = output.imageSize2D();
+    if(pos.x >= imgSz.x || pos.y >= imgSz.y) {
+        return;
+    }
+
     let uniformed = pp::coord_to_uniform(pos, imgSz);
     let world = mul(proj.inv, float3(uniformed.xy, 1)).xy;
 

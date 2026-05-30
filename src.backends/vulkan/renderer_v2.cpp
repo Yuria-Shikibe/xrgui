@@ -26,12 +26,18 @@ constexpr auto draw_write_state = make_image_state(
 constexpr auto draw_sample_state = make_image_state(
 	VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 	VK_ACCESS_2_SHADER_READ_BIT,
-	VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+	VK_IMAGE_LAYOUT_GENERAL
 );
 
 constexpr auto blit_rw_state = make_image_state(
 	VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
 	VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+	VK_IMAGE_LAYOUT_GENERAL
+);
+
+constexpr auto blit_sample_state = make_image_state(
+	VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
 	VK_IMAGE_LAYOUT_GENERAL
 );
 
@@ -50,7 +56,7 @@ constexpr auto mask_write_state = make_image_state(
 constexpr auto mask_read_state = make_image_state(
 	VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 	VK_ACCESS_2_SHADER_READ_BIT,
-	VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+	VK_IMAGE_LAYOUT_GENERAL
 );
 
 VkImageSubresourceRange make_mask_layer_range(const std::uint32_t layer) noexcept{
@@ -232,7 +238,9 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	if(r.batch_host.get_valid_submit_groups().empty()) return;
 	if(r.batch_device.is_frame_empty()) return;
 
-	{
+	r.batch_device.cmd_copy_cpu_resolved_geometry(cmd, r.current_frame_index_);
+
+	if(r.batch_device.has_gpu_resolve_work()){
 		r.resolver_pipeline_.bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
 
 		cache_descriptor_context_.clear();
@@ -240,17 +248,7 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 		cache_descriptor_context_.prepare_bindings();
 		cache_descriptor_context_(r.resolver_pipeline_layout_, cmd, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
 		r.batch_device.cmd_compute_resolve(cmd, r.current_frame_index_);
-
-		cache_barrier_gen_.clear();
-		cache_barrier_gen_.push_execution(
-			VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT |
-				VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-			VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT |
-				VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT
-		);
-		cache_barrier_gen_.apply(cmd);
+		r.batch_device.cmd_barrier_compute_to_draw(cmd, r.current_frame_index_);
 	}
 
 	cache_graphic_context_.reset();
@@ -507,7 +505,7 @@ void renderer::command_recording_context::blit_(renderer& r, gui::fx::blit_confi
 			cache_barrier_gen_,
 			draw_attachment_slots_[e.resource_index],
 			r.attachment_manager_.get_draw_attachments()[e.resource_index].get_image(),
-			blit_rw_state
+			e.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ? blit_sample_state : blit_rw_state
 		);
 	}
 	for(const auto& e : inout.get_output_entries()){
@@ -567,9 +565,7 @@ void renderer::resize(VkExtent2D extent){
 				                       nullptr,
 				                       attachment_manager_.get_draw_attachments()[in.resource_index].
 				                       get_image_view(),
-				                       in.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
-					                       ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-					                       : VK_IMAGE_LAYOUT_GENERAL
+				                       VK_IMAGE_LAYOUT_GENERAL
 			                       }, 0, in.type);
 		}
 		for(const auto& out : cfg.get_output_entries()){
@@ -600,7 +596,7 @@ void renderer::resize(VkExtent2D extent){
 		vk::descriptor_mapper m{desc.buffer};
 		pipe.option.input_attachments_mask.for_each_popbit([&, idx = 0](unsigned i) mutable{
 			m.set_image(idx, attachment_manager_.get_draw_attachments()[i].get_image_view(), 0,
-			            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+			            VK_IMAGE_LAYOUT_GENERAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 			++idx;
 		});
 	}
@@ -608,7 +604,7 @@ void renderer::resize(VkExtent2D extent){
 	{
 		vk::descriptor_mapper mapper{mask_descriptor_buffer_};
 		for(auto&& [i, mask_image_view] : attachment_manager_.get_mask_image_views() | std::views::enumerate){
-			mapper.set_image(0, mask_image_view, i, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, nullptr,
+			mapper.set_image(0, mask_image_view, i, VK_IMAGE_LAYOUT_GENERAL, nullptr,
 			                 VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 		}
 	}

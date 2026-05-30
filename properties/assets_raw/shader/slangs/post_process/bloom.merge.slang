@@ -18,6 +18,13 @@ void main(
     uint3 dispatchThreadID: SV_DispatchThreadID
 ) {
     let pos = dispatchThreadID.xy;
+    uint width;
+    uint height;
+    output.GetDimensions(width, height);
+    if(pos.x >= width || pos.y >= height) {
+        return;
+    }
+
     let color_base = input_base.Load(pos);
     let color_light = input_light.Load(pos);
     let color_bloom = input_bloom.Load(pos);

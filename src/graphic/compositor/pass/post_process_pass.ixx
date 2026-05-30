@@ -422,6 +422,16 @@ protected:
 		return meta_[binding];
 	}
 
+	[[nodiscard]] const resource_requirement& get_requirement_for_connection(const resource_map_entry& connection) const{
+		if(connection.slot.has_in()){
+			return meta_.sockets.at_in(connection.slot.in);
+		}
+		if(connection.slot.has_out()){
+			return meta_.sockets.at_out(connection.slot.out);
+		}
+		throw std::out_of_range("failed to find resource requirement");
+	}
+
 	[[nodiscard]] VkImageLayout get_default_image_layout(const image_requirement& req) const noexcept{
 		if(req.uses_sampled_descriptor() && !req.uses_storage_descriptor()){
 			return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -438,11 +448,15 @@ protected:
 		const image_binding_override* image_override = nullptr) const{
 		std::visit(overload_narrow{
 				[&](const image_entity& entity){
-					auto& req = std::get<image_requirement>(requirement.req);
+					auto req = std::get<image_requirement>(requirement.req);
 					const auto image_view = image_override && image_override->image_view != VK_NULL_HANDLE
 						? image_override->image_view
 						: entity.handle.image_view;
 					auto image_layout = get_default_image_layout(req);
+					if(const auto* overall_requirement = std::get_if<image_requirement>(&res.overall_requirement.req);
+						overall_requirement != nullptr && overall_requirement->uses_storage_descriptor()){
+						image_layout = VK_IMAGE_LAYOUT_GENERAL;
+					}
 					if(image_override && image_override->image_layout != VK_IMAGE_LAYOUT_UNDEFINED){
 						image_layout = image_override->image_layout;
 					}
@@ -484,7 +498,7 @@ protected:
 		for(const auto& connection : meta_.inout_map_.get_connections()){
 			if(connection.binding.set != 0) continue;
 			const auto res = get_resource_for_connection(pass, connection);
-			bind_resource(mapper, chunk_index, connection, res, get_requirement_for_binding(connection.binding));
+			bind_resource(mapper, chunk_index, connection, res, get_requirement_for_connection(connection));
 		}
 	}
 

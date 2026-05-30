@@ -127,6 +127,10 @@ void main(
 
     let size_inv = float2(1) / float2(defines.currentLayerExtent);
     let mipPos = int2(dispatchThreadID.xy);
+    if(dispatchThreadID.x >= defines.currentLayerExtent.x || dispatchThreadID.y >= defines.currentLayerExtent.y) {
+        return;
+    }
+
     let uv = (float2(mipPos) + float2(0.5f, 0.5f)) * size_inv;
 
     if (bool(defines.up_scaling)){

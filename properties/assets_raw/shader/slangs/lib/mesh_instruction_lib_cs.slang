@@ -32,7 +32,8 @@ public struct vertex_resolve_info {
     public uint packed_type_timeline;
     public uint payload_offset;
     public uint packed_skips;
-    public uint packed_dispatch_size; // [修改] 接受 C++ 传来的打包数据
+    public uint packed_dispatch_size;
+    public uint global_vertex_index;
 
     [ForceInline] public instruction_type get_type() { return (instruction_type)(packed_type_timeline & 0xFFFF); }
     [ForceInline] public uint get_relative_timeline() { return packed_type_timeline >> 16; }
@@ -64,21 +65,23 @@ public struct BuilderResources
     StructuredBuffer<mesh_instr::vertex_resolve_info> resolve_infos;
     ByteAddressBuffer instruction_buffer;
 
-    // 输出到纯 GPU Buffer
+    // Output buffers consumed by the graphics pass.
     RWStructuredBuffer<mesh_instr::VS_Vertex, CDataLayout> out_vbo;
     RWStructuredBuffer<uint3, CDataLayout> out_ibo;
     RWStructuredBuffer<mesh_instr::Primitive> out_primitive_data;
 };
 
-// 3. 提取出的独立函数：接收全局索引和封装好的资源结构体
-public void process_mesh_instruction(uint target_index, BuilderResources res)
+// 3. 提取出的独立函数：接收 compact resolve 索引和封装好的资源结构体
+public void process_mesh_instruction(uint resolve_index, BuilderResources res)
 {
 
     // 获取当前顶点的解析配置
-    mesh_instr::vertex_resolve_info info = res.resolve_infos[target_index];
+    mesh_instr::vertex_resolve_info info = res.resolve_infos[resolve_index];
     mesh_instr::instruction_type type = info.get_type();
 
     if (type == mesh_instr::instruction_type::noop) return;
+
+    uint target_index = info.global_vertex_index;
 
     mesh_instr::mesh_dispatch_info_v3 dispatchinfo = res.dispatch_info[info.get_dispatch_group()];
 
@@ -89,7 +92,7 @@ public void process_mesh_instruction(uint target_index, BuilderResources res)
 
     // 组装解析参数
     mesh_instr::resolve_param param;
-    param.vtx_idx = target_index; // 【重要】把全局顶点索引传进去，确保 getTrivialIndicies 生成正确的全局 Index
+    param.vtx_idx = target_index;
     param.vtx_skip = info.get_vtx_skip();
     param.prm_skip = info.get_prm_skip();
 

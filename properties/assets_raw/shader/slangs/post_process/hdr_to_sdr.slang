@@ -62,6 +62,13 @@ void main(
     uint3 dispatchThreadID: SV_DispatchThreadID
 ) {
     let pos = dispatchThreadID.xy;
+    uint width;
+    uint height;
+    output.GetDimensions(width, height);
+    if(pos.x >= width || pos.y >= height) {
+        return;
+    }
+
     let hdrColorRaw = input.Load(uint3(pos, 0));
     let hdrColor = float4(max(hdrColorRaw.rgb, 0.0f), hdrColorRaw.a);
 

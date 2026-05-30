@@ -68,7 +68,7 @@ export struct renderer_create_info{
 
 export struct renderer{
 	//TODO change it to other value is not supported currently: attachments TODO
-	static constexpr std::size_t frames_in_flight = 1;
+	static constexpr std::size_t frames_in_flight = 3;
 
 	/** 命令录制上下文：作为 renderer 的内部结构体，拥有访问外部私有成员的权限 */
 	struct command_recording_context{
@@ -357,7 +357,7 @@ private:
 		vk::descriptor_mapper mapper{mask_descriptor_buffer_};
 		for(unsigned i = 0; i < mask_depth; ++i){
 			mapper.set_image(0,
-				attachment_manager_.get_mask_image_views()[i], i, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+				attachment_manager_.get_mask_image_views()[i], i, VK_IMAGE_LAYOUT_GENERAL, nullptr, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 		}
 	}
 

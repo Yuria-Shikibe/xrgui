@@ -119,7 +119,7 @@ constexpr VkPhysicalDeviceDescriptorBufferFeaturesEXT DescriptorBufferFeatures{
 		.pNext = nullptr,
 		.descriptorBuffer = true,
 		.descriptorBufferCaptureReplay = false,
-		.descriptorBufferImageLayoutIgnored = false,
+		.descriptorBufferImageLayoutIgnored = true,
 		.descriptorBufferPushDescriptors = false
 	};
 
@@ -177,7 +177,9 @@ std::vector<const char*> get_required_extensions(){
 }
 
 void context::flush(){
-	if(!final_staging_image.image) return;
+	if(!final_staging_image.image){
+		return;
+	}
 	if(!std::ranges::all_of(swap_chain_frames, &SwapChainFrameData::post_command)){
 		return;
 	}

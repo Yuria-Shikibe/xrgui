@@ -27,6 +27,21 @@ file = "post_process/highlight_extract.slang"
 [[shaders]]
 file = "post_process/bloom.merge.slang"
 
+[[shaders]]
+file = "post_process/game.oit_blend.slang"
+
+[[shaders]]
+file = "post_process/game.oit_clear.slang"
+
+[[shaders]]
+file = "post_process/game.oit_emit.slang"
+
+[[shaders]]
+file = "post_process/game.ssao.slang"
+
+[[shaders]]
+file = "post_process/game.world_merge.slang"
+
 # --- UI 渲染着色器 ---
 
 [[shaders]]

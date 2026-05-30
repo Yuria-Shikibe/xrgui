@@ -54,20 +54,13 @@ struct pass_identity{
 	}
 
 	bool operator==(const pass_identity& i) const noexcept{
-		if(where == i.where){
-			if(where == nullptr){
-				return external_target == i.external_target && slot == i.slot;
-			} else{
-				return true;
-			}
-		}
-
-		return false;
+		return where == i.where
+			&& external_target == i.external_target
+			&& slot == i.slot;
 	}
 
 	friend auto operator<=>(const pass_identity& lhs, const pass_identity& rhs) noexcept{
 		if(auto c = lhs.where <=> rhs.where; c != 0) return c;
-		if(lhs.where != nullptr) return std::strong_ordering::equal;
 		if(auto c = lhs.external_target <=> rhs.external_target; c != 0) return c;
 		return lhs.slot <=> rhs.slot;
 	}
@@ -448,6 +441,20 @@ constexpr VkAccessFlags2 deduce_access(VkImageLayout layout, VkPipelineStageFlag
 	default:
 		return VK_ACCESS_2_NONE;
 	}
+}
+
+VkImageLayout get_effective_image_layout(
+	const image_requirement& local_requirement,
+	const resource_entity& entity,
+	const bool output) noexcept{
+	VkImageLayout layout = output
+		                       ? local_requirement.get_expected_layout_on_output()
+		                       : local_requirement.get_expected_layout();
+	if(const auto* overall_requirement = std::get_if<image_requirement>(&entity.overall_requirement.req);
+		overall_requirement != nullptr && overall_requirement->uses_storage_descriptor()){
+		layout = VK_IMAGE_LAYOUT_GENERAL;
+	}
+	return layout;
 }
 
 #pragma region Trace
@@ -874,7 +881,7 @@ private:
 					if (auto req_opt = pass_ptr->sockets().get_out(local.target_slot.out)) {
 						std::visit(overload_narrow{
 							[&](const image_requirement& r) {
-								state.current_layout = r.get_expected_layout_on_output();
+								state.current_layout = get_effective_image_layout(r, entity, true);
 								state.last_stage = deduce_stage(state.current_layout);
 
 
@@ -898,7 +905,7 @@ private:
 					if (auto req_opt = pass_ptr->sockets().get_in(local.target_slot.in)) {
 						std::visit(overload_narrow{
 							[&](const image_requirement& r) {
-								state.current_layout = r.get_expected_layout();
+								state.current_layout = get_effective_image_layout(r, entity, false);
 								state.last_stage = deduce_stage(state.current_layout);
 								state.last_access = req_opt->get_access_flags(state.last_stage);
 							},
@@ -991,7 +998,6 @@ private:
 				}
 
 				if (!need_sync) return;
-
 
 				bool use_event = false;
 
@@ -1142,7 +1148,7 @@ private:
 
 				std::visit(overload_narrow{
 					[&](const image_requirement& r, const image_entity& entity) {
-						VkImageLayout target_layout = r.get_expected_layout();
+						VkImageLayout target_layout = get_effective_image_layout(r, rentity, false);
 						VkPipelineStageFlags2 dst_stage = deduce_stage(target_layout);
 						VkAccessFlags2 dst_access = req_obj.get_access_flags(dst_stage);
 
@@ -1238,7 +1244,7 @@ private:
 
 					std::visit(overload_narrow{
 						[&](const image_requirement& r, const image_entity& entity) {
-							VkImageLayout target_layout = r.get_expected_layout_on_output();
+							VkImageLayout target_layout = get_effective_image_layout(r, rentity, true);
 							VkPipelineStageFlags2 dst_stage = deduce_stage(target_layout);
 							VkAccessFlags2 dst_access = req_obj.get_access_flags(dst_stage);
 							process_barrier_or_event(identity, current_state,
@@ -1258,7 +1264,7 @@ private:
 
 				std::visit(overload_narrow{
 					[&](const image_requirement& r, const image_entity& entity) {
-						VkImageLayout target_layout = r.get_expected_layout_on_output();
+						VkImageLayout target_layout = get_effective_image_layout(r, rentity, true);
 						VkPipelineStageFlags2 dst_stage = deduce_stage(target_layout);
 						VkAccessFlags2 dst_access = req_obj.get_access_flags(dst_stage);
 
