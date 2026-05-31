@@ -9,6 +9,7 @@ module mo_yanxi.graphic.image_atlas;
 
 import mo_yanxi.vk.cmd;
 import mo_yanxi.platform.thread;
+import mo_yanxi.log;
 
 namespace mo_yanxi::graphic{
 void async_image_loader::gpu_work_func(std::stop_token stop_token, async_image_loader& self) try {
@@ -70,7 +71,7 @@ void async_image_loader::gpu_work_func(std::stop_token stop_token, async_image_l
 
 	self.region_fence_.wait();
 } catch(...){
-	std::println(std::cerr, "Image GPU Loader Thread Exceptionally Exited");
+	log::error({"ImageAtlas"}, "GPU loader thread exceptionally exited");
 	throw;
 }
 
@@ -132,7 +133,7 @@ void async_image_loader::cpu_work_func(std::stop_token stop_token, async_image_l
 		self.gpu_queue_cond_.notify_one();
 	}
 } catch(...){
-	std::println(std::cerr, "Image CPU Worker {} Exceptionally Exited", worker_index);
+	log::error({"ImageAtlas"}, "CPU worker {} exceptionally exited", worker_index);
 	throw;
 }
 

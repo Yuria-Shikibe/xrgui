@@ -19,6 +19,7 @@ import mo_yanxi.utility;
 import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
 import mo_yanxi.vk.util;
+import mo_yanxi.log;
 import std;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
@@ -176,7 +177,8 @@ struct pass_impl{
 
 protected:
 	virtual void prepare(const vk::allocator_usage& allocator, const pass_data& pass,
-	                     const math::u32size2 extent){
+	                     const math::u32size2 extent,
+	                     const std::uint32_t frame_count){
 	}
 
 	[[nodiscard]] virtual const pass_logical_socket& sockets() const noexcept = 0;
@@ -190,7 +192,8 @@ protected:
 		const vk::allocator_usage& allocator,
 		const pass_data& pass,
 		math::u32size2 extent,
-		VkCommandBuffer buffer){
+		VkCommandBuffer buffer,
+		const std::uint32_t frame_slot){
 	}
 };
 
@@ -234,10 +237,12 @@ private:
 	gch::small_vector<local_data_entry> local_data_{};
 
 	pass_resource_reference used_resources_{};
+	std::vector<pass_resource_reference> used_resources_by_frame_{1};
 
 	std::unique_ptr<pass_impl> meta{};
 
 	sync_baked_data sync_info_{};
+	std::vector<sync_baked_data> sync_info_by_frame_{1};
 
 public:
 	[[nodiscard]] explicit pass_data(std::unique_ptr<pass_impl>&& meta)
@@ -261,6 +266,13 @@ public:
 			throw std::invalid_argument(std::format(
 				"pass '{}' has no input at slot {}", get_identity_name(), dep.dst_idx));
 		dependencies_resource_.push_back(dep);
+		log::debug(
+			{"Compositor"},
+			"resource dependency: {}[out:{}] -> {}[in:{}]",
+			dep.id->get_identity_name(),
+			dep.src_idx,
+			get_identity_name(),
+			dep.dst_idx);
 	}
 
 	void add_dep(const std::initializer_list<pass_dependency> dep){
@@ -269,6 +281,11 @@ public:
 
 	void add_exec_dep(pass_data* dep){
 		dependencies_executions_.push_back(dep);
+		log::debug(
+			{"Compositor"},
+			"execution dependency: {} -> {}",
+			dep ? dep->get_identity_name() : std::string{"null"},
+			get_identity_name());
 	}
 
 	void add_exec_dep(const std::initializer_list<pass_data*> dep){
@@ -277,15 +294,24 @@ public:
 
 	void add_output(const std::initializer_list<external_resource_usage> externals){
 		external_outputs_.append(externals);
+		for(const auto& external : externals){
+			log::debug({"Compositor"}, "external output: {}[out:{}]", get_identity_name(), external.slot);
+		}
 	}
 
 	void add_input(const std::initializer_list<external_resource_usage> externals){
 		external_inputs_.append(externals);
+		for(const auto& external : externals){
+			log::debug({"Compositor"}, "external input: {}[in:{}]", get_identity_name(), external.slot);
+		}
 	}
 
 	void add_in_out(const std::initializer_list<external_resource_usage> externals){
 		external_inputs_.append(externals);
 		external_outputs_.append(externals);
+		for(const auto& external : externals){
+			log::debug({"Compositor"}, "external inout: {}[slot:{}]", get_identity_name(), external.slot);
+		}
 	}
 
 
@@ -302,6 +328,13 @@ public:
 				.target_slot = slot_pair,
 				.throughout_lifetime = throughout_lifetime,
 			});
+		log::debug(
+			{"Compositor"},
+			"local resource: {} in={} out={} throughout_lifetime={}",
+			get_identity_name(),
+			slot_pair.in,
+			slot_pair.out,
+			throughout_lifetime);
 
 		return true;
 	}
@@ -341,7 +374,41 @@ public:
 	}
 
 	[[nodiscard]] const pass_resource_reference& get_used_resources() const noexcept{
+		return get_used_resources(0);
+	}
+
+	[[nodiscard]] const pass_resource_reference& get_used_resources(const std::uint32_t frame_slot) const noexcept{
+		if(frame_slot < used_resources_by_frame_.size()){
+			return used_resources_by_frame_[frame_slot];
+		}
 		return used_resources_;
+	}
+
+	[[nodiscard]] pass_resource_reference& get_used_resources(const std::uint32_t frame_slot) noexcept{
+		if(frame_slot >= used_resources_by_frame_.size()){
+			used_resources_by_frame_.resize(frame_slot + 1);
+		}
+		return used_resources_by_frame_[frame_slot];
+	}
+
+	void set_frame_count(const std::uint32_t frame_count){
+		const std::uint32_t count = std::max(1u, frame_count);
+		used_resources_by_frame_.resize(count);
+		sync_info_by_frame_.resize(count);
+	}
+
+	[[nodiscard]] sync_baked_data& sync_info(const std::uint32_t frame_slot) noexcept{
+		if(frame_slot >= sync_info_by_frame_.size()){
+			sync_info_by_frame_.resize(frame_slot + 1);
+		}
+		return sync_info_by_frame_[frame_slot];
+	}
+
+	[[nodiscard]] const sync_baked_data& sync_info(const std::uint32_t frame_slot) const noexcept{
+		if(frame_slot < sync_info_by_frame_.size()){
+			return sync_info_by_frame_[frame_slot];
+		}
+		return sync_info_;
 	}
 
 
@@ -475,7 +542,7 @@ public:
 
 	template <std::ranges::input_range T>
 		requires (std::convertible_to<std::ranges::range_reference_t<T&&>, const pass_data&>)
-	[[nodiscard]] life_trace_group(T&& pass_execute_sequence){
+	[[nodiscard]] life_trace_group(T&& pass_execute_sequence, const std::uint32_t frame_slot = 0){
 		//patch from terminal to source inputs
 
 		for(pass_data& pass : pass_execute_sequence){
@@ -484,7 +551,7 @@ public:
 
 			for(const auto& entry : pass.external_outputs_){
 				auto& rst = bounds.emplace_back(inout.at_out(entry.slot));
-				rst.set_external(entry.resource->resource);
+				rst.set_external(entry.resource->get_frame_resource(frame_slot));
 
 				rst.passed_by.push_back({nullptr, &pass, {entry.slot, no_slot}});
 				auto& next = rst.passed_by.emplace_back(&pass, nullptr, slot_pair{no_slot, entry.slot});
@@ -552,7 +619,7 @@ public:
 			for(const auto& entry : cur_head.where->external_inputs_){
 				if(entry.slot == cur_head.slot.in){
 					res_bnd.passed_by.push_back(pass_identity{nullptr, cur_head.where, no_slot, entry.slot});
-					res_bnd.set_external(entry.resource->resource);
+					res_bnd.set_external(entry.resource->get_frame_resource(frame_slot));
 
 					break;
 				}
@@ -715,6 +782,25 @@ private:
 	}
 };
 
+struct frame_slot_state{
+	allocation_raii gpu_mem{};
+	std::vector<vk::combined_image_type<vk::aliased_image>> allocated_images{};
+	std::vector<vk::aliased_buffer> allocated_buffers{};
+	vk::event_vector baked_events{};
+
+	[[nodiscard]] frame_slot_state() = default;
+
+	[[nodiscard]] explicit frame_slot_state(const vk::allocator_usage& allocator)
+		: gpu_mem{allocator},
+		  baked_events{allocator.get_device()}{
+	}
+
+	frame_slot_state(const frame_slot_state&) = delete;
+	frame_slot_state& operator=(const frame_slot_state&) = delete;
+	frame_slot_state(frame_slot_state&&) noexcept = default;
+	frame_slot_state& operator=(frame_slot_state&&) noexcept = default;
+};
+
 
 struct entity_state{
 	VkPipelineStageFlags2 last_stage{VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT};
@@ -762,13 +848,9 @@ private:
 	plf::hive<resource_entity_external> external_resources_{};
 	plf::hive<external_descriptor> external_descriptors_{};
 
-	allocation_raii gpu_mem_{};
+	std::uint32_t frame_count_{1};
+	std::vector<frame_slot_state> frame_slots_{};
 	VkExtent2D extent_{};
-
-	std::vector<vk::combined_image_type<vk::aliased_image>> allocated_images_{};
-	std::vector<vk::aliased_buffer> allocated_buffers_{};
-
-	vk::event_vector baked_events_{vk::allocator_usage{allocator_major_}.get_device()};
 
 public:
 	[[nodiscard]] manager() = default;
@@ -776,21 +858,55 @@ public:
 	[[nodiscard]] explicit manager(const vk::allocator_usage& allocator)
 	: allocator_major_(allocator.get_context_info(), VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT | VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT)
 	, allocator_frags_(allocator.get_context_info(), VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT | VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT)
-	, gpu_mem_{allocator_major_}
 	{
+		set_frame_count(1);
+	}
+
+	void set_frame_count(const std::uint32_t count){
+		const std::uint32_t new_count = std::max(1u, count);
+		if(frame_count_ == new_count && frame_slots_.size() == new_count){
+			return;
+		}
+
+		log::info({"Compositor"}, "set frame count: {} -> {}", frame_count_, new_count);
+		frame_count_ = new_count;
+		frame_slots_.clear();
+		frame_slots_.reserve(frame_count_);
+		for(std::uint32_t i = 0; i < frame_count_; ++i){
+			frame_slots_.emplace_back(allocator_major_);
+		}
+
+		for(auto& pass : passes_){
+			pass.set_frame_count(frame_count_);
+		}
+	}
+
+	[[nodiscard]] std::uint32_t frame_count() const noexcept{
+		return frame_count_;
 	}
 
 	void resize(VkExtent2D ext, bool update = true){
-		if(extent_.width == ext.width && extent_.height == ext.height) return;
+		const bool extent_changed = extent_.width != ext.width || extent_.height != ext.height;
+		if(!extent_changed && !update) return;
+		log::info(
+			{"Compositor"},
+			"resize: {}x{} -> {}x{}, update={}, frames={}",
+			extent_.width,
+			extent_.height,
+			ext.width,
+			ext.height,
+			update,
+			frame_count_);
 		extent_ = ext;
 
-		allocated_images_.clear();
-		allocated_buffers_.clear();
-
 		if(update){
-			analysis_minimal_allocation();
+			for(std::uint32_t frame_slot = 0; frame_slot < frame_count_; ++frame_slot){
+				analysis_minimal_allocation(frame_slot);
+			}
 			pass_post_init();
-			analyze_dependencies_and_bake();
+			for(std::uint32_t frame_slot = 0; frame_slot < frame_count_; ++frame_slot){
+				analyze_dependencies_and_bake(frame_slot);
+			}
 		}
 
 	}
@@ -806,6 +922,8 @@ public:
 				std::forward<Args>(args)...)
 
 			});
+		pass.set_frame_count(frame_count_);
+		log::debug({"Compositor"}, "add pass: {}", pass.get_identity_name());
 		return add_result<T>{pass, static_cast<T&>(*pass.meta)};
 	}
 
@@ -814,22 +932,30 @@ public:
 	}
 
 	[[nodiscard]] auto& add_external_resource(resource_entity_external res){
-		return *external_resources_.insert(std::move(res));
+		auto& external = *external_resources_.insert(std::move(res));
+		log::debug(
+			{"Compositor"},
+			"add external resource: type={}, frame_resources={}",
+			type_to_name(external.type()),
+			external.frame_resources.size());
+		return external;
 	}
 
 
 	void pass_post_init(){
+		log::debug({"Compositor"}, "prepare passes: count={}, extent={}x{}, frames={}", passes_.size(), extent_.width, extent_.height, frame_count_);
 		for(auto& stage : passes_){
-			stage.meta->prepare(allocator_frags_, stage, {extent_.width, extent_.height});
+			log::debug({"Compositor"}, "prepare pass: {}", stage.get_identity_name());
+			stage.meta->prepare(allocator_frags_, stage, {extent_.width, extent_.height}, frame_count_);
 		}
 	}
 
 private:
 
-	void analyze_dependencies_and_bake() {
+	void analyze_dependencies_and_bake(const std::uint32_t frame_slot) {
 
 		for (auto& pass : passes_) {
-			pass.sync_info_ = {};
+			pass.sync_info(frame_slot) = {};
 		}
 
 		std::size_t event_count_needed = 0;
@@ -841,7 +967,7 @@ private:
 		for (const auto* pass_ptr : execute_sequence_) {
 			for (const auto& ext_in : pass_ptr->external_inputs_) {
 				if (!ext_in.resource) continue;
-				if (const auto identity = resource_entity::get_identity(ext_in.resource->resource); !res_states.contains(identity)) {
+				if (const auto identity = resource_entity::get_identity(ext_in.resource->get_frame_resource(frame_slot)); !res_states.contains(identity)) {
 					resource_sim_state state{};
 					state.last_write_pass_index = resource_sim_state::external;
 					state.current_layout = ext_in.resource->dependency.src_layout;
@@ -858,7 +984,7 @@ private:
 				if (!local.throughout_lifetime) continue;
 
 
-				const auto& used_res = pass_ptr->used_resources_;
+				const auto& used_res = pass_ptr->get_used_resources(frame_slot);
 				resource_entity entity;
 				if (local.target_slot.has_in()) entity = used_res.get_in(local.target_slot.in);
 				else if (local.target_slot.has_out()) entity = used_res.get_out(local.target_slot.out);
@@ -925,8 +1051,8 @@ private:
 
 		for (auto&& [i, current_pass] : execute_sequence_ | ranges::views::deref | std::views::enumerate) {
 			auto& inout_sockets = current_pass.sockets();
-			auto& resources = current_pass.used_resources_;
-			auto& sync = current_pass.sync_info_;
+			auto& resources = current_pass.get_used_resources(frame_slot);
+			auto& sync = current_pass.sync_info(frame_slot);
 
 
 			std::unordered_set<const resource_handle*> processed_identities;
@@ -1040,7 +1166,7 @@ private:
 						evt_idx = mutable_state.producer_event_index.value();
 
 						VkEvent placeholder_evt = std::bit_cast<VkEvent>(static_cast<std::uintptr_t>(evt_idx + 1));
-						for (auto& sig : producer_pass.sync_info_.signals) {
+						for (auto& sig : producer_pass.sync_info(frame_slot).signals) {
 							if (sig.event == placeholder_evt) {
 								sig.stage_mask |= src_stage;
 								sig.access_mask |= src_access;
@@ -1051,9 +1177,9 @@ private:
 						evt_idx = event_count_needed++;
 						mutable_state.producer_event_index = evt_idx;
 						VkEvent placeholder_evt = std::bit_cast<VkEvent>(static_cast<std::uintptr_t>(evt_idx + 1));
-						producer_pass.sync_info_.events_to_reset.push_back(placeholder_evt);
+						producer_pass.sync_info(frame_slot).events_to_reset.push_back(placeholder_evt);
 
-						producer_pass.sync_info_.signals.push_back({placeholder_evt, src_stage, src_access});
+						producer_pass.sync_info(frame_slot).signals.push_back({placeholder_evt, src_stage, src_access});
 					}
 
 					VkEvent placeholder_evt = std::bit_cast<VkEvent>(static_cast<std::uintptr_t>(evt_idx + 1));
@@ -1370,32 +1496,59 @@ private:
 		}
 
 
-		baked_events_.resize(event_count_needed);
+		auto& baked_events = frame_slots_.at(frame_slot).baked_events;
+		baked_events.resize(event_count_needed);
 		auto patch_events = [&](auto& event_list) {
 			for (auto& evt : event_list) {
 				std::uintptr_t index_val = std::bit_cast<std::uintptr_t>(evt);
 				std::size_t idx = static_cast<std::size_t>(index_val) - 1;
-				evt = baked_events_[idx];
+				evt = baked_events[idx];
 			}
 		};
 		auto patch_signal_events = [&](auto& signal_list) {
 			for (auto& sig : signal_list) {
 				std::uintptr_t index_val = std::bit_cast<std::uintptr_t>(sig.event);
 				std::size_t idx = static_cast<std::size_t>(index_val) - 1;
-				sig.event = baked_events_[idx];
+				sig.event = baked_events[idx];
 			}
 		};
 		auto patch_wait_events = [&](auto& wait_list) {
 			for (auto& wait : wait_list) {
 				std::uintptr_t index_val = std::bit_cast<std::uintptr_t>(wait.event);
 				std::size_t idx = static_cast<std::size_t>(index_val) - 1;
-				wait.event = baked_events_[idx];
+				wait.event = baked_events[idx];
 			}
 		};
 		for (auto& pass : passes_) {
-			patch_events(pass.sync_info_.events_to_reset);
-			patch_signal_events(pass.sync_info_.signals);
-			patch_wait_events(pass.sync_info_.waits);
+			patch_events(pass.sync_info(frame_slot).events_to_reset);
+			patch_signal_events(pass.sync_info(frame_slot).signals);
+			patch_wait_events(pass.sync_info(frame_slot).waits);
+		}
+		if(log::enabled(log::level::debug)){
+			std::size_t waits{};
+			std::size_t signals{};
+			std::size_t image_barriers{};
+			std::size_t buffer_barriers{};
+			for(const auto& pass : passes_){
+				const auto& sync = pass.sync_info(frame_slot);
+				waits += sync.waits.size();
+				signals += sync.signals.size();
+				image_barriers += sync.immediate_image_barriers_in.size() + sync.immediate_image_barriers_out.size();
+				buffer_barriers += sync.immediate_buffer_barriers_in.size() + sync.immediate_buffer_barriers_out.size();
+				for(const auto& wait : sync.waits){
+					image_barriers += wait.image_barriers.size();
+					buffer_barriers += wait.buffer_barriers.size();
+				}
+			}
+			log::debug(
+				{"Compositor"},
+				"sync bake frame={}: events={}, waits={}, signals={}, image_barriers={}, buffer_barriers={}",
+				frame_slot,
+				event_count_needed,
+				waits,
+				signals,
+				image_barriers,
+				buffer_barriers);
 		}
 	}
 	/*
@@ -1490,12 +1643,25 @@ public:
 		}
 
 		std::ranges::reverse(execute_sequence_);
+		if(log::enabled(log::level::debug)){
+			std::string sequence{};
+			for(const auto* pass : execute_sequence_){
+				if(!sequence.empty()){
+					sequence += " -> ";
+				}
+				sequence += pass->get_identity_name();
+			}
+			log::debug({"Compositor"}, "execution sequence: {}", sequence);
+		}
 	}
 
 
-	void analysis_minimal_allocation(){
+	void analysis_minimal_allocation(const std::uint32_t frame_slot){
 
-		auto life_bounds_ = life_trace_group{execute_sequence_ | std::views::reverse | ranges::views::deref};
+		auto life_bounds_ = life_trace_group{execute_sequence_ | std::views::reverse | ranges::views::deref, frame_slot};
+		auto& frame = frame_slots_.at(frame_slot);
+		frame.allocated_images.clear();
+		frame.allocated_buffers.clear();
 
 
 
@@ -1512,6 +1678,8 @@ public:
 			}
 		};
 		std::vector<LiveInterval> intervals;
+		std::size_t requested_images{};
+		std::size_t requested_buffers{};
 
 
 
@@ -1528,6 +1696,7 @@ public:
 					           throw std::runtime_error("unknown resource");
 				           },
 					           [&](const image_requirement& r){
+						           ++requested_images;
 						           const VkImageCreateInfo info = r.get_image_create_info(extent_);
 
 						           VkImage img;
@@ -1536,6 +1705,7 @@ public:
 						           vkDestroyImage(device, img, nullptr);
 					           },
 					           [&](const buffer_requirement& r){
+						           ++requested_buffers;
 						           const VkBufferCreateInfo info = r.get_buffer_create_info(extent_);
 
 						           VkBuffer buf;
@@ -1651,7 +1821,17 @@ public:
 			.usage = VMA_MEMORY_USAGE_GPU_ONLY
 		};
 
-		gpu_mem_.allocate(final_req, alloc_create_info);
+		frame.gpu_mem.allocate(final_req, alloc_create_info);
+		log::debug(
+			{"Compositor"},
+			"allocate frame={}: intervals={}, images={}, buffers={}, bytes={}, alignment={}, memory_type_bits={:#X}",
+			frame_slot,
+			intervals.size(),
+			requested_images,
+			requested_buffers,
+			final_req.size,
+			final_req.alignment,
+			final_req.memoryTypeBits);
 
 		auto create_resource = [&, this](const resource_requirement& req, VkDeviceSize offset) -> resource_entity{
 			return std::visit(overload_def_noop{
@@ -1660,7 +1840,7 @@ public:
 						                  const auto info = r.get_image_create_info(extent_);
 					                  vk::combined_image_type image{
 							                  vk::aliased_image{
-								                  gpu_mem_.get_allocator(), gpu_mem_.get_allocation(), offset, info
+								                  frame.gpu_mem.get_allocator(), frame.gpu_mem.get_allocation(), offset, info
 							                  },
 							                  VkImageViewCreateInfo{
 								                  .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -1678,17 +1858,17 @@ public:
 
 
 						                  const resource_entity ent{req, image_entity{image}};
-						                  this->allocated_images_.push_back(std::move(image));
+						                  frame.allocated_images.push_back(std::move(image));
 						                  return ent;
 					                  },
 					                  [&](const buffer_requirement& r){
 						                  const auto info = r.get_buffer_create_info(extent_);
 						                  vk::aliased_buffer buffer{
-							                  gpu_mem_.get_allocator(), gpu_mem_.get_allocation(), offset, info
+							                  frame.gpu_mem.get_allocator(), frame.gpu_mem.get_allocation(), offset, info
 						                  };
 
 						                  const resource_entity ent{req, buffer_entity{buffer.borrow()}};
-						                  this->allocated_buffers_.push_back(std::move(buffer));
+						                  frame.allocated_buffers.push_back(std::move(buffer));
 						                  return ent;
 					                  }
 				                  }, req.req);
@@ -1701,7 +1881,7 @@ public:
 				                              interval.assigned_offset);
 				for(const auto& passed_by : interval.trace->passed_by){
 					if(!passed_by.where) continue;
-					auto& ref = passed_by.where->used_resources_;
+					auto& ref = passed_by.where->get_used_resources(frame_slot);
 
 					if(passed_by.slot.has_in()){
 						ref.set_in(passed_by.slot.in, entity);
@@ -1714,7 +1894,7 @@ public:
 			} else{
 				auto entity = create_resource(interval.local->where->get_local_requirement(interval.local->target_slot),
 				                              interval.assigned_offset);
-				interval.local->where->used_resources_.set_local(*interval.local, entity);
+				interval.local->where->get_used_resources(frame_slot).set_local(*interval.local, entity);
 			}
 		}
 
@@ -1723,7 +1903,7 @@ public:
 			if(!life_bound.is_external()) continue;
 			for(const auto& passed_by : life_bound.passed_by){
 				if(!passed_by.where) continue;
-				auto& ref = passed_by.where->used_resources_;
+				auto& ref = passed_by.where->get_used_resources(frame_slot);
 
 				if(passed_by.slot.has_in()){
 					ref.set_in(passed_by.slot.in, life_bound.resource_entity);
@@ -1736,16 +1916,14 @@ public:
 		}
 	}
 
-	void create_command(VkCommandBuffer buffer) {
-
-
-
+	void create_command(VkCommandBuffer buffer, const std::uint32_t frame_slot = 0) {
+		log::debug({"Compositor"}, "record command buffer for frame={} passes={}", frame_slot, execute_sequence_.size());
 
 		std::vector<VkEvent> all_events_to_reset;
 		for (const auto* pass_ptr : execute_sequence_) {
 			all_events_to_reset.insert(all_events_to_reset.end(),
-			                           pass_ptr->sync_info_.events_to_reset.begin(),
-			                           pass_ptr->sync_info_.events_to_reset.end());
+			                           pass_ptr->sync_info(frame_slot).events_to_reset.begin(),
+			                           pass_ptr->sync_info(frame_slot).events_to_reset.end());
 		}
 
 		if (!all_events_to_reset.empty()) {
@@ -1778,7 +1956,7 @@ public:
 
 		for (const auto* pass_ptr : execute_sequence_) {
 			const auto& pass = *pass_ptr;
-			const auto& sync = pass.sync_info_;
+			const auto& sync = pass.sync_info(frame_slot);
 
 
 
@@ -1819,7 +1997,7 @@ public:
 
 
 
-			pass.meta->record_command(allocator_frags_, pass, {extent_.width, extent_.height}, buffer);
+			pass.meta->record_command(allocator_frags_, pass, {extent_.width, extent_.height}, buffer, frame_slot);
 
 
 

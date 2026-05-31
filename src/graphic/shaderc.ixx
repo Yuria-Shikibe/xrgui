@@ -89,7 +89,7 @@ namespace mo_yanxi::graphic {
                     filepath, entry, options);
 
             auto err = result.GetErrorMessage();
-            if(!err.empty())std::println(std::cerr, "{}", result.GetErrorMessage());
+            if(!err.empty()) log::error({"ShaderC"}, "{}", result.GetErrorMessage());
 
             std::vector<std::uint32_t> bin{result.begin(), result.end()};
 
@@ -128,7 +128,7 @@ namespace mo_yanxi::graphic {
             const auto rst = compiler->compile(file.string());
             const auto target = outputDirectory / file.filename().string().append(".spv");
             if(rst.empty()){
-                std::println("[ShaderC] Skip Shader {} Compile", file.filename().string());
+                log::info({"ShaderC"}, "skip shader {} compile", file.filename().string());
             }else{
                 io::write_bytes(target, rst);
             }

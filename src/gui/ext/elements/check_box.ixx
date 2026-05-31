@@ -36,8 +36,9 @@ public:
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
-		call_stack_builder.push_call_noop(*this, [](const select_box& s, const draw_call_param& param){
-			if(!param.layer_param.is_top()) return;
+		call_stack_builder.push_call_noop(*this, [](const select_box& s, const draw_call_param& param,
+		                                            const draw_immut_args& args){
+			if(!args.layer.is_top()) return;
 			if(!util::is_draw_param_valid(s, param))return;
 			const float opacityScl = util::get_final_draw_opacity(s, param);
 

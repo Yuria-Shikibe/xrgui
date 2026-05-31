@@ -31,8 +31,8 @@ protected:
 		std::vector<image_view_binding_state> image_bindings{};
 	};
 
-	std::vector<sub_pass_runtime_setup> prepared_sub_passes_{};
-	std::vector<sub_pass_baked_sync> baked_sync_{};
+	std::vector<std::vector<sub_pass_runtime_setup>> prepared_sub_passes_by_frame_{};
+	std::vector<std::vector<sub_pass_baked_sync>> baked_sync_by_frame_{};
 	std::vector<vk::image_view> transient_image_views_{};
 	std::vector<VkPushConstantRange> push_constant_ranges_{};
 
@@ -41,7 +41,8 @@ protected:
 
 	[[nodiscard]] virtual std::vector<sub_pass_baked_sync> bake_sub_pass_sync(const pass_data& pass,
 		const math::u32size2 extent,
-		std::span<const sub_pass_runtime_setup> prepared_sub_passes) const{
+		std::span<const sub_pass_runtime_setup> prepared_sub_passes,
+		const std::uint32_t frame_slot) const{
 		return std::vector<sub_pass_baked_sync>(prepared_sub_passes.size() > 1 ? prepared_sub_passes.size() - 1 : 0);
 	}
 
@@ -50,12 +51,15 @@ protected:
 		return {ranges.begin(), ranges.end()};
 	}
 
-	void prepare(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
+	void prepare(const vk::allocator_usage& alloc,
+		const pass_data& pass,
+		const math::u32size2 extent,
+		const std::uint32_t frame_count) override{
 		push_constant_ranges_ = push_constant_ranges();
-		init_pipeline_and_ubo(alloc, push_constant_ranges_);
+		init_pipeline(alloc, push_constant_ranges_);
 
-		prepared_sub_passes_.clear();
-		baked_sync_.clear();
+		prepared_sub_passes_by_frame_.clear();
+		baked_sync_by_frame_.clear();
 		transient_image_views_.clear();
 
 		auto sub_passes = build_sub_passes(pass, extent);
@@ -63,29 +67,50 @@ protected:
 			throw std::runtime_error("sub_pass_stage requires at least one sub-pass");
 		}
 
-		reset_descriptor_buffer(alloc, static_cast<std::uint32_t>(sub_passes.size()));
-		default_bind_uniform_buffers(static_cast<std::uint32_t>(sub_passes.size()));
-
-		prepared_sub_passes_.reserve(sub_passes.size());
-		for(std::size_t idx = 0; idx < sub_passes.size(); ++idx){
-			auto& runtime = prepared_sub_passes_.emplace_back();
-			runtime.setup = std::move(sub_passes[idx]);
-			prepare_image_overrides(alloc, pass, runtime);
-			bind_sub_pass_resources(pass, runtime, static_cast<std::uint32_t>(idx));
+		frame_count_ = std::max(1u, frame_count);
+		init_uniform_buffer(alloc, frame_count_);
+		reset_descriptor_buffer(alloc, static_cast<std::uint32_t>(sub_passes.size()) * frame_count_);
+		for(std::uint32_t frame_slot = 0; frame_slot < frame_count_; ++frame_slot){
+			for(std::uint32_t sub_pass_idx = 0; sub_pass_idx < sub_passes.size(); ++sub_pass_idx){
+				default_bind_uniform_buffer(
+					frame_slot * static_cast<std::uint32_t>(sub_passes.size()) + sub_pass_idx,
+					frame_slot);
+			}
 		}
 
-		baked_sync_ = bake_sub_pass_sync(pass, extent, prepared_sub_passes_);
-		if(prepared_sub_passes_.size() > 1 && baked_sync_.size() != prepared_sub_passes_.size() - 1){
-			throw std::runtime_error("sub-pass sync count mismatch");
+		prepared_sub_passes_by_frame_.resize(frame_count_);
+		baked_sync_by_frame_.resize(frame_count_);
+		for(std::uint32_t frame_slot = 0; frame_slot < frame_count_; ++frame_slot){
+			auto& prepared_sub_passes = prepared_sub_passes_by_frame_[frame_slot];
+			prepared_sub_passes.reserve(sub_passes.size());
+			for(std::size_t idx = 0; idx < sub_passes.size(); ++idx){
+				auto& runtime = prepared_sub_passes.emplace_back();
+				runtime.setup = sub_passes[idx];
+				prepare_image_overrides(alloc, pass, runtime, frame_slot);
+				bind_sub_pass_resources(pass, runtime,
+					frame_slot * static_cast<std::uint32_t>(sub_passes.size()) + static_cast<std::uint32_t>(idx),
+					frame_slot);
+			}
+
+			baked_sync_by_frame_[frame_slot] = bake_sub_pass_sync(pass, extent, prepared_sub_passes, frame_slot);
+			if(prepared_sub_passes.size() > 1 && baked_sync_by_frame_[frame_slot].size() != prepared_sub_passes.size() - 1){
+				throw std::runtime_error("sub-pass sync count mismatch");
+			}
 		}
 	}
 
-	void record_command(const vk::allocator_usage& alloc, const pass_data& pass, math::u32size2 extent, VkCommandBuffer buffer) override{
+	void record_command(const vk::allocator_usage& alloc,
+		const pass_data& pass,
+		math::u32size2 extent,
+		VkCommandBuffer buffer,
+		const std::uint32_t frame_slot) override{
 		pipeline_.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-		for(std::uint32_t idx = 0; idx < prepared_sub_passes_.size(); ++idx){
-			bind_descriptor_sets(buffer, idx);
+		const auto& prepared_sub_passes = prepared_sub_passes_by_frame_.at(frame_slot);
+		const auto& baked_sync = baked_sync_by_frame_.at(frame_slot);
+		for(std::uint32_t idx = 0; idx < prepared_sub_passes.size(); ++idx){
+			bind_descriptor_sets(buffer, frame_slot * static_cast<std::uint32_t>(prepared_sub_passes.size()) + idx);
 
-			const auto& runtime = prepared_sub_passes_[idx];
+			const auto& runtime = prepared_sub_passes[idx];
 			if(!runtime.setup.push_constants.empty()){
 				vkCmdPushConstants(buffer, pipeline_layout_, runtime.setup.push_stages,
 					runtime.setup.push_offset, static_cast<std::uint32_t>(runtime.setup.push_constants.size()),
@@ -95,8 +120,8 @@ protected:
 			const auto groups = resolve_sub_pass_groups(runtime.setup, extent);
 			vkCmdDispatch(buffer, groups.width, groups.height, groups.depth);
 
-			if(idx + 1 < prepared_sub_passes_.size()){
-				record_sync(buffer, baked_sync_[idx]);
+			if(idx + 1 < prepared_sub_passes.size()){
+				record_sync(buffer, baked_sync[idx]);
 			}
 		}
 	}
@@ -145,7 +170,8 @@ protected:
 	}
 
 	void prepare_image_overrides(const vk::allocator_usage& alloc, const pass_data& pass,
-		sub_pass_runtime_setup& runtime){
+		sub_pass_runtime_setup& runtime,
+		const std::uint32_t frame_slot){
 		for(const auto& binding_view : runtime.setup.bindings){
 			const auto default_connection = find_connection(binding_view.binding);
 			const auto connection = binding_view.resource_slot.is_invalid()
@@ -154,7 +180,7 @@ protected:
 					.binding = binding_view.binding,
 					.slot = binding_view.resource_slot,
 				};
-			const auto res = get_resource_for_connection(pass, connection);
+			const auto res = get_resource_for_connection(pass, connection, frame_slot);
 			if(res.type() != resource_type::image){
 				runtime.image_bindings.push_back({
 					.binding = binding_view.binding,
@@ -207,14 +233,15 @@ protected:
 	}
 
 	void bind_sub_pass_resources(const pass_data& pass, const sub_pass_runtime_setup& runtime,
-		const std::uint32_t chunk_index){
+		const std::uint32_t chunk_index,
+		const std::uint32_t frame_slot){
 		vk::descriptor_mapper mapper{descriptor_buffer_};
 		for(const auto& connection : meta_.get_inout_map().get_connections()){
 			if(connection.binding.set != 0) continue;
 			const auto itr = std::ranges::find(runtime.image_bindings, connection.binding,
 				&image_view_binding_state::binding);
 			if(itr == runtime.image_bindings.end()){
-				const auto res = get_resource_for_connection(pass, connection);
+				const auto res = get_resource_for_connection(pass, connection, frame_slot);
 				bind_resource(mapper, chunk_index, connection, res, get_requirement_for_binding(connection.binding));
 				continue;
 			}

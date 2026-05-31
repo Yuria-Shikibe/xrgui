@@ -180,7 +180,7 @@ public:
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 
-		call_stack_builder.push_call_enter(*this, [](const basic_group& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
+		call_stack_builder.push_call_enter(*this, [](const basic_group& s, const draw_call_param& p) static -> draw_call_param{
 			if(s.should_clip_overflow()){
 				s.renderer().push_scissor({s.content_bound_abs()});
 				s.renderer().notify_viewport_changed();
@@ -189,8 +189,7 @@ public:
 			return {
 				.current_subject = &s,
 				.draw_bound = s.content_bound_abs().intersection_with(p.draw_bound),
-				.opacity_scl = util::get_final_draw_opacity(s, p),
-				.layer_param = p.layer_param
+				.opacity_scl = util::get_final_draw_opacity(s, p)
 			};
 		});
 

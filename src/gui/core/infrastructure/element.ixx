@@ -452,13 +452,12 @@ public:
 protected:
 	template <typename S, std::invocable<const S&, draw_recorder&> Fn>
 	void record_drawer_draw_context(this const S& self, draw_recorder& call_stack_builder, Fn&& fn){
-		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
+		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p) static -> draw_call_param {
 			const rect bound = s.bound_abs();
 				return {
 					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
 					.draw_bound = bound,
-					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
-					.layer_param = p.layer_param
+					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity()
 				};
 			});
 
@@ -469,13 +468,12 @@ protected:
 
 	template <typename S, std::invocable<const S&, draw_recorder&> Fn>
 	void record_content_drawer_draw_context(this const S& self, draw_recorder& call_stack_builder, Fn&& fn){
-		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
+		call_stack_builder.push_call_enter(self, [](const S& s, const draw_call_param& p) static -> draw_call_param {
 			const rect bound = s.content_bound_abs();
 				return {
 					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
 					.draw_bound = bound,
-					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
-					.layer_param = p.layer_param
+					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity()
 				};
 			});
 
@@ -499,11 +497,13 @@ protected:
 
 	FORCE_INLINE void draw_style_impl(math::frect region, fx::layer_param param, float inheritedOpacityScl) const{
 		style::draw_direct(style_, style::typed_draw_param<elem>{
-			{
+			.param = draw_call_param{
 				.current_subject = this,
 				.draw_bound = region,
-				.opacity_scl = inheritedOpacityScl * get_local_draw_opacity(),
-				.layer_param = param
+				.opacity_scl = inheritedOpacityScl * get_local_draw_opacity()
+			},
+			.immut_args = {
+				.layer = param
 			}
 		});
 	}

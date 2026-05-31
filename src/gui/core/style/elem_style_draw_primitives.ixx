@@ -146,25 +146,22 @@ struct draw_filled_rect{
 namespace mo_yanxi::gui::style{
 
 export
-inline auto make_empty_elem_style(){
+inline target_known_node_ptr<elem> make_empty_elem_style(){
 	return make_tree_node_ptr(tree_leaf{primitives::draw_empty{}});
 }
 
 export
-inline auto make_debug_elem_style(){
-	return make_tree_node_ptr(
-		tree_tuple_fork{
-			layer_router{
-				style_config{0b01},
-				tree_leaf{ primitives::draw_debug_frame{} }
-			},
-			layer_router{
-				style_config{0b10},
-				tree_leaf{ primitives::draw_debug_background{} }
-			},
-			tree_metrics_leaf{ []{ return style_tree_metrics{.inset = default_border}; }, std::in_place_type<elem> }
-		}
-	);
+inline target_known_node_ptr<elem> make_debug_elem_style(){
+	auto frame_leaf = tree_leaf{primitives::draw_debug_frame{}, std::in_place_type<elem>};
+	auto background_leaf = tree_leaf{primitives::draw_debug_background{}, std::in_place_type<elem>};
+	auto metrics_leaf = tree_metrics_leaf{[]{ return style_tree_metrics{.inset = default_border}; },
+	                                      std::in_place_type<elem>};
+	auto debug_tree = tree_tuple_fork{
+		layer_router{style_config{0b01}, std::move(frame_leaf)},
+		layer_router{style_config{0b10}, std::move(background_leaf)},
+		std::move(metrics_leaf)
+	};
+	return make_tree_node_ptr(std::move(debug_tree));
 }
 
 }

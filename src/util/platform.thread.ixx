@@ -10,6 +10,7 @@ module;
 export module mo_yanxi.platform.thread;
 
 import std;
+import mo_yanxi.log;
 
 namespace mo_yanxi::platform{
 export
@@ -39,7 +40,7 @@ void set_thread_attributes(void* handle, const thread_attributes& attrs) {
 		std::wstring w_name(attrs.name.begin(), attrs.name.end());
 		HRESULT hr = SetThreadDescription(handle, w_name.c_str());
 		if (FAILED(hr)) {
-			std::cerr << "Failed to set thread name on Windows.\n";
+			log::warn({"Thread"}, "failed to set Windows thread name '{}': HRESULT={:#X}", attrs.name, static_cast<unsigned>(hr));
 		}
 	}
 
@@ -59,13 +60,13 @@ void set_thread_attributes(void* handle, const thread_attributes& attrs) {
 	// 1. 设置线程名称
 	if (!attrs.name.empty()) {
 #if defined(__APPLE__)
-		std::cerr << "Warning: Setting thread name from outside is not supported on macOS.\n";
+		log::warn({"Thread"}, "setting thread name from outside is not supported on macOS: '{}'", attrs.name);
 #else
 		// Linux 限制线程名称长度最大为 16 字节（包含终止符 '\0'）
 		std::string short_name = attrs.name.substr(0, 15);
 		int rc = pthread_setname_np(handle, short_name.c_str());
 		if (rc != 0) {
-			std::cerr << "Failed to set thread name on Linux. Error code: " << rc << "\n";
+			log::warn({"Thread"}, "failed to set Linux thread name '{}': error={}", short_name, rc);
 		}
 #endif
 	}
@@ -96,7 +97,7 @@ void set_thread_attributes(void* handle, const thread_attributes& attrs) {
 
 	int rc = pthread_setschedparam(handle, policy, &sch);
 	if (rc != 0) {
-		std::cerr << "Failed to set thread priority on POSIX system. Note: Realtime requires elevated privileges.\n";
+		log::warn({"Thread"}, "failed to set POSIX thread priority: error={}", rc);
 	}
 #endif
 }

@@ -16,6 +16,7 @@ export import mo_yanxi.handle_wrapper;
 
 import mo_yanxi.vk;
 import mo_yanxi.allocator2d;
+import mo_yanxi.log;
 
 import std;
 
@@ -287,7 +288,7 @@ public:
 	~sub_page(){
 #ifdef MO_YANXI_IMAGE_ATLAS_DESTRUCTOR_LEAK_CHECK
 		if(allocator.remain_area() != allocator.extent().area()){
-			std::println(std::cerr, "LEAK detected on image subpage");
+			log::fatal({"ImageAtlas"}, "leak detected on image subpage");
 			std::terminate();
 		}
 #endif

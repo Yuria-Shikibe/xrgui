@@ -186,13 +186,15 @@ void example_scene::draw_at(math::frect clipspace, draw_call_stack& call_stack){
 	for(unsigned i = 0; i < cfg.size(); ++i){
 		renderer().update_state(cfg[i].begin_config);
 		renderer().update_state(fx::push_constant{gpip::default_draw_constants{}});
+		const draw_immut_args immut_args{
+			.layer = {i}
+		};
 
 		call_stack.each({
 				.current_subject = this,
 				.draw_bound = c,
-				.opacity_scl = 1,
-				.layer_param = {i}
-			});
+				.opacity_scl = 1
+			}, immut_args);
 
 		if(cfg[i].end_config)
 			renderer().update_state(fx::blit_config{

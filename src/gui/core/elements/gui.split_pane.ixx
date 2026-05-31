@@ -162,7 +162,7 @@ public:
 		head_body::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_noop(
-			*this, [](const split_pane& s, const draw_call_param& p, draw_call_stack&) static{
+			*this, [](const split_pane& s, const draw_call_param& p, const draw_immut_args& args) static{
 				const rect bound = s.bound_abs();
 				bool enable_split_draw = p.draw_bound.overlap_exclusive(bound) && (s.separator_position_.is_dirty() || s
 					.drag_progress_ > 0.0f);
@@ -190,14 +190,14 @@ public:
 
 				ext.*minor_p -= s.get_pad() / 2.f;
 				if(s.head().get_style())
-					s.head().draw_style({tags::from_vertex, s.content_src_pos_abs(), src + ext}, p.layer_param,
+					s.head().draw_style({tags::from_vertex, s.content_src_pos_abs(), src + ext}, args.layer,
 					                    paneOpacity * s.drag_progress_ * 4.f);
 				src.*minor_p += s.get_pad() / 2.f;
 				if(s.body().get_style())
 					s.body().draw_style({
 					                    tags::from_vertex, s.content_src_pos_abs() + s.content_extent(),
 					                    src
-					                }, p.layer_param, paneOpacity * s.drag_progress_ * 4.f);
+					                }, args.layer, paneOpacity * s.drag_progress_ * 4.f);
 			});
 	}
 

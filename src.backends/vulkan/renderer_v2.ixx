@@ -19,6 +19,7 @@ export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.gui.fx.config;
 export import mo_yanxi.backend.vulkan.attachment_manager;
 export import mo_yanxi.backend.vulkan.pipeline_manager;
+export import mo_yanxi.backend.vulkan.renderer.components;
 
 namespace mo_yanxi::backend::vulkan{
 
@@ -163,18 +164,6 @@ export struct renderer{
 		}
 	};
 
-	struct frame_data{
-		vk::fence fence{};
-		vk::command_buffer main_command_buffer{};
-
-		frame_data() = default;
-
-		frame_data(VkDevice device, VkCommandPool pool)
-			: fence(device, true)
-			  , main_command_buffer(device, pool){
-		}
-	};
-
 private:
 	vk::allocator_usage allocator_usage_{};
 
@@ -187,14 +176,13 @@ public:
 private:
 	attachment_manager attachment_manager_{};
 	graphic_pipeline_manager draw_pipeline_manager_{};
-	compute_pipeline_manager blit_pipeline_manager_{};
+	renderer_blit_resources blit_resources_{};
 
 	vk::descriptor_buffer mask_descriptor_buffer_{};
 
 	// vk::sampler_descriptor_heap sampler_descriptor_heap_{};
 
-	vk::pipeline_layout resolver_pipeline_layout_{};
-	vk::pipeline resolver_pipeline_{};
+	renderer_instruction_resolver instruction_resolver_{};
 
 public:
 	// vk::resource_descriptor_heap resource_descriptor_heap{};
@@ -204,11 +192,7 @@ public:
 	}
 
 private:
-	std::vector<vk::descriptor_buffer> blit_default_inout_descriptors_{};
-	std::vector<vk::descriptor_buffer> blit_specified_inout_descriptors_{};
-
-	std::array<frame_data, frames_in_flight> frames_{};
-	std::uint32_t current_frame_index_{};
+	renderer_frame_ring<frames_in_flight> frames_{};
 
 	vk::command_buffer blit_attachment_clear_and_init_command_buffer{};
 	bool mask_attachment_states_invalidated_{};
@@ -236,11 +220,10 @@ public:
 		  }
 		  , draw_pipeline_manager_(allocator_usage_, std::move(create_info.draw_pipe_config),
 		                           batch_device.get_gfx_descriptor_set_layout(), attachment_manager_.get_draw_config())
-		  , resolver_pipeline_layout_(allocator_usage_.get_device(), 0, {batch_device.get_cs_descriptor_set_layout()})
-		  , resolver_pipeline_(
+		  , blit_resources_(allocator_usage_, create_info.blit_pipe_config)
+		  , instruction_resolver_(
 			  allocator_usage_.get_device(),
-			  resolver_pipeline_layout_,
-			  VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+			  batch_device.get_cs_descriptor_set_layout(),
 			  create_info.resolver_shader_stage
 		  ),
 		sampler_(create_info.sampler){
@@ -250,7 +233,6 @@ public:
 		record_ctx_.rebuild_sync_resources_(*this);
 
 		initialize_frames(create_info.command_pool);
-		initialize_blit_resources(create_info);
 
 		// sampler_descriptor_heap_ = {
 		// 		allocator_usage_, {
@@ -290,19 +272,29 @@ public:
 
 	/** 上传渲染数据并切换帧上下文 */
 	void upload(){
-		current_frame_index_ = (current_frame_index_ + 1) % frames_in_flight;
+		frames_.advance();
+		auto& frame = frames_.current_frame();
 		try{
-			frames_[current_frame_index_].fence.wait_and_reset();
-			batch_device.upload(batch_host, sampler_, current_frame_index_);
+			if(frame.external_submit_fence){
+				// The external submitter owns this fence. In the swapchain-output path,
+				// context waits and resets it before this frame slot is reused.
+				frame.external_submit_fence = VK_NULL_HANDLE;
+			} else{
+				frame.fence.wait_and_reset();
+			}
+			batch_device.upload(batch_host, sampler_, frames_.current_index());
 		} catch(...){
-			frames_[current_frame_index_].fence.reset();
+			if(!frame.external_submit_fence){
+				frame.fence.reset();
+			}
+			frame.external_submit_fence = VK_NULL_HANDLE;
 		}
 	}
 
 	/** 录制当前帧的主指令缓冲 */
 	void create_command(){
 		vk::scoped_recorder recorder{
-				frames_[current_frame_index_].main_command_buffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+				frames_.current_command_buffer(), VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
 			};
 		record_ctx_.record(*this, recorder);
 	}
@@ -326,11 +318,15 @@ public:
 	}
 
 	VkCommandBuffer get_valid_cmd_buf() const noexcept{
-		return frames_[current_frame_index_].main_command_buffer;
+		return frames_.current_command_buffer();
 	}
 
-	const vk::fence& get_fence() const noexcept{ return frames_[current_frame_index_].fence; }
-	vk::fence& get_fence() noexcept{ return frames_[current_frame_index_].fence; }
+	const vk::fence& get_fence() const noexcept{ return frames_.current_fence(); }
+	vk::fence& get_fence() noexcept{ return frames_.current_fence(); }
+
+	void set_current_external_submit_fence(const VkFence fence) noexcept{
+		frames_.current_frame().external_submit_fence = fence;
+	}
 
 	vk::image_handle get_base() const noexcept{
 		return attachment_manager_.get_blit_attachments()[0];
@@ -362,85 +358,19 @@ private:
 	}
 
 	void initialize_frames(VkCommandPool pool){
-		for(auto& f : frames_) f = frame_data(allocator_usage_.get_device(), pool);
+		frames_.initialize(allocator_usage_.get_device(), pool);
 		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{
 				allocator_usage_.get_device(), pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY
 			};
-	}
-
-	void initialize_blit_resources(const renderer_create_info& info){
-		blit_pipeline_manager_ = compute_pipeline_manager(allocator_usage_, info.blit_pipe_config);
-		// 分配并初始化默认/特定 Blit 描述符缓冲
-		auto pipes = blit_pipeline_manager_.get_pipelines();
-		blit_default_inout_descriptors_.reserve(pipes.size());
-
-		for(std::size_t i = 0; i < pipes.size(); ++i){
-			auto& layout = blit_pipeline_manager_.get_inout_layouts()[i];
-			blit_default_inout_descriptors_.emplace_back(allocator_usage_, layout, layout.binding_count());
-		}
-
-		auto inouts = blit_pipeline_manager_.get_inout_defines();
-		blit_specified_inout_descriptors_.reserve(inouts.size());
-
-		for(const auto& def : inouts){
-			vk::descriptor_layout layout{
-					allocator_usage_.get_device(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
-					def.make_layout_builder()
-				};
-			blit_specified_inout_descriptors_.emplace_back(allocator_usage_, layout, layout.binding_count());
-		}
 	}
 
 	void create_blit_clear_and_init_cmd() const{
 		vk::scoped_recorder recorder{
 				blit_attachment_clear_and_init_command_buffer, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT, true
 			};
-		vk::cmd::dependency_gen dep;
-
-		// Transfer 仅清空 blit attachments。
-		// Draw/MSAA attachments 仍在这里做一次初始布局准备；mask image 完全走 graphics path。
-		for(const auto& img : attachment_manager_.get_blit_attachments()){
-			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
-			         VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-			         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk::image::default_image_subrange);
-		}
-		dep.apply(recorder);
-
-		VkClearColorValue black{};
-
-		for(const auto& img : attachment_manager_.get_blit_attachments()){
-			vkCmdClearColorImage(recorder, img.get_image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1,
-			                     &vk::image::default_image_subrange);
-			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-			         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-			         VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-			         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, vk::image::default_image_subrange);
-		}
-
-		// 初始化绘制附件
-		for(const auto& img : attachment_manager_.get_draw_attachments()){
-			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
-					 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-					 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
-					 // 【核心修复7】初始化阶段直接转换为 GENERAL
-					 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-					 vk::image::default_image_subrange);
-		}
-		for(const auto& img : attachment_manager_.get_multisample_attachments()){
-			dep.push(img.get_image(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
-					 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-					 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
-					 // 【核心修复8】初始化阶段直接转换为 GENERAL
-					 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-					 vk::image::default_image_subrange);
-		}
-		dep.apply(recorder);
-	}
-
-	const compute_pipeline_blit_inout_config& get_blit_inout_config(const gui::fx::blit_config& cfg){
-		return cfg.use_default_inouts()
-			       ? blit_pipeline_manager_.get_pipelines()[cfg.pipe_info.pipeline_index].option.inout
-			       : blit_pipeline_manager_.get_inout_defines()[cfg.pipe_info.inout_define_index];
+		mo_yanxi::backend::vulkan::record_renderer_attachment_clear_and_init_command(
+			recorder,
+			attachment_manager_);
 	}
 };
 } // namespace mo_yanxi::backend::vulkan

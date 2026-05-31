@@ -86,8 +86,9 @@ public:
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
-		call_stack_builder.push_call_noop(*this, [](const image_frame& s, const draw_call_param& param){
-			if(param.layer_param == 0){
+		call_stack_builder.push_call_noop(*this, [](const image_frame& s, const draw_call_param& param,
+		                                            const draw_immut_args& args){
+			if(args.layer == 0){
 				s.draw_content_impl(util::get_final_draw_opacity(s, param));
 			}
 		});
@@ -219,8 +220,9 @@ public:
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
-		call_stack_builder.push_call_noop(*this, [](const image_frame_single& s, const draw_call_param& param){
-			if(param.layer_param.is_top()){
+		call_stack_builder.push_call_noop(*this, [](const image_frame_single& s, const draw_call_param& param,
+		                                            const draw_immut_args& args){
+			if(args.layer.is_top()){
 				auto sz = gui::get_expected_size(s.drawable_, s.style, s.content_extent());
 				auto off = align::get_offset_of(s.style.align, sz, s.content_bound_abs());
 

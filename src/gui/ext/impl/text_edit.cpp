@@ -234,8 +234,9 @@ std::optional<math::vec2> text_edit::pre_acquire_size_impl(layout::optional_mast
 
 void text_edit::record_draw_layer(draw_recorder& call_stack_builder) const{
 	elem::record_draw_layer(call_stack_builder);
-	call_stack_builder.push_call_noop(*this, [](const text_edit& e, const draw_call_param& p){
-		if(!p.layer_param.is_top())return;
+	call_stack_builder.push_call_noop(*this, [](const text_edit& e, const draw_call_param& p,
+	                                            const draw_immut_args& args){
+		if(!args.layer.is_top())return;
 		if(!util::is_draw_param_valid(e, p))return;
 		const float opacityScl = util::get_final_draw_opacity(e, p);
 		auto& r = e.renderer();

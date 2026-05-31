@@ -13,6 +13,7 @@ import mo_yanxi.gui.elem.arrow_elem;
 import mo_yanxi.snap_shot;
 
 import mo_yanxi.math;
+import mo_yanxi.log;
 
 namespace mo_yanxi::gui::cpd{
 template <typename T>
@@ -85,7 +86,7 @@ constexpr decltype(auto) process_arithmetic_to_string(T value, Fn&& f) noexcept(
 		std::string_view sv(buffer, ptr - buffer);
 		return std::invoke(std::forward<Fn>(f), sv);
 	} else {
-		std::println(std::cerr, "Error: std::to_chars conversion failed.\n");
+		log::fatal({"NumericInput"}, "std::to_chars conversion failed");
 		std::terminate();
 	}
 }

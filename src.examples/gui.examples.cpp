@@ -708,15 +708,15 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 						// 	return elem_async_yield_task{
 						// 			seq,
 						// 			[](elem& e){
-						// 				std::println(std::cerr, "Task Begin: current thread: {}",
+						// 				log::debug({"Task"}, "begin: current thread: {}",
 						// 				             std::this_thread::get_id());
 						// 				std::this_thread::sleep_for(std::chrono::milliseconds(500));
-						// 				std::println(std::cerr, "Task End: current thread: {}",
+						// 				log::debug({"Task"}, "end: current thread: {}",
 						// 				             std::this_thread::get_id());
 						// 				return 114;
 						// 			},
 						// 			[](elem& e, int val){
-						// 				std::println(std::cerr, "Task Done: current thread: {} - {}",
+						// 				log::debug({"Task"}, "done: current thread: {} - {}",
 						// 				             std::this_thread::get_id(), val);
 						// 			}
 						// 		};

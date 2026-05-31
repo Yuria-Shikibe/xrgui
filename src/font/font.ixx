@@ -23,6 +23,7 @@ import mo_yanxi.graphic.msdf;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.concurrent.guard;
 import mo_yanxi.msdf_adaptor;
+import mo_yanxi.log;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 import <msdfgen/msdfgen-ext.h>;
@@ -713,9 +714,9 @@ void mo_yanxi::font::check(FT_Error error){
 
 #if DEBUG_CHECK
 	const char* err = FT_Error_String(error);
-	std::println(std::cerr, "[Freetype] Error {}: {}", error, err);
+	log::error({"Freetype"}, "error {}: {}", error, err);
 #else
-	std::println(std::cerr, "[Freetype] Error {}", error);
+	log::error({"Freetype"}, "error {}", error);
 #endif
 
 	throw std::runtime_error("Freetype Failed");

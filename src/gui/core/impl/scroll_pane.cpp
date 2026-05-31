@@ -14,7 +14,7 @@ namespace mo_yanxi::gui{
 		const auto& element = p.subject();
 		auto region = p->draw_bound;
 		float opacityScl = p->opacity_scl;
-		auto layer_param = p->layer_param;
+		auto layer_param = p.immut_args.layer;
 
 		if(layer_param.is_top() && opacityScl > 0.001f){
 			each_scroll_rect(element, region, [&](math::raw_frect bar_rect, bool){
@@ -88,24 +88,27 @@ namespace mo_yanxi::gui{
 
 	void scroll_adaptor_base::draw_scroll_bar(fx::layer_param_pass_t param) const{
 		if(drawer){
-			style::draw_direct(drawer, style::typed_draw_param<scroll_adaptor_base>{{
+			style::draw_direct(drawer, style::typed_draw_param<scroll_adaptor_base>{
+				.param = draw_call_param{
 				.current_subject = this,
 				.draw_bound = content_bound_abs(),
-				.opacity_scl = get_bar_opacity() * get_local_draw_opacity(),
-				.layer_param = param,
-			}});
+				.opacity_scl = get_bar_opacity() * get_local_draw_opacity()
+			},
+				.immut_args = {
+					.layer = param
+				}
+			});
 		}
 	}
 
 	void scroll_adaptor_base::record_draw_scroll_bar(draw_recorder& call_stack_builder) const{
 		if(!drawer)return;
-		call_stack_builder.push_call_enter(*this, [](const scroll_adaptor_base& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param {
+		call_stack_builder.push_call_enter(*this, [](const scroll_adaptor_base& s, const draw_call_param& p) static -> draw_call_param {
 			const rect bound = s.content_bound_abs();
 				return {
 					.current_subject = p.draw_bound.overlap_exclusive(bound) ? &s : nullptr,
 					.draw_bound = bound,
-					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity() * math::interp::smooth(s.get_bar_opacity()),
-					.layer_param = p.layer_param
+					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity() * math::interp::smooth(s.get_bar_opacity())
 				};
 			});
 

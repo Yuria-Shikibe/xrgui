@@ -8,6 +8,7 @@ import std;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.gui.alloc;
 import mo_yanxi.input_handle.input_event_queue;
+import mo_yanxi.log;
 import :scene;
 
 
@@ -138,7 +139,7 @@ public:
 			return (*rst)->root<T>();
 		}
 
-		std::println(std::cerr, "Scene {} Not Found", sceneName);
+		log::error({"GUI"}, "scene '{}' not found", sceneName);
 		throw std::invalid_argument{"In-exist Scene Name"};
 	}
 

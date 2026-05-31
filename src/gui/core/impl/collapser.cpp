@@ -51,13 +51,12 @@ void collapser::record_draw_layer(draw_recorder& call_stack_builder) const{
 	elem::record_draw_layer(call_stack_builder);
 
 	call_stack_builder.push_call_enter(
-		*this, [](const elem& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
+		*this, [](const elem& s, const draw_call_param& p) static -> draw_call_param{
 			const auto space = s.content_bound_abs().intersection_with(p.draw_bound);
 			return {
 					.current_subject = &s,
 					.draw_bound = space,
-					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
-					.layer_param = p.layer_param
+					.opacity_scl = p.opacity_scl * s.get_local_draw_opacity()
 				};
 		});
 
@@ -65,7 +64,7 @@ void collapser::record_draw_layer(draw_recorder& call_stack_builder) const{
 
 	{
 		call_stack_builder.push_call_enter(
-			*this, [](const collapser& s, const draw_call_param& p, draw_call_stack&) static -> draw_call_param{
+			*this, [](const collapser& s, const draw_call_param& p) static -> draw_call_param{
 				const auto space = s.content_bound_abs().intersection_with(p.draw_bound);
 
 				bool allow_next_layer = false;
@@ -91,13 +90,12 @@ void collapser::record_draw_layer(draw_recorder& call_stack_builder) const{
 				return {
 						.current_subject = allow_next_layer ? &s : nullptr,
 						.draw_bound = space,
-						.opacity_scl = p.opacity_scl * s.get_local_draw_opacity(),
-						.layer_param = p.layer_param
+						.opacity_scl = p.opacity_scl * s.get_local_draw_opacity()
 					};
 			});
 		items[1]->record_draw_layer(call_stack_builder);
 
-		call_stack_builder.push_call_leave(*this, [](const collapser& s, const draw_call_param& p, draw_call_stack&){
+		call_stack_builder.push_call_leave(*this, [](const collapser& s, const draw_call_param& p){
 			const auto st = s.animator_.get_state();
 			if(st == util::anim_state::exiting || st == util::anim_state::entering){
 				auto& r = s.renderer();

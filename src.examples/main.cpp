@@ -46,6 +46,7 @@ import mo_yanxi.gui.default_config.main_loop;
 import mo_yanxi.gui.examples.loop_exec;
 import mo_yanxi.gui.examples.default_config.colored_cerr;
 import mo_yanxi.gui.examples.default_config.font_styles;
+import mo_yanxi.log;
 
 
 struct alignas(16) high_light_filter_args{
@@ -70,7 +71,7 @@ void app_run(
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
 
 	auto& current_focus = main_loop.get_scene();
-	std::println("[App] Entering Main Loop");
+	log::info({"App"}, "entering main loop");
 	main_loop.wait_term_and_reset();
 
 	auto& ctx = main_loop.get_ctx();
@@ -99,13 +100,13 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	const auto shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
 
-	std::println("[GUI] Core Initialize ");
+	log::info({"GUI"}, "core initialize");
 	gui::global::initialize();
 	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
-	std::println("[GUI] Core Initialize Done");
+	log::info({"GUI"}, "core initialize done");
 
 #pragma region InitRenderer
-	std::println("[GUI] Renderer Initialize");
+	log::info({"GUI"}, "renderer initialize");
 	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
 	//renderer should belong to main loop actually
 	auto renderer = [&]() -> backend::vulkan::renderer{
@@ -279,27 +280,27 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 				}
 			};
 	}();
-	std::println("[GUI] Renderer Initialize Done");
+	log::info({"GUI"}, "renderer initialize done");
 
 #pragma endregion
 
 #pragma region LoadResource
-	std::println("[GUI] Image Atlas Initialize ");
+	log::info({"GUI"}, "image atlas initialize");
 	image_atlas image_atlas{
 			ctx,
 			ctx.graphic_family(),
 			ctx.get_device().graphic_queue(1),
 			renderer.get_heap_dynamic_image_section()
 		};
-	std::println("[GUI] Image Atlas Initialize Done ");
+	log::info({"GUI"}, "image atlas initialize done");
 
-	std::println("[GUI] Font Manager Initialize");
+	log::info({"GUI"}, "font manager initialize");
 	font::font_manager font_manager{};
 	gui::example::init_font_manager(font_manager, image_atlas);
-	std::println("[GUI] Font Manager Initialize Done");
+	log::info({"GUI"}, "font manager initialize done");
 
 	{
-		std::println("[GUI] Load Logo Image");
+		log::info({"GUI"}, "load logo image");
 		auto& icon_p = image_atlas.create_image_page("tex.logo", {
 			.extent = {1920, 1080},
 			.format = VK_FORMAT_R8G8B8A8_SRGB,
@@ -315,7 +316,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	}
 
 	{
-		std::println("[GUI] Generate Icons and Shapes");
+		log::info({"GUI"}, "generate icons and shapes");
 
 		gui::example::generate_default_shapes(image_atlas);
 		gui::example::load_default_icons(image_atlas);
@@ -323,7 +324,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 #pragma endregion
 
 #pragma region SetupRenderGraph
-	std::println("[Compositor] Initialize");
+	log::info({"Compositor"}, "initialize");
 
 	compositor::manager manager{ctx.get_allocator()};
 	compositor::compute_shader_info shader_filter_high_light{
@@ -445,7 +446,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	pass_blur.data.set_scale(1.25f);
 	pass_blur.data.set_mix_factor(.025f);
 	pass_blur.data.set_strength(1.f, 1.f);
-	std::println("[Compositor] Initialize Done");
+	log::info({"Compositor"}, "initialize done");
 #pragma endregion
 
 #pragma region GuiBindingFn
@@ -544,7 +545,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 #pragma endregion
 
-	std::println("[GUI] Async Scene Setup");
+	log::info({"GUI"}, "async scene setup");
 	gui::example::main_loop_type main_loop{std::move(renderer), ctx, {
 			.init_fn = init_fn,
 			.main_loop_fn = gui::example::main_loop_fn,
@@ -553,7 +554,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 			}
 		}};
 
-	std::println("[GUI] Async Scene Setup Done");
+	log::info({"GUI"}, "async scene setup done");
 
 	auto post_process_cmd = ctx.get_compute_command_pool().obtain();
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
@@ -593,7 +594,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	app_run(main_loop, post_process_cmd);
 
-	std::println("[GUI] Exiting...");
+	log::info({"GUI"}, "exiting");
 
 	main_loop.join();
 
@@ -649,7 +650,7 @@ int main(){
 		appInfo.apiVersion = VK_API_VERSION_1_0;
 	}
 
-	std::println("[Vulkan] API Version: {}.{}.{}.{}", VK_API_VERSION_VARIANT(appInfo.apiVersion), VK_API_VERSION_MAJOR(appInfo.apiVersion), VK_API_VERSION_MINOR(appInfo.apiVersion), VK_API_VERSION_PATCH(appInfo.apiVersion));
+	log::info({"Vulkan"}, "API version: {}.{}.{}.{}", VK_API_VERSION_VARIANT(appInfo.apiVersion), VK_API_VERSION_MAJOR(appInfo.apiVersion), VK_API_VERSION_MINOR(appInfo.apiVersion), VK_API_VERSION_PATCH(appInfo.apiVersion));
 	{
 		backend::vulkan::context ctx{appInfo};
 		vk::load_ext(ctx.get_instance());

@@ -51,7 +51,7 @@ struct draw_round_scroll_bar : scroll_pane_bar_drawer{
 	}
 
 	void operator()(const typed_draw_param<scroll_adaptor_base>& p) const{
-		if(!p->layer_param.is_top() || p->opacity_scl < 1.f / 255.f) return;
+		if(!p.immut_args.layer.is_top() || p->opacity_scl < 1.f / 255.f) return;
 
 		const auto& element = p.subject();
 		state_guard _{element.renderer(), fx::batch_draw_mode::msdf};
@@ -94,7 +94,7 @@ struct draw_round_slider{
 	}
 
 	void operator()(const typed_draw_param<slider1d>& p) const{
-		if(!p->layer_param.is_top()) return;
+		if(!p.immut_args.layer.is_top()) return;
 
 		const auto& element = p.subject();
 		auto region = p->draw_bound;
@@ -172,7 +172,7 @@ struct draw_thin_slider{
 	}
 
 	void operator()(const typed_draw_param<slider1d>& p) const{
-		if(!p->layer_param.is_top()) return;
+		if(!p.immut_args.layer.is_top()) return;
 
 		const auto& element = p.subject();
 		auto region = p->draw_bound;

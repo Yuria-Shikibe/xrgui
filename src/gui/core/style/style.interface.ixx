@@ -21,6 +21,11 @@ struct draw_call_mutable_param{
 };
 
 export
+struct draw_immut_args{
+	fx::layer_param layer;
+};
+
+export
 struct draw_call_param{
 	/**
 	 * @brief used for style drawer, when set to nullptr, style drawer should skip draw (this is used to impl draw clip)
@@ -36,7 +41,6 @@ struct draw_call_param{
 	 * @brief context opacity, currently only for style drawers, should also apply to elements in the future
 	 */
 	float opacity_scl;
-	fx::layer_param layer_param;
 
 	constexpr bool is_draw_allowed() const noexcept{
 		return opacity_scl >= 0 && current_subject != nullptr && !draw_bound.is_roughly_zero_area(0.01f);
@@ -48,7 +52,7 @@ struct draw_call_param{
 };
 
 export
-using draw_call_stack = function_call_stack<draw_call_param>;
+using draw_call_stack = function_call_stack<draw_call_param, std::allocator<std::byte>, const draw_immut_args&>;
 
 export
 using draw_recorder = draw_call_stack::function_call_stack_builder;

@@ -22,7 +22,7 @@ struct ring_progress {
     const auto& element = p.subject();
     auto region = p->draw_bound;
     float opacityScl = p->opacity_scl;
-    auto layer_param = p->layer_param;
+    auto layer_param = p.immut_args.layer;
 
     if (layer_param != 0) return;
 

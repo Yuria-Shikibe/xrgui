@@ -257,6 +257,16 @@ struct image_requirement{
 	}
 
 	[[nodiscard]] VkAccessFlags2 get_image_access(access_flag access, const VkPipelineStageFlags2 pipelineStageFlags2) const noexcept{
+		if(pipelineStageFlags2 & VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT){
+			switch(access){
+			case access_flag::read : return VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+			case access_flag::write : return VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			case access_flag::read | access_flag::write :
+				return VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			default : return VK_ACCESS_2_NONE;
+			}
+		}
+
 		switch(pipelineStageFlags2){
 		case VK_PIPELINE_STAGE_2_TRANSFER_BIT : switch(access){
 			case access_flag::read : return VK_ACCESS_2_TRANSFER_READ_BIT;
@@ -565,6 +575,7 @@ struct resource_entity_external{
 	using variant_t = resource_entity::variant_t;
 
 	variant_t resource{};
+	std::vector<variant_t> frame_resources{};
 	resource_dependency dependency{};
 
 	[[nodiscard]] resource_entity_external() = default;
@@ -581,6 +592,30 @@ struct resource_entity_external{
 
 	[[nodiscard]] resource_type type() const noexcept{
 		return resource_type{static_cast<std::underlying_type_t<resource_type>>(resource.index())};
+	}
+
+	void set_frame_resource(const std::uint32_t frame_slot, const variant_t& res){
+		if(resource.index() == 0){
+			resource = res;
+		} else if(res.index() != resource.index()){
+			throw std::bad_variant_access{};
+		}
+		frame_resources.resize(std::max<std::size_t>(frame_resources.size(), frame_slot + 1));
+		frame_resources[frame_slot] = res;
+	}
+
+	[[nodiscard]] const variant_t& get_frame_resource(const std::uint32_t frame_slot) const noexcept{
+		if(frame_slot < frame_resources.size() && frame_resources[frame_slot].index() != 0){
+			return frame_resources[frame_slot];
+		}
+		return resource;
+	}
+
+	[[nodiscard]] variant_t& get_frame_resource(const std::uint32_t frame_slot) noexcept{
+		if(frame_slot < frame_resources.size() && frame_resources[frame_slot].index() != 0){
+			return frame_resources[frame_slot];
+		}
+		return resource;
 	}
 
 	[[nodiscard]] image_entity& as_image() noexcept{

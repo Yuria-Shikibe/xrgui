@@ -96,6 +96,7 @@ constexpr VkPhysicalDeviceVulkan11Features PhysicalDeviceVulkan11Features{
 			VkPhysicalDeviceVulkan11Features features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
 
 			features.storageBuffer16BitAccess = true;
+			features.shaderDrawParameters = true;
 
 			return features;
 		}()
@@ -241,6 +242,69 @@ void context::flush(){
 		recreate(false);
 	} else if(result2 != VK_SUCCESS){
 		throw vk_error(result2, "Failed to present swap chain image!");
+	}
+}
+
+output_frame_token context::acquire_output_frame(){
+	auto& current_syncs = ++sync_arr;
+	std::uint32_t imageIndex{};
+
+	current_syncs.fence.wait();
+
+	const VkAcquireNextImageInfoKHR acquire_info{
+			.sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
+			.pNext = nullptr,
+			.swapchain = swap_chain,
+			.timeout = std::numeric_limits<std::uint64_t>::max(),
+			.semaphore = current_syncs.fetch_semaphore,
+			.fence = nullptr,
+			.deviceMask = 0x1
+		};
+
+	const auto result = vkAcquireNextImage2KHR(device, &acquire_info, &imageIndex);
+
+	if(result == VK_ERROR_OUT_OF_DATE_KHR){
+		recreate(false);
+		return {};
+	} else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR){
+		throw vk_error(result, "failed to acquire swap chain image!");
+	}
+
+	current_syncs.fence.reset();
+
+	return {
+		.image = output_image(imageIndex),
+		.image_index = imageIndex,
+		.acquire_semaphore = current_syncs.fetch_semaphore,
+		.render_finished_semaphore = swap_chain_frames[imageIndex].flush_semaphore,
+		.frame_fence = current_syncs.fence,
+		.acquired = true,
+		.suboptimal = result == VK_SUBOPTIMAL_KHR,
+	};
+}
+
+void context::present_output_frame(const output_frame_token& token){
+	if(!token.acquired){
+		return;
+	}
+
+	const VkPresentInfoKHR info{
+			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+			.pNext = nullptr,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &token.render_finished_semaphore,
+			.swapchainCount = 1,
+			.pSwapchains = swap_chain.as_data(),
+			.pImageIndices = &token.image_index,
+			.pResults = nullptr,
+		};
+
+	const auto result = vkQueuePresentKHR(device.present_queue(), &info);
+
+	if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || token.suboptimal || window_.check_resized()){
+		recreate(false);
+	} else if(result != VK_SUCCESS){
+		throw vk_error(result, "Failed to present swap chain image!");
 	}
 }
 
@@ -474,6 +538,7 @@ void context::recreate(bool no_fence_wait){
 		waitOnQueue(device.present_queue());
 	}
 
+	swap_chain_frames.clear();
 	last_swap_chain.handle = swap_chain;
 
 	createSwapChain();

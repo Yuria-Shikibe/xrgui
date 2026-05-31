@@ -152,8 +152,9 @@ struct markdown_separator : elem {
 	using elem::elem;
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override {
-		call_stack_builder.push_call_noop(*this, [](const markdown_separator& s, const draw_call_param& p) static {
-			if(!p.layer_param.is_top()) return;
+		call_stack_builder.push_call_noop(*this, [](const markdown_separator& s, const draw_call_param& p,
+		                                            const draw_immut_args& args) static {
+			if(!args.layer.is_top()) return;
 			if(!util::is_draw_param_valid(s, p)) return;
 
 			auto bounds = s.content_bound_abs();
@@ -176,8 +177,9 @@ struct md_table : gui::grid {
 	using grid::grid;
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override {
-		call_stack_builder.push_call_noop(*this, [](const md_table& t, const draw_call_param& p) static {
-			if(!p.layer_param.is_top()) return;
+		call_stack_builder.push_call_noop(*this, [](const md_table& t, const draw_call_param& p,
+		                                            const draw_immut_args& args) static {
+			if(!args.layer.is_top()) return;
 			if(!util::is_draw_param_valid(t, p)) return;
 
 			auto children = t.exposed_children();
@@ -307,8 +309,9 @@ struct markdown_bullet : elem {
 	void record_draw_layer(draw_recorder& call_stack_builder) const override {
 		elem::record_draw_layer(call_stack_builder);
 
-		call_stack_builder.push_call_noop(*this, [](const markdown_bullet& s, const draw_call_param& p) static {
-			if(!p.layer_param.is_top()) return;
+		call_stack_builder.push_call_noop(*this, [](const markdown_bullet& s, const draw_call_param& p,
+		                                            const draw_immut_args& args) static {
+			if(!args.layer.is_top()) return;
 			if(!util::is_draw_param_valid(s, p)) return;
 
 			auto bounds = s.content_bound_abs();

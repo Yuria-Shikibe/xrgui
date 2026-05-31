@@ -16,6 +16,12 @@ include_dir = ["lib/", "ui/"]
 file = "post_process/hdr_to_sdr.slang"
 
 [[shaders]]
+file = "post_process/fullscreen_present.vert.slang"
+
+[[shaders]]
+file = "post_process/fullscreen_present.frag.slang"
+
+[[shaders]]
 file = "post_process/bloom.slang"
 
 [[shaders]]

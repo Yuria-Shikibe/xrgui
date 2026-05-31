@@ -31,7 +31,7 @@ struct slider_gradient_drawer{
 	graphic::color dst;
 
 	void operator()(const style::typed_draw_param<target_type>& p) const{
-		if(p->layer_param.is_top()){
+		if(p.immut_args.layer.is_top()){
 			auto srca = src.copy().mul_a(p->opacity_scl);
 			auto dsta = dst.copy().mul_a(p->opacity_scl);
 			p.subject().renderer() << graphic::draw::instruction::rect_aabb{
@@ -49,7 +49,7 @@ struct hue_gradient_drawer final {
 	using target_type = slider1d;
 
 	void operator()(const style::typed_draw_param<target_type>& p) const{
-		if(p->layer_param.is_top()){
+		if(p.immut_args.layer.is_top()){
 			const auto& element = p.subject();
 			auto region = p->draw_bound;
 			float opacityScl = p->opacity_scl;
@@ -94,7 +94,7 @@ struct alpha_gradient_drawer {
 	using target_type = slider1d;
 
 	void operator()(const style::typed_draw_param<target_type>& p) const{
-		if(p->layer_param.is_top()){
+		if(p.immut_args.layer.is_top()){
 			const auto& element = p.subject();
 			auto region = p->draw_bound;
 
@@ -218,8 +218,9 @@ private:
 
 	public:
 		void record_draw_layer(draw_recorder& call_stack_builder) const override{
-			call_stack_builder.push_call_noop(*this, [](const sv_selection& s, const draw_call_param& param){
-				if(!param.layer_param.is_top()) return;
+			call_stack_builder.push_call_noop(*this, [](const sv_selection& s, const draw_call_param& param,
+			                                            const draw_immut_args& args){
+				if(!args.layer.is_top()) return;
 				if(!util::is_draw_param_valid(s, param)) return;
 				const float opacityScl = util::get_final_draw_opacity(s, param);
 

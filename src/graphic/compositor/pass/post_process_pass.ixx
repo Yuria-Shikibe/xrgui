@@ -271,6 +271,8 @@ protected:
 
 	vk::uniform_buffer uniform_buffer_{};
 	std::vector<ubo_subrange> uniform_subranges_{};
+	std::uint32_t frame_count_{1};
+	VkDeviceSize uniform_frame_stride_{};
 
 
 	std::unordered_map<binding_info, VkSampler> samplers_{};
@@ -368,7 +370,8 @@ protected:
 			};
 	}
 
-	void init_uniform_buffer(const vk::allocator_usage& ctx){
+	void init_uniform_buffer(const vk::allocator_usage& ctx, const std::uint32_t frame_count = 1){
+		frame_count_ = std::max(1u, frame_count);
 		std::uint32_t ubo_size{};
 		uniform_subranges_.clear();
 		for(const auto& desc : meta_.get_local_uniform_buffer()){
@@ -379,7 +382,9 @@ protected:
 		}
 
 		if(ubo_size == 0) return;
-		uniform_buffer_ = vk::uniform_buffer{ctx, ubo_size};
+		const auto alignment = vk::get_device_requirement(ctx.get_device())->min_uniform_buffer_offset_alignment;
+		uniform_frame_stride_ = vk::align_up<VkDeviceSize>(ubo_size, alignment);
+		uniform_buffer_ = vk::uniform_buffer{ctx, uniform_frame_stride_ * frame_count_};
 	}
 
 	void default_bind_uniform_buffer(){
@@ -387,11 +392,17 @@ protected:
 	}
 
 	void default_bind_uniform_buffer(const std::uint32_t chunk_index){
+		default_bind_uniform_buffer(chunk_index, chunk_index);
+	}
+
+	void default_bind_uniform_buffer(const std::uint32_t chunk_index, const std::uint32_t frame_slot){
 		vk::descriptor_mapper mapper{descriptor_buffer_};
 
 		for(const auto& uniform_offset : uniform_subranges_){
 			(void)mapper.set_uniform_buffer(uniform_offset.binding,
-				uniform_buffer_.get_address() + uniform_offset.offset, uniform_offset.size, chunk_index);
+				uniform_buffer_.get_address() + uniform_frame_stride_ * frame_slot + uniform_offset.offset,
+				uniform_offset.size,
+				chunk_index);
 		}
 	}
 
@@ -402,15 +413,17 @@ protected:
 	}
 
 	[[nodiscard]] resource_entity get_resource_for_connection(const pass_data& pass,
-		const resource_map_entry& connection) const{
+		const resource_map_entry& connection,
+		const std::uint32_t frame_slot = 0) const{
+		const auto& used_resources = pass.get_used_resources(frame_slot);
 		if(connection.slot.has_in()){
-			if(auto res = pass.get_used_resources().get_in(connection.slot.in)){
+			if(auto res = used_resources.get_in(connection.slot.in)){
 				return res;
 			}
 		}
 
 		if(connection.slot.has_out()){
-			if(auto res = pass.get_used_resources().get_out(connection.slot.out)){
+			if(auto res = used_resources.get_out(connection.slot.out)){
 				return res;
 			}
 		}
@@ -493,11 +506,13 @@ protected:
 			}, res.resource);
 	}
 
-	void default_bind_resources(const pass_data& pass, const std::uint32_t chunk_index = 0){
+	void default_bind_resources(const pass_data& pass,
+		const std::uint32_t chunk_index = 0,
+		const std::uint32_t frame_slot = 0){
 		vk::descriptor_mapper mapper{descriptor_buffer_};
 		for(const auto& connection : meta_.inout_map_.get_connections()){
 			if(connection.binding.set != 0) continue;
-			const auto res = get_resource_for_connection(pass, connection);
+			const auto res = get_resource_for_connection(pass, connection, frame_slot);
 			bind_resource(mapper, chunk_index, connection, res, get_requirement_for_connection(connection));
 		}
 	}
@@ -535,12 +550,17 @@ protected:
 	}
 
 public:
-	void prepare(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
+	void prepare(const vk::allocator_usage& alloc,
+		const pass_data& pass,
+		const math::u32size2 extent,
+		const std::uint32_t frame_count) override{
 		init_pipeline(alloc, meta_.push_constant_ranges());
-		init_uniform_buffer(alloc);
-		reset_descriptor_buffer(alloc);
-		default_bind_uniform_buffer();
-		default_bind_resources(pass);
+		init_uniform_buffer(alloc, frame_count);
+		reset_descriptor_buffer(alloc, frame_count_);
+		default_bind_uniform_buffers(frame_count_);
+		for(std::uint32_t frame_slot = 0; frame_slot < frame_count_; ++frame_slot){
+			default_bind_resources(pass, frame_slot, frame_slot);
+		}
 	}
 
 	[[nodiscard]] const pass_logical_socket& sockets() const noexcept final{
@@ -566,9 +586,10 @@ public:
 		const vk::allocator_usage& allocator,
 		const pass_data& pass,
 		math::u32size2 extent,
-		VkCommandBuffer buffer) override{
+		VkCommandBuffer buffer,
+		const std::uint32_t frame_slot) override{
 		pipeline_.bind(buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
-		bind_descriptor_sets(buffer);
+		bind_descriptor_sets(buffer, frame_slot);
 
 		const auto pc_ranges = meta_.push_constant_ranges();
 		if(!pc_ranges.empty() && !push_constants_.empty()){

@@ -458,8 +458,7 @@ public:
 		elem::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_enter(
-			*this, [](const scroll_adaptor& s, const draw_call_param& p,
-					  draw_call_stack&) static -> draw_call_param{
+			*this, [](const scroll_adaptor& s, const draw_call_param& p) static -> draw_call_param{
 				auto& r = s.get_scene().renderer();
 
 				const bool activeHori = s.is_hori_scroll_active();
@@ -473,23 +472,22 @@ public:
 					return {
 							.current_subject = &s,
 							.draw_bound = p.draw_bound.copy().move(s.scroll_.temp),
-							.opacity_scl = util::get_final_draw_opacity(s, p),
-							.layer_param = p.layer_param
+							.opacity_scl = util::get_final_draw_opacity(s, p)
 						};
 				} else{
 					return {
 							.current_subject = &s,
 							.draw_bound = p.draw_bound,
-							.opacity_scl = util::get_final_draw_opacity(s, p),
-							.layer_param = p.layer_param
+							.opacity_scl = util::get_final_draw_opacity(s, p)
 						};
 				}
 			});
 
 		//TODO when has_draw_layer is specified , the draw call should be inlined...?
 		if constexpr(adaptor_interface_trait::has_draw_layer){
-			call_stack_builder.push_call_noop(*this, [](const scroll_adaptor& s, const draw_call_param& p){
-				s.adaptor_draw_layer(p.draw_bound, p.opacity_scl, p.layer_param);
+			call_stack_builder.push_call_noop(*this, [](const scroll_adaptor& s, const draw_call_param& p,
+			                                            const draw_immut_args& args){
+				s.adaptor_draw_layer(p.draw_bound, p.opacity_scl, args.layer);
 			});
 		} else if constexpr(is_elem_child){
 			get_elem().record_draw_layer(call_stack_builder);
@@ -497,7 +495,7 @@ public:
 
 
 		call_stack_builder.push_call_leave(
-			*this, [](const scroll_adaptor& s, const draw_call_param& p, draw_call_stack&) static{
+			*this, [](const scroll_adaptor& s, const draw_call_param& p) static{
 
 				const bool activeHori = s.is_hori_scroll_active();
 				const bool activeVert = s.is_vert_scroll_active();

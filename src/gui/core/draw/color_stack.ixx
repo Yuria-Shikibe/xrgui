@@ -3,6 +3,7 @@ export module mo_yanxi.gui.renderer.frontend:color_stack;
 import mo_yanxi.math;
 import mo_yanxi.graphic.color;
 import mo_yanxi.gui.alloc;
+import mo_yanxi.gui.renderer.abi;
 import std;
 
 namespace mo_yanxi::gui {
@@ -13,14 +14,6 @@ struct alignas(32) color_modifier {
 	float influence;
 	float intensity;            // 相对 1 的偏移值
 	float intensity_influence;  // 专属强度的等效累积权重
-};
-
-export
-struct alignas(32) accumulated_state {
-	using tag_vertex_only = void;
-
-	graphic::color overlay_color; // 16B: 累积的叠加色 (RGB 已预乘 intensity_mult)
-	graphic::color base_mult;     // 16B: 累积的底色乘数 (RGB 已预乘 intensity_mult)
 };
 
 export

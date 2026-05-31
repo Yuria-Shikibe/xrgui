@@ -5,7 +5,7 @@ import mo_yanxi.graphic.draw.instruction;
 namespace mo_yanxi::gui {
 
 void style::draw_slider1d_default::operator()(const typed_draw_param<slider1d>& p) const {
-    if(!p->layer_param.is_top()) return;
+    if(!p.immut_args.layer.is_top()) return;
 
     const auto& element = p.subject();
     auto region = p->draw_bound;
@@ -34,7 +34,7 @@ void style::draw_slider1d_default::operator()(const typed_draw_param<slider1d>& 
 }
 
 void style::draw_slider2d_default::operator()(const typed_draw_param<slider2d>& p) const {
-    if(!p->layer_param.is_top()) return;
+    if(!p.immut_args.layer.is_top()) return;
 
     const auto& element = p.subject();
     auto region = p->draw_bound;

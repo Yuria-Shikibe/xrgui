@@ -50,14 +50,14 @@ struct bloom_pass final : sub_pass_stage{
 	void set_scale(const float scale){
 		if(current_param.scale != scale){
 			current_param.scale = scale;
-			(void)vk::buffer_mapper{ubo()}.load(current_param);
+			write_current_param_to_all_frames();
 		}
 	}
 
 	void set_mix_factor(const float factor){
 		if(current_param.mix_factor != factor){
 			current_param.mix_factor = factor;
-			(void)vk::buffer_mapper{ubo()}.load(current_param);
+			write_current_param_to_all_frames();
 		}
 	}
 
@@ -65,21 +65,21 @@ struct bloom_pass final : sub_pass_stage{
 		if(current_param.strength_src != strengthSrc || current_param.strength_dst != strengthDst){
 			current_param.strength_src = strengthSrc;
 			current_param.strength_dst = strengthDst;
-			(void)vk::buffer_mapper{ubo()}.load(current_param);
+			write_current_param_to_all_frames();
 		}
 	}
 
 	void set_strength_src(const float strengthSrc = 1.f){
 		if(current_param.strength_src != strengthSrc){
 			current_param.strength_src = strengthSrc;
-			(void)vk::buffer_mapper{ubo()}.load(current_param);
+			write_current_param_to_all_frames();
 		}
 	}
 
 	void set_strength_dst(const float strengthDst = 1.f){
 		if(current_param.strength_dst != strengthDst){
 			current_param.strength_dst = strengthDst;
-			(void)vk::buffer_mapper{ubo()}.load(current_param);
+			write_current_param_to_all_frames();
 		}
 	}
 
@@ -91,6 +91,17 @@ private:
 	bloom_uniform_block current_param{1, 1, 1, 0.5f};
 
 	std::uint32_t max_mip_level_{7};
+
+	void write_current_param_to_all_frames(){
+		if(!uniform_buffer_){
+			return;
+		}
+
+		vk::buffer_mapper mapper{uniform_buffer_};
+		for(std::uint32_t frame_slot = 0; frame_slot < this->frame_count_; ++frame_slot){
+			mapper.load(current_param, this->uniform_frame_stride_ * frame_slot);
+		}
+	}
 
 	struct mip_info{
 		std::uint32_t total_mip_level;
@@ -121,14 +132,20 @@ private:
 		return get_real_mip_level(get_required_mipmap_level(), extent);
 	}
 
-	void prepare(const vk::allocator_usage& alloc, const pass_data& pass, const math::u32size2 extent) override{
-		sub_pass_stage::prepare(alloc, pass, extent);
+	void prepare(const vk::allocator_usage& alloc,
+		const pass_data& pass,
+		const math::u32size2 extent,
+		const std::uint32_t frame_count) override{
+		sub_pass_stage::prepare(alloc, pass, extent, frame_count);
 		if(samplers_.contains({0, 0})){
 			const auto sampler = get_sampler_at({0, 0});
 			samplers_.try_emplace(binding_info{1, 0}, sampler);
 			samplers_.try_emplace(binding_info{2, 0}, sampler);
 		}
-		(void)vk::buffer_mapper{uniform_buffer_}.load(current_param);
+		vk::buffer_mapper mapper{uniform_buffer_};
+		for(std::uint32_t frame_slot = 0; frame_slot < this->frame_count_; ++frame_slot){
+			mapper.load(current_param, this->uniform_frame_stride_ * frame_slot);
+		}
 	}
 	[[nodiscard]] std::vector<sub_pass_setup> build_sub_passes(const pass_data& pass,
 		const math::u32size2 extent) const override{
@@ -191,12 +208,13 @@ private:
 	}
 	[[nodiscard]] std::vector<sub_pass_baked_sync> bake_sub_pass_sync(const pass_data& pass,
 		const math::u32size2 extent,
-		std::span<const sub_pass_runtime_setup> prepared_sub_passes) const override{
+		std::span<const sub_pass_runtime_setup> prepared_sub_passes,
+		const std::uint32_t frame_slot) const override{
 		const auto [total_mip_level, target_scale] = resolve_mip_info(extent);
 		std::vector<sub_pass_baked_sync> baked(prepared_sub_passes.size() > 1 ? prepared_sub_passes.size() - 1 : 0);
 
-		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources().get_in(1).resource);
-		const auto up_sample_image = std::get<image_entity>(pass.get_used_resources().get_out(0).resource);
+		const auto down_sample_image = std::get<image_entity>(pass.get_used_resources(frame_slot).get_in(1).resource);
+		const auto up_sample_image = std::get<image_entity>(pass.get_used_resources(frame_slot).get_out(0).resource);
 
 		for(std::uint32_t i = 0; i + 1 < prepared_sub_passes.size(); ++i){
 			auto& sync = baked[i];

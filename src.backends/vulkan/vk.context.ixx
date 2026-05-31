@@ -29,6 +29,7 @@ struct InFlightData{
 
 struct SwapChainFrameData{
 	VkImage image{};
+	vk::image_view image_view{};
 	command_buffer post_command{};
 	semaphore flush_semaphore{};
 };
@@ -55,6 +56,9 @@ struct swap_chain_staging_image_data{
 	VkImageLayout src_layout{};
 	VkImageLayout dst_layout{VK_IMAGE_LAYOUT_UNDEFINED};
 };
+
+export
+struct output_frame_token;
 
 export
 class context{
@@ -104,6 +108,24 @@ public:
 		this->final_staging_image = image_data;
 		if(instantly_create_command) record_post_command(true);
 	}
+
+	[[nodiscard]] std::uint32_t output_image_count() const noexcept{
+		return static_cast<std::uint32_t>(swap_chain_frames.size());
+	}
+
+	[[nodiscard]] render_output_image output_image(const std::uint32_t index) const{
+		const auto& frame = swap_chain_frames.at(index);
+		return {
+			.handle = {frame.image, frame.image_view},
+			.extent = swap_chain_extent,
+			.format = swapChainImageFormat,
+			.index = index,
+		};
+	}
+
+	[[nodiscard]] output_frame_token acquire_output_frame();
+
+	void present_output_frame(const output_frame_token& token);
 
 	void flush();
 
@@ -220,12 +242,11 @@ public:
 			for(auto append_disposer : append_disposers){
 				std::invoke(append_disposer);
 			}
+			swap_chain_frames.clear();
 			vkDestroySwapchainKHR(device, swap_chain, nullptr);
 			if(last_swap_chain) vkDestroySwapchainKHR(device, last_swap_chain, nullptr);
 		}
 		if(instance) vkDestroySurfaceKHR(instance, surface, nullptr);
-
-		swap_chain_frames.clear();
 	}
 
 	[[nodiscard]] window_instance& window() noexcept{
@@ -314,7 +335,7 @@ private:
 				.imageColorSpace = surfaceFormat.colorSpace,
 				.imageExtent = swap_chain_extent,
 				.imageArrayLayers = 1,
-				.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+				.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			};
 
 		if(indices.graphic.index != indices.present.index){
@@ -352,10 +373,27 @@ private:
 
 	void createImageViews(){
 		auto [images, rst] = enumerate(vkGetSwapchainImagesKHR, device.get(), swap_chain.handle);
+		swap_chain_frames.clear();
 		swap_chain_frames.resize(images.size());
 
-		for(const auto& [index, imageGroup] : swap_chain_frames | std::ranges::views::enumerate){
+		for(auto&& [index, imageGroup] : swap_chain_frames | std::ranges::views::enumerate){
 			imageGroup.image = images[index];
+			imageGroup.image_view = vk::image_view{
+				device,
+				VkImageViewCreateInfo{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+					.image = imageGroup.image,
+					.viewType = VK_IMAGE_VIEW_TYPE_2D,
+					.format = swapChainImageFormat,
+					.subresourceRange = {
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1,
+					}
+				}
+			};
 			imageGroup.flush_semaphore = semaphore{device};
 		}
 	}
@@ -376,5 +414,16 @@ private:
 	void create_device();
 
 	void recreate(bool no_fence_wait);
+};
+
+export
+struct output_frame_token{
+	render_output_image image{};
+	std::uint32_t image_index{};
+	VkSemaphore acquire_semaphore{};
+	VkSemaphore render_finished_semaphore{};
+	VkFence frame_fence{};
+	bool acquired{};
+	bool suboptimal{};
 };
 }

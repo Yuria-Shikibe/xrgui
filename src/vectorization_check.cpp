@@ -9,6 +9,7 @@
 #endif
 
 import std;
+import mo_yanxi.log;
 
 // Wrapper for cross-platform cpuid call
 void get_cpuid(std::int32_t info[4], std::int32_t eax, std::int32_t ecx = 0) {
@@ -77,17 +78,17 @@ bool check_cpu_avx512() {
 // Helper for formatted output, merging print and println
 void report_status(std::string_view name, bool is_compiled, bool is_runtime_supported = false, std::string_view error_action = "crash") {
     if (!is_compiled) {
-        std::println("[Compile-Option] {} Instructions: Disabled.", name);
+        mo_yanxi::log::info({"CompileOption"}, "{} instructions disabled", name);
     } else if (is_runtime_supported) {
-        std::println("[Compile-Option] {} Instructions: Enabled.  -> [Run-time] Hardware and OS support {}, safe to execute.", name, name);
+        mo_yanxi::log::info({"CompileOption"}, "{} instructions enabled; runtime supports {}", name, name);
     } else {
-        std::println("[Compile-Option] {} Instructions: Enabled.  -> [Run-time] WARNING: Hardware or OS does not support {}! Execution will {}!", name, name, error_action);
+        mo_yanxi::log::warn({"CompileOption"}, "{} instructions enabled but runtime does not support {}; execution will {}", name, name, error_action);
     }
 }
 
 // The core checking logic
 void run_vectorization_checks() {
-	std::println();
+	mo_yanxi::log::debug({"CompileOption"}, "checking vector instruction support");
 
     // ----------------- SSE Check -----------------
 #if defined(__SSE__) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1) || defined(_M_X64)
@@ -117,7 +118,7 @@ void run_vectorization_checks() {
     report_status("AVX-512 (Foundation)", false);
 #endif
 
-    std::println();
+	mo_yanxi::log::debug({"CompileOption"}, "vector instruction support check done");
 }
 
 // Global variable initialization trick to execute checks before main()

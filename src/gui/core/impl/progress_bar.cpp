@@ -107,7 +107,7 @@ SectorLayout calculateSectorFit(float w, float h, float a1, float a2) {
 }
 
 void style::progress_drawer_flat::operator()(const typed_draw_param<progress_bar>& p) const{
-	if(p->layer_param == 0){
+	if(p.immut_args.layer == 0){
 		using namespace graphic;
 		const auto& element = p.subject();
 		auto region = p->draw_bound;
@@ -127,7 +127,7 @@ void style::progress_drawer_flat::operator()(const typed_draw_param<progress_bar
 }
 
 void style::progress_drawer_arc::operator()(const typed_draw_param<progress_bar>& p) const{
-	if(!p->layer_param.is_top()) return;
+	if(!p.immut_args.layer.is_top()) return;
 
 	const auto& element = p.subject();
 	auto region = p->draw_bound;
