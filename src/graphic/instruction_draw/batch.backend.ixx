@@ -1178,6 +1178,9 @@ public:
 		}
 
 		cached_instruction_resolve_info_.prepare_allocation(host_ctx);
+		if(cached_instruction_resolve_info_.total_primitives == 0){
+			return;
+		}
 		frame.ensure_resolved_geometry_buffers(allocator_, cached_instruction_resolve_info_, stride_cfg_);
 		cached_instruction_resolve_info_.update(host_ctx, frame.get_geometry_output(cached_instruction_resolve_info_));
 		frame.flush_geometry_staging(cached_instruction_resolve_info_);

@@ -18,7 +18,6 @@ import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.math.vector2;
 
 import mo_yanxi.heterogeneous;
-import mo_yanxi.heterogeneous.open_addr_hash;
 import mo_yanxi.cache;
 import mo_yanxi.cache.map;
 import mo_yanxi.static_string;

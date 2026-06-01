@@ -47,7 +47,6 @@ import mo_yanxi.font;
 import mo_yanxi.font.manager;
 import mo_yanxi.graphic.color;
 import mo_yanxi.graphic.msdf;
-import mo_yanxi.heterogeneous.open_addr_hash;
 import align;
 
 import mo_yanxi.typesetting;
