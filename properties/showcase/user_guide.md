@@ -315,8 +315,8 @@ main.cell().region_scale = {0.2f, 0, 0.8f, 1};
 | 策略 | 含义 |
 |------|------|
 | `layout_policy::none` | 无布局关系，从父级继承 |
-| `layout_policy::hori_major` | 主轴水平 |
-| `layout_policy::vert_major` | 主轴垂直 |
+| `layout_policy::hori_major` | 行优先；在 sequence 中逐行向下放置 |
+| `layout_policy::vert_major` | 列优先；在 sequence 中逐列向右放置 |
 
 **尺寸类别**：
 
@@ -344,10 +344,10 @@ align::pos::right       align::pos::top       align::pos::bottom
 
 ### 6.2 sequence -- 线性布局
 
-类似 CSS Flexbox：
+一维线性布局。`layout_policy` 表示行/列优先，不直接等同于水平/垂直主轴：
 
 ```cpp
-// 水平排列
+// 行优先：sequence 从上向下放置每一行
 auto& seq = scene.create<sequence>(layout_policy::hori_major);
 seq.set_expand_policy(layout::expand_policy::passive);
 seq.template_cell.set_pad({8, 8});
@@ -364,9 +364,9 @@ e2.cell().set_pending();
 auto e3 = seq.emplace_back<elem>();
 e3.cell().set_passive(1.0f);
 
-// 垂直排列
+// 列优先：sequence 从左向右放置每一列
 auto& vseq = scene.create<sequence>(layout_policy::vert_major);
-vseq.template_cell.set_pad({4, 8});  // {主轴间距, 交叉轴间距}
+vseq.template_cell.set_pad({4, 8});  // cell 前后间距
 ```
 
 ### 6.3 table -- 表格布局

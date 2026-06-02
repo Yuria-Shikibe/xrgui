@@ -50,8 +50,8 @@
 // src/gui/core/layout/policy.ixx:29
 enum class layout_policy : std::uint8_t{
     none,         // 无布局关系
-    hori_major,   // 主轴水平
-    vert_major,   // 主轴垂直
+    hori_major,   // 行优先
+    vert_major,   // 列优先
 };
 ```
 
@@ -398,10 +398,10 @@ elem
 
 **文件**: `src/gui/core/elements/gui.sequence.ixx:17`
 
-等同于 CSS Flexbox 的核心概念。通过 `layout_policy` 参数化方向。
+一维线性布局。通过 `layout_policy` 参数化行/列优先策略；在 `sequence` 中，`hori_major` 从上向下放置每一行，`vert_major` 从左向右放置每一列。
 
 **核心特性**:
-- `layout_policy`: 主轴方向（`hori_major` / `vert_major`）
+- `layout_policy`: 行/列优先策略（`hori_major` / `vert_major`）
 - `expand_policy`: `resize_to_fit` / `passive` / `prefer`
 - `align_to_tail`: 子元素是否对齐到尾部
 - `template_cell`: 新子元素的默认 cell 模板
@@ -410,7 +410,7 @@ elem
 1. 收集所有子元素的 `stated_size`
 2. `mastering` 优先分配固定尺寸（乘以 scaling）
 3. `pending` 查询 `pre_acquire_size()` 获取实际尺寸
-4. `scaling` 基于主轴尺寸计算
+4. `scaling` 基于 major 维度尺寸计算
 5. 剩余空间按 `passive` 权重分配
 6. 更新子元素的 `allocated_region` 和位置偏移
 
@@ -441,7 +441,7 @@ seq.emplace_back<some_elem>().cell().set_passive(1.0f);
 类似 CSS Grid + Flow 的结合。通过 `end_line()` 标记换行，自动计算行列分布。
 
 **核心特性**:
-- `layout_policy`: 主轴方向
+- `layout_policy`: 行/列优先策略
 - `expand_policy`: `resize_to_fit` / `passive` / `prefer`
 - `entire_align`: 整个 table 在父级中的对齐方式
 - `end_line()`: 标记当前 cell 为行尾，开始新行
@@ -650,7 +650,7 @@ enum struct collapser_expand_cond{
 支持单向滚动内容的面板，使用裁剪变换实现。
 
 **核心特性**:
-- `layout_policy`: `hori_major`（水平滚动）或 `vert_major`（垂直滚动）
+- `layout_policy`: 内容布局的行/列优先策略，不等同于滚动方向
 - `sensitivity_mode`: `absolute`（绝对灵敏度）或 `proportional`（比例灵敏度）
 - `scroll_scale`: 滚动比例/像素
 - `scroll_bar_stroke_`: 滚动条宽度
@@ -735,7 +735,7 @@ transpose_layout(policy)  // hori↔vert
 ### 9.2 混合布局方向（Transpose）
 
 ```cpp
-// 需求：父级水平排列，但子容器需要垂直布局
+// 需求：父级行优先布局，但子容器需要列优先布局
 container.set_layout_spec(layout_specifier::transpose());
 // container 自身无策略，当父为 hori_major 时 → vert_major
 ```

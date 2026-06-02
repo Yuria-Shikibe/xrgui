@@ -30,14 +30,18 @@ export enum class layout_policy : std::uint8_t{
 	none,
 
 	/**
-	 * @brief element first try layout horizontally(LTR), linefeed performs vertically(TTB).
+	 * @brief Row-major layout policy: elements fill a row first, then advance downward.
+	 *
+	 * In sequence, each child occupies one row, so child order advances top-to-bottom.
 	 *
 	 * i.e. major: x direction; minor: y direction
 	 */
 	hori_major,
 
 	/**
-	 * @brief element first try layout vertically(TTB), linefeed performs horizontally(LTR).
+	 * @brief Column-major layout policy: elements fill a column first, then advance rightward.
+	 *
+	 * In sequence, each child occupies one column, so child order advances left-to-right.
 	 *
 	 * i.e. major: y direction; minor: x direction
 	 */

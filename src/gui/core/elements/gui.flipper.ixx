@@ -54,6 +54,9 @@ public:
 			throw std::out_of_range{"index out of elem range"};
 		}
 		candidates_[index] = elem_ptr{get_scene(), this, std::in_place_type<E>, std::forward<Args>(args)...};
+		if(index != current_active_index_){
+			candidates_[index]->on_display_state_changed(false, false);
+		}
 		return static_cast<E&>(*candidates_[index]);
 	}
 
@@ -63,28 +66,39 @@ public:
 			throw std::out_of_range{"index out of elem range"};
 		}
 		candidates_[index] = elem_ptr{get_scene(), this, std::forward<Fn>(init), std::forward<Args>(args)...};
+		if(index != current_active_index_){
+			candidates_[index]->on_display_state_changed(false, false);
+		}
 		return static_cast<elem_init_func_create_t<Fn>&>(*candidates_[index]);
 	}
 
 	elem_span exposed_children() const noexcept final{
+		if(!get_active_elem_ptr()){
+			return {};
+		}
 		return elem_span{get_active_elem_ptr(), elem_ptr::cvt_mptr};
 	}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
-		get_active_elem_ptr()->record_draw_layer(call_stack_builder);
+		if(const auto* active = get_active_elem_ptr().get()){
+			active->record_draw_layer(call_stack_builder);
+		}
 	}
 
 	void layout_elem() override{
 		elem::layout_elem();
-		get_active_elem_ptr()->try_layout();
+		if(auto* active = get_active_elem_ptr().get()){
+			active->try_layout();
+		}
 	}
 
 
 	bool update_abs_src(math::vec2 parent_content_src) noexcept override{
 		if(elem::update_abs_src(parent_content_src)){
-			auto& cur = *get_active_elem_ptr();
-			cur.update_abs_src(content_src_pos_abs());
+			if(auto* active = get_active_elem_ptr().get()){
+				active->update_abs_src(content_src_pos_abs());
+			}
 
 			return true;
 		}
@@ -94,8 +108,9 @@ public:
 protected:
 	bool resize_impl(const math::vec2 size) override{
 		if(elem::resize_impl(size)){
-			auto& cur = *get_active_elem_ptr();
-			restrict_child(cur);
+			if(auto* active = get_active_elem_ptr().get()){
+				restrict_child(*active);
+			}
 
 			return true;
 		}
@@ -117,12 +132,17 @@ public:
 		if(index >= candidates_.size()){
 			throw std::out_of_range{"index out of elem range"};
 		}
+		if(!candidates_[index]){
+			throw std::logic_error{"target flipper candidate is not initialized"};
+		}
 
 		if(current_active_index_ != index){
-			get_active_elem_ptr()->on_display_state_changed(false, false);
+			if(auto* old = get_active_elem_ptr().get()){
+				old->on_display_state_changed(false, false);
+			}
 			current_active_index_ = index;
 			auto& cur = *get_active_elem_ptr();
-			cur.on_display_state_changed(true, false);
+			cur.on_display_state_changed(this->is_at_display_stage(), false);
 			restrict_child(cur);
 			cur.update_abs_src(content_src_pos_abs());
 			notify_isolated_layout_changed();
@@ -131,15 +151,24 @@ public:
 
 
 	element_collect_buffer collect_children() const override{
-		return element_collect_buffer{elem_wrapper{elem_span{candidates_, elem_ptr::cvt_mptr}}};
+		element_collect_buffer result{};
+		for(const auto& candidate : candidates_){
+			if(candidate){
+				result.push_back(*candidate);
+			}
+		}
+		return result;
 	}
 
 protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
 		if(expand_policy_ == layout::expand_policy::passive) return std::nullopt;
 
-		auto& cur = *get_active_elem_ptr();
-		auto rst = cur.pre_acquire_size(extent);
+		auto* active = get_active_elem_ptr().get();
+		if(active == nullptr){
+			return std::nullopt;
+		}
+		auto rst = active->pre_acquire_size(extent);
 		if(!rst) return rst;
 		return util::select_prefer_extent(expand_policy_ == layout::expand_policy::prefer, rst.value(),
 			get_prefer_extent());

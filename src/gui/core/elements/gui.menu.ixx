@@ -75,6 +75,7 @@ public:
 
 		auto hdl = get_button_pane().get_elem().insert_and_get(index, std::move(head));
 		auto& body_ref = *body;
+		body->on_display_state_changed(false, false);
 		entries.insert(entries.begin() + index, std::move(body));
 		return {std::move(hdl), body_ref};
 	}

@@ -796,6 +796,7 @@ public:
 
 	void close_overlay(const elem* overlay_elem){
 		overlay_manager_.truncate(overlay_elem);
+		this->request_cursor_update();
 	}
 
 #pragma region ReactFlow
@@ -1052,17 +1053,21 @@ public:
 
 	template <invocable_elem_init_func Fn, typename... Args>
 	auto create_overlay(const overlay_layout layout, Fn&& fn, Args&&... args){
-		return static_cast<overlay_create_result<elem_init_func_create_t<Fn>>>(
-			overlay_manager_.push_back(layout, elem_ptr{*this, nullptr, std::forward<Fn>(fn), std::forward<Args>(args)...})
-		);
+		auto result = overlay_manager_.push_back(
+			layout,
+			elem_ptr{*this, nullptr, std::forward<Fn>(fn), std::forward<Args>(args)...});
+		this->request_cursor_update();
+		return static_cast<overlay_create_result<elem_init_func_create_t<Fn>>>(result);
 	}
 
 	template <typename T, typename... Args>
 		requires (constructible_elem<T, Args&&...>)
 	overlay_create_result<T> emplace_overlay(const overlay_layout layout, Args&&... args){
-		return static_cast<overlay_create_result<T>>(
-			overlay_manager_.push_back(layout, elem_ptr{*this, nullptr, std::in_place_type<T>, std::forward<Args>(args)...})
-		);
+		auto result = overlay_manager_.push_back(
+			layout,
+			elem_ptr{*this, nullptr, std::in_place_type<T>, std::forward<Args>(args)...});
+		this->request_cursor_update();
+		return static_cast<overlay_create_result<T>>(result);
 	}
 };
 

@@ -4,7 +4,16 @@ module;
 #include <hb-ft.h>
 #include <mo_yanxi/adapted_attributes.hpp>
 
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#include <gch/small_vector.hpp>
+#endif
+
+
 export module mo_yanxi.typesetting:misc;
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <gch/small_vector.hpp>;
+#endif
 
 import std;
 import mo_yanxi.typesetting.util;
@@ -394,7 +403,7 @@ export struct layout_config{
 	}
 
 	[[nodiscard]] constexpr bool has_wrap_indicator() const noexcept{ return wrap_indicator_char != 0; }
-	constexpr bool operator==(const layout_config&) const noexcept = default;
+	constexpr friend bool operator==(const layout_config&, const layout_config&) noexcept = default;
 
 
 	bool set_max_extent(math::vec2 ext){

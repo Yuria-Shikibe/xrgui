@@ -181,15 +181,27 @@ public:
 		elem::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_enter(*this, [](const basic_group& s, const draw_call_param& p) static -> draw_call_param{
+			const auto content_bound = s.content_bound_abs();
+			const auto draw_bound = content_bound.intersection_with(p.draw_bound);
+			const float opacity_scl = util::get_final_draw_opacity(s, p);
+
+			if(opacity_scl < 0.f || draw_bound.is_roughly_zero_area(0.01f)){
+				return {
+						.current_subject = nullptr,
+						.draw_bound = draw_bound,
+						.opacity_scl = opacity_scl
+					};
+			}
+
 			if(s.should_clip_overflow()){
-				s.renderer().push_scissor({s.content_bound_abs()});
+				s.renderer().push_scissor({content_bound});
 				s.renderer().notify_viewport_changed();
 			}
 
 			return {
 				.current_subject = &s,
-				.draw_bound = s.content_bound_abs().intersection_with(p.draw_bound),
-				.opacity_scl = util::get_final_draw_opacity(s, p)
+				.draw_bound = draw_bound,
+				.opacity_scl = opacity_scl
 			};
 		});
 

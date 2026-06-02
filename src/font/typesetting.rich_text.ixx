@@ -87,11 +87,11 @@ enum struct enable_type : std::uint8_t{
 export
 struct rich_text_context{
 private:
-	stack_of<math::vec2> history_offset_;
-	stack_of<graphic::color> history_color_;
-	stack_of<math::vec2> history_size_;
-	stack_of<const font::font_family*> history_font_;
-	stack_of<unsigned> history_feature_group_count_;
+	stack_of<math::vec2> history_offset_{};
+	stack_of<graphic::color> history_color_{};
+	stack_of<math::vec2> history_size_{};
+	stack_of<const font::font_family*> history_font_{};
+	stack_of<unsigned> history_feature_group_count_{};
 
 	// 使用 optional 记录下划线状态。只有 std::nullopt 时才采用 fallback
 	enable_type enables_underline_{};

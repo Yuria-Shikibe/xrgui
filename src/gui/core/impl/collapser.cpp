@@ -66,18 +66,17 @@ void collapser::record_draw_layer(draw_recorder& call_stack_builder) const{
 		call_stack_builder.push_call_enter(
 			*this, [](const collapser& s, const draw_call_param& p) static -> draw_call_param{
 				const auto space = s.content_bound_abs().intersection_with(p.draw_bound);
+				const float opacity_scl = p.opacity_scl * s.get_local_draw_opacity();
+				const auto state = s.animator_.get_state();
 
 				bool allow_next_layer = false;
-				switch(s.animator_.get_state()){
+				switch(state){
 				case util::anim_state::idle :
 				case util::anim_state::waiting_to_enter :
 					break;
 				case util::anim_state::entering :
 				case util::anim_state::exiting : {
 					allow_next_layer = true;
-					auto& r = s.renderer();
-					r.push_scissor({s.get_expand_region()});
-					r.notify_viewport_changed();
 					break;
 				}
 				case util::anim_state::active :
@@ -87,11 +86,25 @@ void collapser::record_draw_layer(draw_recorder& call_stack_builder) const{
 				default : std::unreachable();
 				}
 
-				return {
-						.current_subject = allow_next_layer ? &s : nullptr,
+				if(!allow_next_layer || opacity_scl < 0.f || space.is_roughly_zero_area(0.01f)){
+					return {
+						.current_subject = nullptr,
 						.draw_bound = space,
-						.opacity_scl = p.opacity_scl * s.get_local_draw_opacity()
+						.opacity_scl = opacity_scl
 					};
+				}
+
+				if(state == util::anim_state::entering || state == util::anim_state::exiting){
+					auto& r = s.renderer();
+					r.push_scissor({s.get_expand_region()});
+					r.notify_viewport_changed();
+				}
+
+				return {
+					.current_subject = &s,
+					.draw_bound = space,
+					.opacity_scl = opacity_scl
+				};
 			});
 		items[1]->record_draw_layer(call_stack_builder);
 
