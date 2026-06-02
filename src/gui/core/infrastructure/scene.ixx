@@ -167,15 +167,32 @@ public:
 	//TODO sound interface
 };
 
+enum struct mouse_capture_owner : std::uint8_t{
+	none,
+	ui,
+	passthrough
+};
+
 struct mouse_state{
 	math::optional_vec2<float> src{math::nullopt_vec2<float>};
+	mouse_capture_owner owner{mouse_capture_owner::none};
 
-	void reset(const math::vec2 pos) noexcept{
+	void reset(const math::vec2 pos, const mouse_capture_owner owner_value) noexcept{
 		src = pos;
+		owner = owner_value;
 	}
 
 	void clear() noexcept{
 		src.reset();
+		owner = mouse_capture_owner::none;
+	}
+
+	[[nodiscard]] constexpr bool is_ui_owned() const noexcept{
+		return src.has_value() && owner == mouse_capture_owner::ui;
+	}
+
+	[[nodiscard]] constexpr bool is_passthrough_owned() const noexcept{
+		return src.has_value() && owner == mouse_capture_owner::passthrough;
 	}
 
 	constexpr explicit operator bool() const noexcept{
@@ -315,6 +332,10 @@ struct input{
 
 	[[nodiscard]] bool is_mouse_pressed(input_handle::mouse mouse_button_code) const noexcept{
 		return mouse_states_[std::to_underlying(mouse_button_code)] ? true : false;
+	}
+
+	[[nodiscard]] bool has_passthrough_mouse_capture() const noexcept{
+		return std::ranges::any_of(mouse_states_, &mouse_state::is_passthrough_owned);
 	}
 
 	math::vec2 get_cursor_pos() const noexcept{

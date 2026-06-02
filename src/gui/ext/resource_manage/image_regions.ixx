@@ -116,6 +116,11 @@ public:
 		return image_region_->view;
 	}
 
+	[[nodiscard]] auto texture_binding(
+		const graphic::sampler_descriptor_index sampler_index = graphic::auto_sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
+		return image_region_->texture_binding(sampler_index);
+	}
+
 	[[nodiscard]] FORCE_INLINE constexpr float mid_width() const noexcept{
 		return end_margin - src_margin;
 	}
@@ -471,6 +476,11 @@ struct image_nine_region : nine_patch_layout{
 
 	explicit constexpr operator bool() const noexcept{
 		return image_view != nullptr;
+	}
+
+	[[nodiscard]] auto texture_binding(
+		const graphic::sampler_descriptor_index sampler_index = graphic::auto_sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
+		return image_view->texture_binding(sampler_index);
 	}
 
 	[[nodiscard]] constexpr std::array<graphic::uniformed_rect_uv, 9> get_uvs() const noexcept{

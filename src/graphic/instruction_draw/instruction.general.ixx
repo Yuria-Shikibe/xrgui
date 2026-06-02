@@ -9,6 +9,8 @@ module;
 
 export module mo_yanxi.graphic.draw.instruction.general;
 
+export import mo_yanxi.graphic.image_view_registry;
+
 import std;
 import mo_yanxi.meta_programming;
 import mo_yanxi.concepts;
@@ -44,7 +46,7 @@ public:
 	[[nodiscard]] constexpr instruction_buffer() noexcept = default;
 	[[nodiscard]] explicit instruction_buffer(std::size_t byte_size){
 		const auto actual_size = ((byte_size + (align - 1)) / align) * align;
-		const auto p = ::operator new(actual_size, std::align_val_t{align});
+		const auto p = operator new(actual_size, std::align_val_t{align});
 		src = new(p) std::byte[actual_size]{};
 		dst = src + actual_size;
 	}
@@ -52,7 +54,7 @@ public:
 	~instruction_buffer(){
 		if(src) {
 			std::destroy_n(src, size());
-			::operator delete(src, size(), std::align_val_t{align});
+			operator delete(src, size(), std::align_val_t{align});
 		}
 	}
 
@@ -96,7 +98,7 @@ public:
 		if(this == &other) return *this;
 		if(src) {
 			std::destroy_n(src, size());
-			::operator delete(src, size(), std::align_val_t{align});
+			operator delete(src, size(), std::align_val_t{align});
 		}
 		src = std::exchange(other.src, {});
 		dst = std::exchange(other.dst, {});
@@ -110,10 +112,10 @@ public:
 				return;
 			}
 		}
-		const auto p = ::operator new(new_size, std::align_val_t{align});
+		const auto p = operator new(new_size, std::align_val_t{align});
 		auto* next = new(p) std::byte[new_size];
 		std::memcpy(next, src, size());
-		::operator delete(src, size(), std::align_val_t{align});
+		operator delete(src, size(), std::align_val_t{align});
 		src = next;
 		dst = src + new_size;
 	}
@@ -122,9 +124,9 @@ public:
 		if(size() == new_size){
 			return;
 		}
-		const auto p = ::operator new(new_size, std::align_val_t{align});
+		const auto p = operator new(new_size, std::align_val_t{align});
 		auto* next = new(p) std::byte[new_size];
-		::operator delete(src, size(), std::align_val_t{align});
+		operator delete(src, size(), std::align_val_t{align});
 		src = next;
 		dst = src + new_size;
 	}
@@ -228,43 +230,17 @@ struct state_push_config{
 namespace mo_yanxi::graphic::draw{
 namespace instruction{
 
-#ifndef MO_YANXI_GRAPHIC_DRAW_INSTRUCTION_IMAGE_HANDLE_TYPE
-#if defined(__has_include) && __has_include(<vulkan/vulkan.h>)
-	export using image_handle_t = VkImageView;
-#else
-	export using image_handle_t = void*;
-#endif
-#else
-export using image_handle_t = MO_YANXI_GRAPHIC_DRAW_INSTRUCTION_IMAGE_HANDLE_TYPE;
-static_assert(sizeof(image_handle_t) == 8)
-#endif
-
-export union image_view{
-	image_handle_t view;
-	std::uint32_t index;
-
-	void set_view(image_handle_t view) noexcept{
-		new(&this->view) image_handle_t(view);
-	}
-
-	void set_index(std::uint32_t idx) noexcept{
-		new(&this->index) std::uint32_t(idx);
-	}
-
-	[[nodiscard]] image_handle_t get_image_view() const noexcept{
-		return view;
-	}
-};
-
 export struct draw_mode{
 	std::uint32_t value;
 };
 
 export struct alignas(instr_required_align) primitive_generic{
-	image_view image;
-	draw_mode mode;
-	float depth;
+	texture_binding image{};
+	draw_mode mode{};
+	float depth{};
 };
+
+static_assert(sizeof(primitive_generic) == 16);
 
 export enum struct instr_type : std::uint32_t{
 	noop,

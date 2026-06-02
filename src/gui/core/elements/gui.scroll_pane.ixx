@@ -459,28 +459,36 @@ public:
 
 		call_stack_builder.push_call_enter(
 			*this, [](const scroll_adaptor& s, const draw_call_param& p) static -> draw_call_param{
-				auto& r = s.get_scene().renderer();
+				const auto viewport_clip = s.get_viewport().intersection_with(p.draw_bound);
+				const float opacity_scl = util::get_final_draw_opacity(s, p);
+
+				if(opacity_scl < 0.f || viewport_clip.is_roughly_zero_area(0.01f)){
+					return {
+							.current_subject = nullptr,
+							.draw_bound = viewport_clip,
+							.opacity_scl = opacity_scl
+						};
+				}
 
 				const bool activeHori = s.is_hori_scroll_active();
 				const bool activeVert = s.is_vert_scroll_active();
 
+				s.renderer().push_scissor({viewport_clip});
 				if(activeHori || activeVert){
-					s.renderer().push_scissor({s.get_viewport()});
 					s.renderer().top_viewport().push_local_transform(math::mat3{}.idt().set_translation(-s.scroll_.temp));
-					s.renderer().notify_viewport_changed();
-
-					return {
-							.current_subject = &s,
-							.draw_bound = p.draw_bound.copy().move(s.scroll_.temp),
-							.opacity_scl = util::get_final_draw_opacity(s, p)
-						};
-				} else{
-					return {
-							.current_subject = &s,
-							.draw_bound = p.draw_bound,
-							.opacity_scl = util::get_final_draw_opacity(s, p)
-						};
 				}
+				s.renderer().notify_viewport_changed();
+
+				auto draw_bound = viewport_clip;
+				if(activeHori || activeVert){
+					draw_bound.move(s.scroll_.temp);
+				}
+
+				return {
+						.current_subject = &s,
+						.draw_bound = draw_bound,
+						.opacity_scl = opacity_scl
+					};
 			});
 
 		//TODO when has_draw_layer is specified , the draw call should be inlined...?
@@ -502,9 +510,9 @@ public:
 
 				if(activeHori || activeVert){
 					s.renderer().top_viewport().pop_local_transform();
-					s.renderer().pop_scissor();
-					s.renderer().notify_viewport_changed();
 				}
+				s.renderer().pop_scissor();
+				s.renderer().notify_viewport_changed();
 			});
 
 		record_draw_scroll_bar(call_stack_builder);

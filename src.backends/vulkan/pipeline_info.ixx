@@ -20,6 +20,7 @@ export struct gui_vertex_mock{
 
 export struct gui_primitive_mock{
 	std::uint32_t texture_index;
+	std::uint32_t sampler_index;
 	std::uint32_t draw_mode;
 	float sdf_expand;
 };

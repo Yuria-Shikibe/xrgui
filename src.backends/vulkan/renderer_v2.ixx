@@ -7,6 +7,7 @@ export module mo_yanxi.backend.vulkan.renderer;
 
 import std;
 import mo_yanxi.graphic_state_context;
+export import mo_yanxi.graphic.image_view_registry;
 export import mo_yanxi.graphic.draw.instruction.batch.frontend;
 import mo_yanxi.graphic.draw.instruction.batch.backend.vulkan;
 
@@ -166,6 +167,8 @@ export struct renderer{
 
 private:
 	vk::allocator_usage allocator_usage_{};
+	std::unique_ptr<graphic::image_view_registry> image_view_registry_{std::make_unique<graphic::image_view_registry>()};
+	graphic::sampler_descriptor_index default_sampler_index_{graphic::auto_sampler_index};
 
 public:
 	/** 绘图指令批处理器 */
@@ -191,6 +194,18 @@ public:
 		return 1;
 	}
 
+	[[nodiscard]] graphic::image_view_registry& get_image_view_registry() noexcept{
+		return *image_view_registry_;
+	}
+
+	[[nodiscard]] const graphic::image_view_registry& get_image_view_registry() const noexcept{
+		return *image_view_registry_;
+	}
+
+	[[nodiscard]] graphic::sampler_descriptor_index get_default_sampler_index() const noexcept{
+		return default_sampler_index_;
+	}
+
 private:
 	renderer_frame_ring<frames_in_flight> frames_{};
 
@@ -198,13 +213,13 @@ private:
 	bool mask_attachment_states_invalidated_{};
 
 	command_recording_context record_ctx_{};
-	VkSampler sampler_{};
 
 public:
 	[[nodiscard]] explicit(false) renderer(
 		renderer_create_info&& create_info
 	)
 		: allocator_usage_(create_info.allocator_usage)
+		  , default_sampler_index_{image_view_registry_->register_sampler(create_info.sampler)}
 		  , batch_host([&]{
 			  VkPhysicalDeviceMeshShaderPropertiesEXT meshProperties{
 					  VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT
@@ -212,7 +227,7 @@ public:
 			  VkPhysicalDeviceProperties2 prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &meshProperties};
 			  vkGetPhysicalDeviceProperties2(allocator_usage_.get_physical_device(), &prop);
 			  return graphic::draw::instruction::hardware_limit_config{};
-		  }(), table, table_non_vertex)
+		  }(), table, table_non_vertex, *image_view_registry_)
 		  , batch_device(allocator_usage_, batch_host, create_info.stride_config, frames_in_flight)
 		  , attachment_manager_{
 			  allocator_usage_, std::move(create_info.attachment_draw_config),
@@ -225,8 +240,7 @@ public:
 			  allocator_usage_.get_device(),
 			  batch_device.get_cs_descriptor_set_layout(),
 			  create_info.resolver_shader_stage
-		  ),
-		sampler_(create_info.sampler){
+		  ){
 
 		record_ctx_.resize(attachment_manager_.get_draw_attachments().size(),
 		                   attachment_manager_.get_blit_attachments().size());
@@ -282,7 +296,7 @@ public:
 			} else{
 				frame.fence.wait_and_reset();
 			}
-			batch_device.upload(batch_host, sampler_, frames_.current_index());
+			batch_device.upload(batch_host, *image_view_registry_, frames_.current_index());
 		} catch(...){
 			if(!frame.external_submit_fence){
 				frame.fence.reset();

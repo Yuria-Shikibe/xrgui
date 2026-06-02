@@ -7,7 +7,8 @@ import sdf;
 
 // --- Gfx Set 0 Bindings ---
 [[vk::binding(0, 0)]] StructuredBuffer<mesh_instr::Primitive> global_primitives;
-[[vk::binding(2, 0)]] uniform Sampler2D textures[];
+[[vk::binding(2, 0)]] uniform Texture2D textures[gui::texture_descriptor_count];
+[[vk::binding(3, 0)]] uniform SamplerState samplers[gui::sampler_descriptor_count];
 
 
 [[vk::binding(0, 1)]] ConstantBuffer<mesh_instr::dispatch_config> dispatch_config_ubo;
@@ -51,13 +52,14 @@ FragOut main_frag(
     // 获取全局图元索引
     var primit = gui::get_current_primitive(primitiveID, dispatch_config_ubo, global_primitives);
 
-    let no_tex = bool(primit.texture_index == ~0U);
+    let texture_descriptor_index = primit.get_texture_descriptor_index();
+    let no_tex = bool(texture_descriptor_index == ~0U);
     float dst;
 
     if (no_tex) {
         dst = vtx.color.a * 2 - 1.f;
     } else {
-        let rst = sdf::msdf(textures[primit.texture_index], vtx.uv, gui::msdf_image_extent);
+        let rst = sdf::msdf(textures[texture_descriptor_index], samplers[primit.sampler_index], vtx.uv, gui::msdf_image_extent);
         let rng = rst.scale * primit.sdf_expand;
         dst = rst.factor - rng;
     }

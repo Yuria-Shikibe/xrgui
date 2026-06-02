@@ -5,7 +5,8 @@ import slide_line;
 import sdf;
 
 [[vk::binding(0, 0)]] StructuredBuffer<mesh_instr::Primitive> global_primitives;
-[[vk::binding(2, 0)]] uniform Sampler2D textures[];
+[[vk::binding(2, 0)]] uniform Texture2D textures[gui::texture_descriptor_count];
+[[vk::binding(3, 0)]] uniform SamplerState samplers[gui::sampler_descriptor_count];
 
 [[vk::binding(0, 1)]] ConstantBuffer<mesh_instr::dispatch_config> dispatch_config_ubo;
 [[vk::binding(1, 1)]] ConstantBuffer<gui::ubo_ui_state> ui_state;
@@ -37,7 +38,7 @@ FragOut main_frag(
     uint primitiveID: SV_PrimitiveID,
 ) {
     var primit = gui::get_current_primitive(primitiveID, dispatch_config_ubo, global_primitives);
-    var final_color = gui::evaluate_primitive_base_color(primit, vtx, textures, constants.mode);
+    var final_color = gui::evaluate_primitive_base_color(primit, vtx, textures, samplers, constants.mode);
     gui::apply_slide_line_effect(final_color, primit, vtx.position.xy, slide_line_style, ui_state.time);
 
 

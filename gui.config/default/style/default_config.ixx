@@ -138,7 +138,7 @@ struct image_cursor : style::cursor{
 		region.expand({mo_yanxi::graphic::msdf::sdf_image_border + 6, mo_yanxi::graphic::msdf::sdf_image_border + 6});
 		state_guard g{renderer, gui::fx::batch_draw_mode::msdf};
 		renderer << graphic::draw::instruction::rect_aabb{
-				.generic = {icon_region->view},
+				.generic = {.image = icon_region->texture_binding()},
 				.v00 = region.vert_00(),
 				.v11 = region.vert_11(),
 				.uv00 = icon_region->uv.v00(),

@@ -29,14 +29,14 @@ public struct sdf_result {
 }
 
 [[ForceInline]]
-public sdf_result msdf(Sampler2D samp, float2 uv, float2 size, float pxRange = 4.f) {
+public sdf_result msdf(Texture2D samp, SamplerState sampler, float2 uv, float2 size, float pxRange = 4.f) {
     let fw = fwidth(uv);
 
 
 
 
 
-    let col = samp.SampleLevel(uv, 0.0f).rgb;
+    let col = samp.SampleLevel(sampler, uv, 0.0f).rgb;
     float sigDist = median(col) - 0.5f;
 
 
@@ -47,7 +47,7 @@ public sdf_result msdf(Sampler2D samp, float2 uv, float2 size, float pxRange = 4
 }
 
 [[ForceInline]]
-public float msdf_with_lod(Sampler2D samp, float2 uv, float2 size, float pxRange = 4.f) {
+public float msdf_with_lod(Texture2D samp, SamplerState sampler, float2 uv, float2 size, float pxRange = 4.f) {
     let fw = fwidth(uv);
 
 
@@ -57,7 +57,7 @@ public float msdf_with_lod(Sampler2D samp, float2 uv, float2 size, float pxRange
     float2 texelsPerPixel = fw * size;
     float lod = max(0.0, log2(max(texelsPerPixel.x, texelsPerPixel.y)));
 
-    let col = samp.SampleLevel(uv, lod).rgb;
+    let col = samp.SampleLevel(sampler, uv, lod).rgb;
 
     float sigDist = median(col) - 0.5f;
 

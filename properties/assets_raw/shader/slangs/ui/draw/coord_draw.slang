@@ -5,9 +5,9 @@ import ui_structs;
 [[vk::binding(0, 0)]] StructuredBuffer<mesh_instr::Primitive> global_primitives;
 
 [[vk::binding(1, 0)]] StructuredBuffer<gui::timeline<3>> timelines;
-[[vk::binding(3, 0)]] StructuredBuffer<gui::ubo_screen_info, Std140DataLayout> screen_info;
-[[vk::binding(4, 0)]] StructuredBuffer<gui::ubo_layer_info, Std140DataLayout> layer_info;
-[[vk::binding(5, 0)]] StructuredBuffer<gui::color_accumulated_state, Std140DataLayout> accumulated_state;
+[[vk::binding(4, 0)]] StructuredBuffer<gui::ubo_screen_info, Std140DataLayout> screen_info;
+[[vk::binding(5, 0)]] StructuredBuffer<gui::ubo_layer_info, Std140DataLayout> layer_info;
+[[vk::binding(6, 0)]] StructuredBuffer<gui::color_accumulated_state, Std140DataLayout> accumulated_state;
 
 // --- Gfx Set 1 Bindings ---
 [[vk::binding(0, 1)]] ConstantBuffer<mesh_instr::dispatch_config> dispatch_config_ubo;

@@ -85,11 +85,16 @@ public:
 	[[nodiscard]] constexpr allocated_image_region(
 		sub_page& page,
 		image_descriptor_index index,
+		sampler_descriptor_index preferred_sampler_index,
 		VkImageView imageView,
 		const math::usize2 image_size,
 		const math::urect region
 	)
-	: combined_image_region{.index = index, .view = imageView}, region(region), page{&page}{
+	: combined_image_region{
+		.index = index,
+		.preferred_sampler_index = preferred_sampler_index,
+		.view = imageView
+	}, region(region), page{&page}{
 		uv.fetch_into(image_size, region);
 	}
 
@@ -264,7 +269,8 @@ private:
 
 public:
 	vk::texture texture{};
-	std::uint32_t heap_target_index{std::numeric_limits<std::uint32_t>::max()};
+	image_descriptor_index heap_target_index{invalid_image_descriptor_index};
+	sampler_descriptor_index preferred_sampler_index{auto_sampler_index};
 	allocator2d<> allocator{};
 
 
@@ -320,7 +326,7 @@ public:
 
 			return page_acquire_result{
 					allocated_image_region{
-						*this, heap_target_index, texture.get_image_view(),
+						*this, heap_target_index, preferred_sampler_index, texture.get_image_view(),
 						std::bit_cast<math::usize2>(texture.get_image().get_extent2()), rst
 					},
 					&texture
@@ -348,7 +354,7 @@ public:
 				});
 
 			return allocated_image_region{
-					*this, heap_target_index, texture.get_image_view(),
+					*this, heap_target_index, preferred_sampler_index, texture.get_image_view(),
 					std::bit_cast<math::usize2>(texture.get_image().get_extent2()), rst
 				};
 		}
@@ -373,7 +379,7 @@ public:
 			return std::optional<std::pair<allocated_image_region, vk::buffer>>{
 					std::in_place,
 					allocated_image_region{
-						*this, texture.get_image_view(),
+						*this, heap_target_index, preferred_sampler_index, texture.get_image_view(),
 						std::bit_cast<math::usize2>(texture.get_image().get_extent2()), rst
 					},
 					std::move(buf)

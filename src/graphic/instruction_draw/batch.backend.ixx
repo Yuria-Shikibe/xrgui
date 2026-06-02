@@ -61,18 +61,21 @@ struct resolved_vertex{
 
 struct resolved_primitive{
 	std::uint32_t texture_index;
+	std::uint32_t sampler_index;
 	std::uint32_t draw_mode;
 	float sdf_expand;
 };
 
 static_assert(sizeof(resolved_vertex) == 48);
-static_assert(sizeof(resolved_primitive) == 12);
+static_assert(sizeof(resolved_primitive) == 16);
 
 using resolved_index_triangle = std::array<std::uint32_t, 3>;
 
 constexpr std::uint32_t gpu_resolve_group_size = 64;
 constexpr std::uint32_t invalid_primitive_skip = 0xFFFFU;
 constexpr std::uint32_t packed_u16_max = 0xFFFFU;
+constexpr std::uint32_t max_texture_descriptor_count = 4096U;
+constexpr std::uint32_t max_sampler_descriptor_count = 256U;
 
 [[nodiscard]] FORCE_INLINE constexpr bool fits_packed_u16(const std::uint32_t value) noexcept{
 	return value <= packed_u16_max;
@@ -169,7 +172,8 @@ template <typename T>
 
 [[nodiscard]] FORCE_INLINE constexpr resolved_primitive make_resolved_primitive(const primitive_generic& generic, float sdf_expand = {}) noexcept{
 	return {
-		.texture_index = generic.image.index,
+		.texture_index = generic.image.image_index,
+		.sampler_index = generic.image.sampler_index,
 		.draw_mode = generic.mode.value,
 		.sdf_expand = sdf_expand,
 	};
@@ -771,8 +775,10 @@ private:
 };
 
 struct frame_resource{
-	// Graphics set binding 0/1 are buffers; sampled images start at binding 2.
-	static constexpr unsigned image_index = 2;
+	// Graphics set binding 0/1 are buffers; texture and sampler arrays start at binding 2.
+	static constexpr unsigned texture_binding_index = 2;
+	static constexpr unsigned sampler_binding_index = 3;
+	static constexpr unsigned timeline_binding_index = 4;
 
 	// CPU 到 GPU 的输入数据缓冲
 	vk::buffer_cpu_to_gpu buffer_dispatch_info{};
@@ -794,6 +800,7 @@ struct frame_resource{
     // vk::buffer buffer_indirect_cmds{};
 
 	std::vector<vk::binding_spec> gfx_bindings{};
+	std::uint64_t synced_descriptor_generation{};
 
 	vk::descriptor_buffer cs_descriptor_buffer{}; // 静态：CS阶段专用
 
@@ -814,11 +821,12 @@ struct frame_resource{
 				std::vector<vk::binding_spec> bindings{
 							{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Primitive Data Out (供 gl_PrimitiveID 读取)
 							{1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}, // Timelines (供 VS 读取)
-							{image_index, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER} // Textures
+							{texture_binding_index, max_texture_descriptor_count, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE}, // Textures
+							{sampler_binding_index, max_sampler_descriptor_count, VK_DESCRIPTOR_TYPE_SAMPLER} // Sampler states
 				};
 				for(unsigned i = 0; i < batch_frontend.get_data_group_vertex_info().size(); ++i){
 					// Per-timeline user data
-					bindings.push_back({image_index + 1 + i, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
+					bindings.push_back({timeline_binding_index + i, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
 				}
 				return bindings;
 			}()
@@ -1041,8 +1049,7 @@ struct frame_resource{
 
 	bool update_descriptors(
 		const draw_list_context& host_ctx,
-		const vk::descriptor_layout& gfx_descriptor_layout,
-		VkSampler sampler,
+		const mo_yanxi::graphic::image_view_registry& image_view_registry,
 		const instruction_resolve_info& resolve_info,
 		std::uint32_t payloadSize
 	){
@@ -1064,10 +1071,11 @@ struct frame_resource{
 
 		// 2. 更新 Graphics (VS-PS) 动态描述符
 		{
-			if(const auto cur_size = host_ctx.get_used_images<void*>().size(); gfx_bindings[image_index].count != cur_size){
-				gfx_bindings[image_index].count = static_cast<std::uint32_t>(cur_size);
-				gfx_descriptor_buffer.reconfigure(gfx_descriptor_layout, gfx_descriptor_layout.binding_count(), gfx_bindings);
-				requires_command_record = true;
+			if(image_view_registry.texture_records().size() > max_texture_descriptor_count){
+				throw std::length_error("image view registry texture descriptors exceed UI descriptor array capacity");
+			}
+			if(image_view_registry.sampler_records().size() > max_sampler_descriptor_count){
+				throw std::length_error("image view registry sampler descriptors exceed UI descriptor array capacity");
 			}
 
 			vk::dynamic_descriptor_mapper gfx_mapper{gfx_descriptor_buffer};
@@ -1075,12 +1083,45 @@ struct frame_resource{
 			// VS/PS 真正需要的 Buffer
 			gfx_mapper.set_element_at(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_primitive_data.get_address(), buffer_primitive_data.get_size());
 			gfx_mapper.set_element_at(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffer_timelines.get_address(), resolve_info.timelines.size() * sizeof(std::uint32_t));
-			gfx_mapper.set_images_at(image_index, 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, sampler,
-			                         host_ctx.get_used_images<VkImageView>());
+
+			const auto current_generation = image_view_registry.dirty_generation();
+			if(synced_descriptor_generation != current_generation){
+				for(const auto& dirty_slot : image_view_registry.dirty_texture_slots()){
+					if(dirty_slot.generation <= synced_descriptor_generation){
+						continue;
+					}
+					const auto& texture_record = image_view_registry.texture_record_at(dirty_slot.slot);
+					gfx_mapper.set_element_at(
+						texture_binding_index,
+						dirty_slot.slot,
+						VkDescriptorImageInfo{
+							.sampler = VK_NULL_HANDLE,
+							.imageView = texture_record.view,
+							.imageLayout = texture_record.layout
+						},
+						VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+				}
+				for(const auto& dirty_slot : image_view_registry.dirty_sampler_slots()){
+					if(dirty_slot.generation <= synced_descriptor_generation){
+						continue;
+					}
+					const auto& sampler_record = image_view_registry.sampler_record_at(dirty_slot.slot);
+					gfx_mapper.set_element_at(
+						sampler_binding_index,
+						dirty_slot.slot,
+						VkDescriptorImageInfo{
+							.sampler = sampler_record.sampler,
+							.imageView = VK_NULL_HANDLE,
+							.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED
+						},
+						VK_DESCRIPTOR_TYPE_SAMPLER);
+				}
+				synced_descriptor_generation = current_generation;
+			}
 
 			VkDeviceSize cur_offset{};
 			for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
-				gfx_mapper.set_element_at(image_index + 1 + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+				gfx_mapper.set_element_at(timeline_binding_index + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				                          buffer_per_timeline_data.get_address() + cur_offset, entry.get_required_byte_size());
 				cur_offset += entry.get_required_byte_size();
 			}
@@ -1129,7 +1170,16 @@ public:
 		                       [&](vk::descriptor_layout_builder& builder){
 			                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT); // 0: Primitive Data Out
 			                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT); // 1: Timelines
-			                       builder.push_seq(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1, VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT); // 2: Textures
+			                       builder.push_seq(
+				                       VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+				                       VK_SHADER_STAGE_FRAGMENT_BIT,
+				                       max_texture_descriptor_count,
+				                       VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT); // 2: Textures
+			                       builder.push_seq(
+				                       VK_DESCRIPTOR_TYPE_SAMPLER,
+				                       VK_SHADER_STAGE_FRAGMENT_BIT,
+				                       max_sampler_descriptor_count,
+			                       VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT); // 3: Sampler states
 
 			                       for(unsigned i = 0; i < batch_host.get_data_group_vertex_info().size(); ++i){
 				                       builder.push_seq(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -1165,7 +1215,7 @@ public:
 		// std::uint32_t target_section,
 		// vk::resource_descriptor_heap& resource_descriptor_heap,
 		draw_list_context& host_ctx,
-		VkSampler sampler,
+		const mo_yanxi::graphic::image_view_registry& image_view_registry,
 		std::uint32_t frame_index
 	){
 		cached_state_timelines_.clear();
@@ -1191,7 +1241,7 @@ public:
 		frame.upload_user_data(allocator_, host_ctx, cached_instruction_resolve_info_.group_dispatch_info, volatile_data_layout_,
 		                       cached_state_timelines_);
 
-		frame.update_descriptors(host_ctx, gfx_descriptor_layout_, sampler, cached_instruction_resolve_info_, payloadSize);
+		frame.update_descriptors(host_ctx, image_view_registry, cached_instruction_resolve_info_, payloadSize);
 	}
 
 	VkDescriptorSetLayout get_cs_descriptor_set_layout() const noexcept{

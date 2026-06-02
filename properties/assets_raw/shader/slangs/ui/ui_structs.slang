@@ -8,6 +8,8 @@ import sdf;
 namespace gui {
 
 public static const float2 msdf_image_extent = { 4096.f, 4096.f };
+public static const int texture_descriptor_count = 4096;
+public static const int sampler_descriptor_count = 256;
 
 public struct timeline<uint N> : IArray<uint> {
     uint[N] timeline;
@@ -167,21 +169,27 @@ public mesh_instr::Primitive get_current_primitive(
 public float4 evaluate_primitive_base_color(
     mesh_instr::Primitive primit,
     io::VSOutput vtx,
-    uniform Sampler2D textures[],
+    uniform Texture2D textures[texture_descriptor_count],
+    uniform SamplerState samplers[sampler_descriptor_count],
     global_draw_mode_type draw_mode_type 
 ) {
-    let no_tex = bool(primit.texture_index == ~0U);
+    let texture_descriptor_index = primit.get_texture_descriptor_index();
+    let no_tex = bool(texture_descriptor_index == ~0U);
     float4 out_color;
 
     switch (draw_mode_type) {
     case global_draw_mode_type::def:
-        out_color = (no_tex ? float4(1.f) : textures[primit.texture_index].Sample(vtx.uv)) * vtx.color;
+        if (no_tex) {
+            out_color = float4(1.f) * vtx.color;
+        } else {
+            out_color = textures[texture_descriptor_index].Sample(samplers[primit.sampler_index], vtx.uv) * vtx.color;
+        }
         break;
     case global_draw_mode_type::sdf:
         if (no_tex) {
             out_color = float4(1.f) * vtx.color;
         } else {
-            let rst = sdf::msdf(textures[primit.texture_index], vtx.uv, msdf_image_extent);
+            let rst = sdf::msdf(textures[texture_descriptor_index], samplers[primit.sampler_index], vtx.uv, msdf_image_extent);
             let rng = rst.scale * primit.sdf_expand;
             out_color = float4(1.f, 1.f, 1.f, smoothstep(-0.6f, 0.6f, rst.factor - rng)) * vtx.color;
         }

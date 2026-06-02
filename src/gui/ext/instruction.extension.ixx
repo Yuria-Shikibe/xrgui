@@ -46,7 +46,7 @@ struct row_patch_draw{
 		using namespace graphic::draw::instruction;
 		assert(patch != nullptr);
 		emit(sink, row_patch{
-				.generic = {.image = patch->get_image_view()},
+				.generic = {.image = patch->texture_binding()},
 				.coords = (flags & row_patch_flags::transposed) == row_patch_flags{}
 					          ? patch->get_ortho_draw_coords_axis_scaled(region)
 					          : patch->get_ortho_draw_coords_axis_scaled_transsrced(region),
@@ -73,7 +73,7 @@ struct nine_patch_draw{
 		auto coords = std::invoke(getter, patch, region);
 		for(int i = 0; i < 3; ++i){
 			std::invoke(fn, graphic::draw::instruction::row_patch{
-				.generic = {.image = patch->image_view->view},
+				.generic = {.image = patch->texture_binding()},
 				.coords = coords[i],
 				.uvs = uvs[i],
 				.vert_color = {color}
@@ -102,14 +102,14 @@ struct nine_patch_hollow_draw{
 		auto coords = std::invoke(getter, patch, region);
 
 		std::invoke(fn, graphic::draw::instruction::row_patch{
-			.generic = {.image = patch->image_view->view},
+			.generic = {.image = patch->texture_binding()},
 			.coords = coords[0],
 			.uvs = uvs[0],
 			.vert_color = {color}
 		});
 
 		std::invoke(fn, graphic::draw::instruction::rect_aabb{
-			.generic = {.image = patch->image_view->view},
+			.generic = {.image = patch->texture_binding()},
 			.v00 = {coords[1][0], coords[1][4]},
 			.v11 = {coords[1][1], coords[1][5]},
 			.uv00 = {uvs[1][2], uvs[1][0]},
@@ -118,7 +118,7 @@ struct nine_patch_hollow_draw{
 		});
 
 		std::invoke(fn, graphic::draw::instruction::rect_aabb{
-			.generic = {.image = patch->image_view->view},
+			.generic = {.image = patch->texture_binding()},
 			.v00 = {coords[1][2], coords[1][4]},
 			.v11 = {coords[1][3], coords[1][5]},
 			.uv00 = {uvs[1][4], uvs[1][0]},
@@ -127,7 +127,7 @@ struct nine_patch_hollow_draw{
 		});
 
 		std::invoke(fn, graphic::draw::instruction::row_patch{
-			.generic = {.image = patch->image_view->view},
+			.generic = {.image = patch->texture_binding()},
 			.coords = coords[2],
 			.uvs = uvs[2],
 			.vert_color = {color}
@@ -158,19 +158,19 @@ struct nine_patch_draw_vert_color{
 		auto [CRB, CRT] = img_patch.interpolate_middle_row_values(color.v10, color.v11, region.extent.y);
 
 		emit(sink, graphic::draw::instruction::row_patch{
-			.generic = {.image = img_patch.image_view->view},
+			.generic = {.image = img_patch.texture_binding()},
 			.coords = coords[0],
 			.uvs = uvs[0],
 			.vert_color = graphic::draw::instruction::quad_vert_color{color.v00, color.v10, CLB, CRB}
 		});
 		emit(sink, graphic::draw::instruction::row_patch{
-			.generic = {.image = img_patch.image_view->view},
+			.generic = {.image = img_patch.texture_binding()},
 			.coords = coords[1],
 			.uvs = uvs[1],
 			.vert_color = graphic::draw::instruction::quad_vert_color{CLB, CRB, CLT, CRT}
 		});
 		emit(sink, graphic::draw::instruction::row_patch{
-			.generic = {.image = img_patch.image_view->view},
+			.generic = {.image = img_patch.texture_binding()},
 			.coords = coords[2],
 			.uvs = uvs[2],
 			.vert_color = graphic::draw::instruction::quad_vert_color{CLT, CRT, color.v01, color.v11}

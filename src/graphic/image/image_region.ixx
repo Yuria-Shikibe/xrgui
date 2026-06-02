@@ -5,6 +5,7 @@ module;
 
 export module mo_yanxi.graphic.image_region;
 
+export import mo_yanxi.graphic.image_view_registry;
 export import mo_yanxi.math.vector2;
 export import mo_yanxi.math.rect_ortho;
 export import mo_yanxi.concepts;
@@ -207,22 +208,29 @@ struct size_awared_uv : Ty{
 };
 
 
-export using image_descriptor_index = std::uint32_t;
-
 export
 struct sized_image{
 	math::usize2 size;
-	image_descriptor_index index;
-	std::uint32_t preferred_sampler_index;
-	VkImageView view;
+	image_descriptor_index index{invalid_image_descriptor_index};
+	sampler_descriptor_index preferred_sampler_index{auto_sampler_index};
+	VkImageView view{};
+
+	[[nodiscard]] constexpr auto texture_binding(
+		const sampler_descriptor_index sampler_index = auto_sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
+		return {
+			.image_index = index,
+			.sampler_index = sampler_index
+		};
+	}
 };
 
 export
 template <std::derived_from<uniformed_rect_uv> Ty>
 struct combined_image_region{
-	Ty uv;
-	image_descriptor_index index = ~0U;
-	VkImageView view;
+	Ty uv{};
+	image_descriptor_index index{invalid_image_descriptor_index};
+	sampler_descriptor_index preferred_sampler_index{auto_sampler_index};
+	VkImageView view{};
 
 
 	constexpr explicit(false) operator VkImageView() const noexcept{
@@ -232,11 +240,29 @@ struct combined_image_region{
 	template <typename Uv>
 		requires (std::constructible_from<Uv, Ty>)
 	constexpr explicit(!std::convertible_to<Ty, Uv>) operator combined_image_region<Uv>() const noexcept{
-		return combined_image_region<Uv>{static_cast<Uv>(uv), index, view};
+		return combined_image_region<Uv>{
+			.uv = static_cast<Uv>(uv),
+			.index = index,
+			.preferred_sampler_index = preferred_sampler_index,
+			.view = view
+		};
 	}
 
 	constexpr explicit(false) operator sized_image() const noexcept requires (spec_of<Ty, size_awared_uv>){
-		return sized_image{uv.size, index, view};
+		return sized_image{
+			.size = uv.size,
+			.index = index,
+			.preferred_sampler_index = preferred_sampler_index,
+			.view = view
+		};
+	}
+
+	[[nodiscard]] constexpr auto texture_binding(
+		const sampler_descriptor_index sampler_index = auto_sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
+		return {
+			.image_index = index,
+			.sampler_index = sampler_index
+		};
 	}
 
 	constexpr explicit operator bool() const noexcept{

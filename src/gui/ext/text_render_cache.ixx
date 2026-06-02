@@ -38,7 +38,7 @@ void record_elems(
 			std::invoke(
 				std::forward<Fn>(fn),
 				rect_aabb{
-					.generic = {val.texture->view},
+					.generic = {.image = val.texture->texture_binding()},
 					.v00 = start,
 					.v11 = start + val.aabb.extent(),
 					.uv00 = val.texture->uv.v00(),

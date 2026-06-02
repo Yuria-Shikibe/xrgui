@@ -146,7 +146,7 @@ void drawable_image<Components...>::draw(renderer_frontend& renderer, const math
 
 	renderer.push(rect_aabb{
 		.generic = {
-			.image = {.view = image_region->view},
+			.image = image_region->texture_binding(),
 			.mode = {std::to_underlying(mode)},
 		},
 		.v00 = region.vert_00(),
@@ -180,7 +180,7 @@ void icon<Components...>::draw(renderer_frontend& renderer, const math::raw_frec
 
 	renderer.push(rect_aabb{
 			.generic = {
-				.image = {.view = image_region->view},
+				.image = image_region->texture_binding(),
 				.mode = {std::to_underlying(mode)},
 			},
 			.v00 = region.vert_00(),
@@ -206,7 +206,7 @@ void drawable_row_patch<Components...>::draw(renderer_frontend& renderer, const 
 
 	renderer.push(graphic::draw::instruction::row_patch{
 		.generic = {
-			.image = {image_region.get_image_view()},
+			.image = image_region.texture_binding(),
 			.mode = {std::to_underlying(mode)},
 		},
 		.coords = image_region.get_ortho_draw_coords_axis_scaled({region.src, region.extent}),

@@ -46,15 +46,15 @@ public struct resolve_param
     }
 }
 
-struct image_index
+struct image_binding
 {
-    uint32_t index : TextureIndex;
-    uint32_t _cap;
+    uint32_t image_index;
+    uint32_t sampler_index;
 };
 
 struct primitive_generic
 {
-    image_index image;
+    image_binding image;
     draw_mode mode;
     float depth;
 };
@@ -81,17 +81,30 @@ public struct Vertex
 public struct Primitive
 {
     nointerpolation public uint texture_index : PmtTexID = {};
+    nointerpolation public uint sampler_index : PmtSamplerID = {};
     nointerpolation public draw_mode mode : PmtMode = {};
     nointerpolation public float sdf_expand : PmtParam = {};
 
     [ForceInline]
     __init(primitive_generic generic, resolve_param param) {
-        this.texture_index = uint(generic.image.index);
+        this.texture_index = uint(generic.image.image_index);
+        this.sampler_index = uint(generic.image.sampler_index);
         this.mode = generic.mode;
     }
 
+    [ForceInline]
+    public uint get_texture_descriptor_index() {
+        return texture_index - 1U;
+    }
+
+    [ForceInline]
+    public bool has_texture() {
+        return get_texture_descriptor_index() != ~0U;
+    }
+
     public __init() {
-        this.texture_index = ~0U;
+        this.texture_index = 0U;
+        this.sampler_index = 0U;
     }
 };
 

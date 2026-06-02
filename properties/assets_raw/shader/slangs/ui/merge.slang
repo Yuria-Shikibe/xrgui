@@ -36,7 +36,8 @@ void main(
     var src_ui_base_bloom = input_ui_base_bloom.Load(uint3(pos, 0));
     let src_ui_back = input_ui_back.Load(uint3(pos, 0));
     let src_background = input_background.Load(uint3(pos, 0));
-    let src_background_blurred = input_background_blurred.SampleLevel(uv / 2, 0);
+    var src_background_blurred = input_background_blurred.SampleLevel(uv / 2, 0);
+    src_background_blurred.rgb *= saturate(1.f - src_ui_back.a);
 
     let dst_background = lerp(src_background, src_background_blurred, src_ui_back.a);
     let blend1 = pp::blend::pre_scaled_alpha_blend(float4(src_ui_back.rgb * src_ui_back.a, src_ui_back.a * .6f), dst_background);

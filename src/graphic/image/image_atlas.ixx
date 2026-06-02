@@ -14,6 +14,7 @@ export module mo_yanxi.graphic.image_atlas;
 
 export import mo_yanxi.graphic.image_atlas.util;
 export import mo_yanxi.graphic.image_region;
+export import mo_yanxi.graphic.image_view_registry;
 export import mo_yanxi.graphic.color;
 export import mo_yanxi.graphic.bitmap;
 
@@ -269,8 +270,8 @@ private:
 	std::atomic_uint outstanding_work_count_{0};
 	std::atomic_bool stop_requested_{false};
 
-	// vk::resource_descriptor_heap* target_descriptor_heap_{};
-	std::uint32_t target_descriptor_heap_section_{};
+	image_view_registry* image_view_registry_{};
+	sampler_descriptor_index default_sampler_index_{auto_sampler_index};
 
 	std::jthread gpu_thread_{};
 	std::vector<async_image_loader_cpu_worker> cpu_workers_{};
@@ -371,14 +372,21 @@ public:
 		const vk::context_info& context,
 		std::uint32_t graphic_family_index,
 		VkQueue working_queue,
-
-		// vk::resource_descriptor_heap& target_descriptor_heap,
-		std::uint32_t target_descriptor_heap_section
+		image_view_registry& image_view_registry,
+		sampler_descriptor_index default_sampler_index
 	);
 
-	std::uint32_t add_image_to_heap(VkImageViewCreateInfo create_info, VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) const{
-		return 0;
-		// return target_descriptor_heap_->push_back_images(target_descriptor_heap_section_, std::span(&create_info, 1), image_layout, type);
+	[[nodiscard]] registered_image_view register_image_view(
+		VkImageView view,
+		VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) const{
+		if(image_view_registry_ == nullptr){
+			throw std::runtime_error("image atlas loader has no image view registry");
+		}
+		return image_view_registry_->register_image_view({
+			.view = view,
+			.layout = image_layout,
+			.default_sampler_index = default_sampler_index_
+		});
 	}
 
 	[[nodiscard]] bool push(allocated_image_load_description&& desc){
@@ -428,6 +436,9 @@ public:
 				pending = outstanding_work_count_.load(std::memory_order::acquire);
 			}
 		}
+		if(region_fence_){
+			region_fence_.wait();
+		}
 	}
 
 	[[nodiscard]] bool is_loading() const noexcept{
@@ -437,7 +448,6 @@ public:
 	~async_image_loader(){
 		request_stop_();
 		wait();
-		region_fence_.wait();
 	}
 };
 
@@ -489,6 +499,12 @@ private:
 
 	concurrent_node_string_map<allocated_image_region> named_image_regions{};
 
+	void register_sub_page_(sub_page& sub_page) const{
+		const auto registered = loader_->register_image_view(sub_page.texture.get_image_view());
+		sub_page.heap_target_index = registered.image_index;
+		sub_page.preferred_sampler_index = registered.preferred_sampler_index;
+	}
+
 public:
 	[[nodiscard]] image_page() = default;
 
@@ -520,22 +536,8 @@ public:
 		ptr_to_texture_temp_.store(nullptr, std::memory_order_release);
 		ptr_to_texture_temp_.notify_one();
 
+		this->register_sub_page_(*sub_page);
 		task_post_lock_.store(sub_page, std::memory_order_release);
-
-		sub_page->heap_target_index = loader_->add_image_to_heap(VkImageViewCreateInfo{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-			.image = sub_page->texture.get_image(),
-			.viewType = VK_IMAGE_VIEW_TYPE_2D,
-			.format = sub_page->texture.get_format(),
-			.components = {},
-			.subresourceRange = {
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.baseMipLevel = 0,
-				.levelCount = sub_page->texture.get_mip_level(),
-				.baseArrayLayer = 0,
-				.layerCount = sub_page->texture.get_layers()
-			}
-		});
 
 	}
 
@@ -624,22 +626,7 @@ public:
 					ptr_to_texture_temp_.notify_one();
 
 
-					sub_page->heap_target_index = loader_->add_image_to_heap(VkImageViewCreateInfo{
-							.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-							.image = sub_page->texture.get_image(),
-							.viewType = VK_IMAGE_VIEW_TYPE_2D,
-							.format = sub_page->texture.get_format(),
-							.components = {},
-							.subresourceRange = {
-								.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-								.baseMipLevel = 0,
-								.levelCount = sub_page->texture.get_mip_level(),
-								.baseArrayLayer = 0,
-								.layerCount = sub_page->texture.get_layers()
-							}
-						});
-
-
+					this->register_sub_page_(*sub_page);
 					task_post_lock_.store(&*subpages_.rbegin(), std::memory_order_release);
 					task_post_lock_.notify_all();
 				} catch(...){
@@ -796,11 +783,15 @@ public:
 	const vk::context_info& ctx_info,
 	std::uint32_t graphic_family_index,
 	VkQueue loader_working_queue,
-
-	// vk::resource_descriptor_heap& target_descriptor_heap,
-	std::uint32_t target_descriptor_heap_section
+	image_view_registry& image_view_registry,
+	sampler_descriptor_index default_sampler_index
 	) :
-	async_image_loader_{std::make_unique<async_image_loader>(ctx_info, graphic_family_index, loader_working_queue/*, target_descriptor_heap*/, target_descriptor_heap_section)}{
+	async_image_loader_{std::make_unique<async_image_loader>(
+		ctx_info,
+		graphic_family_index,
+		loader_working_queue,
+		image_view_registry,
+		default_sampler_index)}{
 	}
 
 	image_page& create_image_page(

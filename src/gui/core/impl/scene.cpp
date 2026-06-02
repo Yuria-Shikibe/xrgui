@@ -156,6 +156,21 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 	using namespace input_handle;
 	auto [c, a, m] = k;
 
+	if(has_passthrough_mouse_capture()){
+		if(a == act::press){
+			mouse_states_[c].reset(inputs_.cursor_pos(), mouse_capture_owner::passthrough);
+		}
+
+		if(a == act::release){
+			mouse_states_[c].clear();
+			if(!has_passthrough_mouse_capture()){
+				request_cursor_update();
+			}
+		}
+
+		return events::op_afterwards::fall_through;
+	}
+
 	auto result = events::op_afterwards::fall_through;
 	if(focus_cursor){
 		const std::span rng = inbounds_.get_cur();
@@ -191,7 +206,10 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 	}
 
 	if(a == act::press){
-		mouse_states_[c].reset(inputs_.cursor_pos());
+		const auto owner = result == events::op_afterwards::intercepted
+			? mouse_capture_owner::ui
+			: mouse_capture_owner::passthrough;
+		mouse_states_[c].reset(inputs_.cursor_pos(), owner);
 	}
 
 	if(a == act::release){
@@ -236,6 +254,10 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
                                                  elem& scene_root){
 	request_cursor_update_ = false;
 
+	if(has_passthrough_mouse_capture()){
+		return {events::op_afterwards::fall_through, style::cursor_style{style::cursor_type::regular}};
+	}
+
 	if(!(focus_cursor && is_mouse_pressed() && focus_cursor->is_focus_extended_by_mouse())){
 		auto& container = inbounds_.get_bak();
 		container.clear();
@@ -277,7 +299,7 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
 	util::transform_scene2local(rng, std::span<math::vec2>{cursor_points});
 
 	for(const auto& [i, state] : mouse_states_ | std::views::enumerate){
-		if(!state) continue;
+		if(!state.is_ui_owned()) continue;
 
 		std::array<math::vec2, 2> drag_points{state.src, get_cursor_pos()};
 		util::transform_scene2local(rng, std::span<math::vec2>{drag_points});
@@ -302,14 +324,14 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
 }
 
 style::cursor_style input::get_cursor_style(math::vec2 cursor_local_pos) const{
-	if(!focus_cursor){
+	if(has_passthrough_mouse_capture() || !focus_cursor){
 		return style::cursor_style{style::cursor_type::regular};
 	}
 	return focus_cursor->get_cursor_type(cursor_local_pos);
 }
 
 style::cursor_style input::get_cursor_style() const{
-	if(!focus_cursor){
+	if(has_passthrough_mouse_capture() || !focus_cursor){
 		return style::cursor_style{style::cursor_type::regular};
 	}
 	auto cursor_transformed = inputs_.cursor_pos();
