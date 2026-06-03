@@ -19,8 +19,7 @@ namespace mo_yanxi::gui{
 	) {
 	auto [majorTarget, minorTarget] = layout::get_vec_ptr(list.get_layout_policy());
 
-	float masterings_capture{};
-	float passive_total{};
+	sequence_pre_layout_result frst{};
 
 	const auto cells = list.cells();
 
@@ -29,28 +28,34 @@ namespace mo_yanxi::gui{
 	for (auto && cell : cells){
 		auto minor_min = cell.element->extent_raw().get_minimum_size().*minorTarget;
 		auto minor_max = cell.element->extent_raw().get_maximum_size().*minorTarget;
-		masterings_capture += cell.cell.pad.length();
+		frst.masterings += cell.cell.pad.length();
 		switch(cell.cell.stated_size.type){
 		case layout::size_category::pending:{
 			math::vec2 vec;
 			vec.*majorTarget = layout_major_size;
 			vec.*minorTarget = std::numeric_limits<float>::infinity();
 
-			auto rst = cell.element->pre_acquire_size(vec).value_or({}).*minorTarget;
-			if(cache)cache->push_back(rst);
-			masterings_capture += rst;
+			auto rst = cell.element->pre_acquire_size(vec);
+			if(!rst){
+				frst.complete = false;
+				if(cache)cache->push_back(0.f);
+				break;
+			}
+			auto value = rst.value().*minorTarget;
+			if(cache)cache->push_back(value);
+			frst.masterings += value;
 			break;
 		}
 		case layout::size_category::mastering:{
 			float value = cell.cell.stated_size.value * minorScaling;
 			value = math::clamp(value, minor_min, minor_max);
 			if(cache)cache->push_back(value);
-			masterings_capture += value;
+			frst.masterings += value;
 			break;
 		}
 		case layout::size_category::passive:{
 			if(cache)cache->push_back(cell.cell.stated_size.value);
-			passive_total += cell.cell.stated_size.value;
+			frst.passive += cell.cell.stated_size.value;
 			break;
 		}
 		case layout::size_category::scaling:{
@@ -58,18 +63,18 @@ namespace mo_yanxi::gui{
 			value = math::clamp(value, minor_min, minor_max);
 
 			if(cache)cache->push_back(value);
-			masterings_capture += value;
+			frst.masterings += value;
 			break;
 		}
 		}
 	}
 
 	if(!cells.empty()){
-		masterings_capture -= cells.front().cell.pad.pre;
-		masterings_capture -= cells.back().cell.pad.post;
+		frst.masterings -= cells.front().cell.pad.pre;
+		frst.masterings -= cells.back().cell.pad.post;
 	}
 
-	return {masterings_capture, passive_total};
+	return frst;
 }
 
 
@@ -105,8 +110,11 @@ std::optional<math::vec2> sequence::pre_acquire_size_impl(layout::optional_maste
 		if(expand_policy_ == layout::expand_policy::passive){
 			potential.*minorTarget = this->content_extent().*minorTarget;
 		}else{
-			auto [minor_length, _] = get_list_layout_minor_mastering_length(*this, potential.*majorTarget);
-			potential.*minorTarget = minor_length;
+			auto result = get_list_layout_minor_mastering_length(*this, potential.*majorTarget);
+			if(!result.complete){
+				return std::nullopt;
+			}
+			potential.*minorTarget = result.masterings;
 		}
 	}
 
@@ -127,17 +135,18 @@ void sequence::layout_elem(){
 	}
 
 	auto [majorTarget, minorTarget] = layout::get_vec_ptr(policy_);
-	auto [majorTarget_b, minorTarget_b] = layout::get_vec_ptr<bool>(policy_);
 
 	gch::small_vector<float, 16, mr::unvs_allocator<float>> sizes{};
 	sizes.reserve(cells_.size());
 
 	auto content_sz = content_extent();
 	auto major_max = content_sz.*majorTarget;
-	if(restriction_extent.get_pending().*majorTarget_b){
-		major_max = std::numeric_limits<float>::infinity();
+	auto result = get_list_layout_minor_mastering_length(*this, major_max, &sizes);
+	if(!result.complete){
+		throw std::logic_error{"sequence pending cell cannot resolve pre_acquire_size"};
 	}
-	auto [masterings, passives] = get_list_layout_minor_mastering_length(*this, major_max, &sizes);
+	const auto masterings = result.masterings;
+	const auto passives = result.passive;
 
 	if(expand_policy_ != layout::expand_policy::passive){
 		math::vec2 size;
