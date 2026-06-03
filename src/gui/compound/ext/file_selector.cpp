@@ -352,6 +352,34 @@ struct filter_editor : text_edit{
 	}
 };
 
+struct save_file_name_edit : text_edit{
+	file_selector* s;
+
+	[[nodiscard]] save_file_name_edit(scene& scene, elem* parent, file_selector& s)
+		: text_edit(scene, parent), s(&s){
+		set_hint_text(U"File name...");
+		set_character_filter_mode(false);
+		set_filter_characters(platform::get_invalid_filename_chars());
+	}
+
+	void on_changed() override{
+		s->update_save_selection_from_text_();
+		s->sync_done_button_state_();
+	}
+
+	void action_enter() override{
+		if(s->prepare_provider_value_()){
+			s->prov_path_->pull_and_push(false);
+		} else{
+			set_input_invalid();
+		}
+	}
+
+	void mark_input_invalid(){
+		set_input_invalid();
+	}
+};
+
 struct sort_type_button : select_box<3>{
 	file_selector* s{};
 
@@ -477,6 +505,7 @@ void file_selector::refresh(){
 }
 
 void file_selector::set_multiple_selection(bool allow){
+	if(mode_ == file_selector_mode::save) return;
 	if(util::try_modify(multiple_selection, allow)){
 		if(!allow && selected.size() > 1){
 			path last_path = selected.paths.back();
@@ -491,6 +520,7 @@ void file_selector::set_multiple_selection(bool allow){
 			selected.clear();
 			selected.push_back(last_path, last_src);
 			shift_anchor = last_src;
+			sync_done_button_state_();
 		}
 	}
 }
@@ -523,6 +553,19 @@ void file_selector::set_cared_suffix(const std::initializer_list<std::string_vie
 		cared_suffix_.insert(path{basic_string_view});
 	}
 	build_ui_();
+	sync_done_button_state_();
+}
+
+void file_selector::set_save_file_name(const std::filesystem::path& file_name){
+	if(edit_save_file_name_ == nullptr) return;
+	auto text = file_name.filename().u32string();
+	edit_save_file_name_->apply_edit([&text](std::u32string& s){
+		if(s == text) return false;
+		s = text;
+		return true;
+	});
+	update_save_selection_from_text_();
+	sync_done_button_state_();
 }
 
 void file_selector::visit_parent_directory(){
@@ -579,9 +622,35 @@ bool file_selector::is_suffix_met_at_create(const path& file_name) const{
 bool file_selector::is_file_preferred(const path& file_name) const{
 	if(!is_suffix_met_at_create(file_name)) return false;
 	if(file_name.has_parent_path()) return false;
+	std::error_code dir_ec;
+	if(current.empty() || !std::filesystem::exists(current, dir_ec) || !std::filesystem::is_directory(current, dir_ec)) return false;
 	std::error_code ec;
-	if(std::filesystem::exists(current / file_name, ec)) return false;
+	if(std::filesystem::exists(make_save_path(file_name), ec)) return false;
 	return true;
+}
+
+bool file_selector::is_file_name_preferred_for_save(const path& file_name) const{
+	if(file_name.empty()) return false;
+	if(!is_suffix_met_at_create(file_name)) return false;
+	if(file_name.has_parent_path()) return false;
+
+	std::error_code dir_ec;
+	if(current.empty() || !std::filesystem::exists(current, dir_ec) || !std::filesystem::is_directory(current, dir_ec)) return false;
+
+	std::error_code target_ec;
+	return !std::filesystem::is_directory(make_save_path(file_name), target_ec);
+}
+
+file_selector::path file_selector::make_file_name_with_default_suffix(const path& file_name) const{
+	path rst{file_name};
+	if(!rst.has_extension() && cared_suffix_.size() == 1){
+		rst.replace_extension(*cared_suffix_.begin());
+	}
+	return rst;
+}
+
+file_selector::path file_selector::make_save_path(const path& file_name) const{
+	return current / make_file_name_with_default_suffix(file_name);
 }
 
 bool file_selector::try_add_visit_history(path&& where) noexcept{
@@ -620,16 +689,73 @@ void file_selector::set_current_path(const path& current_path) noexcept{
 }
 
 bool file_selector::create_file(const path& file_name){
-	auto p = current / file_name;
-	if(!p.has_extension() && cared_suffix_.size() == 1){
-		p.replace_extension(*cared_suffix_.begin());
-	}
+	if(!is_file_preferred(file_name)) return false;
+	auto p = make_save_path(file_name);
 	if(const std::ofstream stream{p, std::ios::app}; stream.is_open()){
-		set_current_path(current);
-		build_ui_();
+		reset_selection();
+		selected.push_back(p, nullptr);
+		save_selection_.clear();
+		save_selection_.push_back(p);
+		set_save_file_name(p.filename());
+		build_file_entries_();
+		sync_done_button_state_();
 		return true;
 	}
 	return false;
+}
+
+bool file_selector::prepare_provider_value_(){
+	if(mode_ == file_selector_mode::read){
+		sync_done_button_state_();
+		return !selected.paths.empty();
+	}
+
+	update_save_selection_from_text_();
+	if(save_selection_.empty()){
+		if(edit_save_file_name_ != nullptr){
+			static_cast<save_file_name_edit*>(edit_save_file_name_)->mark_input_invalid();
+		}
+		sync_done_button_state_();
+		return false;
+	}
+	return true;
+}
+
+void file_selector::update_save_selection_from_text_(){
+	save_selection_.clear();
+	if(mode_ != file_selector_mode::save || edit_save_file_name_ == nullptr) return;
+
+	const path file_name{edit_save_file_name_->get_text()};
+	if(!is_file_name_preferred_for_save(file_name)) return;
+
+	save_selection_.push_back(make_save_path(file_name));
+}
+
+void file_selector::select_save_file_(const path& file_path, file_entry* source){
+	reset_selection();
+	if(source != nullptr){
+		add_to_selection(source);
+	} else{
+		selected.push_back(file_path, nullptr);
+	}
+	set_save_file_name(file_path.filename());
+	update_save_selection_from_text_();
+	sync_done_button_state_();
+}
+
+void file_selector::sync_done_button_state_(){
+	if(mode_ == file_selector_mode::save){
+		update_save_selection_from_text_();
+	}
+
+	if(button_done_ != nullptr){
+		set_botton_enable_(*button_done_, mode_ == file_selector_mode::save ? !save_selection_.empty() : selected.size() != 0);
+	}
+
+	if(button_create_file_ != nullptr){
+		const bool can_create = edit_save_file_name_ != nullptr && is_file_preferred(path{edit_save_file_name_->get_text()});
+		set_botton_enable_(*button_create_file_, can_create);
+	}
 }
 
 void file_selector::clear_selected_ui_state(){
@@ -657,6 +783,11 @@ void file_selector::remove_from_selection(std::size_t idx){
 }
 
 void file_selector::handle_file_selection(file_entry* entry, input_handle::mode mode){
+	if(mode_ == file_selector_mode::save){
+		select_save_file_(entry->path, entry);
+		return;
+	}
+
 	auto it = std::ranges::find(selected.paths, entry->path);
 	bool found = it != selected.paths.end();
 	std::size_t idx = found ? std::distance(selected.paths.begin(), it) : 0;
@@ -711,10 +842,15 @@ void file_selector::handle_file_selection(file_entry* entry, input_handle::mode 
 		}
 	}
 
-	set_botton_enable_(*button_done_, selected.size());
+	sync_done_button_state_();
 }
 
 void file_selector::toggle_file_selection(file_entry* entry){
+	if(mode_ == file_selector_mode::save){
+		select_save_file_(entry->path, entry);
+		return;
+	}
+
 	auto it = std::ranges::find(selected.paths, entry->path);
 	bool found = it != selected.paths.end();
 	std::size_t idx = found ? std::distance(selected.paths.begin(), it) : 0;
@@ -733,10 +869,12 @@ void file_selector::toggle_file_selection(file_entry* entry){
 			add_to_selection(entry);
 		}
 	}
+	sync_done_button_state_();
 }
 
-file_selector::file_selector(scene& scene, elem* parent) : head_body(
-	scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)){
+file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode) : head_body(
+	scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)),
+	mode_(mode){
 	prov_path_->update_value_quiet(this);
 	interactivity = interactivity_flag::children_only;
 
@@ -759,7 +897,21 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 				set_style_base_only(b.elem());
 				button_done_ = &b.elem();
 				b->set_button_callback([this]{
-					prov_path_->pull_and_push(false);
+					if(prepare_provider_value_()){
+						prov_path_->pull_and_push(false);
+					}
+				});
+			}
+
+			if(mode_ == file_selector_mode::save){
+				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::file_addition_one);
+				set_style_base_only(b.elem());
+				button_create_file_ = &b.elem();
+				b->set_button_callback([this]{
+					if(edit_save_file_name_ == nullptr) return;
+					if(!create_file(path{edit_save_file_name_->get_text()})){
+						static_cast<save_file_name_edit*>(edit_save_file_name_)->mark_input_invalid();
+					}
 				});
 			}
 
@@ -826,6 +978,14 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 				edit.set_view_type(text_edit_view_type::align_y);
 				set_style_side_bar(edit);
 			}, *this).cell().set_passive();
+
+			if(mode_ == file_selector_mode::save){
+				seq.create_back([this](save_file_name_edit& edit){
+					edit_save_file_name_ = &edit;
+					edit.set_view_type(text_edit_view_type::align_y);
+					set_style_side_bar(edit);
+				}, *this).cell().set_passive();
+			}
 
 			seq.set_expand_policy(layout::expand_policy::passive);
 		});
@@ -909,7 +1069,7 @@ file_selector::file_selector(scene& scene, elem* parent) : head_body(
 	set_pad(8);
 
 	visit_directory(std::filesystem::current_path());
-	set_botton_enable_(*button_done_, false);
+	sync_done_button_state_();
 }
 
 void file_selector::build_trace_() noexcept{
@@ -988,6 +1148,7 @@ void file_selector::build_ui_() noexcept{
 		s = get_current_directory().u32string();
 		return true;
 	});
+	sync_done_button_state_();
 	get_scene().notify_display_state_changed(get_channel());
 }
 }

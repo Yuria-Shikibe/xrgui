@@ -38,6 +38,11 @@ export enum struct file_sort_method : std::uint8_t{
 
 BITMASK_OPS(export, file_sort_method);
 
+export enum struct file_selector_mode : std::uint8_t{
+	read,
+	save,
+};
+
 struct file_path_sorter{
 private:
 	using target_type = std::filesystem::path;
@@ -96,12 +101,14 @@ public:
 	}
 };
 
+struct save_file_name_edit;
+
 export class file_selector : public head_body{
 	using path = std::filesystem::path;
 
 private:
 	std::span<const path> get_selected_paths() const noexcept{
-		return selected.paths;
+		return mode_ == file_selector_mode::save ? save_selection_ : selected.paths;
 	}
 
 	react_flow::node_holder_pinned<react_flow::provider_member<&file_selector::get_selected_paths>> prov_path_{};
@@ -148,15 +155,18 @@ protected:
 	overflow_sequence* directory_trace_{};
 	text_edit* edit_current_directory_{};
 	text_edit* edit_search_{};
+	text_edit* edit_save_file_name_{};
 
 	path current{};
 	history_stack<path> history{};
 
 	std::unordered_set<path> cared_suffix_{};
 
+	file_selector_mode mode_{file_selector_mode::read};
 	bool multiple_selection{};
 	file_entry* shift_anchor{};
 	entry_selection selected{};
+	std::vector<path> save_selection_{};
 
 	file_sort_category sort_category_{};
 	file_sort_method sort_method_{};
@@ -167,14 +177,18 @@ protected:
 	icon_button_type* button_redo_{};
 	icon_button_type* button_done_{};
 	icon_button_type* button_to_parent_{};
+	icon_button_type* button_create_file_{};
+
+	friend struct save_file_name_edit;
 
 public:
-	[[nodiscard]] file_selector(scene& scene, elem* parent);
+	[[nodiscard]] file_selector(scene& scene, elem* parent, file_selector_mode mode = file_selector_mode::read);
 	file_selector(const file_selector& other) = delete;
 	file_selector(file_selector&& other) noexcept = delete;
 	file_selector& operator=(const file_selector& other) = delete;
 	file_selector& operator=(file_selector&& other) noexcept = delete;
 
+	[[nodiscard]] file_selector_mode get_mode() const noexcept{ return mode_; }
 
 	[[nodiscard]] file_sort_category get_sort_category() const noexcept{ return sort_category_; }
 	void set_sort_category(const file_sort_category sort_type);
@@ -194,6 +208,7 @@ public:
 	void undo();
 	void redo();
 	void set_cared_suffix(const std::initializer_list<std::string_view> suffix);
+	void set_save_file_name(const std::filesystem::path& file_name);
 	void visit_parent_directory();
 	void visit_root_directory() noexcept;
 	void visit_directory(path&& p);
@@ -205,6 +220,9 @@ protected:
 	[[nodiscard]] bool cared_file(const path& p) const noexcept;
 	[[nodiscard]] bool is_suffix_met_at_create(const path& file_name) const;
 	[[nodiscard]] bool is_file_preferred(const path& file_name) const;
+	[[nodiscard]] bool is_file_name_preferred_for_save(const path& file_name) const;
+	[[nodiscard]] path make_file_name_with_default_suffix(const path& file_name) const;
+	[[nodiscard]] path make_save_path(const path& file_name) const;
 
 	bool try_add_visit_history(path&& where) noexcept;
 	bool try_add_visit_history(const path& where);
@@ -213,6 +231,10 @@ protected:
 	void set_current_path(path&& current_path) noexcept;
 	void set_current_path(const path& current_path) noexcept;
 	bool create_file(const path& file_name);
+	bool prepare_provider_value_();
+	void update_save_selection_from_text_();
+	void select_save_file_(const path& file_path, file_entry* source);
+	void sync_done_button_state_();
 
 
 	void clear_selected_ui_state();
