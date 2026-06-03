@@ -557,6 +557,11 @@ private:
 	}
 
 public:
+	/**
+	 * @warning Dont use this interface directly!
+	 *
+	 *
+	 */
 	allocated_image_region async_allocate(
 		image_load_description&& desc
 	){

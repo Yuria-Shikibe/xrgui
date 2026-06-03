@@ -9,6 +9,7 @@ namespace mo_yanxi::gui{
 struct sequence_pre_layout_result{
 	float masterings;
 	float passive;
+	bool complete{true};
 };
 
 //TODO when is passive and mastering exceeded the given content size, set a scissor

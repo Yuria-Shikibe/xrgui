@@ -38,16 +38,36 @@ struct FragOut
     float4 out_base : SV_Target0;
 };
 
-static const float GRID_SIZE = 200.0f;
-static const float GRID_WIDTH = 2.5f;
-static const float4 GRID_COLOR = float4(0.76f, 0.76f, 0.76f, 0.8f);
+static const float EDITOR_GRID_SIZE = 100.0f;
+static const float GRID_WIDTH = 1.0f;
+static const float AXIS_WIDTH = 2.25f;
+static const float AA_WIDTH = 0.75f;
+static const float4 GRID_COLOR = float4(0.36f, 0.38f, 0.40f, 0.34f);
+static const float4 AXIS_X_COLOR = float4(0.95f, 0.18f, 0.20f, 0.78f);
+static const float4 AXIS_Y_COLOR = float4(0.28f, 0.82f, 0.30f, 0.78f);
 
-static const float DASH_LEN = 8.0f;
-static const float DASH_GAP = 6.0f;
+float line_coverage(float pixel_distance, float width_pixels)
+{
+    float half_width = width_pixels * 0.5f;
+    return 1.0f - smoothstep(half_width - AA_WIDTH, half_width + AA_WIDTH, pixel_distance);
+}
 
-static const float AXIS_WIDTH = 5.0f;
-static const float4 AXIS_X_COLOR = float4(1.0f, 0.2f, 0.2f, 1.0f);
-static const float4 AXIS_Y_COLOR = float4(0.2f, 0.8f, 0.2f, 1.0f);
+float periodic_line_distance_pixels(float coord, float step, float world_per_pixel)
+{
+    float wrapped = abs(frac(coord / step + 0.5f) - 0.5f) * step;
+    return wrapped / max(abs(world_per_pixel), 1e-5f);
+}
+
+float4 premultiply_with_tint(float4 color, float coverage, float4 tint)
+{
+    float alpha = saturate(color.a * coverage * tint.a);
+    return float4(color.rgb * tint.rgb * alpha, alpha);
+}
+
+float4 over(float4 dst, float4 src)
+{
+    return src + dst * (1.0f - src.a);
+}
 
 [shader("fragment")]
 FragOut main_frag(
@@ -55,42 +75,28 @@ FragOut main_frag(
     uint primitiveID : SV_PrimitiveID
 )
 {
-    // 对齐整体管线结构提取 primitive 数据（即使当前着色暂不需要也可保留抓取逻辑以防日后扩展）
     uint global_prm_idx = dispatch_config_ubo.global_primitive_offset + primitiveID;
     mesh_instr::Primitive primit = global_primitives[global_prm_idx];
 
-    // 从 Vertex 阶段接管本地坐标
-    float2 local_pos = vtx.uv;
-    float2 df = max(fwidth(local_pos), 1e-5);
+    float2 world_pos = vtx.uv;
+    float2 world_per_pixel = max(abs(fwidth(world_pos)), float2(1e-5f, 1e-5f));
 
-    float2 grid_dist = abs(frac(local_pos / GRID_SIZE + 0.5f) - 0.5f) * GRID_SIZE;
-    float2 grid_pixel_dist = grid_dist / df;
-
-    float dash_pattern_y = frac(local_pos.y / (DASH_LEN + DASH_GAP)) * (DASH_LEN + DASH_GAP);
-    float dash_alpha_y   = (dash_pattern_y < DASH_LEN) ? 1.0f : 0.0f;
-
-    float dash_pattern_x = frac(local_pos.x / (DASH_LEN + DASH_GAP)) * (DASH_LEN + DASH_GAP);
-    float dash_alpha_x   = (dash_pattern_x < DASH_LEN) ? 1.0f : 0.0f;
-
-    float grid_v = (1.0f - smoothstep(GRID_WIDTH * 0.5f - 0.5f, GRID_WIDTH * 0.5f + 0.5f, grid_pixel_dist.x)) * dash_alpha_y;
-    float grid_h = (1.0f - smoothstep(GRID_WIDTH * 0.5f - 0.5f, GRID_WIDTH * 0.5f + 0.5f, grid_pixel_dist.y)) * dash_alpha_x;
-    
+    float grid_v = line_coverage(
+        periodic_line_distance_pixels(world_pos.x, EDITOR_GRID_SIZE, world_per_pixel.x),
+        GRID_WIDTH);
+    float grid_h = line_coverage(
+        periodic_line_distance_pixels(world_pos.y, EDITOR_GRID_SIZE, world_per_pixel.y),
+        GRID_WIDTH);
     float grid_alpha = max(grid_v, grid_h);
 
-    float2 axis_pixel_dist = abs(local_pos) / df;
+    float axis_x_alpha = line_coverage(abs(world_pos.y) / world_per_pixel.y, AXIS_WIDTH);
+    float axis_y_alpha = line_coverage(abs(world_pos.x) / world_per_pixel.x, AXIS_WIDTH);
 
-    float axis_y_line = 1.0f - smoothstep(AXIS_WIDTH * 0.5f - 0.5f, AXIS_WIDTH * 0.5f + 0.5f, axis_pixel_dist.x);
-    float axis_x_line = 1.0f - smoothstep(AXIS_WIDTH * 0.5f - 0.5f, AXIS_WIDTH * 0.5f + 0.5f, axis_pixel_dist.y);
-
-    float4 final_color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-
-    final_color = lerp(final_color, GRID_COLOR, grid_alpha * GRID_COLOR.a);
-    final_color = lerp(final_color, AXIS_X_COLOR, axis_x_line * AXIS_X_COLOR.a);
-    final_color = lerp(final_color, AXIS_Y_COLOR, axis_y_line * AXIS_Y_COLOR.a);
+    float4 final_color = premultiply_with_tint(GRID_COLOR, grid_alpha, vtx.color);
+    final_color = over(final_color, premultiply_with_tint(AXIS_X_COLOR, axis_x_alpha, vtx.color));
+    final_color = over(final_color, premultiply_with_tint(AXIS_Y_COLOR, axis_y_alpha, vtx.color));
 
     FragOut out;
     out.out_base = final_color;
-    out.out_base.rgb *= out.out_base.a;
-    
     return out;
 }

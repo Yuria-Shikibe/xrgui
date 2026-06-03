@@ -761,7 +761,7 @@ private:
              const float4& color_a = coord_y ? instr.vert_color.v01 : instr.vert_color.v00;
              const float4& color_b = coord_y ? instr.vert_color.v11 : instr.vert_color.v10;
              const float4 color = math::lerp(color_a, color_b, mix_major);
-             write_vertex(global_vertex_begin + local_vtx, position, instr.generic.depth + instr._cap,
+             write_vertex(global_vertex_begin + local_vtx, position, instr.generic.depth,
                           color, uv, timeline_index);
           }
           write_trivial_primitives(global_vertex_begin, global_primitive_begin, head.payload.draw.primitive_count,

@@ -6,7 +6,7 @@ module;
 #define HAS_SIMDUTF 0
 #endif
 
-#ifdef HAS_SIMDUTF
+#if HAS_SIMDUTF
 #include <simdutf.h>
 #endif
 
