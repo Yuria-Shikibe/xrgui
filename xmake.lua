@@ -93,8 +93,6 @@ function set_xrgui_deps()
     add_files("./src/**.ixx", {public = true})
 
     add_cxflags("/wd4267", "/wd4244", "/wd4305", {tools = {"cl", "clang_cl"}})
-    add_cxflags("/FS", {tools = {"cl"}})
-    add_cxxflags("/FS", {tools = {"cl"}})
 end
 
 function add_defaults()
