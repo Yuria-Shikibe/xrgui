@@ -559,7 +559,7 @@ private:
 public:
 	/**
 	 * @warning Dont use this interface directly!
-	 *
+	 * You must save the allocated_image_region to a stable address, other wise use `register_named_region` instead!
 	 *
 	 */
 	allocated_image_region async_allocate(

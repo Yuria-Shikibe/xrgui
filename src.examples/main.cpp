@@ -290,7 +290,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 			ctx,
 			ctx.graphic_family(),
 			ctx.get_device().graphic_queue(1),
-			renderer.get_heap_dynamic_image_section()
+			renderer.get_image_view_registry(),
+			renderer.get_default_sampler_index()
 		};
 	log::info({"GUI"}, "image atlas initialize done");
 

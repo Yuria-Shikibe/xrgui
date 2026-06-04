@@ -450,8 +450,8 @@ struct vp : gui::viewport{
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		viewport::record_draw_layer(call_stack_builder);
-		call_stack_builder.push_call_noop(*this, [](const vp& s, const draw_call_param& p){
-			if(!p.layer_param.is_top()) return;
+		call_stack_builder.push_call_noop(*this, [](const vp& s, const draw_call_param& p, const draw_immut_args& args){
+			if(!args.layer.is_top()) return;
 			if(!util::is_draw_param_valid(s, p)) return;
 			s.viewport_begin();
 
