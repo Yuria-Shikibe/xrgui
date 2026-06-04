@@ -4,6 +4,17 @@
 
 XRGUI(mo_yanXi's Retaine mode GUI)是一个近似**每帧重绘和按需局部更新**的带有**自动**布局的计划支持多个绘制后端（目前只实现了Vulkan)、力求轻量化的计划跨平台和支持所有主流编译器的纯粹面向命令式代码编写的**保留式GUI**
 
+## 最快运行
+
+默认 GLFW + Vulkan 快速上手路径：
+
+```powershell
+git submodule update --init --recursive
+xmake quickstart
+```
+
+该命令会准备资源并运行 `xrgui.hello`。继承式默认应用入口见 [快速上手](properties/showcase/quick_start.md)。
+
 ### 注：
 * 在Windows上由于Clang在编译模块时会ice，暂且只允许msvc编译。本人并未尝试过使用MinGW的GCC编译，理论上库全部使用ISO C++的语法，GCC只要没有实现问题也可也直接编译
 * 关于平台相关的极个别函数本人仅测试了Windows，尽管提供Linux上的平台相关函数抽象，但并未经过仔细测试。

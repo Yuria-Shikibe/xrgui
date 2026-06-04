@@ -564,15 +564,42 @@ public:
 	}
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+		if(event.key.action == input_handle::act::press){
+			auto ret = scroll_adaptor::on_click(event, aboves);
+			if(ret == events::op_afterwards::intercepted){
+				return ret;
+			}
+
+			if(event.key.as_mouse() == input_handle::mouse::LMB && last_modified_col == no_modified){
+				const auto delta = get_scroll_offset();
+				get_item().hit_col_bound(event.pos + delta - content_src_offset(), [&](std::size_t col){
+					last_modified_col = col;
+				});
+
+				if(last_modified_col != no_modified){
+					return events::op_afterwards::intercepted;
+				}
+			}
+
+			return ret;
+		}
+
+		bool intercepted = false;
 		if(event.key.on_release() && last_modified_col != no_modified){
 			get_item().apply_col_temp_size(last_modified_col);
 			last_modified_col = no_modified;
+			intercepted = true;
 		}
-		return scroll_adaptor::on_click(event, aboves);
+
+		auto ret = scroll_adaptor::on_click(event, aboves);
+		if(intercepted){
+			return events::op_afterwards::intercepted;
+		}
+		return ret;
 	}
 
 	events::op_afterwards on_drag(const events::drag event) override{
-		if(scroll_.is_dirty()){
+		if(is_scroll_bar_drag_active() || scroll_.is_dirty()){
 			//scroll bar dragging
 			return scroll_adaptor::on_drag(event);
 		}

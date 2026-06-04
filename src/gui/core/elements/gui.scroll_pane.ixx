@@ -62,6 +62,7 @@ protected:
 	math::vec2 last_local_cursor_pos_{};
 	bool overlay_scroll_bars_{false};
 	bool scroll_changed_in_update_{false};
+	bool scroll_bar_dragging_{false};
 
 	util::animator<float, util::anime_dynamic_spec_v<float>, 0.f, util::anime_dynamic_spec_v<float>> bar_animator_{};
 
@@ -273,6 +274,30 @@ public:
 		return (content_local_pos.x >= min_ext.x && content_local_pos.x <= max_ext.x) || (content_local_pos.y >= min_ext.y && content_local_pos.y <= max_ext.y);
 	}
 
+protected:
+	[[nodiscard]] bool is_scroll_bar_drag_hit(math::vec2 elem_local_pos) const noexcept{
+		if(!(is_hori_scroll_enabled() || is_vert_scroll_enabled())){
+			return false;
+		}
+		return is_pos_in_bar_section(elem_local_pos - content_src_offset());
+	}
+
+	[[nodiscard]] bool is_scroll_bar_drag_active() const noexcept{
+		return scroll_bar_dragging_;
+	}
+
+	void begin_scroll_bar_drag(){
+		scroll_bar_dragging_ = true;
+		scroll_.resume();
+		scroll_target_velocity_ = scroll_velocity_ = {};
+		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
+	}
+
+	bool end_scroll_bar_drag() noexcept{
+		return std::exchange(scroll_bar_dragging_, false);
+	}
+
+public:
 	[[nodiscard]] float bar_hori_length() const{
 		const auto w = get_viewport_extent().x;
 		const float theoretical_length = math::clamp_positive(math::min(w / item_extent_cache_.x, 1.0f) * w);
@@ -573,12 +598,28 @@ public:
 
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		if(event.key.action == input_handle::act::release){
-			scroll_.apply();
-			saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
+		auto ret = elem::on_click(event, aboves);
+		if(event.key.as_mouse() != input_handle::mouse::LMB){
+			return ret;
 		}
 
-		return elem::on_click(event, aboves);
+		if(event.key.action == input_handle::act::press){
+			if(!is_scroll_bar_drag_hit(event.pos)){
+				return ret;
+			}
+
+			begin_scroll_bar_drag();
+			return events::op_afterwards::intercepted;
+		}
+
+		if(event.key.action == input_handle::act::release){
+			bool intercepted = end_scroll_bar_drag();
+			scroll_.apply();
+			saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
+			if(intercepted)return events::op_afterwards::intercepted;
+		}
+
+		return ret;
 	}
 protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{

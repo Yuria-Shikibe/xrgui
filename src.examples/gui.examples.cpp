@@ -98,6 +98,59 @@ struct test_entry{
 };
 
 #pragma region ExampleUIStructs
+struct fps_counter_label : label{
+	static constexpr float ticks_per_second = 60.f;
+	static constexpr float sample_interval_seconds = .25f;
+
+	float sample_seconds_{};
+	std::uint32_t sample_frames_{};
+
+	[[nodiscard]] fps_counter_label(scene& scene, elem* parent)
+		: label(scene, parent){
+		interactivity = interactivity_flag::disabled;
+		set_expand_policy(layout::expand_policy::passive);
+		set_fit_type(label_fit_type::scl);
+		set_max_extent({160.f, 44.f});
+		auto pad = gui::border_t{};
+		pad.set_hori(8.f).set_vert(4.f);
+		set_self_border(pad);
+		set_style(style::family_variant::base_only);
+		text_entire_align = align::pos::center;
+		set_text("FPS --");
+
+		if(is_at_display_stage()){
+			util::update_insert(*this, update_channel::draw);
+		}
+	}
+
+	void on_display_state_changed(bool is_shown, bool is_scene_notified) override{
+		label::on_display_state_changed(is_shown, is_scene_notified);
+		if(is_shown){
+			util::update_insert(*this, update_channel::draw);
+		} else{
+			util::update_erase(*this, update_channel::draw);
+		}
+	}
+
+	bool update(float delta_in_ticks) override{
+		if(!label::update(delta_in_ticks)) return false;
+
+		const float delta_seconds = delta_in_ticks / ticks_per_second;
+		if(delta_seconds <= 0.f || !std::isfinite(delta_seconds)) return true;
+
+		sample_seconds_ += delta_seconds;
+		++sample_frames_;
+		if(sample_seconds_ >= sample_interval_seconds){
+			const float fps = static_cast<float>(sample_frames_) / sample_seconds_;
+			set_text(std::format("FPS {:.0f}", fps));
+			sample_seconds_ = 0.f;
+			sample_frames_ = 0;
+		}
+
+		return true;
+	}
+};
+
 struct csv_file_reader : head_body{
 	struct file_listener : react_flow::terminal<std::span<const std::filesystem::path>>{
 		gui::overlay* overlay;
@@ -151,7 +204,7 @@ struct csv_file_reader : head_body{
 				prog.progress.set_speed(.0001f);
 				prog.draw_config.color = {graphic::colors::white, graphic::colors::white};
 
-				prog.set_self_border(gui::border{}.set(32));
+				prog.set_self_border(gui::border_t{}.set(32));
 				prog.set_style(style::make_ring_progress_style(32));
 				prog.set_progress_state(progress_state::rough);
 			});
@@ -1246,7 +1299,7 @@ Edge Cases:
 				test_entry{
 					"color picker", [&](sequence& table){
 						table.set_style();
-						table.set_self_border(gui::border{}.set(16));
+						table.set_self_border(gui::border_t{}.set(16));
 						table.set_layout_spec(
 							layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
 						table.template_cell.set_pad({16, 16});
@@ -1358,7 +1411,7 @@ Edge Cases:
 		menu_hdl->push_back(
 			elem_ptr{
 				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
-					label.set_self_border(border{}.set_vert(6));
+					label.set_self_border(border_t{}.set_vert(6));
 					label.set_style(style::family_variant::base_only);
 					label.set_fit_type(label_fit_type::scl);
 					label.set_text(std::format("[{}]-{}", idx, creator.name));
@@ -1370,6 +1423,12 @@ Edge Cases:
 				}
 			}, creator.creator(menu_hdl->get_scene(), &menu_hdl.elem()));
 	}
+
+	auto fps_hdl = mroot.emplace_back<fps_counter_label>();
+	fps_hdl.cell().region_scale = {.0f, .0f, .14f, .06f};
+	fps_hdl.cell().region_align = align::pos::top_right;
+	fps_hdl.cell().unsaturate_cell_elem_align = align::pos::top_right;
+	fps_hdl.cell().margin = {.right = 12.f, .top = 12.f};
 
 	return result;
 }

@@ -46,6 +46,7 @@ struct swap_chain_staging_image_data{
 	VkExtent2D extent{};
 
 	bool clear{};
+	bool force_blit{};
 	std::uint32_t owner_queue_family{};
 
 	VkPipelineStageFlags2 src_stage{};

@@ -381,7 +381,7 @@ void context::record_post_command(bool no_fence_wait){
 		}
 
 
-		if(image_data.extent.width == get_extent().width && image_data.extent.height == get_extent().height){
+		if(!image_data.force_blit && image_data.extent.width == get_extent().width && image_data.extent.height == get_extent().height){
 			cmd::copy_image_to_image(
 				bf,
 				image_data.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,

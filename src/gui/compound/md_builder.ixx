@@ -789,7 +789,7 @@ void build_table(sequence& parent, const md::table& node, const markdown_config&
 				text = rich_size_wrap(std::move(text), config.body_font_size_px(), true);
 
 			auto cell_hdl = tbl.get_elem().create_back([&](direct_label& label) {
-				label.set_self_border(gui::border{}.set(4));
+				label.set_self_border(gui::border_t{}.set(4));
 				setup_label_base(label, config);
 				label.set_tokenized_text(typesetting::tokenized_text{std::move(text), typesetting::tokenize_tag::def});
 				switch(c < node.alignments.size() ? node.alignments[c] : table_align::none) {

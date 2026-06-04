@@ -1018,7 +1018,7 @@ file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode
 				prog.progress.set_speed(.0001f);
 				prog.draw_config.color = {graphic::colors::light_gray, graphic::colors::light_gray};
 
-				prog.set_self_border(gui::border{}.set(32));
+				prog.set_self_border(gui::border_t{}.set(32));
 				prog.set_style(style::make_ring_progress_style(32));
 				prog.set_progress_state(progress_state::rough);
 			}).cell().set_passive();

@@ -160,10 +160,15 @@ namespace mo_yanxi::gui{
 	}
 
 	events::op_afterwards scroll_adaptor_base::on_drag(const events::drag e){
-		if(util::contains(e.src, content_extent().fdim(get_bar_extent()))){
+		if(e.key.as_mouse() != input_handle::mouse::LMB){
 			return events::op_afterwards::fall_through;
 		}
 
+		if(!scroll_bar_dragging_ && !is_scroll_bar_drag_hit(e.src)){
+			return events::op_afterwards::fall_through;
+		}
+
+		scroll_bar_dragging_ = true;
 		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 		scroll_target_velocity_ = scroll_velocity_ = {};
 		const auto trans = e.delta() * get_vel_clamp();

@@ -35,7 +35,7 @@ import mo_yanxi.function_call_stack;
 
 
 namespace mo_yanxi::gui{
-export constexpr inline border default_border{8, 8, 8, 8};
+export constexpr inline border_t default_border{8, 8, 8, 8};
 
 export
 struct overlay_manager;
@@ -228,8 +228,8 @@ private:
 
 	[[nodiscard]] style::target_known_node_ptr<elem> get_elem_default_style_() const;
 
-	border border_{};
-	border style_border_cache_{};
+	border_t border_{};
+	border_t style_border_cache_{};
 
 	mpsc_action_queue<elem> actions{};
 
@@ -467,7 +467,7 @@ public:
 		this->style_ = std::move(style);
 		get_scene().notify_display_state_changed(get_channel());
 
-		if(util::try_modify(style_border_cache_, style ? style::query_metrics(this->style_, {}).total_inset() : gui::border{})){
+		if(util::try_modify(style_border_cache_, style ? style::query_metrics(this->style_, {}).total_inset() : gui::border_t{})){
 			notify_isolated_layout_changed();
 		}
 	}

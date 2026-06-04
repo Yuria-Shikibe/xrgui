@@ -325,7 +325,7 @@ public:
 			display.create_back([this](arrow& a){
 				a.set_min_extent({40, 0});
 				a.config.margin = 2;
-				a.set_self_border(gui::border{.left = 2}.set_vert(2));
+				a.set_self_border(gui::border_t{.left = 2}.set_vert(2));
 				util::sync_set_elem_style(a, style::family_variant::base_only);
 			}, true).cell().set_size({layout::size_category::scaling, .56f});
 			display.create_back([this](direct_label& label){
@@ -338,7 +338,7 @@ public:
 			display.create_back([this](arrow& a){
 				a.set_min_extent({40, 0});
 				a.config.margin = 2;
-				a.set_self_border(gui::border{.right = 2}.set_vert(2));
+				a.set_self_border(gui::border_t{.right = 2}.set_vert(2));
 				util::sync_set_elem_style(a, style::family_variant::base_only);
 			}, false).cell().set_size({layout::size_category::scaling, .56f});
 		});

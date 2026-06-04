@@ -12,7 +12,7 @@ import std;
 
 namespace mo_yanxi::gui{
 
-export using border = align::spacing;
+export using border_t = align::spacing;
 export using vec2 = math::vec2;
 export using rect = math::frect;
 export using altitude_t = unsigned;

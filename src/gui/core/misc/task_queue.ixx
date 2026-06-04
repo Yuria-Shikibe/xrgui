@@ -147,6 +147,10 @@ public:
 			}
 		}
 	}
+
+	void clear(){
+		async_tasks_.clear();
+	}
 };
 
 export

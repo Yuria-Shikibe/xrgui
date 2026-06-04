@@ -47,6 +47,28 @@ private:
 		                 math::clamp(separator_position_.base + delta_offset, min_margin.from, 1.f - min_margin.to));
 	}
 
+	[[nodiscard]] bool is_separator_hit(math::vec2 elem_local_pos) const{
+		return get_separator_region_element_local().contains_loose(elem_local_pos - content_src_offset());
+	}
+
+	void begin_separator_drag(){
+		separator_position_.resume();
+		if(current_drag_state_ == drag_state::idle || current_drag_state_ == drag_state::exiting){
+			current_drag_state_ = drag_state::entering;
+			util::update_insert(*this, update_channel::layout);
+		}
+	}
+
+	bool end_separator_drag(){
+		if(current_drag_state_ == drag_state::dragging || current_drag_state_ == drag_state::entering){
+			current_drag_state_ = drag_state::exiting;
+			util::update_insert(*this, update_channel::layout);
+			return true;
+		}
+
+		return false;
+	}
+
 public:
 	split_pane(scene& scene, elem* parent, const layout::directional_layout_specifier layout_policy)
 		: head_body_no_invariant(scene, parent, layout_policy){
@@ -122,35 +144,45 @@ public:
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		auto ret = head_body::on_click(event, aboves);
-		if(event.key.on_release()){
+		if(event.key.as_mouse() != input_handle::mouse::LMB){
+			return ret;
+		}
 
-			if(current_drag_state_ == drag_state::dragging || current_drag_state_ == drag_state::entering){
-				current_drag_state_ = drag_state::exiting;
-				util::update_insert(*this, update_channel::layout);
+		if(event.key.action == input_handle::act::press){
+			if(!is_separator_hit(event.pos)){
+				return ret;
 			}
+
+			begin_separator_drag();
+			return events::op_afterwards::intercepted;
+		}
+
+		if(event.key.on_release()){
+			bool intercepted = end_separator_drag();
 
 			if(separator_position_.is_dirty()){
 				separator_position_.apply();
 				update_separator();
-				return events::op_afterwards::intercepted;
+				intercepted = true;
 			}
+
+			if(intercepted)return events::op_afterwards::intercepted;
 		}
 		return ret;
 	}
 
 	events::op_afterwards on_drag(const events::drag event) override{
+		if(event.key.as_mouse() != input_handle::mouse::LMB){
+			return events::op_afterwards::fall_through;
+		}
 
 		if(current_drag_state_ == drag_state::idle || current_drag_state_ == drag_state::exiting){
-			const auto cursorlocal = event.src;
-			const auto region = get_separator_region_element_local();
-
-			if(!region.contains_loose(cursorlocal - content_src_offset())){
+			if(!is_separator_hit(event.src)){
 				return events::op_afterwards::fall_through;
 			}
 
 
-			current_drag_state_ = drag_state::entering;
-			util::update_insert(*this, update_channel::layout);
+			begin_separator_drag();
 		}
 
 
@@ -203,8 +235,7 @@ public:
 
 
 	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
-		const auto region = get_separator_region_element_local();
-		const bool hit = current_drag_state_ == drag_state::dragging || current_drag_state_ == drag_state::entering || region.contains_loose(cursor_pos_at_content_local - content_src_offset());
+		const bool hit = current_drag_state_ == drag_state::dragging || current_drag_state_ == drag_state::entering || is_separator_hit(cursor_pos_at_content_local);
 
 		if(hit){
 			style::cursor_style rst{style::cursor_type::none};

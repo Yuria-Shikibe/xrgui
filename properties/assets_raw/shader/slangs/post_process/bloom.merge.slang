@@ -32,5 +32,6 @@ void main(
     let scaled_light = color_light.rgb * color_light.a;
     let part_light = float4(pp::blend::screen(scaled_light, color_bloom.rgb), max(color_light.a, color_bloom.a));
 
-    output.Store(pos, color_bloom + color_base - float4(scaled_light, 0.f));
+    let merged_rgb = color_base.rgb - scaled_light + part_light.rgb;
+    output.Store(pos, float4(merged_rgb, max(color_base.a, part_light.a)));
 }

@@ -207,6 +207,126 @@ target("xrgui.example")
     add_files("src.examples/**.cpp")
 target_end()
 
+target("xrgui.hello")
+    set_kind("binary")
+    set_extension(".exe")
+    set_languages("c++latest")
+
+    set_warnings("all", "pedantic")
+
+    add_defaults()
+
+    add_files("src.hello/**.cpp")
+target_end()
+
+local function run_xrgui_doctor()
+        import("lib.detect.find_tool")
+
+        local ok = true
+
+        local function status(name, passed, detail)
+            if passed then
+                cprint("${color.success}[ok]${clear} %s%s", name, detail and (" - " .. detail) or "")
+            else
+                cprint("${color.error}[missing]${clear} %s%s", name, detail and (" - " .. detail) or "")
+                ok = false
+            end
+        end
+
+        local function info(name, detail)
+            cprint("${bright}[info]${clear} %s%s", name, detail and (" - " .. detail) or "")
+        end
+
+        local shader_files = os.files(path.join(current_dir, "properties/assets/shader/spv/*.spv"))
+        local icon_files = os.files(path.join(current_dir, "properties/assets_raw/gen/icons/**.svg"))
+
+        status("VULKAN_SDK", os.getenv("VULKAN_SDK") ~= nil, os.getenv("VULKAN_SDK") or "install Vulkan SDK 1.4+")
+
+        local cl = find_tool("cl")
+        status("MSVC cl", cl ~= nil, cl and cl.program or "run from a Developer PowerShell or install latest MSVC")
+
+        local slangc = find_tool("slangc")
+        if #shader_files > 0 and slangc == nil then
+            info("slangc", "not on PATH; existing generated shaders are available")
+        else
+            status("slangc", slangc ~= nil, slangc and slangc.program or "add slangc to PATH or pass xmake gen_slang --complier=...")
+        end
+
+        local py = find_tool("py") or find_tool("python")
+        if #shader_files > 0 and #icon_files > 0 and py == nil then
+            info("Python launcher", "not on PATH; existing generated shaders and icons are available")
+        else
+            status("Python launcher", py ~= nil, py and py.program or "install Python 3.11+ when regenerating shader/icon assets")
+        end
+
+        local node = find_tool("node")
+        if #icon_files > 0 and node == nil then
+            info("Node.js", "not on PATH; existing generated icons are available")
+        else
+            status("Node.js", node ~= nil, node and node.program or "install Node.js for icon generation")
+        end
+
+        local has_vma = os.isfile(path.join(current_dir, "external/mo_yanxi_vulkan_wrapper/external/VulkanMemoryAllocator/include/vk_mem_alloc.h"))
+        status("VulkanMemoryAllocator submodule", has_vma, has_vma and "available" or "run git submodule update --init --recursive")
+        local has_vk_wrapper = os.isfile(path.join(current_dir, "external/mo_yanxi_vulkan_wrapper/xmake.lua"))
+        status("mo_yanxi_vulkan_wrapper submodule", has_vk_wrapper, has_vk_wrapper and "available" or "run git submodule update --init --recursive")
+
+        status("generated shaders", #shader_files > 0, #shader_files > 0 and (#shader_files .. " spv files") or "run xmake gen_slang")
+
+        status("generated icons", #icon_files > 0, #icon_files > 0 and (#icon_files .. " svg files") or "run xmake gen_icon")
+
+        if not ok then
+            raise("XRGUI doctor found missing requirements")
+        end
+end
+
+task("doctor")
+    on_run(run_xrgui_doctor)
+
+    set_menu({
+        usage = "check toolchain and generated assets for XRGUI quickstart"
+    })
+task_end()
+
+task("quickstart")
+    on_run(function ()
+        import("core.base.option")
+        import("core.base.task")
+
+        cprint("${bright}[quickstart]${clear} configure MSVC debug build")
+        task.run("config", {toolchain = "msvc", mode = "debug"})
+
+        local shader_files = os.files(path.join(current_dir, "properties/assets/shader/spv/*.spv"))
+        if #shader_files == 0 then
+            cprint("${bright}[quickstart]${clear} generate shaders")
+            task.run("gen_slang")
+        end
+
+        local icon_files = os.files(path.join(current_dir, "properties/assets_raw/gen/icons/**.svg"))
+        if #icon_files == 0 then
+            cprint("${bright}[quickstart]${clear} generate icons")
+            task.run("gen_icon")
+        end
+
+        cprint("${bright}[quickstart]${clear} run doctor")
+        run_xrgui_doctor()
+        cprint("${bright}[quickstart]${clear} build xrgui.hello")
+        task.run("build", {target = "xrgui.hello"})
+        if option.get("no-run") then
+            return
+        end
+        cprint("${bright}[quickstart]${clear} run xrgui.hello")
+        os.execv("xmake", {"run", "xrgui.hello"})
+    end)
+
+    set_menu({
+        usage = "configure, prepare assets, build, and run xrgui.hello",
+        options = {
+            {nil, "no-run", "k", nil, "Only prepare and build; do not launch the GUI"}
+        }
+    })
+task_end()
+
 task("gen_slang")
     on_run(function ()
         import("core.base.option")

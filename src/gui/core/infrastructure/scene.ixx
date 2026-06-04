@@ -473,6 +473,13 @@ public:
 		current_done_task_.store(nullptr, std::memory_order_relaxed);
 		current_done_task_.notify_one();
 
+		if(element_async_task_thread_.joinable()
+			&& element_async_task_thread_.get_id() != std::this_thread::get_id()){
+			element_async_task_thread_.join();
+		}
+		element_async_tasks_pending_.clear();
+		current_done_task_.store(nullptr, std::memory_order_relaxed);
+		exchange_scene_thread(*forked_scene_, std::this_thread::get_id());
 	}
 
 private:
@@ -741,6 +748,8 @@ protected:
 	~scene_base(){
 		native_gui_callbacks_->stop();
 		async_task_queue_ = nullptr;
+		input_communicate_async_task_queue_.clear();
+		instant_task_queue_.clear();
 		tooltip_manager_.clear();
 		overlay_manager_.clear();
 		collect_retired_elements();

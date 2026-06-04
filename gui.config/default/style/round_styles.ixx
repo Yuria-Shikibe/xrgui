@@ -26,7 +26,7 @@ import mo_yanxi.gui.style.tree.bounds;
 namespace mo_yanxi::gui::style::spec{
 export
 struct static_metrics{
-	gui::border value;
+	gui::border_t value;
 
 	style_tree_metrics operator()(const typed_style_tree_metrics_query_param<elem>& val) const noexcept{
 		return {
@@ -245,7 +245,7 @@ struct create_entry{
 	primitives::nine_patch_draw_entry edge;
 	primitives::nine_patch_draw_entry base;
 	primitives::nine_patch_draw_entry back;
-	gui::border border{gui::default_border};
+	gui::border_t border{gui::default_border};
 
 	[[nodiscard]] auto make_edge_only() const {
 		return tree_tuple_fork{
