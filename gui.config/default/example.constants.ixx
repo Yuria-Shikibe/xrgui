@@ -2,12 +2,12 @@
 // Created by Matrix on 2026/4/13.
 //
 
-export module mo_yanxi.gui.examples.default_config.constants;
+export module mo_yanxi.gui.cfg.builtin.constants;
 
 import std;
 import mo_yanxi.gui.fx.config;
 
-namespace mo_yanxi::gui::example{
+namespace mo_yanxi::gui::cfg::builtin{
 using pipeline_index = std::uint32_t;
 
 

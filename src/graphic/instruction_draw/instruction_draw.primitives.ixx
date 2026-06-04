@@ -4,9 +4,9 @@ module;
 #include <mo_yanxi/adapted_attributes.hpp>
 #include <mo_yanxi/enum_operator_gen.hpp>
 
-export module mo_yanxi.graphic.draw.instruction;
+export module mo_yanxi.graphic.g2d;
 
-export import mo_yanxi.graphic.draw.instruction.general;
+export import mo_yanxi.graphic.g2d.general;
 export import mo_yanxi.math.vector2;
 export import mo_yanxi.math.vector4;
 export import mo_yanxi.graphic.color;
@@ -15,7 +15,7 @@ export import mo_yanxi.hlsl_alias;
 import mo_yanxi.math;
 import std;
 
-namespace mo_yanxi::graphic::draw::instruction{
+namespace mo_yanxi::graphic::g2d{
 
 export union reciprocal_float {
 	std::uint32_t original_value;

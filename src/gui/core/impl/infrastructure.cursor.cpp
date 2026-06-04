@@ -2,9 +2,9 @@ module;
 
 module mo_yanxi.gui.infrastructure;
 
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.gui.fx.instruction_extension;
-import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.graphic.g2d.fringe;
 
 namespace mo_yanxi::gui{
  constexpr inline float fringe_range = 2.f;
@@ -26,7 +26,7 @@ namespace mo_yanxi::gui{
 }
 
 namespace assets::builtin::cursor{
-using namespace graphic::draw::instruction;
+using namespace graphic::g2d;
 
 struct drag_icon_layout {
 	std::array<vec2, 6> points;
@@ -79,7 +79,7 @@ rect default_cursor_arrow::draw(gui::renderer_frontend& renderer, math::raw_frec
 	region.src -= region.extent * .5f;
 
 	auto rst = style::calculate_rect_arrow(region.src, region.extent, direction);
-	fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
+	graphic::g2d::fringe::inplace_line_context<(7 + 4) * 2> context{};
 	context.push(rst.p1, 1.8f, graphic::colors::white);
 	context.push(rst.p2, 1.8f, graphic::colors::white);
 	context.push(rst.p3, 1.8f, graphic::colors::white);
@@ -104,7 +104,7 @@ rect default_cursor_drag::draw(gui::renderer_frontend& renderer, math::raw_frect
 	};
 	for (const auto & p : ps){
 		circle.pos = p;
-		renderer << fx::fringe::poly(circle, fringe_range);
+		renderer << graphic::g2d::fringe::poly(circle, fringe_range);
 	}
 
 	return get_bound(region);

@@ -6,10 +6,10 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.graphic.draw.instruction.batch.backend.vulkan;
+export module mo_yanxi.graphic.g2d.batch.backend.vulkan;
 
-export import mo_yanxi.graphic.draw.instruction.batch.common;
-export import mo_yanxi.graphic.draw.instruction.batch.frontend;
+export import mo_yanxi.graphic.g2d.batch.common;
+export import mo_yanxi.graphic.g2d.batch.frontend;
 import mo_yanxi.vk;
 import mo_yanxi.vk.cmd;
 import mo_yanxi.vk.sync_processor;
@@ -17,7 +17,7 @@ import mo_yanxi.vk.util;
 import mo_yanxi.type_register;
 import std;
 
-namespace mo_yanxi::graphic::draw::instruction{
+namespace mo_yanxi::graphic::g2d{
 
 export struct gpu_stride_config {
     std::size_t vertex_stride;
@@ -84,8 +84,8 @@ constexpr std::uint32_t max_sampler_descriptor_count = 256U;
 [[nodiscard]] FORCE_INLINE std::uint32_t pack_u16_pair(
 	const std::uint32_t low,
 	const std::uint32_t high) noexcept{
-	assert(mo_yanxi::graphic::draw::instruction::fits_packed_u16(low));
-	assert(mo_yanxi::graphic::draw::instruction::fits_packed_u16(high));
+	assert(mo_yanxi::graphic::g2d::fits_packed_u16(low));
+	assert(mo_yanxi::graphic::g2d::fits_packed_u16(high));
 	return (low & packed_u16_max) | ((high & packed_u16_max) << 16);
 }
 
@@ -362,7 +362,7 @@ struct instruction_resolve_info{
              }
              pre_total_vertices += head.payload.draw.vertex_count;
              pre_total_primitives += head.payload.draw.primitive_count;
-             if(mo_yanxi::graphic::draw::instruction::is_gpu_resolved_instruction(head.type)){
+             if(mo_yanxi::graphic::g2d::is_gpu_resolved_instruction(head.type)){
                 pre_gpu_vertices += head.payload.draw.vertex_count;
              }
           }
@@ -498,7 +498,7 @@ struct instruction_resolve_info{
                 const std::uint32_t gpu_resolve_begin = gpu_generated_vertices;
                 for(std::uint32_t local_vtx = 0; local_vtx < head_vtx_count; ++local_vtx){
                    vertex_resolve_info resolve_res{};
-                   resolve_res.packed_type_timeline = mo_yanxi::graphic::draw::instruction::pack_u16_pair(
+                   resolve_res.packed_type_timeline = mo_yanxi::graphic::g2d::pack_u16_pair(
                       std::to_underlying(gpu_type), relative_timeline);
                    resolve_res.payload_offset = gpu_payload_begin;
 
@@ -507,8 +507,8 @@ struct instruction_resolve_info{
                       prm_skip = group_primitives + local_vtx - 2;
                    }
 
-                   resolve_res.packed_skips = mo_yanxi::graphic::draw::instruction::pack_u16_pair(local_vtx, prm_skip);
-                   resolve_res.packed_dispatch_size = mo_yanxi::graphic::draw::instruction::pack_u16_pair(
+                   resolve_res.packed_skips = mo_yanxi::graphic::g2d::pack_u16_pair(local_vtx, prm_skip);
+                   resolve_res.packed_dispatch_size = mo_yanxi::graphic::g2d::pack_u16_pair(
                       static_cast<std::uint32_t>(i), head.payload_size);
                    resolve_res.global_vertex_index = global_vertex_begin + local_vtx;
                    thread_resolve_info[gpu_resolve_begin + local_vtx] = resolve_res;
@@ -516,8 +516,8 @@ struct instruction_resolve_info{
                 gpu_generated_vertices += head_vtx_count;
              } else{
                 generate_cpu_geometry(head, payload, global_vertex_begin, global_primitive_begin, absolute_timeline);
-                mo_yanxi::graphic::draw::instruction::append_geometry_copy_range(vertex_copy_ranges, global_vertex_begin, head_vtx_count);
-                mo_yanxi::graphic::draw::instruction::append_geometry_copy_range(primitive_copy_ranges, global_primitive_begin, head_prm_count);
+                mo_yanxi::graphic::g2d::append_geometry_copy_range(vertex_copy_ranges, global_vertex_begin, head_vtx_count);
+                mo_yanxi::graphic::g2d::append_geometry_copy_range(primitive_copy_ranges, global_primitive_begin, head_prm_count);
              }
 
              group_primitives += head_prm_count;
@@ -572,7 +572,7 @@ private:
        const float4& color,
        const math::vec2 uv,
        const std::uint32_t timeline_index) noexcept{
-       output_.vertices[global_vertex_index] = mo_yanxi::graphic::draw::instruction::make_resolved_vertex(position, depth, color, uv, timeline_index);
+       output_.vertices[global_vertex_index] = mo_yanxi::graphic::g2d::make_resolved_vertex(position, depth, color, uv, timeline_index);
     }
 
     void generate_cpu_geometry(
@@ -1324,7 +1324,7 @@ public:
 		barrier.apply(cmd);
 
 		copy_ranges_cache_.clear();
-		mo_yanxi::graphic::draw::instruction::append_vk_buffer_copy_ranges(
+		mo_yanxi::graphic::g2d::append_vk_buffer_copy_ranges(
 			copy_ranges_cache_, resolve_info.vertex_copy_ranges, stride_cfg_.vertex_stride);
 		if(!copy_ranges_cache_.empty()){
 			vkCmdCopyBuffer(
@@ -1336,7 +1336,7 @@ public:
 		}
 
 		copy_ranges_cache_.clear();
-		mo_yanxi::graphic::draw::instruction::append_vk_buffer_copy_ranges(
+		mo_yanxi::graphic::g2d::append_vk_buffer_copy_ranges(
 			copy_ranges_cache_, resolve_info.primitive_copy_ranges, sizeof(resolved_index_triangle));
 		if(!copy_ranges_cache_.empty()){
 			vkCmdCopyBuffer(
@@ -1348,7 +1348,7 @@ public:
 		}
 
 		copy_ranges_cache_.clear();
-		mo_yanxi::graphic::draw::instruction::append_vk_buffer_copy_ranges(
+		mo_yanxi::graphic::g2d::append_vk_buffer_copy_ranges(
 			copy_ranges_cache_, resolve_info.primitive_copy_ranges, stride_cfg_.primitive_stride);
 		if(!copy_ranges_cache_.empty()){
 			vkCmdCopyBuffer(

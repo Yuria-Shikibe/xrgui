@@ -5,7 +5,7 @@ module;
 module mo_yanxi.gui.compound.file_selector;
 
 import mo_yanxi.gui.fx.compound;
-import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.graphic.g2d.fringe;
 import mo_yanxi.math.interpolation;
 import mo_yanxi.gui.elem.table;
 import mo_yanxi.gui.elem.flipper;
@@ -154,7 +154,7 @@ public:
 			const float opacityScl = util::get_final_draw_opacity(s, p);
 
 			auto arrow = fx::compound::generate_centered_arrow(s.content_extent().fdim({4, 4}), 1.5f, 12);
-			fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
+			graphic::g2d::fringe::inplace_line_context<(7 + 4) * 2> context{};
 
 			// 从 anim_ 获取进度
 			float prog = s.rotate_animator.get_progress() | math::interp::smoother;
@@ -166,9 +166,9 @@ public:
 
 			context.add_cap();
 			context.add_fringe_cap();
-			s.renderer() << context.mid(graphic::draw::instruction::line_segments{});
-			s.renderer() << context.fringe_inner(graphic::draw::instruction::line_segments{});
-			s.renderer() << context.fringe_outer(graphic::draw::instruction::line_segments{});
+			s.renderer() << context.mid(graphic::g2d::line_segments{});
+			s.renderer() << context.fringe_inner(graphic::g2d::line_segments{});
+			s.renderer() << context.fringe_outer(graphic::g2d::line_segments{});
 		});
 	}
 };

@@ -2,7 +2,7 @@ module;
 
 #include <vulkan/vulkan.h>
 
-export module mo_yanxi.gui.default_config.round_styles;
+export module mo_yanxi.gui.cfg.builtin.round_styles;
 
 import std;
 
@@ -15,9 +15,9 @@ export import mo_yanxi.gui.elem.scroll_pane;
 export import mo_yanxi.gui.elem.slider;
 
 export import mo_yanxi.gui.image_regions;
-export import mo_yanxi.graphic.draw.instruction;
+export import mo_yanxi.graphic.g2d;
 export import mo_yanxi.gui.fx.instruction_extension;
-export import mo_yanxi.gui.fx.fringe;
+export import mo_yanxi.graphic.g2d.fringe;
 
 export import mo_yanxi.gui.style.tree;
 export import mo_yanxi.gui.style.tree.draw;
@@ -57,7 +57,7 @@ struct draw_round_scroll_bar : scroll_pane_bar_drawer{
 		state_guard _{element.renderer(), fx::batch_draw_mode::msdf};
 		each_scroll_rect(element, p->draw_bound, [&](math::raw_frect bar_rect, bool is_hori){
 			auto color = entry.bar_palette.on_instance(element).mul_a(p->opacity_scl);
-			using namespace graphic::draw::instruction;
+			using namespace graphic::g2d;
 			element.renderer() << fx::row_patch_draw{
 				.patch = &entry.bar_shape,
 				.region = bar_rect,
@@ -216,18 +216,18 @@ struct draw_thin_slider{
 				.patch = &entry.bar_shape,
 				.region = filled_rect,
 				.color = bar_color,
-				.flags = element.is_vertical() ? graphic::draw::instruction::row_patch_flags::transposed
-				                              : graphic::draw::instruction::row_patch_flags::none,
+				.flags = element.is_vertical() ? graphic::g2d::row_patch_flags::transposed
+				                              : graphic::g2d::row_patch_flags::none,
 			};
 		}
 
-		element.renderer() << fx::fringe::poly(fx::circle{
+		element.renderer() << graphic::g2d::fringe::poly(fx::circle{
 			.pos = region.src + curr_off,
 			.radius = {math::fdim(radius, 1.25f), radius + 1.25f},
 			.color = {color, color},
 		}, .7f);
 
-		element.renderer() << fx::fringe::poly(fx::circle{
+		element.renderer() << graphic::g2d::fringe::poly(fx::circle{
 			.pos = region.src + base_off,
 			.radius = {0, radius},
 			.color = {color, color},

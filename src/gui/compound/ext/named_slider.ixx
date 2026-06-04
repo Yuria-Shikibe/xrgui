@@ -15,8 +15,8 @@ export import mo_yanxi.gui.elem.scaling_stack;
 export import mo_yanxi.graphic.color;
 
 import mo_yanxi.gui.util.observable_value;
-import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.graphic.g2d;
+import mo_yanxi.graphic.g2d.fringe;
 
 namespace mo_yanxi::gui::cpd{
 

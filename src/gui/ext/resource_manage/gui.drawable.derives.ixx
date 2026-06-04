@@ -10,7 +10,7 @@ export module mo_yanxi.gui.region_drawable.derives;
 export import mo_yanxi.gui.region_drawable;
 
 
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import std;
 
 
@@ -125,7 +125,7 @@ drawable_canvas(Fn&& fn) -> drawable_canvas<std::decay_t<Fn>>;
 
 
 
-using namespace graphic::draw::instruction;
+using namespace graphic::g2d;
 
 
 
@@ -133,7 +133,7 @@ template <typename ... Components>
 void drawable_image<Components...>::draw(renderer_frontend& renderer, const math::raw_frect& region,
 	const graphic::color& color_scl) const{
 	const fx::primitive_draw_mode mode = components;
-	graphic::draw::quad_group<graphic::color> vcolor = components;
+	graphic::g2d::quad_group<graphic::color> vcolor = components;
 	vcolor *= color_scl;
 
 	[[maybe_unused]] state_guard guard{};
@@ -165,7 +165,7 @@ void icon<Components...>::draw(renderer_frontend& renderer, const math::raw_frec
 	if(!component::draw_switch(components))return;
 
 	const fx::primitive_draw_mode mode = components;
-	graphic::draw::quad_group<graphic::color> vcolor;
+	graphic::g2d::quad_group<graphic::color> vcolor;
 	vcolor = components;
 	vcolor *= color_scl;
 
@@ -195,7 +195,7 @@ template <typename ... Components>
 void drawable_row_patch<Components...>::draw(renderer_frontend& renderer, const math::raw_frect& region,
 	const graphic::color& color_scl) const{
 	const fx::primitive_draw_mode mode = components;
-	graphic::draw::quad_group<graphic::color> vcolor = components;
+	graphic::g2d::quad_group<graphic::color> vcolor = components;
 	vcolor *= color_scl;
 	[[maybe_unused]] state_guard guard{};
 
@@ -204,7 +204,7 @@ void drawable_row_patch<Components...>::draw(renderer_frontend& renderer, const 
 		guard = {renderer, bm};
 	}
 
-	renderer.push(graphic::draw::instruction::row_patch{
+	renderer.push(graphic::g2d::row_patch{
 		.generic = {
 			.image = image_region.texture_binding(),
 			.mode = {std::to_underlying(mode)},

@@ -2,7 +2,7 @@
 // Created by Matrix on 2026/5/1.
 //
 
-export module mo_yanxi.gui.examples.default_config.font_styles;
+export module mo_yanxi.gui.cfg.builtin.font_styles;
 
 import std;
 import mo_yanxi.font;
@@ -10,7 +10,7 @@ import mo_yanxi.font.manager;
 import mo_yanxi.font.plat;
 import mo_yanxi.graphic.image_atlas;
 
-namespace mo_yanxi::gui::example{
+namespace mo_yanxi::gui::cfg::builtin{
 export
 void init_font_manager(font::font_manager& font_manager, graphic::image_atlas& image_atlas){
 	font_manager.set_page(image_atlas.create_image_page("font"));

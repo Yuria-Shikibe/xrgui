@@ -50,7 +50,7 @@ import mo_yanxi.graphic.msdf;
 import align;
 
 import mo_yanxi.typesetting;
-import mo_yanxi.graphic.draw.instruction.recorder;
+import mo_yanxi.graphic.g2d.recorder;
 
 
 import mo_yanxi.gui.compound.color_picker;
@@ -60,7 +60,7 @@ import mo_yanxi.gui.compound.data_table;
 import mo_yanxi.gui.compound.click_collapser;
 import mo_yanxi.gui.compound.numeric_input_area;
 
-import mo_yanxi.gui.default_config.round_styles;
+import mo_yanxi.gui.cfg.builtin.round_styles;
 import mo_yanxi.gui.style.progress_bars;
 import mo_yanxi.gui.style.palette;
 
@@ -73,11 +73,11 @@ import mo_yanxi.celestial_display;
 import mo_yanxi.graphic.trail;
 import mo_yanxi.math.rand;
 
-import mo_yanxi.gui.examples.default_config.constants;
-import mo_yanxi.gui.default_config.scene;
+import mo_yanxi.gui.cfg.builtin.constants;
+import mo_yanxi.gui.cfg.builtin.scene;
 
 
-namespace mo_yanxi::gui::example{
+namespace mo_yanxi::gui::cfg::builtin{
 
 struct test_entry{
 	std::string name;
@@ -196,7 +196,7 @@ struct vp : gui::viewport{
 	celestial::planetary_system system;
 	std::vector<simulation_data::body_info> body_infos;
 
-	graphic::draw::instruction::draw_record_chunked_storage<mr::unvs_allocator<std::byte>> text_render_cache;
+	graphic::g2d::draw_record_chunked_storage<mr::unvs_allocator<std::byte>> text_render_cache;
 
 	double update_speed = 1.;
 	double update_time{};
@@ -238,7 +238,7 @@ struct vp : gui::viewport{
 				    } | std::views::enumerate){
 					if(!val.texture->view) continue;
 					auto start = math::fma(idx, spacing, line_src + val.aabb.src);
-					text_render_cache.push(graphic::draw::instruction::rect_aabb{
+					text_render_cache.push(graphic::g2d::rect_aabb{
 							.generic = {.image = val.texture->texture_binding()},
 							.v00 = start,
 							.v11 = start + val.aabb.extent(),
@@ -319,15 +319,15 @@ struct vp : gui::viewport{
 						return trail_node_data{n, factor_global, color};
 					}, [&](std::span<const trail_node_data, 4> sspn){
 						using namespace graphic;
-						using namespace graphic::draw;
+						using namespace graphic::g2d;
 
 						const auto appr = sspn[1].pos - sspn[2].pos;
 						const auto apprLen = appr.length();
 						const auto seg = math::clamp(
 							static_cast<unsigned>(apprLen / 16.f), 4U, 12U);
 
-						renderer().push(instruction::parametric_curve{
-								.param = instruction::curve_trait_mat::b_spline * (sspn |
+						renderer().push(parametric_curve{
+								.param = curve_trait_mat::b_spline * (sspn |
 									std::views::transform(
 										&trail_node_data::pos)),
 								.stroke = math::range{
@@ -354,7 +354,7 @@ struct vp : gui::viewport{
 					.radius = {0, render_radius * .75f},
 					.color = {col * 1.2f, col}
 				};
-			renderer() << fx::fringe::poly(c, (i == 0 ? 12 : fx::fringe::fringe_size) / camera.get_scale());
+			renderer() << graphic::g2d::fringe::poly(c, (i == 0 ? 12 : graphic::g2d::fringe::fringe_size) / camera.get_scale());
 		}
 
 		renderer().top_viewport().push_local_transform();
@@ -370,18 +370,18 @@ struct vp : gui::viewport{
 			auto scl = auto{math::mat3_idt}.from_scaling(body_infos[i].text_scale);
 			renderer().top_viewport().set_local_transform(mov * scl);
 			renderer().notify_viewport_changed();
-			renderer() << graphic::draw::batch_push(chunk.heads, chunk.data);
+			renderer() << graphic::g2d::batch_push(chunk.heads, chunk.data);
 		}
 		renderer().top_viewport().pop_local_transform();
 		renderer().notify_viewport_changed();
 	}
 
 	void draw_geom(){
-		float fringe_s = fx::fringe::fringe_size / camera.get_scale();
+		float fringe_s = graphic::g2d::fringe::fringe_size / camera.get_scale();
 
-		using namespace graphic::draw;
+		using namespace graphic::g2d;
 
-		instruction::poly my_circle{
+		poly my_circle{
 				.pos = {100.f, 100.f},
 				.segments = fx::get_smooth_circle_vertex_count(50.f, 1.0f),
 				.radius = {0.f, 50.f}, // 从中心 0.f 到边缘 50.f
@@ -390,9 +390,9 @@ struct vp : gui::viewport{
 
 		// 提交给 fringe 进行边缘抗锯齿绘制
 		// 假设 renderer() 返回 renderer_frontend 的引用
-		renderer() << fx::fringe::poly(my_circle, fringe_s);
+		renderer() << graphic::g2d::fringe::poly(my_circle, fringe_s);
 
-		instruction::poly_partial my_arc{
+		poly_partial my_arc{
 				.pos = {},
 				.segments = 32U,
 				.range = {0.2f, .5f}, // 0 到 Pi，表示半圆
@@ -403,13 +403,13 @@ struct vp : gui::viewport{
 				}
 			};
 
-		renderer() << fx::fringe::poly_partial_with_cap(my_arc, fringe_s, fringe_s, fringe_s);
+		renderer() << graphic::g2d::fringe::poly_partial_with_cap(my_arc, fringe_s, fringe_s, fringe_s);
 
 		{
 			state_guard _{renderer(), fx::blend::pma::additive};
 			for(unsigned i = 0; i < curve_points.size(); ++i){
-				renderer() << fx::fringe::curve(instruction::parametric_curve{
-						.param = instruction::curve_trait_mat::b_spline.apply_to(
+				renderer() << graphic::g2d::fringe::curve(parametric_curve{
+						.param = curve_trait_mat::b_spline.apply_to(
 							curve_points[i], curve_points[(i + 1) % curve_points.size()],
 							curve_points[(i + 2) % curve_points.size()],
 							curve_points[(i + 3) % curve_points.size()]),
@@ -433,7 +433,7 @@ struct vp : gui::viewport{
 			ctx.add_fringe_cap(fringe_s, fringe_s);
 
 			// 准备非闭合折线的指令头
-			instruction::line_segments line_head{};
+			line_segments line_head{};
 
 			// 依次提交主体、内侧边缘、外侧边缘
 			renderer() << ctx.mid(line_head);
@@ -441,7 +441,7 @@ struct vp : gui::viewport{
 			renderer() << ctx.fringe_outer(line_head, fringe_s);
 		}
 
-		renderer() << instruction::rect_aabb{
+		renderer() << rect_aabb{
 				.v00 = {-50, -50},
 				.v11 = {50, 50},
 				.vert_color = {graphic::colors::gray}
@@ -460,7 +460,7 @@ struct vp : gui::viewport{
 
 				auto region = s.camera.get_viewport();
 
-				s.renderer() << graphic::draw::instruction::rect_aabb{
+				s.renderer() << graphic::g2d::rect_aabb{
 						.v00 = region.vert_00(),
 						.v11 = region.vert_11(),
 						.vert_color = {graphic::colors::white}
@@ -479,7 +479,10 @@ struct vp : gui::viewport{
 };
 #pragma endregion
 
-ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend renderer){
+ui_outputs build_main_ui(
+	backend::vulkan::context& ctx,
+	renderer_frontend renderer,
+	window_thread_dispatcher& window_dispatcher){
 	auto& ui_root = global::manager;
 	auto& res = ui_root.add_scene_resources("main");
 	auto style_pal_prov = make_styles(res);
@@ -514,7 +517,9 @@ ui_outputs build_main_ui(backend::vulkan::context& ctx, renderer_frontend render
 			fx::blit_pipeline_config{}
 		};
 
-	scene.resources().set_native_communicator<backend::glfw::communicator>(ctx.window().get_handle());
+	scene.resources().set_native_communicator<backend::glfw::communicator>(
+		ctx.window().get_handle(),
+		window_dispatcher);
 	scene.get_communicator()->set_native_cursor_visibility(false);
 
 	auto e = scene.create<scaling_stack>();

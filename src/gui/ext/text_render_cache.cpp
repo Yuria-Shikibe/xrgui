@@ -1,17 +1,17 @@
 module mo_yanxi.gui.text_render;
 
 import mo_yanxi.gui.image_regions;
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.gui.fx.instruction_extension;
 
 
 namespace mo_yanxi::gui{
-void record_elems(graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
+void record_elems(graphic::g2d::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
                   const typesetting::glyph_layout_draw_only& glyph_layout,
                   typesetting::line_alignment line_align,
                   typesetting::layout_direction direction
 ){
-	using namespace mo_yanxi::graphic::draw::instruction;
+	using namespace mo_yanxi::graphic::g2d;
 
 	record_elems(glyph_layout, line_align, direction, [&](rect_aabb&& r){
 		buffer.push(r);
@@ -19,10 +19,10 @@ void record_elems(graphic::draw::instruction::draw_record_storage<mr::unvs_alloc
 }
 
 void record_glyph_draw_instructions(
-	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
+	graphic::g2d::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout& glyph_layout, typesetting::line_alignment line_align){
 	using namespace mo_yanxi::graphic;
-	using namespace mo_yanxi::graphic::draw::instruction;
+	using namespace mo_yanxi::graphic::g2d;
 
 	buffer.clear();
 	if(glyph_layout.lines.empty())return;
@@ -83,11 +83,11 @@ void record_glyph_draw_instructions(
 }
 
 void record_glyph_draw_instructions_draw_only(
-	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
+	graphic::g2d::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout_draw_only& glyph_layout,
 	typesetting::line_alignment line_align, typesetting::layout_direction direction){
 	using namespace mo_yanxi::graphic;
-	using namespace mo_yanxi::graphic::draw::instruction;
+	using namespace mo_yanxi::graphic::g2d;
 
 	buffer.clear();
 	buffer.reserve_heads(glyph_layout.elems.size());

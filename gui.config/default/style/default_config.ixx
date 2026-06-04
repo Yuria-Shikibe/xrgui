@@ -2,13 +2,13 @@ module;
 
 #include <cassert>
 
-export module mo_yanxi.gui.default_config.scene;
+export module mo_yanxi.gui.cfg.builtin.scene;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.image_regions;
 import mo_yanxi.graphic.image_atlas;
-import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.gui.default_config.assets;
+import mo_yanxi.graphic.g2d;
+import mo_yanxi.gui.cfg.builtin.assets;
 import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.style.palette;
 
@@ -17,7 +17,7 @@ import mo_yanxi.gui.elem.slider;
 import mo_yanxi.gui.elem.progress_bar;
 import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.style.tree.draw;
-import mo_yanxi.gui.default_config.round_styles;
+import mo_yanxi.gui.cfg.builtin.round_styles;
 
 import std;
 namespace mo_yanxi::gui{
@@ -95,7 +95,7 @@ public:
 }
 }
 
-namespace mo_yanxi::gui::example{
+namespace mo_yanxi::gui::cfg::builtin{
 export
 struct example_scene : scene{
 	fx::scene_render_pass_config pass_config{};
@@ -137,7 +137,7 @@ struct image_cursor : style::cursor{
 
 		region.expand({mo_yanxi::graphic::msdf::sdf_image_border + 6, mo_yanxi::graphic::msdf::sdf_image_border + 6});
 		state_guard g{renderer, gui::fx::batch_draw_mode::msdf};
-		renderer << graphic::draw::instruction::rect_aabb{
+		renderer << graphic::g2d::rect_aabb{
 				.generic = {.image = icon_region->texture_binding()},
 				.v00 = region.vert_00(),
 				.v11 = region.vert_11(),

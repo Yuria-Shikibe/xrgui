@@ -10,7 +10,7 @@ import std;
 export import mo_yanxi.gui.fx;
 export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.gui.image_regions;
-export import mo_yanxi.graphic.draw.instruction;
+export import mo_yanxi.graphic.g2d;
 export import mo_yanxi.graphic.color;
 
 namespace mo_yanxi::gui::fx{
@@ -21,7 +21,7 @@ struct circle{
 	math::range radius;
 	math::section<graphic::float4> color;
 
-	explicit(false) operator graphic::draw::instruction::poly() const noexcept{
+	explicit(false) operator graphic::g2d::poly() const noexcept{
 	 	return {
 	 		.pos = pos,
 			 .segments = (std::uint32_t)get_smooth_circle_vertex_count(radius.abs_max(), 1),
@@ -30,8 +30,8 @@ struct circle{
 	 	 };
 	 }
 
-	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
-		emit(sink, graphic::draw::instruction::poly(*this));
+	FORCE_INLINE void operator()(graphic::g2d::emit_t emit, auto& sink) const {
+		emit(sink, graphic::g2d::poly(*this));
 	}
 };
 
@@ -40,10 +40,10 @@ struct row_patch_draw{
 	const image_row_patch* patch;
 	math::raw_frect region;
 	graphic::color color;
-	graphic::draw::instruction::row_patch_flags flags;
+	graphic::g2d::row_patch_flags flags;
 
-	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
-		using namespace graphic::draw::instruction;
+	FORCE_INLINE void operator()(graphic::g2d::emit_t emit, auto& sink) const {
+		using namespace graphic::g2d;
 		assert(patch != nullptr);
 		emit(sink, row_patch{
 				.generic = {.image = patch->texture_binding()},
@@ -66,13 +66,13 @@ struct nine_patch_draw{
 	math::raw_frect region;
 	graphic::color color;
 
-	template <std::invocable<graphic::draw::instruction::row_patch&&> Fn>
+	template <std::invocable<graphic::g2d::row_patch&&> Fn>
 	FORCE_INLINE constexpr void for_each(Fn fn) const noexcept{
 		assert(patch != nullptr);
 		auto uvs = patch->get_row_uvs();
 		auto coords = std::invoke(getter, patch, region);
 		for(int i = 0; i < 3; ++i){
-			std::invoke(fn, graphic::draw::instruction::row_patch{
+			std::invoke(fn, graphic::g2d::row_patch{
 				.generic = {.image = patch->texture_binding()},
 				.coords = coords[i],
 				.uvs = uvs[i],
@@ -81,8 +81,8 @@ struct nine_patch_draw{
 		}
 	}
 
-	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
-		for_each([&] FORCE_INLINE (graphic::draw::instruction::row_patch&& patch){
+	FORCE_INLINE void operator()(graphic::g2d::emit_t emit, auto& sink) const {
+		for_each([&] FORCE_INLINE (graphic::g2d::row_patch&& patch){
 			emit(sink, patch);
 		});
 	}
@@ -101,14 +101,14 @@ struct nine_patch_hollow_draw{
 		auto uvs = patch->get_row_uvs();
 		auto coords = std::invoke(getter, patch, region);
 
-		std::invoke(fn, graphic::draw::instruction::row_patch{
+		std::invoke(fn, graphic::g2d::row_patch{
 			.generic = {.image = patch->texture_binding()},
 			.coords = coords[0],
 			.uvs = uvs[0],
 			.vert_color = {color}
 		});
 
-		std::invoke(fn, graphic::draw::instruction::rect_aabb{
+		std::invoke(fn, graphic::g2d::rect_aabb{
 			.generic = {.image = patch->texture_binding()},
 			.v00 = {coords[1][0], coords[1][4]},
 			.v11 = {coords[1][1], coords[1][5]},
@@ -117,7 +117,7 @@ struct nine_patch_hollow_draw{
 			.vert_color = {color}
 		});
 
-		std::invoke(fn, graphic::draw::instruction::rect_aabb{
+		std::invoke(fn, graphic::g2d::rect_aabb{
 			.generic = {.image = patch->texture_binding()},
 			.v00 = {coords[1][2], coords[1][4]},
 			.v11 = {coords[1][3], coords[1][5]},
@@ -126,7 +126,7 @@ struct nine_patch_hollow_draw{
 			.vert_color = {color}
 		});
 
-		std::invoke(fn, graphic::draw::instruction::row_patch{
+		std::invoke(fn, graphic::g2d::row_patch{
 			.generic = {.image = patch->texture_binding()},
 			.coords = coords[2],
 			.uvs = uvs[2],
@@ -134,7 +134,7 @@ struct nine_patch_hollow_draw{
 		});
 	}
 
-	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
+	FORCE_INLINE void operator()(graphic::g2d::emit_t emit, auto& sink) const {
 		for_each([&]<typename Instr> FORCE_INLINE (Instr&& patch){
 			emit(sink, std::forward<Instr>(patch));
 		});
@@ -146,9 +146,9 @@ export
 struct nine_patch_draw_vert_color{
 	const image_nine_region* patch;
 	math::raw_frect region;
-	graphic::draw::instruction::quad_vert_color color;
+	graphic::g2d::quad_vert_color color;
 
-	FORCE_INLINE void operator()(graphic::draw::emit_t emit, auto& sink) const {
+	FORCE_INLINE void operator()(graphic::g2d::emit_t emit, auto& sink) const {
 		assert(patch != nullptr);
 		auto& img_patch = *patch;
 		auto coords = img_patch.get_row_coords(region);
@@ -157,23 +157,23 @@ struct nine_patch_draw_vert_color{
 		auto [CLB, CLT] = img_patch.interpolate_middle_row_values(color.v00, color.v01, region.extent.y);
 		auto [CRB, CRT] = img_patch.interpolate_middle_row_values(color.v10, color.v11, region.extent.y);
 
-		emit(sink, graphic::draw::instruction::row_patch{
+		emit(sink, graphic::g2d::row_patch{
 			.generic = {.image = img_patch.texture_binding()},
 			.coords = coords[0],
 			.uvs = uvs[0],
-			.vert_color = graphic::draw::instruction::quad_vert_color{color.v00, color.v10, CLB, CRB}
+			.vert_color = graphic::g2d::quad_vert_color{color.v00, color.v10, CLB, CRB}
 		});
-		emit(sink, graphic::draw::instruction::row_patch{
+		emit(sink, graphic::g2d::row_patch{
 			.generic = {.image = img_patch.texture_binding()},
 			.coords = coords[1],
 			.uvs = uvs[1],
-			.vert_color = graphic::draw::instruction::quad_vert_color{CLB, CRB, CLT, CRT}
+			.vert_color = graphic::g2d::quad_vert_color{CLB, CRB, CLT, CRT}
 		});
-		emit(sink, graphic::draw::instruction::row_patch{
+		emit(sink, graphic::g2d::row_patch{
 			.generic = {.image = img_patch.texture_binding()},
 			.coords = coords[2],
 			.uvs = uvs[2],
-			.vert_color = graphic::draw::instruction::quad_vert_color{CLT, CRT, color.v01, color.v11}
+			.vert_color = graphic::g2d::quad_vert_color{CLT, CRT, color.v01, color.v11}
 		});
 	}
 };

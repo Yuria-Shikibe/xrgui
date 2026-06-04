@@ -2,14 +2,11 @@ module mo_yanxi.gui.elem.text_edit;
 
 import mo_yanxi.unicode;
 import mo_yanxi.math.matrix3;
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 
 namespace mo_yanxi::gui{
 bool text_edit::update(float delta_in_ticks){
 	if(!elem::update(delta_in_ticks)) return false;
-
-	check_paste_();
-
 
 	if(is_scrollable_mode()) {
 		if(!scroll_offset_.equals(target_scroll_offset_)) {
@@ -505,7 +502,7 @@ void text_edit::draw_selection_and_caret(float opacityScl) const{
 	if(!glyph_layout_.is_exhausted){
 		const auto color = graphic::colors::red_dusted.copy_set_a(.6f * opacityScl);
 
-		using namespace graphic::draw::instruction;
+		using namespace graphic::g2d;
 		auto& r = renderer();
 		auto b = content_bound_abs();
 
@@ -527,7 +524,7 @@ void text_edit::draw_selection_and_caret(float opacityScl) const{
 
 		if(!has_sel && !show_caret) return;
 
-		using namespace graphic::draw::instruction;
+		using namespace graphic::g2d;
 		auto& r = renderer();
 
 		const graphic::color selection_color = (is_failed()
@@ -749,47 +746,41 @@ void text_edit::set_focus(bool keyFocused){
 	}
 }
 
-void text_edit::check_paste_(){
-	if(get_clipboard_string_to_paste_.valid()){
-		auto s = get_clipboard_string_to_paste_.wait_for(std::chrono::milliseconds(10));
-		if(s == std::future_status::ready){
-			const auto str = get_clipboard_string_to_paste_.get();
-			auto rst = unicode::utf8_to_utf32(str);
+void text_edit::apply_paste_text(std::string text){
+	auto rst = unicode::utf8_to_utf32(text);
 
-			if(!filter_code_points.empty()){
-				const std::size_t original_size = rst.size();
+	if(!filter_code_points.empty()){
+		const std::size_t original_size = rst.size();
 
-				std::erase_if(rst, [this](char32_t ch){
-					return !is_character_allowed(ch);
-				});
+		std::erase_if(rst, [this](char32_t ch){
+			return !is_character_allowed(ch);
+		});
 
-				if(rst.empty()){
-					if(original_size > 0) set_input_invalid();
-					return;
-				}
+		if(rst.empty()){
+			if(original_size > 0) set_input_invalid();
+			return;
+		}
 
-				if(rst.size() < original_size){
-					set_input_invalid();
-				}
-			}
-
-			auto caret = core_.get_caret();
-			std::size_t sel_len = caret.has_region() ? caret.get_ordered().length() : 0;
-			std::size_t current_len = tokenized_text_.get_text().size();
-
-			if(current_len - sel_len + rst.size() > maximum_code_points_){
-				std::size_t allowed_len = maximum_code_points_ - (current_len - sel_len);
-				if(allowed_len == 0){
-					set_input_invalid();
-					return;
-				}
-				rst.resize(allowed_len);
-				set_input_invalid();
-			}
-
-			action_do_insert(std::u32string_view{rst.data(), rst.size()});
+		if(rst.size() < original_size){
+			set_input_invalid();
 		}
 	}
+
+	auto caret = core_.get_caret();
+	std::size_t sel_len = caret.has_region() ? caret.get_ordered().length() : 0;
+	std::size_t current_len = tokenized_text_.get_text().size();
+
+	if(current_len - sel_len + rst.size() > maximum_code_points_){
+		std::size_t allowed_len = maximum_code_points_ - (current_len - sel_len);
+		if(allowed_len == 0){
+			set_input_invalid();
+			return;
+		}
+		rst.resize(allowed_len);
+		set_input_invalid();
+	}
+
+	action_do_insert(std::u32string_view{rst.data(), rst.size()});
 }
 
 void text_edit::action_copy() const{
@@ -799,18 +790,14 @@ void text_edit::action_copy() const{
 
 	if(const auto cmt = get_scene().get_communicator()){
 		auto sel_u32 = tokenized_text_.get_text().substr(ordered.src, ordered.length());
-		get_scene().get_output_communicate_async_task_queue(0).post([&c = *cmt, t = unicode::utf32_to_utf8(sel_u32)]() mutable {
-			c.set_clipboard(std::move(t));
-		});
+		cmt->set_clipboard(unicode::utf32_to_utf8(sel_u32));
 	}
 }
 
 void text_edit::action_paste(){
 	if(const auto cmt = get_scene().get_communicator()){
-		std::promise<std::string> str{};
-		get_clipboard_string_to_paste_ = str.get_future();
-		get_scene().get_output_communicate_async_task_queue(0).post([&c = *cmt, p = std::move(str)]() mutable {
-			p.set_value(std::string{c.get_clipboard()});
+		cmt->request_clipboard(*this, [](text_edit& self, std::string text) {
+			self.apply_paste_text(std::move(text));
 		});
 	}
 }

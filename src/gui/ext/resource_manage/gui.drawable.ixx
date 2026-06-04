@@ -63,9 +63,9 @@ struct EMPTY_BASE draw_switch{
 export
 struct EMPTY_BASE vertex_color{
 
-	graphic::draw::quad_group<graphic::color> color;
+	graphic::g2d::quad_group<graphic::color> color;
 
-	[[nodiscard]] constexpr explicit(false) operator graphic::draw::quad_group<graphic::color>() const noexcept{
+	[[nodiscard]] constexpr explicit(false) operator graphic::g2d::quad_group<graphic::color>() const noexcept{
 		return color;
 	}
 
@@ -96,8 +96,8 @@ struct vtx_color_base{
 
 template <>
 struct vtx_color_base<true>{
-	[[nodiscard]] constexpr explicit(false) operator graphic::draw::quad_group<graphic::color>() const noexcept{
-		return graphic::draw::quad_group{graphic::colors::white};
+	[[nodiscard]] constexpr explicit(false) operator graphic::g2d::quad_group<graphic::color>() const noexcept{
+		return graphic::g2d::quad_group{graphic::colors::white};
 	}
 };
 

@@ -13,7 +13,7 @@ export import mo_yanxi.gui.elem.scroll_pane;
 export import mo_yanxi.font.manager;
 export import mo_yanxi.graphic.color;
 import mo_yanxi.unicode;
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.utility;
 import mo_yanxi.typesetting.util;
 
@@ -161,7 +161,7 @@ struct markdown_separator : elem {
 			auto mid_y = (bounds.vert_00().y + bounds.vert_11().y) * 0.5f;
 			auto color = s.line_color.copy().mul_a(util::get_final_draw_opacity(s, p));
 
-			s.renderer().push(graphic::draw::instruction::line{
+			s.renderer().push(graphic::g2d::line{
 				.src = {bounds.vert_00().x, mid_y},
 				.dst = {bounds.vert_11().x, mid_y},
 				.color = {color, color},
@@ -200,7 +200,7 @@ struct md_table : gui::grid {
 			renderer.update_state(fx::batch_draw_mode::def);
 
 			auto bg_color = cfg.table_bg_color.copy().mul_a(opacity);
-			renderer << graphic::draw::instruction::rect_aabb{
+			renderer << graphic::g2d::rect_aabb{
 				.v00 = content_origin,
 				.v11 = {content_right, content_bottom},
 				.vert_color = {bg_color}
@@ -254,13 +254,13 @@ struct md_table : gui::grid {
 
 			for(std::size_t r = 0; r < row_tops.size(); ++r) {
 				if(r == 0) {
-					renderer << graphic::draw::instruction::rect_aabb{
+					renderer << graphic::g2d::rect_aabb{
 						.v00 = {content_left, row_tops[r]},
 						.v11 = {content_right, row_bottoms[r]},
 						.vert_color = {header_color}
 					};
 				} else if((r & 1) == 0) {
-					renderer << graphic::draw::instruction::rect_aabb{
+					renderer << graphic::g2d::rect_aabb{
 						.v00 = {content_left, row_tops[r]},
 						.v11 = {content_right, row_bottoms[r]},
 						.vert_color = {even_color}
@@ -269,7 +269,7 @@ struct md_table : gui::grid {
 			}
 
 			for(float x : col_lines) {
-				renderer << graphic::draw::instruction::line{
+				renderer << graphic::g2d::line{
 					.src = {x, content_top},
 					.dst = {x, content_bottom},
 					.color = {grid_color, grid_color},
@@ -278,7 +278,7 @@ struct md_table : gui::grid {
 			}
 
 			for(float y : row_lines) {
-				renderer << graphic::draw::instruction::line{
+				renderer << graphic::g2d::line{
 					.src = {content_left, y},
 					.dst = {content_right, y},
 					.color = {grid_color, grid_color},
@@ -326,9 +326,9 @@ struct markdown_bullet : elem {
 				? math::range{radius - stroke, radius}
 				: math::range{0.f, radius};
 
-			s.renderer().push(graphic::draw::instruction::poly{
+			s.renderer().push(graphic::g2d::poly{
 				.pos = center,
-				.segments = graphic::draw::instruction::get_circle_vertices(radius),
+				.segments = graphic::g2d::get_circle_vertices(radius),
 				.radius = radius_range,
 				.color = {color, color}
 			});

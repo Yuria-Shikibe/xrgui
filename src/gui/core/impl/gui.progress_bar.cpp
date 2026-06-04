@@ -1,7 +1,7 @@
 module mo_yanxi.gui.elem.progress_bar;
 
-import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.graphic.g2d;
+import mo_yanxi.graphic.g2d.fringe;
 
 namespace mo_yanxi::gui{
 
@@ -115,7 +115,7 @@ void style::progress_drawer_flat::operator()(const typed_draw_param<progress_bar
 
 		auto prog = element.progress.get_current();
 
-		element.get_scene().renderer().push(draw::instruction::rect_aabb{
+		element.get_scene().renderer().push(graphic::g2d::rect_aabb{
 			.v00 = region.vert_00(),
 			.v11 = region.vert_00() + region.extent().mul_x(prog),
 			.vert_color = {
@@ -148,7 +148,7 @@ void style::progress_drawer_arc::operator()(const typed_draw_param<progress_bar>
 	const auto cap_size = math::curve(prog, 0.f, 0.05f);
 
 
-	element.get_scene().renderer().push(draw::instruction::rect_aabb_outline{
+	element.get_scene().renderer().push(graphic::g2d::rect_aabb_outline{
 		.v00 = off,
 		.v11 = off + extent,
 		.stroke = {2},
@@ -162,7 +162,7 @@ void style::progress_drawer_arc::operator()(const typed_draw_param<progress_bar>
 	auto count = GetSmoothCircleVertexCount(radius, math::abs(prog * angle_range.extent), .35f);
 
 	if(prog == 1.f && angle_range.extent >= 1.f){
-		element.renderer() << fx::fringe::poly(draw::instruction::poly{
+		element.renderer() << graphic::g2d::fringe::poly(graphic::g2d::poly{
 			.pos = center + off,
 			.segments = count,
 			.initial_angle = angle_range.base,
@@ -174,7 +174,7 @@ void style::progress_drawer_arc::operator()(const typed_draw_param<progress_bar>
 		return;
 	}
 
-	element.renderer() << fx::fringe::poly_partial_with_cap(draw::instruction::poly_partial{
+	element.renderer() << graphic::g2d::fringe::poly_partial_with_cap(graphic::g2d::poly_partial{
 			.pos = center + off,
 			.segments = count,
 			.range = {angle_range.base, angle_range.extent * prog},

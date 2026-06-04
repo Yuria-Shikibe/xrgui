@@ -2,12 +2,12 @@
 
 //
 
-export module mo_yanxi.gui.default_config.assets;
+export module mo_yanxi.gui.cfg.builtin.assets;
 
 import mo_yanxi.graphic.image_atlas;
 import std;
 
-namespace mo_yanxi::gui::example{
+namespace mo_yanxi::gui::cfg::builtin{
 
 export
 void generate_default_shapes(graphic::image_atlas& image_atlas);

@@ -1,8 +1,8 @@
 module mo_yanxi.gui.elem.label;
 
 import mo_yanxi.gui.renderer.frontend;
-import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.graphic.draw.instruction.general;
+import mo_yanxi.graphic.g2d;
+import mo_yanxi.graphic.g2d.general;
 import mo_yanxi.math.matrix3;
 import mo_yanxi.math.vector2;
 import mo_yanxi.math;

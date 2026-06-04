@@ -9,7 +9,7 @@ export import mo_yanxi.gui.infrastructure;
 
 import mo_yanxi.gui.util.animator;
 import mo_yanxi.gui.fx.compound;
-import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.graphic.g2d.fringe;
 import mo_yanxi.math;
 import mo_yanxi.math.interpolation;
 
@@ -22,7 +22,7 @@ struct arrow_elem_config{
 };
 
 void draw_arrow(const fx::compound::arrow_info& arrow, float angle, const elem& s, float opacityScl){
-	fx::fringe::inplace_line_context<(7 + 4) * 2> context{};
+	graphic::g2d::fringe::inplace_line_context<(7 + 4) * 2> context{};
 
 	auto [cos, sin] = math::cos_sin(angle);
 	for(auto vertex : arrow.vertices){
@@ -32,9 +32,9 @@ void draw_arrow(const fx::compound::arrow_info& arrow, float angle, const elem& 
 
 	context.add_cap();
 	context.add_fringe_cap();
-	s.renderer() << context.mid(graphic::draw::instruction::line_segments{});
-	s.renderer() << context.fringe_inner(graphic::draw::instruction::line_segments{});
-	s.renderer() << context.fringe_outer(graphic::draw::instruction::line_segments{});
+	s.renderer() << context.mid(graphic::g2d::line_segments{});
+	s.renderer() << context.fringe_inner(graphic::g2d::line_segments{});
+	s.renderer() << context.fringe_outer(graphic::g2d::line_segments{});
 }
 
 export

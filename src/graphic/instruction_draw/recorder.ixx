@@ -2,14 +2,14 @@
 
 //
 
-export module mo_yanxi.graphic.draw.instruction.recorder;
+export module mo_yanxi.graphic.g2d.recorder;
 
 import std;
-import mo_yanxi.graphic.draw.instruction.general;
+import mo_yanxi.graphic.g2d.general;
 import mo_yanxi.user_data_entry;
 import mo_yanxi.type_register;
 
-namespace mo_yanxi::graphic::draw::instruction {
+namespace mo_yanxi::graphic::g2d {
 
 export
 template <typename Alloc = std::allocator<std::byte>>
@@ -53,14 +53,14 @@ public:
 
     template <known_instruction Instr>
     void push(const Instr& instr) {
-        heads_.push_back(instruction::make_instruction_head(instr));
+        heads_.push_back(make_instruction_head(instr));
         this->push_bytes(instr);
     }
 
 	template <known_instruction Instr, typename... Args>
 		requires (sizeof...(Args) > 0 && valid_consequent_argument<Instr, Args...>)
 	void push(const Instr& instr, const Args&... args) {
-		heads_.push_back(instruction::make_instruction_head(instr, args...));
+		heads_.push_back(make_instruction_head(instr, args...));
 		this->push_bytes(instr);
 		([&] {
 			if constexpr (std::ranges::contiguous_range<Args>) {
@@ -83,7 +83,7 @@ public:
 	}
 
 	void operator()(emit_t, auto& sink) const {
-		draw::emit(sink, batch_push(heads(), data()));
+		emit(sink, batch_push(heads(), data()));
 	}
 
     std::span<const instruction_head> heads() const noexcept {
@@ -107,13 +107,13 @@ struct instr_chunk {
     std::span<const std::byte> data;
 
 	void operator()(emit_t, auto& sink) const {
-		draw::emit(sink, batch_push(heads, data));
+		emit(sink, batch_push(heads, data));
 	}
 };
 
 export
 template <typename Alloc = std::allocator<std::byte>>
-struct draw_record_chunked_storage : graphic::draw::emit_stream_sink<draw_record_chunked_storage<Alloc>> {
+struct draw_record_chunked_storage : graphic::g2d::emit_stream_sink<draw_record_chunked_storage<Alloc>> {
 private:
     draw_record_storage<Alloc> storage_{};
 

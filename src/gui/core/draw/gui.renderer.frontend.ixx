@@ -11,8 +11,8 @@ export import mo_yanxi.gui.renderer.abi;
 export import mo_yanxi.gui.fx.config;
 
 
-export import mo_yanxi.graphic.draw.instruction.general;
-export import mo_yanxi.graphic.draw.instruction.batch.common;
+export import mo_yanxi.graphic.g2d.general;
+export import mo_yanxi.graphic.g2d.batch.common;
 export import mo_yanxi.user_data_entry;
 import mo_yanxi.binary_trace;
 
@@ -142,17 +142,17 @@ export
 struct state_guard;
 
 export
-struct renderer_frontend : graphic::draw::emit_stream_sink<renderer_frontend>{
+struct renderer_frontend : graphic::g2d::emit_stream_sink<renderer_frontend>{
 	friend state_guard;
 
 private:
-	using user_table_type = graphic::draw::data_layout_table<mr::vector<graphic::draw::data_layout_type_aware_entry>>;
+	using user_table_type = graphic::g2d::data_layout_table<mr::vector<graphic::g2d::data_layout_type_aware_entry>>;
 
 	//TODO change it to a pointer-index look up table
 	user_table_type table_vertex_only_{};
 	user_table_type table_general_{};
 
-	graphic::draw::instruction::batch_backend_interface batch_backend_interface_{};
+	graphic::g2d::batch_backend_interface batch_backend_interface_{};
 	math::frect region_{};
 
 	color_stack color_stack_{};
@@ -170,9 +170,9 @@ public:
 
 	template <typename A1, typename A2>
 	[[nodiscard]] explicit renderer_frontend(
-		const graphic::draw::data_layout_table<A1>& user_data_table_vertex_only,
-		const graphic::draw::data_layout_table<A2>& user_data_table_general,
-		const graphic::draw::instruction::batch_backend_interface& batch_backend_interface)
+		const graphic::g2d::data_layout_table<A1>& user_data_table_vertex_only,
+		const graphic::g2d::data_layout_table<A2>& user_data_table_general,
+		const graphic::g2d::batch_backend_interface& batch_backend_interface)
 		: table_vertex_only_(user_data_table_vertex_only, user_table_type::allocator_type{})
 		, table_general_(user_data_table_general, user_table_type::allocator_type{})
 		, batch_backend_interface_(batch_backend_interface){
@@ -209,12 +209,12 @@ public:
 	template <typename Instr>
 		requires std::is_trivially_copyable_v<Instr>
 	void push(const Instr& instr){
-		using namespace graphic::draw;
+		using namespace graphic::g2d;
 
-		if constexpr (graphic::draw::instruction::known_meta_instruction<Instr, renderer_frontend>){
+		if constexpr (graphic::g2d::known_meta_instruction<Instr, renderer_frontend>){
 			std::invoke(instr, *this);
-		}else if constexpr(instruction::known_instruction<Instr>){
-			batch_backend_interface_.push(instruction::make_instruction_head(instr),
+		}else if constexpr(known_instruction<Instr>){
+			batch_backend_interface_.push(make_instruction_head(instr),
 				reinterpret_cast<const std::byte*>(&instr));
 		} else{
 			static constexpr type_identity_index tidx = unstable_type_identity_of<Instr>();
@@ -237,20 +237,20 @@ public:
 				}
 			}
 
-			const auto head = instruction::instruction_head{
-					.type = instruction::instr_type::uniform_update,
-					.payload_size = static_cast<std::uint32_t>(instruction::get_payload_size<Instr>()),
-					.payload = {.ubo = instruction::user_data_indices{idx, !vtx_only}}
+			const auto head = instruction_head{
+					.type = instr_type::uniform_update,
+					.payload_size = static_cast<std::uint32_t>(get_payload_size<Instr>()),
+					.payload = {.ubo = user_data_indices{idx, !vtx_only}}
 				};
 			batch_backend_interface_.push(head, reinterpret_cast<const std::byte*>(&instr));
 		}
 	}
 
-	template <graphic::draw::instruction::known_instruction Instr, typename... Args>
+	template <graphic::g2d::known_instruction Instr, typename... Args>
 	void push(const Instr& instr, const Args&... args){
 		static_assert(sizeof...(args) > 0);
-		using namespace graphic::draw;
-		const auto instr_size = instruction::get_payload_size<Instr, Args...>(args...);
+		using namespace graphic::g2d;
+		const auto instr_size = get_payload_size<Instr, Args...>(args...);
 
 		alignas(16) alignas(Instr) alignas(Args...) std::byte buffer_[sizeof(Instr) + (math::align_up(sizeof(Args), 16) + ... + 32)];
 		std::byte* pbuffer;
@@ -267,7 +267,7 @@ public:
 		}
 
 
-		const auto head = instruction::place_instruction_at(pbuffer, instr, args...);
+		const auto head = place_instruction_at(pbuffer, instr, args...);
 		batch_backend_interface_.push(head, pbuffer);
 	}
 
@@ -278,7 +278,7 @@ private:
 		const std::span<const std::byte> payload,
 		binary_diff_trace::tag tag,
 		unsigned offset){
-		using namespace graphic::draw;
+		using namespace graphic::g2d;
 
 		batch_backend_interface_.update_state(config, tag, payload, offset);
 	}
@@ -289,7 +289,7 @@ public:
 		const std::span<const std::byte> data_span,
 		binary_diff_trace::tag tag,
 		unsigned offset = 0){
-		using namespace graphic::draw;
+		using namespace graphic::g2d;
 
 		if(config.to_clear.any()){
 			state_trace_.clear_mask(config.to_clear);
@@ -306,7 +306,7 @@ public:
 	void update_state(
 		const T& state,
 		unsigned offset = 0){
-		using namespace graphic::draw;
+		using namespace graphic::g2d;
 
 		const fx::state_push_config config = state;
 		const fx::binary_diff_tag tag = state;
@@ -359,8 +359,8 @@ public:
 		const Instr& instr,
 		binary_diff_trace::tag tag,
 		unsigned offset = 0){
-		using namespace graphic::draw;
-		static_assert(!instruction::known_instruction<Instr>);
+		using namespace graphic::g2d;
+		static_assert(!known_instruction<Instr>);
 
 		this->update_state(config, std::span{
 				reinterpret_cast<const std::byte*>(std::addressof(instr)),
@@ -395,25 +395,25 @@ public:
 		this->update_state({}, mode, fx::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
 	}
 
-	void push(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
+	void push(const std::span<const graphic::g2d::instruction_head> heads, const std::byte* payload){
 		batch_backend_interface_.push(heads, payload);
 	}
 
-	template <graphic::draw::instruction::known_instruction Instr>
+	template <graphic::g2d::known_instruction Instr>
 	void operator()(const Instr& instr){
 		this->push(instr);
 	}
 
-	template <graphic::draw::instruction::known_instruction Instr, typename... Args>
+	template <graphic::g2d::known_instruction Instr, typename... Args>
 	void operator()(const Instr& instr, const Args&... args){
 		this->push(instr, args...);
 	}
 
-	void operator()(const std::span<const graphic::draw::instruction::instruction_head> heads, const std::byte* payload){
+	void operator()(const std::span<const graphic::g2d::instruction_head> heads, const std::byte* payload){
 		push(heads, payload);
 	}
 
-	template <graphic::draw::instruction::known_meta_instruction<renderer_frontend> T>
+	template <graphic::g2d::known_meta_instruction<renderer_frontend> T>
 	friend renderer_frontend& operator<<(renderer_frontend& renderer, const T& instr){
 		renderer.push(instr);
 		return renderer;
@@ -696,7 +696,7 @@ public:
 	[[nodiscard]] state_guard() = default;
 
 	[[nodiscard]] state_guard(renderer_frontend& renderer,
-		const std::span<const std::byte> data, const graphic::draw::instruction::state_tag tag, unsigned offset = 0) :
+		const std::span<const std::byte> data, const graphic::g2d::state_tag tag, unsigned offset = 0) :
 		guard_base(renderer), tag_(tag), fix_(renderer.state_trace_.load_tag(tag)){
 		renderer.update_state(fx::state_push_config{
 				.commit_mode = fx::state_commit_mode::accumulate,
@@ -707,7 +707,7 @@ public:
 	template <typename T>
 		requires (std::is_trivially_copyable_v<T>)
 	[[nodiscard]] state_guard(renderer_frontend& renderer,
-		const T& value, const graphic::draw::instruction::state_tag tag, unsigned offset = 0) :
+		const T& value, const graphic::g2d::state_tag tag, unsigned offset = 0) :
 		state_guard(renderer, std::span{
 				reinterpret_cast<const std::byte*>(std::addressof(value)),
 				sizeof(T)

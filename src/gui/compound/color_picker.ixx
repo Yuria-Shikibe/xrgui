@@ -18,9 +18,9 @@ import mo_yanxi.gui.compound.numeric_input_area;
 
 
 import mo_yanxi.gui.util.observable_value;
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.gui.layout.policies;
-import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.graphic.g2d.fringe;
 
 namespace mo_yanxi::gui{
 export
@@ -34,7 +34,7 @@ struct slider_gradient_drawer{
 		if(p.immut_args.layer.is_top()){
 			auto srca = src.copy().mul_a(p->opacity_scl);
 			auto dsta = dst.copy().mul_a(p->opacity_scl);
-			p.subject().renderer() << graphic::draw::instruction::rect_aabb{
+			p.subject().renderer() << graphic::g2d::rect_aabb{
 					.v00 = p->draw_bound.get_src(),
 					.v11 = p->draw_bound.get_end(),
 					.vert_color = {srca, dsta, srca, dsta}
@@ -54,7 +54,7 @@ struct hue_gradient_drawer final {
 			auto region = p->draw_bound;
 			float opacityScl = p->opacity_scl;
 			static constexpr int segs_size = 128;
-			fx::fringe::inplace_line_context<segs_size + 4> context{};
+			graphic::g2d::fringe::inplace_line_context<segs_size + 4> context{};
 
 			float math::vec2::* major;
 			float math::vec2::* minor;
@@ -83,7 +83,7 @@ struct hue_gradient_drawer final {
 			}
 
 			context.add_cap(0.1, 0.1);
-			element.renderer() << context.mid(graphic::draw::instruction::line_segments{});
+			element.renderer() << context.mid(graphic::g2d::line_segments{});
 		}
 
 		style::draw_slider1d_default{}(p);
@@ -98,12 +98,12 @@ struct alpha_gradient_drawer {
 			const auto& element = p.subject();
 			auto region = p->draw_bound;
 
-			using namespace graphic::draw;
+			using namespace graphic::g2d;
 
 			constexpr auto color_base = graphic::colors::light_gray.create_lerp(graphic::colors::gray, .75f);
 			constexpr auto color_front = graphic::colors::gray.create_lerp(graphic::colors::dark_gray, .75f);
 
-			element.renderer().push(instruction::rect_aabb{
+			element.renderer().push(rect_aabb{
 					.v00 = region.vert_00(),
 					.v11 = region.vert_11(),
 					.vert_color = {color_base}
@@ -118,7 +118,7 @@ struct alpha_gradient_drawer {
 				});
 
 			if(element.is_vertical()){
-				element.renderer().push(instruction::rect_aabb{
+				element.renderer().push(rect_aabb{
 						.generic = {.mode = std::to_underlying(fx::primitive_draw_mode::draw_slide_line)},
 						.v00 = region.vert_00(),
 						.v11 = region.vert_11(),
@@ -128,7 +128,7 @@ struct alpha_gradient_drawer {
 						}
 					});
 
-				element.renderer().push(instruction::rect_aabb{
+				element.renderer().push(rect_aabb{
 						.v00 = region.vert_00(),
 						.v11 = region.vert_11(),
 						.vert_color = {
@@ -137,7 +137,7 @@ struct alpha_gradient_drawer {
 						}
 					});
 			} else{
-				element.renderer().push(instruction::rect_aabb{
+				element.renderer().push(rect_aabb{
 						.generic = {.mode = std::to_underlying(fx::primitive_draw_mode::draw_slide_line)},
 						.v00 = region.vert_00(),
 						.v11 = region.vert_11(),
@@ -147,7 +147,7 @@ struct alpha_gradient_drawer {
 						}
 					});
 
-				element.renderer().push(instruction::rect_aabb{
+				element.renderer().push(rect_aabb{
 						.v00 = region.vert_00(),
 						.v11 = region.vert_11(),
 						.vert_color = {
@@ -226,7 +226,7 @@ private:
 
 
 				using namespace graphic;
-				using namespace graphic::draw::instruction;
+				using namespace graphic::g2d;
 
 
 				auto hue = s.get_picker().hsv_.h;
@@ -296,8 +296,8 @@ private:
 							};
 
 					r << instr1;
-					r << fx::fringe::poly_fringe_at_to(instr1, 1.f);
-					r << fx::fringe::poly(poly{
+					r << graphic::g2d::fringe::poly_fringe_at_to(instr1, 1.f);
+					r << graphic::g2d::fringe::poly(poly{
 					                 .pos = pos,
 					                 .segments = 12u + (expand ? 4u : 0u),
 					                 .radius = {radius - .25f, radius + .25f},

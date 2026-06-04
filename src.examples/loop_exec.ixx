@@ -4,10 +4,10 @@
 
 export module mo_yanxi.gui.examples.loop_exec;
 
-import mo_yanxi.gui.default_config.main_loop;
+import mo_yanxi.gui.cfg.builtin.main_loop;
 import mo_yanxi.graphic.trail;
 
-namespace mo_yanxi::gui::example{
+namespace mo_yanxi::gui::cfg::builtin{
 export
 struct main_loop_payload{
 	graphic::uniformed_trail trail{60, .75f};

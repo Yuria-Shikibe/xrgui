@@ -1,11 +1,11 @@
-module mo_yanxi.gui.default_config.scene;
+module mo_yanxi.gui.cfg.builtin.scene;
 
-import mo_yanxi.gui.examples.default_config.constants;
+import mo_yanxi.gui.cfg.builtin.constants;
 import mo_yanxi.gui.md_builder;
 import mo_yanxi.gui.style.elem_style_draw_primitives;
 import mo_yanxi.gui.style.tree.bounds;
 
-void mo_yanxi::gui::example::set_cursors(scene& scene){
+void mo_yanxi::gui::cfg::builtin::set_cursors(scene& scene){
 	auto& cm = scene.resources().cursor_collection_manager;
 
 	cm.add_cursor<assets::builtin::cursor::default_cursor_regular>(style::cursor_type::regular);
@@ -23,7 +23,7 @@ void mo_yanxi::gui::example::set_cursors(scene& scene){
 	                                                             style::cursor_arrow_direction::down);
 }
 
-mo_yanxi::gui::example::make_style_result mo_yanxi::gui::example::make_styles(scene_resources& scene){
+mo_yanxi::gui::cfg::builtin::make_style_result mo_yanxi::gui::cfg::builtin::make_styles(scene_resources& scene){
 	auto pal_front_distributor_ptr = react_flow::node_pointer(react_flow::provider_cached<style::palette>{});
 	auto pal_back_distributor_ptr = react_flow::node_pointer(react_flow::provider_cached<style::palette>{});
 
@@ -174,7 +174,7 @@ mo_yanxi::gui::example::make_style_result mo_yanxi::gui::example::make_styles(sc
 	return {std::move(pal_front_distributor_ptr), std::move(pal_back_distributor_ptr)};
 }
 
-namespace mo_yanxi::gui::example{
+namespace mo_yanxi::gui::cfg::builtin{
 
 #pragma region Scene
 void example_scene::draw_at(math::frect clipspace, draw_call_stack& call_stack){

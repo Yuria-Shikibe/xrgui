@@ -8,10 +8,10 @@ module;
 #endif
 
 
-export module mo_yanxi.gui.fx.fringe;
+export module mo_yanxi.graphic.g2d.fringe;
 
 export import mo_yanxi.gui.renderer.frontend;
-export import mo_yanxi.graphic.draw.instruction;
+export import mo_yanxi.graphic.g2d;
 
 import mo_yanxi.byte_pool;
 
@@ -22,8 +22,8 @@ import <beman/inplace_vector.hpp>;
 #endif
 
 
-namespace mo_yanxi::gui::fx::fringe{
-using namespace mo_yanxi::graphic::draw;
+namespace mo_yanxi::graphic::g2d::fringe{
+using namespace mo_yanxi::graphic::g2d;
 
 template <std::floating_point T>
 FORCE_INLINE CONST_FN bool is_draw_meaningful(T f) noexcept{
@@ -49,8 +49,8 @@ enum struct stroke_band : bool{
 	outer,
 };
 
-[[nodiscard]] FORCE_INLINE instruction::poly make_poly_fringe_instr(
-	const instruction::poly& instr,
+[[nodiscard]] FORCE_INLINE poly make_poly_fringe_instr(
+	const poly& instr,
 	float fringe,
 	edge_position edge
 ) noexcept{
@@ -67,8 +67,8 @@ enum struct stroke_band : bool{
 	return fringe_instr;
 }
 
-[[nodiscard]] FORCE_INLINE instruction::poly_partial make_poly_partial_fringe_instr(
-	const instruction::poly_partial& instr,
+[[nodiscard]] FORCE_INLINE poly_partial make_poly_partial_fringe_instr(
+	const poly_partial& instr,
 	float fringe,
 	edge_position edge
 ) noexcept{
@@ -87,8 +87,8 @@ enum struct stroke_band : bool{
 	return fringe_instr;
 }
 
-[[nodiscard]] FORCE_INLINE instruction::poly_partial make_poly_partial_cap_instr(
-	const instruction::poly_partial& instr,
+[[nodiscard]] FORCE_INLINE poly_partial make_poly_partial_cap_instr(
+	const poly_partial& instr,
 	float cap_fringe,
 	edge_position edge
 ) noexcept{
@@ -112,8 +112,8 @@ enum struct stroke_band : bool{
 	return cap_instr;
 }
 
-[[nodiscard]] FORCE_INLINE instruction::parametric_curve make_curve_fringe_instr(
-	const instruction::parametric_curve& instr,
+[[nodiscard]] FORCE_INLINE parametric_curve make_curve_fringe_instr(
+	const parametric_curve& instr,
 	float fringe,
 	stroke_band band
 ) noexcept{
@@ -138,7 +138,7 @@ enum struct stroke_band : bool{
 
 export
 struct poly_fringe_at_from_draw{
-	instruction::poly instr;
+	poly instr;
 	float fringe = fringe_size;
 
 	FORCE_INLINE void operator()(emit_t emit, auto& sink) const {
@@ -148,7 +148,7 @@ struct poly_fringe_at_from_draw{
 
 export
 struct poly_fringe_at_to_draw{
-	instruction::poly instr;
+	poly instr;
 	float fringe = fringe_size;
 
 	void operator()(emit_t emit, auto& sink) const {
@@ -158,7 +158,7 @@ struct poly_fringe_at_to_draw{
 
 export
 struct poly_fringe_only_draw{
-	instruction::poly instr;
+	poly instr;
 	float fringe = fringe_size;
 
 	void operator()(emit_t emit, auto& sink) const {
@@ -174,7 +174,7 @@ struct poly_fringe_only_draw{
 
 export
 struct poly_draw{
-	instruction::poly instr;
+	poly instr;
 	float fringe = fringe_size;
 
 	void operator()(emit_t emit, auto& sink) const {
@@ -185,7 +185,7 @@ struct poly_draw{
 
 export
 struct poly_partial_draw{
-	instruction::poly_partial instr;
+	poly_partial instr;
 	float fringe = fringe_size;
 
 	void operator()(emit_t emit, auto& sink) const {
@@ -203,7 +203,7 @@ struct poly_partial_draw{
 
 export
 struct poly_partial_with_cap_draw{
-	instruction::poly_partial instr;
+	poly_partial instr;
 	float src_cap_fringe = fringe_size;
 	float dst_cap_fringe = fringe_size;
 	float fringe = fringe_size;
@@ -223,7 +223,7 @@ struct poly_partial_with_cap_draw{
 
 export
 struct curve_draw{
-	instruction::parametric_curve instr;
+	parametric_curve instr;
 	float fringe = fringe_size;
 
 	void operator()(emit_t emit, auto& sink) const {
@@ -237,7 +237,7 @@ template <typename Sink>
 FORCE_INLINE void emit_curve_cap(
 	emit_t emit,
 	Sink& sink,
-	const instruction::parametric_curve& instr,
+	const parametric_curve& instr,
 	float cap_length,
 	float fringe,
 	edge_position edge
@@ -277,7 +277,7 @@ FORCE_INLINE void emit_curve_cap(
 
 export
 struct curve_with_cap_draw{
-	instruction::parametric_curve instr;
+	parametric_curve instr;
 	float cap_length_src = fringe_size;
 	float cap_length_dst = fringe_size;
 	float fringe = fringe_size;
@@ -293,43 +293,43 @@ struct curve_with_cap_draw{
 };
 
 export
-FORCE_INLINE auto poly_fringe_at_from(const instruction::poly& instr, float fringe = fringe_size){
-	return poly_fringe_at_from_draw{instr, fringe};
+FORCE_INLINE auto poly_fringe_at_from(const mo_yanxi::graphic::g2d::poly& instr, float fringe_width = fringe_size){
+	return poly_fringe_at_from_draw{instr, fringe_width};
 }
 
 export
-FORCE_INLINE auto poly_fringe_at_to(const instruction::poly& instr, float fringe = fringe_size){
-	return poly_fringe_at_to_draw{instr, fringe};
+FORCE_INLINE auto poly_fringe_at_to(const mo_yanxi::graphic::g2d::poly& instr, float fringe_width = fringe_size){
+	return poly_fringe_at_to_draw{instr, fringe_width};
 }
 
 export
-FORCE_INLINE auto poly_fringe_only(const instruction::poly& instr, float fringe = fringe_size){
-	return poly_fringe_only_draw{instr, fringe};
+FORCE_INLINE auto poly_fringe_only(const mo_yanxi::graphic::g2d::poly& instr, float fringe_width = fringe_size){
+	return poly_fringe_only_draw{instr, fringe_width};
 }
 
 export
-FORCE_INLINE auto poly(const instruction::poly& instr, float fringe = fringe_size){
-	return poly_draw{instr, fringe};
+FORCE_INLINE auto poly(const mo_yanxi::graphic::g2d::poly& instr, float fringe_width = fringe_size){
+	return poly_draw{instr, fringe_width};
 }
 
 export
-FORCE_INLINE auto poly_partial(const instruction::poly_partial& instr, float fringe = fringe_size){
-	return poly_partial_draw{instr, fringe};
+FORCE_INLINE auto poly_partial(const mo_yanxi::graphic::g2d::poly_partial& instr, float fringe_width = fringe_size){
+	return poly_partial_draw{instr, fringe_width};
 }
 
 export
-FORCE_INLINE auto poly_partial_with_cap(const instruction::poly_partial& instr, float src_cap_fringe = fringe_size, float dst_cap_fringe = fringe_size, float fringe = fringe_size){
-	return poly_partial_with_cap_draw{instr, src_cap_fringe, dst_cap_fringe, fringe};
+FORCE_INLINE auto poly_partial_with_cap(const mo_yanxi::graphic::g2d::poly_partial& instr, float src_cap_fringe = fringe_size, float dst_cap_fringe = fringe_size, float fringe_width = fringe_size){
+	return poly_partial_with_cap_draw{instr, src_cap_fringe, dst_cap_fringe, fringe_width};
 }
 
 export
-FORCE_INLINE auto curve(const instruction::parametric_curve& instr, float fringe = fringe_size){
-	return curve_draw{instr, fringe};
+FORCE_INLINE auto curve(const mo_yanxi::graphic::g2d::parametric_curve& instr, float fringe_width = fringe_size){
+	return curve_draw{instr, fringe_width};
 }
 
 export
-FORCE_INLINE auto curve_with_cap(const instruction::parametric_curve& instr, float cap_length_src = fringe_size, float cap_length_dst = fringe_size, float fringe = fringe_size){
-	return curve_with_cap_draw{instr, cap_length_src, cap_length_dst, fringe};
+FORCE_INLINE auto curve_with_cap(const mo_yanxi::graphic::g2d::parametric_curve& instr, float cap_length_src = fringe_size, float cap_length_dst = fringe_size, float fringe_width = fringe_size){
+	return curve_with_cap_draw{instr, cap_length_src, cap_length_dst, fringe_width};
 }
 
 template <typename T>
@@ -416,14 +416,14 @@ public:
 		resize(0);
 	}
 
-	FORCE_INLINE void push(const instruction::line_node& node){
+	FORCE_INLINE void push(const line_node& node){
 		const auto current_idx = size();
 		resize(current_idx + 1);
 
 		data()[current_idx] = node;
 	}
 
-	FORCE_INLINE std::span<const instruction::line_node> get_nodes() const noexcept{
+	FORCE_INLINE std::span<const line_node> get_nodes() const noexcept{
 		return buf_;
 	}
 
@@ -431,14 +431,14 @@ public:
 		push({pos, stroke, 0, {color, color}});
 	}
 
-	FORCE_INLINE instruction::line_node& add_cap_src(float stroke){
+	FORCE_INLINE line_node& add_cap_src(float stroke){
 		const auto sz = size();
 
 		resize(sz + 2);
 
 		auto* ptr = data();
 
-		std::memmove(ptr + 2, ptr, sz * sizeof(instruction::line_node));
+		std::memmove(ptr + 2, ptr, sz * sizeof(line_node));
 
 
 
@@ -447,7 +447,7 @@ public:
 		return patch_cap_src(tan_front);
 	}
 
-	FORCE_INLINE instruction::line_node& add_cap_dst(float stroke){
+	FORCE_INLINE line_node& add_cap_dst(float stroke){
 		const auto sz = size();
 		resize(sz + 2);
 
@@ -459,7 +459,7 @@ public:
 		return patch_cap_dst(tan_back, sz);
 	}
 
-	FORCE_INLINE math::section<instruction::line_node&> add_cap(float cap_src, float cap_dst) noexcept {
+	FORCE_INLINE math::section<line_node&> add_cap(float cap_src, float cap_dst) noexcept {
 		const auto sz = size();
 
 		resize(sz + 4);
@@ -474,7 +474,7 @@ public:
 
 
 
-		std::memmove(ptr + 2, ptr, sz * sizeof(instruction::line_node));
+		std::memmove(ptr + 2, ptr, sz * sizeof(line_node));
 
 
 		const auto tan_front = vec_front.set_length(cap_src);
@@ -491,24 +491,24 @@ public:
 		return {src_node, dst_node};
 	}
 
-	FORCE_INLINE math::section<instruction::line_node&> add_cap() noexcept {
+	FORCE_INLINE math::section<line_node&> add_cap() noexcept {
 		 return this->add_cap(front().stroke / 2.f, back().stroke / 2.f);
 	}
 
 	FORCE_INLINE void add_fringe_cap_src(float cap_stroke){
-		using namespace instruction;
+		
 		auto& node = add_cap_src(cap_stroke);
 		node.color.invoke(&graphic::color::set_a, 0);
 	}
 
 	FORCE_INLINE void add_fringe_cap_dst(float cap_stroke){
-		using namespace instruction;
+		
 		auto& node = add_cap_dst(cap_stroke);
 		node.color.invoke(&graphic::color::set_a, 0);
 	}
 
 	FORCE_INLINE void add_fringe_cap(float cap_stroke_src = fringe_size, float cap_stroke_dst = fringe_size){
-		using namespace graphic::draw::instruction;
+		using namespace graphic::g2d;
 		auto [src, dst] = add_cap(cap_stroke_src, cap_stroke_dst);
 		src.color.invoke(&graphic::color::set_a, 0);
 		dst.color.invoke(&graphic::color::set_a, 0);
@@ -518,11 +518,11 @@ public:
 		return std::ranges::size(buf_);
 	}
 
-	FORCE_INLINE instruction::line_node* data() noexcept{
+	FORCE_INLINE line_node* data() noexcept{
 		return std::ranges::data(buf_);
 	}
 
-	FORCE_INLINE const instruction::line_node* data() const noexcept{
+	FORCE_INLINE const line_node* data() const noexcept{
 		return std::ranges::data(buf_);
 	}
 
@@ -582,7 +582,7 @@ private:
 		resize(element_count);
 	}
 
-	instruction::line_node& patch_cap_src(math::vec2 mov) noexcept{
+	line_node& patch_cap_src(math::vec2 mov) noexcept{
 		auto* ptr = data();
 		ptr[1] = ptr[2];
 		ptr[1].pos += mov;
@@ -591,7 +591,7 @@ private:
 		return ptr[1];
 	}
 
-	instruction::line_node& patch_cap_dst(math::vec2 mov, std::size_t base_idx) noexcept{
+	line_node& patch_cap_dst(math::vec2 mov, std::size_t base_idx) noexcept{
 		auto* ptr = data();
 
 		ptr[base_idx] = ptr[base_idx - 1];
@@ -610,6 +610,6 @@ private:
 
 export
 template <std::size_t N>
-using inplace_line_context = line_context<beman::inplace_vector::inplace_vector<instruction::line_node, N>>;
+using inplace_line_context = line_context<beman::inplace_vector::inplace_vector<line_node, N>>;
 
 }

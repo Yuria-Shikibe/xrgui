@@ -12,8 +12,8 @@ import mo_yanxi.typesetting;
 import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.text_render;
 
-import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.graphic.draw.instruction.recorder;
+import mo_yanxi.graphic.g2d;
+import mo_yanxi.graphic.g2d.recorder;
 
 import mo_yanxi.snap_shot;
 import mo_yanxi.math.vector2;
@@ -30,7 +30,7 @@ struct data_table_config{
 export
 struct data_table_desc{
 private:
-	using instr_recorder = graphic::draw::instruction::draw_record_chunked_storage<mr::unvs_allocator<std::byte>>;
+	using instr_recorder = graphic::g2d::draw_record_chunked_storage<mr::unvs_allocator<std::byte>>;
 
 	struct entry{
 		mr::string data{};
@@ -61,7 +61,7 @@ private:
 
 		void record_instructions(instr_recorder& buffer){
 			using namespace mo_yanxi::graphic;
-			using namespace mo_yanxi::graphic::draw::instruction;
+			using namespace mo_yanxi::graphic::g2d;
 
 			for(const auto& current_line : glyph_layout.lines){
 				auto [line_src, spacing] = current_line.calculate_alignment(
@@ -217,7 +217,7 @@ public:
     math::vec2 current_offset{};
 
     {
-       using namespace graphic::draw::instruction;
+       using namespace graphic::g2d;
 
        renderer.update_state(fx::batch_draw_mode::def);
 

@@ -11,9 +11,9 @@ export import mo_yanxi.gui.style.tree;
 export import mo_yanxi.gui.style.palette;
 export import mo_yanxi.gui.fx.instruction_extension;
 import mo_yanxi.gui.infrastructure;
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.gui.fx.compound;
-import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.graphic.g2d.fringe;
 
 namespace mo_yanxi::gui::style::primitives{
 
@@ -36,7 +36,7 @@ struct draw_debug_frame{
 
 		auto cregion = element.clip_to_content_bound(region);
 
-		element.renderer().push(graphic::draw::instruction::rect_aabb_outline{
+		element.renderer().push(graphic::g2d::rect_aabb_outline{
 			.v00 = cregion.vert_00(),
 			.v11 = cregion.vert_11(),
 			.stroke = 1,
@@ -44,7 +44,7 @@ struct draw_debug_frame{
 		});
 
 		using namespace graphic;
-		using namespace graphic::draw::instruction;
+		using namespace graphic::g2d;
 		color c = colors::gray;
 		if(element.cursor_state().focused){
 			c = colors::white;
@@ -58,7 +58,7 @@ struct draw_debug_frame{
 
 		float light = (element.is_toggled() ? 1.6f : 1.f) * (element.is_disabled() ? .5f : 1.f);
 
-		draw::quad_group vc{
+		graphic::g2d::quad_group vc{
 			c.mul_a(opacityScl).set_light(light),
 			c.create_lerp(colors::ACID.to_light(2), f1).mul_a(opacityScl).set_light(light),
 			c.create_lerp(colors::ORANGE.to_light(2), f2).mul_a(opacityScl).set_light(light),
@@ -88,7 +88,7 @@ struct draw_debug_frame{
 
 			auto seg = math::rect::get_closest_vertex_pair(region, hit_region);
 
-			fx::fringe::inplace_line_context<12> ctx{};
+			graphic::g2d::fringe::inplace_line_context<12> ctx{};
 
 			fx::compound::dash_line(seg, {8.0, 6.0, 24.0, 6.0}, [&](math::section<math::vec2> s){
 				ctx.push(s.from, 1, colors::LIME.copy().set_a(.8f));
@@ -116,7 +116,7 @@ struct draw_debug_background{
 		auto region = p->draw_bound;
 		float opacityScl = p->opacity_scl;
 
-		p.subject().renderer().push(draw::instruction::rect_aabb{
+		p.subject().renderer().push(graphic::g2d::rect_aabb{
 				.v00 = region.vert_00(),
 				.v11 = region.vert_11(),
 				.vert_color = {colors::dark_gray.create_lerp({0, 0, 0, 1}, .85f).copy().mul_a(opacityScl)}
@@ -133,7 +133,7 @@ struct draw_filled_rect{
 		const elem& e = p.subject();
 		auto color = pal.on_instance(e).mul_a(p->opacity_scl);
 		auto region = p->draw_bound;
-		e.renderer().push(graphic::draw::instruction::rect_aabb{
+		e.renderer().push(graphic::g2d::rect_aabb{
 			.v00 = region.vert_00(),
 			.v11 = region.vert_11(),
 			.vert_color = {color}

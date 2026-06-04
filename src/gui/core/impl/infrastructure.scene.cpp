@@ -397,6 +397,7 @@ void scene_base::update_cursor_type(){
 
 void scene_base::update(double delta_in_tick){
 	assert(is_on_scene_thread(*this));
+	native_gui_callbacks_->consume();
 	input_communicate_async_task_queue_.consume(static_cast<scene&>(*this));
 
 	react_flow_.update();

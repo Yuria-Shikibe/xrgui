@@ -191,6 +191,52 @@ scene.layout();
 scene.draw();
 ```
 
+### GUI 与窗口线程的 native 通信
+
+GUI 元素不能直接访问 `GLFWwindow*`、剪贴板、IME 或系统光标等窗口线程对象。需要通过
+`native_communicator` 发起请求，由窗口线程的 `window_thread_dispatcher` 执行真正的 native
+调用；需要返回结果的请求再通过 owner-bound GUI 回调投回元素。
+
+GUI 侧 API 用法：
+
+```cpp
+// fire-and-forget：GUI 线程可直接调用，实际 GLFW/Win32 调用会投递到窗口线程
+scene.get_communicator()->set_clipboard(text);
+scene.get_communicator()->set_native_cursor_visibility(false);
+scene.get_communicator()->set_ime_cursor_rect(caret_rect);
+
+// 需要结果：提供 owner 元素和回调，不阻塞 GUI 线程
+scene.get_communicator()->request_clipboard(my_edit, [](my_text_edit& self, std::string text) {
+    self.apply_clipboard_text(std::move(text));
+});
+```
+
+回调以元素作为 owner 绑定。若元素在窗口线程完成请求前已被移除，回调会在 GUI 线程消费时被丢弃，不会访问已销毁控件。回调中不要捕获裸 `elem*` 或控件 `this`，需要访问控件时使用回调参数中的 owner 引用。
+
+窗口线程需要做三件事：
+
+```cpp
+// 1. 创建 communicator 时传入窗口句柄和窗口线程 dispatcher
+scene.resources().set_native_communicator<backend::glfw::communicator>(
+    ctx.window().get_handle(),
+    main_loop.get_window_dispatcher());
+
+// 2. 每帧在放行 GUI 前 drain dispatcher，处理上一帧 GUI 发出的 native 请求
+ctx.window().poll_events();
+main_loop.get_window_dispatcher().drain();
+
+// ...更新应用状态、准备渲染请求...
+
+main_loop.get_window_dispatcher().drain();
+main_loop.permit_burst();
+
+// 3. GUI 完成后再 drain 一次，降低 native 请求延迟
+main_loop.wait_term();
+main_loop.get_window_dispatcher().drain();
+```
+
+所有 GLFW/Win32 实际调用点都应断言运行在窗口线程。不要在 GUI 线程同步等待窗口线程结果；需要结果的 API 应使用 owner-bound 回调。
+
 **异步任务**：在GUI线程之外执行耗时操作：
 
 ```cpp
@@ -834,9 +880,9 @@ r << fx::rect_aabb{
 抗锯齿 (Fringe)：
 
 ```cpp
-rx << fx::fringe::poly(my_circle, fringe_size);
-rx << fx::fringe::poly_partial_with_cap(my_arc, cap_s, edge_s, edge_s);
-rx << fx::fringe::curve(curve);
+rx << graphic::g2d::fringe::poly(my_circle, fringe_size);
+rx << graphic::g2d::fringe::poly_partial_with_cap(my_arc, cap_s, edge_s, edge_s);
+rx << graphic::g2d::fringe::curve(curve);
 ```
 
 ### 合成器 (Compositor)

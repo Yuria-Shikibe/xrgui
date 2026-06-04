@@ -9,19 +9,19 @@ module;
 #endif
 
 
-export module mo_yanxi.graphic.draw.instruction.batch.frontend;
+export module mo_yanxi.graphic.g2d.batch.frontend;
 
-export import mo_yanxi.graphic.draw.instruction.batch.common;
-export import mo_yanxi.graphic.draw.instruction.general;
-export import mo_yanxi.graphic.draw.instruction.state_tracker;
+export import mo_yanxi.graphic.g2d.batch.common;
+export import mo_yanxi.graphic.g2d.general;
+export import mo_yanxi.graphic.g2d.state_tracker;
 export import mo_yanxi.vk.record_context;
-export import mo_yanxi.graphic.draw.instruction;
+export import mo_yanxi.graphic.g2d;
 export import mo_yanxi.user_data_entry;
 
 import mo_yanxi.type_register;
 import std;
 
-namespace mo_yanxi::graphic::draw::instruction{
+namespace mo_yanxi::graphic::g2d{
 inline void check_size(std::size_t size){
 	if(size % 16 != 0){
 		throw std::invalid_argument("instruction size must be a multiple of 16");
@@ -259,7 +259,7 @@ public:
 		assert(current_group);
 
 		check_size(instr_head.payload_size);
-		assert(std::to_underlying(instr_head.type) < std::to_underlying(instruction::instr_type::SIZE));
+		assert(std::to_underlying(instr_head.type) < std::to_underlying(instr_type::SIZE));
 
 		if(instr_head.type == instr_type::uniform_update){
 			push_uniform_update_(instr_head, instr);
@@ -298,7 +298,7 @@ public:
 
 
 				check_size(head.payload_size);
-				assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
+				assert(std::to_underlying(head.type) < std::to_underlying(instr_type::SIZE));
 
 				try_push_(head, cur_payload);
 				cur_payload += head.payload_size;

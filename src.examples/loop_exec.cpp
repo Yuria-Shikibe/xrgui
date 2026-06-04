@@ -1,16 +1,16 @@
 module mo_yanxi.gui.examples.loop_exec;
 
-import mo_yanxi.gui.examples.default_config.constants;
+import mo_yanxi.gui.cfg.builtin.constants;
 import mo_yanxi.gui.global;
 import mo_yanxi.math.rand;
 import std;
 
 import mo_yanxi.gui.fx.instruction_extension;
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.math.interpolation;
 
 
-void mo_yanxi::gui::example::main_loop_fn(struct main_loop<main_loop_payload>& main_loop){
+void mo_yanxi::gui::cfg::builtin::main_loop_fn(struct main_loop<main_loop_payload>& main_loop){
 	auto& current_focus = main_loop.get_scene();
 	auto deltatime = global::consume_current_input(current_focus, [&](input_handle::input_event_variant e){
 		main_loop.unhandled_events.push(e);
@@ -45,7 +45,7 @@ void mo_yanxi::gui::example::main_loop_fn(struct main_loop<main_loop_payload>& m
 	// current_focus.draw();
 
 	if(true){
-		using namespace graphic::draw::instruction;
+		using namespace graphic::g2d;
 		constexpr float size = 80;
 
 		const auto [X_count, Y_count] = (r.get_region().extent() / size).ceil().as<int>();
@@ -249,7 +249,7 @@ void mo_yanxi::gui::example::main_loop_fn(struct main_loop<main_loop_payload>& m
 					              };
 			              }, [&](std::span<const trail_node_data, 4> sspn){
 				              using namespace graphic;
-				              using namespace graphic::draw;
+				              using namespace graphic::g2d;
 
 				              const auto appr = sspn[1].pos - sspn[2].pos;
 				              const auto apprLen = appr.length();
@@ -298,7 +298,7 @@ void mo_yanxi::gui::example::main_loop_fn(struct main_loop<main_loop_payload>& m
 				              return trail_node_data{n, factor_global, color};
 			              }, [&](std::span<const trail_node_data, 4> sspn){
 				              using namespace graphic;
-				              using namespace graphic::draw;
+				              using namespace graphic::g2d;
 
 				              const auto appr = sspn[1].pos - sspn[2].pos;
 				              const auto apprLen = appr.length();

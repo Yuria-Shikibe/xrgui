@@ -6,8 +6,8 @@ export module mo_yanxi.gui.style.progress_bars;
 
 import std;
 import mo_yanxi.gui.elem.progress_bar;
-import mo_yanxi.graphic.draw.instruction;
-import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.graphic.g2d;
+import mo_yanxi.graphic.g2d.fringe;
 import mo_yanxi.gui.fx.instruction_extension;
 
 namespace mo_yanxi::gui::style{
@@ -89,7 +89,7 @@ struct ring_progress {
 
 
 	if (state != progress_state::rough && prog >= 1.0f) {
-		element.renderer() << fx::fringe::poly(draw::instruction::poly{
+		element.renderer() << graphic::g2d::fringe::poly(graphic::g2d::poly{
 			.pos = center,
 			.segments = count,
 			.initial_angle = start_angle,
@@ -102,7 +102,7 @@ struct ring_progress {
 	}
 
 
-	element.renderer() << fx::fringe::poly_partial_with_cap(draw::instruction::poly_partial{
+	element.renderer() << graphic::g2d::fringe::poly_partial_with_cap(graphic::g2d::poly_partial{
 			.pos = center,
 			.segments = count,
 			.range = {start_angle, sweep_angle},

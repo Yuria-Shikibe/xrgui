@@ -8,23 +8,23 @@ import std;
 
 export import mo_yanxi.typesetting;
 
-import mo_yanxi.graphic.draw.instruction.recorder;
+import mo_yanxi.graphic.g2d.recorder;
 import mo_yanxi.graphic.color;
 import mo_yanxi.gui.renderer.frontend;
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.gui.alloc;
 import mo_yanxi.gui.util;
 import align;
 
 namespace mo_yanxi::gui {
 export
-template <std::invocable<graphic::draw::instruction::rect_aabb&&> Fn>
+template <std::invocable<graphic::g2d::rect_aabb&&> Fn>
 void record_elems(
 	const typesetting::glyph_layout_draw_only& glyph_layout,
 	typesetting::line_alignment line_align, typesetting::layout_direction direction,
 	Fn&& fn
 ){
-	using namespace mo_yanxi::graphic::draw::instruction;
+	using namespace mo_yanxi::graphic::g2d;
 
 	for(const auto& current_line : glyph_layout.lines){
 		auto [line_src, spacing] = current_line.calculate_alignment(glyph_layout.extent, line_align,
@@ -53,25 +53,25 @@ void record_elems(
 }
 
 void record_glyph_draw_instructions(
-	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
+	graphic::g2d::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout& glyph_layout,
 	typesetting::line_alignment line_align
 );
 
 void record_glyph_draw_instructions_draw_only(
-	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
+	graphic::g2d::draw_record_storage<mr::unvs_allocator<std::byte>>& buffer,
 	const typesetting::glyph_layout_draw_only& glyph_layout,
 	typesetting::line_alignment line_align, typesetting::layout_direction direction
 );
 
 template <typename Alloc>
-void push(renderer_frontend& r, const graphic::draw::instruction::draw_record_storage<Alloc>& buf){
+void push(renderer_frontend& r, const graphic::g2d::draw_record_storage<Alloc>& buf){
 	r << buf;
 }
 
 export struct text_render_cache {
 private:
-	graphic::draw::instruction::draw_record_storage<mr::unvs_allocator<std::byte>> draw_instr_buffer_{};
+	graphic::g2d::draw_record_storage<mr::unvs_allocator<std::byte>> draw_instr_buffer_{};
 	typesetting::line_alignment line_align_{};
 
 public:
@@ -100,7 +100,7 @@ public:
 		record_glyph_draw_instructions_draw_only(draw_instr_buffer_, layout, line_align_, direction);
 	}
 
-	void operator()(graphic::draw::emit_t emit, auto& sink) const {
+	void operator()(graphic::g2d::emit_t emit, auto& sink) const {
 		emit(sink, draw_instr_buffer_);
 	}
 

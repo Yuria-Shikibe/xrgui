@@ -248,11 +248,13 @@ private:
 	float propagate_opacity_{1.f};
 	float inherent_opacity_{1.f};
 	altitude_t layer_altitude_{};
+	std::shared_ptr<void> lifetime_token_{std::make_shared<int>(0)};
 
 public:
 	unsigned _debug_identity{};
 
 	virtual ~elem(){
+		lifetime_token_.reset();
 		scene_->decr_ref_count_();
 		clear_scene_references();
 	}
@@ -899,6 +901,10 @@ public:
 
 	[[nodiscard]] FORCE_INLINE inline scene& get_scene() const noexcept{
 		return *scene_;
+	}
+
+	[[nodiscard]] std::weak_ptr<void> weak_lifetime_token() const noexcept{
+		return lifetime_token_;
 	}
 
 	[[nodiscard]] FORCE_INLINE inline elem* parent() const noexcept{

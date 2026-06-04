@@ -3,14 +3,14 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.graphic.draw.instruction.batch.common;
+export module mo_yanxi.graphic.g2d.batch.common;
 
-export import mo_yanxi.graphic.draw.instruction.general;
+export import mo_yanxi.graphic.g2d.general;
 export import mo_yanxi.binary_trace;
 
 import std;
 
-namespace mo_yanxi::graphic::draw::instruction{
+namespace mo_yanxi::graphic::g2d{
 
 /**
  * @brief GPU端 Storage Buffer 中每个 Dispatch Group 的元数据布局
@@ -333,7 +333,7 @@ public:
 		const instruction_head& head, const std::byte* data,
 		PrimitiveRemainFn fn_get_primitive_count = {}
 		){
-		assert(std::to_underlying(head.type) < std::to_underlying(instruction::instr_type::SIZE));
+		assert(std::to_underlying(head.type) < std::to_underlying(instr_type::SIZE));
 		const std::size_t instruction_offset = ptr_to_head - instruction_buffer_.data();
 		if(head.payload_size){
 			assert(data != nullptr);

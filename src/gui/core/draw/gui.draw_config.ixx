@@ -14,15 +14,15 @@ export module mo_yanxi.gui.fx.config;
 import std;
 
 import mo_yanxi.binary_trace;
-import mo_yanxi.graphic.draw.instruction.general;
+import mo_yanxi.graphic.g2d.general;
 import mo_yanxi.math.rect_ortho;
 
 namespace mo_yanxi::gui::fx{
-export using state_push_config = graphic::draw::instruction::state_push_config;
-export using state_commit_mode = graphic::draw::instruction::state_commit_mode;
-export using state_boundary_mode = graphic::draw::instruction::state_boundary_mode;
+export using state_push_config = graphic::g2d::state_push_config;
+export using state_commit_mode = graphic::g2d::state_commit_mode;
+export using state_boundary_mode = graphic::g2d::state_boundary_mode;
 export using binary_diff_tag = binary_diff_trace::tag;
-export using graphic::draw::instruction::make_state_tag;
+export using graphic::g2d::make_state_tag;
 
 export
 template <typename T>
@@ -269,7 +269,7 @@ struct push_mask{
 		return {
 			.commit_mode = state_commit_mode::emit_delta,
 			.boundary_mode = state_boundary_mode::force_section_break,
-			.depth_op = graphic::draw::instruction::depth_op_type::incr
+			.depth_op = graphic::g2d::depth_op_type::incr
 		};
 	}
 
@@ -298,7 +298,7 @@ struct pop_mask{
 		return {
 			.commit_mode = state_commit_mode::emit_delta,
 			.boundary_mode = state_boundary_mode::force_section_break,
-			.depth_op = graphic::draw::instruction::depth_op_type::decr
+			.depth_op = graphic::g2d::depth_op_type::decr
 		};
 	}
 

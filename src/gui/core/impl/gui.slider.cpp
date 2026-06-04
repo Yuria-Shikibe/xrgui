@@ -1,6 +1,6 @@
 module mo_yanxi.gui.elem.slider;
 
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 
 namespace mo_yanxi::gui {
 
@@ -20,7 +20,7 @@ void style::draw_slider1d_default::operator()(const typed_draw_param<slider1d>& 
 
     auto& renderer = element.get_scene().renderer();
     using namespace graphic;
-    using namespace graphic::draw::instruction;
+    using namespace graphic::g2d;
     renderer.push(rect_aabb{
         .v00 = pos1,
         .v11 = pos1 + extent,
@@ -46,7 +46,7 @@ void style::draw_slider2d_default::operator()(const typed_draw_param<slider2d>& 
 
     auto& renderer = element.get_scene().renderer();
     using namespace graphic;
-    using namespace graphic::draw::instruction;
+    using namespace graphic::g2d;
     renderer.push(rect_aabb{
         .v00 = pos1,
         .v11 = pos1 + extent,

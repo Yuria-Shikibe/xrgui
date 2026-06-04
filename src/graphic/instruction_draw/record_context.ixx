@@ -10,7 +10,7 @@ import mo_yanxi.vk.cmd;
 
 import std;
 
-namespace mo_yanxi::graphic::draw{
+namespace mo_yanxi::graphic::g2d{
 
 export
 struct descriptor_buffer_usage{

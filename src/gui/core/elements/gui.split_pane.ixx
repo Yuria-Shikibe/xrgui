@@ -9,7 +9,7 @@ import mo_yanxi.gui.layout.policies;
 import mo_yanxi.snap_shot;
 import std;
 
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 
 namespace mo_yanxi::gui{
 export
@@ -180,7 +180,7 @@ public:
 				bool any = s.head().get_style() || s.body().get_style();
 
 				if(!any){
-					s.renderer().push(graphic::draw::instruction::line{
+					s.renderer().push(graphic::g2d::line{
 							.src = src,
 							.dst = src + ext,
 							.color = {graphic::colors::white, graphic::colors::white},

@@ -4,9 +4,9 @@ module;
 
 module mo_yanxi.gui.infrastructure;
 
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.gui.fx.compound;
-import mo_yanxi.gui.fx.fringe;
+import mo_yanxi.graphic.g2d.fringe;
 
 namespace mo_yanxi::gui{
 /*void style::debug_elem_drawer::draw_layer_impl(const elem& element, math::frect region, float opacityScl,
@@ -23,7 +23,7 @@ namespace mo_yanxi::gui{
 void style::debug_elem_drawer::draw(const elem& element, rect region, float opacityScl) const{
 	auto cregion = element.clip_to_content_bound(region);
 
-	element.get_scene().renderer().push(graphic::draw::instruction::rect_aabb_outline{
+	element.get_scene().renderer().push(graphic::g2d::rect_aabb_outline{
 			.v00 = cregion.vert_00(),
 			.v11 = cregion.vert_11(),
 			.stroke = 1,
@@ -31,7 +31,7 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 		});
 
 	using namespace graphic;
-	using namespace graphic::draw::instruction;
+	using namespace graphic::g2d;
 	color c = colors::gray;
 	/*if(element.cursor_state().pressed){
 		c = colors::aqua;
@@ -48,7 +48,7 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 
 	float light = (element.is_toggled() ? 1.6f : 1.f) * (element.is_disabled() ? .5f : 1.f);
 
-	draw::quad_group vc{
+	graphic::g2d::quad_group vc{
 			c.mul_a(opacityScl).set_light(light),
 			c.create_lerp(colors::ACID.to_light(2), f1).mul_a(opacityScl).set_light(light),
 			c.create_lerp(colors::ORANGE.to_light(2), f2).mul_a(opacityScl).set_light(light),
@@ -82,7 +82,7 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 
 		auto seg = math::rect::get_closest_vertex_pair(region, hit_region);
 
-		fx::fringe::inplace_line_context<12> ctx{};
+		graphic::g2d::fringe::inplace_line_context<12> ctx{};
 
 		fx::compound::dash_line(seg, {8.0, 6.0, 24.0, 6.0}, [&](math::section<math::vec2> s){
 			ctx.push(s.from, 1, colors::LIME.copy().set_a(.8f));
@@ -106,7 +106,7 @@ void style::debug_elem_drawer::draw(const elem& element, rect region, float opac
 void style::debug_elem_drawer::draw_background(const elem& element, math::frect region, float opacityScl) const{
 	using namespace graphic;
 
-	element.get_scene().renderer().push(draw::instruction::rect_aabb{
+	element.get_scene().renderer().push(graphic::g2d::rect_aabb{
 			.v00 = region.vert_00(),
 			.v11 = region.vert_11(),
 			.vert_color = {colors::dark_gray.create_lerp({0, 0, 0, 1}, .85f).copy().mul_a(opacityScl)}

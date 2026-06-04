@@ -52,6 +52,9 @@ std::thread::id exchange_scene_thread(scene& s, std::thread::id id);
 
 BITMASK_OPS(export, elem_tree_channel);
 
+export struct ui_manager;
+export struct elem;
+
 
 /**
  * @brief Tracks element count per altitude level with O(1) max query.
@@ -136,12 +139,27 @@ public:
 };
 
 export
+struct native_clipboard_request{
+	std::move_only_function<void(std::string)> complete{};
+
+	void set_value(std::string text) &&{
+		if(!complete){
+			throw std::runtime_error{"native clipboard request completed without a receiver"};
+		}
+		std::invoke(std::move(complete), std::move(text));
+	}
+};
+
+export
 struct native_communicator{
 	virtual ~native_communicator() = default;
 
-	void set_clipboard(std::string&& text){
+	void set_clipboard(std::string text){
 		set_clipboard_impl(std::move(text));
 	}
+
+	template <typename E, typename Fn>
+	void request_clipboard(E& owner, Fn&& on_ready);
 
 	virtual void set_ime_enabled(bool enabled){
 
@@ -156,13 +174,13 @@ protected:
 
 	}
 
+	virtual void request_clipboard_impl(native_clipboard_request&& request){
+		(void)request;
+	}
+
 public:
 	virtual void set_native_cursor_visibility(bool show){
 
-	}
-
-	virtual std::string_view get_clipboard(){
-		return {};
 	}
 
 	//TODO sound interface
@@ -201,8 +219,55 @@ struct mouse_state{
 	}
 };
 
-export struct ui_manager;
-export struct elem;
+struct native_gui_callback_entry{
+	elem* owner{};
+	std::weak_ptr<void> owner_lifetime{};
+	std::move_only_function<void(elem&)> callback{};
+
+	void exec(){
+		if(!callback){
+			throw std::runtime_error{"native GUI callback entry is empty"};
+		}
+		if(owner == nullptr){
+			throw std::runtime_error{"native GUI callback entry has no owner"};
+		}
+		if(auto keep_alive = owner_lifetime.lock()){
+			(void)keep_alive;
+			std::invoke(std::move(callback), *owner);
+		}
+	}
+};
+
+struct native_gui_callback_state{
+private:
+	using container = mr::heap_vector<native_gui_callback_entry>;
+	ccur::mpsc_double_buffer<native_gui_callback_entry, container> callbacks_{};
+	std::atomic_bool stopped_{false};
+
+public:
+	[[nodiscard]] explicit native_gui_callback_state(const container::allocator_type& alloc)
+		: callbacks_(alloc){
+	}
+
+	void post(native_gui_callback_entry&& entry){
+		if(stopped_.load(std::memory_order_acquire)){
+			throw std::runtime_error{"native GUI callback state is stopped"};
+		}
+		callbacks_.emplace(std::move(entry));
+	}
+
+	void consume(){
+		if(auto callbacks = callbacks_.fetch()){
+			for(auto&& callback : *callbacks){
+				callback.exec();
+			}
+		}
+	}
+
+	void stop() noexcept{
+		stopped_.store(true, std::memory_order_release);
+	}
+};
 
 export
 struct scene_resources{
@@ -774,6 +839,9 @@ protected:
 private:
 	UI_MERGE_ON_JOIN fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_communicate_async_task_queues_{};
 	async_sync_task_queue<scene&> input_communicate_async_task_queue_{get_heap_allocator()};
+	std::shared_ptr<native_gui_callback_state> native_gui_callbacks_{
+		std::make_shared<native_gui_callback_state>(get_heap_allocator<native_gui_callback_entry>())
+	};
 
 protected:
 	UI_TRANSIENT tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
@@ -785,6 +853,10 @@ protected:
 	[[nodiscard]] scene_base() = default;
 
 	explicit(false) scene_base(scene_resources& resources, renderer_frontend&& renderer);
+
+	~scene_base(){
+		native_gui_callbacks_->stop();
+	}
 
 public:
 
@@ -816,6 +888,35 @@ public:
 
 	auto& get_input_communicate_async_task_queue(){
 		return input_communicate_async_task_queue_;
+	}
+
+	template <std::derived_from<elem> E, std::invocable<E&, std::string> Fn>
+	native_clipboard_request make_native_clipboard_request(E& owner, Fn&& on_ready){
+		assert(is_on_scene_thread(*this));
+		assert(std::addressof(owner.get_scene()) == this);
+		auto callbacks = native_gui_callbacks_;
+		auto* owner_ptr = std::addressof(owner);
+		auto owner_lifetime = owner.weak_lifetime_token();
+
+		return native_clipboard_request{
+			.complete = [
+				callbacks = std::move(callbacks),
+				owner_ptr,
+				owner_lifetime = std::move(owner_lifetime),
+				on_ready = std::forward<Fn>(on_ready)
+			](std::string text) mutable {
+				callbacks->post(native_gui_callback_entry{
+					.owner = owner_ptr,
+					.owner_lifetime = std::move(owner_lifetime),
+					.callback = [
+						on_ready = std::move(on_ready),
+						text = std::move(text)
+					](elem& owner) mutable {
+						std::invoke(std::move(on_ready), static_cast<E&>(owner), std::move(text));
+					}
+				});
+			}
+		};
 	}
 
 	[[nodiscard]] unsigned long long get_current_frame() const noexcept{

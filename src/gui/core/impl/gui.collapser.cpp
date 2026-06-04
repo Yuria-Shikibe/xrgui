@@ -1,5 +1,5 @@
 module mo_yanxi.gui.elem.collapser;
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 
 namespace mo_yanxi::gui{
 

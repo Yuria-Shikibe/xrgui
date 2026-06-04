@@ -9,7 +9,7 @@ import mo_yanxi.meta_programming;
 import mo_yanxi.type_register;
 import std;
 
-namespace mo_yanxi::graphic::draw{
+namespace mo_yanxi::graphic::g2d{
 export
 struct data_layout_entry{
 	std::uint32_t size;

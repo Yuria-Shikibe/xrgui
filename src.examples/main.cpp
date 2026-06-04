@@ -11,7 +11,7 @@ import mo_yanxi.backend.glfw.window;
 import mo_yanxi.backend.application_timer;
 import mo_yanxi.backend.vulkan.renderer;
 
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.graphic.compositor.manager;
 import mo_yanxi.graphic.compositor.post_process_pass;
@@ -25,7 +25,7 @@ import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.gui.fx.instruction_extension;
 
-import mo_yanxi.gui.default_config.assets;
+import mo_yanxi.gui.cfg.builtin.assets;
 import mo_yanxi.gui.image_regions;
 
 import mo_yanxi.font;
@@ -42,10 +42,10 @@ import mo_yanxi.gui.markdown;
 import mo_yanxi.core.platform;
 
 import mo_yanxi.gui.examples;
-import mo_yanxi.gui.default_config.main_loop;
+import mo_yanxi.gui.cfg.builtin.main_loop;
 import mo_yanxi.gui.examples.loop_exec;
-import mo_yanxi.gui.examples.default_config.colored_cerr;
-import mo_yanxi.gui.examples.default_config.font_styles;
+import mo_yanxi.gui.cfg.builtin.colored_cerr;
+import mo_yanxi.gui.cfg.builtin.font_styles;
 import mo_yanxi.log;
 
 
@@ -63,7 +63,7 @@ struct alignas(16) tonemap_args{
 };
 
 void app_run(
-	mo_yanxi::gui::example::main_loop_type& main_loop,
+	mo_yanxi::gui::cfg::builtin::main_loop_type& main_loop,
 	mo_yanxi::vk::command_buffer& cmd_buf
 ){
 	using namespace mo_yanxi;
@@ -77,9 +77,11 @@ void app_run(
 	auto& ctx = main_loop.get_ctx();
 	while(!ctx.window().should_close()){
 		ctx.window().poll_events();
+		main_loop.get_window_dispatcher().drain();
 		timer.fetch_time();
 		//
 		gui::global::event_queue.push_frame_split(timer.global_delta());
+		main_loop.get_window_dispatcher().drain();
 		main_loop.permit_burst();
 		current_focus.get_output_communicate_async_task_queue(0).consume();
 
@@ -87,11 +89,13 @@ void app_run(
 		(void)main_loop.unhandled_events.fetch();
 
 		main_loop.wait_term();
+		main_loop.get_window_dispatcher().drain();
 		std::array<VkCommandBuffer, 2> buffers{main_loop.get_renderer().get_valid_cmd_buf(), cmd_buf};
 		vk::cmd::submit_command(ctx.graphic_queue(), buffers, main_loop.get_renderer().get_fence());
 		ctx.flush();
 		main_loop.reset_term();
 	}
+	main_loop.get_window_dispatcher().drain();
 }
 
 void prepare(mo_yanxi::backend::vulkan::context& ctx){
@@ -297,7 +301,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	log::info({"GUI"}, "font manager initialize");
 	font::font_manager font_manager{};
-	gui::example::init_font_manager(font_manager, image_atlas);
+	gui::cfg::builtin::init_font_manager(font_manager, image_atlas);
 	log::info({"GUI"}, "font manager initialize done");
 
 	{
@@ -319,8 +323,8 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	{
 		log::info({"GUI"}, "generate icons and shapes");
 
-		gui::example::generate_default_shapes(image_atlas);
-		gui::example::load_default_icons(image_atlas);
+		gui::cfg::builtin::generate_default_shapes(image_atlas);
+		gui::cfg::builtin::load_default_icons(image_atlas);
 	}
 #pragma endregion
 
@@ -451,10 +455,13 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 #pragma endregion
 
 #pragma region GuiBindingFn
-	auto init_fn = [&](gui::example::main_loop_type& loop) -> gui::example::main_loop_init_return_t {
-		gui::example::main_loop_init_return_t ret{};
+	auto init_fn = [&](gui::cfg::builtin::main_loop_type& loop) -> gui::cfg::builtin::main_loop_init_return_t {
+		gui::cfg::builtin::main_loop_init_return_t ret{};
 
-		auto ui_providers = gui::example::build_main_ui(loop.get_ctx(), loop.get_renderer().create_frontend());
+		auto ui_providers = gui::cfg::builtin::build_main_ui(
+			loop.get_ctx(),
+			loop.get_renderer().create_frontend(),
+			loop.get_window_dispatcher());
 		auto& scene = *ui_providers.scene_ptr;
 		ret.main_scene = ui_providers.scene_ptr;
 
@@ -547,11 +554,11 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 #pragma endregion
 
 	log::info({"GUI"}, "async scene setup");
-	gui::example::main_loop_type main_loop{std::move(renderer), ctx, {
+	gui::cfg::builtin::main_loop_type main_loop{std::move(renderer), ctx, {
 			.init_fn = init_fn,
-			.main_loop_fn = gui::example::main_loop_fn,
-			.exit_fn = [](const gui::example::main_loop_type&){
-				gui::example::clear_main_ui();
+			.main_loop_fn = gui::cfg::builtin::main_loop_fn,
+			.exit_fn = [](const gui::cfg::builtin::main_loop_type&){
+				gui::cfg::builtin::clear_main_ui();
 			}
 		}};
 
@@ -599,7 +606,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	main_loop.join();
 
-	gui::example::dispose_generated_shapes();
+	gui::cfg::builtin::dispose_generated_shapes();
 	gui::global::terminate_assets_manager();
 	gui::global::terminate();
 

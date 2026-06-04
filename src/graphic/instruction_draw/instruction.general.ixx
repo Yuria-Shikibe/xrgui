@@ -7,7 +7,7 @@ module;
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.graphic.draw.instruction.general;
+export module mo_yanxi.graphic.g2d.general;
 
 export import mo_yanxi.graphic.image_view_registry;
 
@@ -16,7 +16,7 @@ import mo_yanxi.meta_programming;
 import mo_yanxi.concepts;
 import mo_yanxi.binary_trace;
 
-namespace mo_yanxi::graphic::draw::instruction{
+namespace mo_yanxi::graphic::g2d{
 
 export template<typename Rng, typename T>
 concept contiguous_range_of = std::ranges::contiguous_range<Rng> && std::same_as<std::ranges::range_value_t<Rng>, T>;
@@ -149,7 +149,7 @@ constexpr std::size_t get_size(const T& arg){
 export
 template <typename... Args>
 constexpr std::size_t get_type_size_sum(const Args& ...args) noexcept{
-	return ((instruction::get_size(args)) + ... + 0uz);
+	return ((get_size(args)) + ... + 0uz);
 }
 
 export
@@ -227,8 +227,7 @@ struct state_push_config{
 }
 
 
-namespace mo_yanxi::graphic::draw{
-namespace instruction{
+namespace mo_yanxi::graphic::g2d{
 
 export struct draw_mode{
 	std::uint32_t value;
@@ -297,7 +296,7 @@ export
 template <typename T, typename... Args>
 	requires (std::is_trivially_copyable_v<T> && valid_consequent_argument<T, Args...>)
 constexpr std::size_t get_payload_size(const Args& ...args) noexcept{
-	return sizeof(T) + instruction::get_type_size_sum<Args...>(args...);
+	return sizeof(T) + get_type_size_sum<Args...>(args...);
 }
 
 export
@@ -308,7 +307,7 @@ template <typename T, typename... Args>
 		};
 	}
 constexpr instruction_head make_instruction_head(const T& instr, const Args&... args) noexcept{
-	const auto required = instruction::get_payload_size<T, Args...>(args...);
+	const auto required = get_payload_size<T, Args...>(args...);
 	assert(required % instr_required_align == 0);
 
 	const auto vtx = [&] -> std::uint32_t{
@@ -341,7 +340,7 @@ FORCE_INLINE void place_instr_at_impl(
 	const T& payload,
 	const Args&... args
 ) noexcept {
-	const auto total_size = instruction::get_payload_size<T, Args...>(args...);
+	const auto total_size = get_payload_size<T, Args...>(args...);
 
 	assert(std::bit_cast<std::uintptr_t>(where) % instr_required_align == 0);
 	auto pwhere = std::assume_aligned<instr_required_align>(where);
@@ -376,8 +375,8 @@ FORCE_INLINE [[nodiscard]] instruction_head place_instruction_at(
 	const T& payload,
 	const Args&... args
 ) noexcept{
-	instruction::place_instr_at_impl(where, payload, args...);
-	return instruction::make_instruction_head(payload, args...);
+	place_instr_at_impl(where, payload, args...);
+	return make_instruction_head(payload, args...);
 }
 
 export
@@ -388,7 +387,7 @@ FORCE_INLINE [[nodiscard]] instruction_head place_ubo_update_at(
 	const T& payload,
 	const user_data_indices info
 ) noexcept{
-	instruction::place_instr_at_impl(where, payload);
+	place_instr_at_impl(where, payload);
 	return instruction_head{
 		.type = instr_type::uniform_update,
 		.payload_size = get_payload_size<T>(),
@@ -418,8 +417,6 @@ FORCE_INLINE [[nodiscard]] instruction_head place_ubo_update_at(
 export
 using state_tag = binary_diff_trace::tag;
 
-}
-
 export
 struct emit_t;
 
@@ -438,7 +435,7 @@ concept cpo_emittable_draw_instruction = requires(Instr&& instr, Sink& sink){
 export
 struct emit_t{
 	template <typename Sink, typename Instr>
-		requires (instruction::known_instruction<std::remove_cvref_t<Instr>> && directly_emittable_draw_instruction<Sink, Instr>)
+		requires (known_instruction<std::remove_cvref_t<Instr>> && directly_emittable_draw_instruction<Sink, Instr>)
 	FORCE_INLINE constexpr decltype(auto) operator()(Sink& sink, Instr&& instr) const
 		noexcept(noexcept(sink(std::forward<Instr>(instr)))){
 		ATTR_FORCEINLINE_SENTENCE
@@ -447,7 +444,7 @@ struct emit_t{
 	}
 
 	template <typename Sink, typename Instr>
-		requires (!instruction::known_instruction<std::remove_cvref_t<Instr>> && cpo_emittable_draw_instruction<Sink, Instr>)
+		requires (!known_instruction<std::remove_cvref_t<Instr>> && cpo_emittable_draw_instruction<Sink, Instr>)
 	FORCE_INLINE constexpr decltype(auto) operator()(Sink& sink, Instr&& instr) const
 		noexcept(noexcept(std::forward<Instr>(instr)(*this, sink))){
 		ATTR_FORCEINLINE_SENTENCE
@@ -481,7 +478,7 @@ concept batch_push_range_of =
 
 export
 struct batch_push_view{
-	std::span<const instruction::instruction_head> heads{};
+	std::span<const instruction_head> heads{};
 
 	//TODO directly pass raw pointer??
 	std::span<const std::byte> payload{};
@@ -493,7 +490,7 @@ struct batch_push_view{
 
 export
 [[nodiscard]] FORCE_INLINE constexpr batch_push_view batch_push(
-	const std::span<const instruction::instruction_head> heads,
+	const std::span<const instruction_head> heads,
 	const std::span<const std::byte> payload
 ) noexcept{
 	return {heads, payload};
@@ -501,17 +498,17 @@ export
 
 export
 [[nodiscard]] FORCE_INLINE constexpr batch_push_view batch_push(
-	const std::span<const instruction::instruction_head> heads,
+	const std::span<const instruction_head> heads,
 	const std::byte* payload
 ) noexcept{
-	const auto byte_size = std::ranges::fold_left(heads, std::size_t{}, [](std::size_t size, const instruction::instruction_head& head) {
+	const auto byte_size = std::ranges::fold_left(heads, std::size_t{}, [](std::size_t size, const instruction_head& head) {
 		return size + head.payload_size;
 	});
 	return {heads, {payload, byte_size}};
 }
 
 export
-template <batch_push_range_of<instruction::instruction_head> HeadRng, batch_push_range_of<std::byte> PayloadRng>
+template <batch_push_range_of<instruction_head> HeadRng, batch_push_range_of<std::byte> PayloadRng>
 	requires std::ranges::borrowed_range<HeadRng&&> && std::ranges::borrowed_range<PayloadRng&&>
 
 [[nodiscard]] FORCE_INLINE constexpr batch_push_view batch_push(
@@ -519,14 +516,12 @@ template <batch_push_range_of<instruction::instruction_head> HeadRng, batch_push
 	PayloadRng&& payload
 ) noexcept{
 	return {
-		std::span<const instruction::instruction_head>{
+		std::span<const instruction_head>{
 			std::ranges::data(std::forward<HeadRng>(heads)), std::ranges::size(std::forward<HeadRng>(heads))},
 		std::span<const std::byte>{
 			std::ranges::data(std::forward<PayloadRng>(payload)), std::ranges::size(std::forward<PayloadRng>(payload))}
 	};
 }
-
-namespace instruction{
 
 export
 template <typename L, typename R = std::uint32_t>
@@ -607,8 +602,6 @@ public:
 		state_handle(host, config, tag, payload, offset);
 	}
 };
-
-}
 
 
 export

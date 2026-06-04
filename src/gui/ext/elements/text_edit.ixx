@@ -85,8 +85,6 @@ protected:
 	math::vec2 target_scroll_offset_{};
 	caret_cache caret_cache_{};
 
-	std::future<std::string> get_clipboard_string_to_paste_{};
-
 	struct text_transform_params {
         math::vec2 scale;
         math::vec2 offset_abs;
@@ -155,7 +153,7 @@ protected:
 		return {c_scale, offset_abs, offset_local};
 	}
 
-	void check_paste_();
+	void apply_paste_text(std::string text);
 public:
 	graphic::color text_color_scl{graphic::colors::white};
 

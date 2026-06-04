@@ -61,7 +61,7 @@ export
 struct draw_row_patch{
 	react_flow::flexible_value_holder<image_row_patch> patch{};
 	react_flow::flexible_value_holder<palette> pal{};
-	graphic::draw::instruction::row_patch_flags flags{};
+	graphic::g2d::row_patch_flags flags{};
 
 	void operator()(const typed_draw_param<elem>& p) const{
 		if(!patch->get_value().get_image_view()) return;

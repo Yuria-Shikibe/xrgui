@@ -4,7 +4,7 @@ module;
 
 module mo_yanxi.gui.elem.scroll_pane;
 
-import mo_yanxi.graphic.draw.instruction;
+import mo_yanxi.graphic.g2d;
 import mo_yanxi.math.interpolation;
 
 namespace mo_yanxi::gui{
@@ -18,7 +18,7 @@ namespace mo_yanxi::gui{
 
 		if(layer_param.is_top() && opacityScl > 0.001f){
 			each_scroll_rect(element, region, [&](math::raw_frect bar_rect, bool){
-				element.renderer().push(graphic::draw::instruction::rect_aabb{
+				element.renderer().push(graphic::g2d::rect_aabb{
 						.v00 = bar_rect.vert_00(),
 						.v11 = bar_rect.vert_11(),
 						.vert_color = graphic::colors::light_gray.copy_set_a(opacityScl)

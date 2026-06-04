@@ -14,7 +14,7 @@ __pragma(warning(pop))
 #define MY_POP_IGNORE_MODULE_INCLUDE_WARNING
 #endif
 
-module mo_yanxi.gui.default_config.assets;
+module mo_yanxi.gui.cfg.builtin.assets;
 
 import mo_yanxi.gui.assets.manager;
 
@@ -38,7 +38,7 @@ auto& load(mo_yanxi::graphic::image_page& page, std::string&& name, mo_yanxi::gr
 	return page.register_named_region(std::move(name), std::move(task), true).region;
 }
 
-namespace mo_yanxi::gui::example{
+namespace mo_yanxi::gui::cfg::builtin{
 
 
 void generate_default_shapes(graphic::image_atlas& image_atlas){
@@ -76,20 +76,18 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 			graphic::msdf::msdf_generator{svgs::icons::side_bar_svg, true, true}, std::nullopt, 3
 		});
 
-	using namespace assets;
-	using namespace builtin;
-	auto& builtin_page = get_page();
+	auto& builtin_page = assets::builtin::get_page();
 
-	builtin_page.insert(shape_id::white, constant_image_region_borrow{});
-	builtin_page.insert(shape_id::row_separator, line);
-	builtin_page.insert(shape_id::round_square_edge, border);
-	builtin_page.insert(shape_id::round_square_edge_thin, border_thin);
-	builtin_page.insert(shape_id::round_square_base, base);
-	builtin_page.insert(shape_id::side_bar, side_bar);
+	builtin_page.insert(assets::builtin::shape_id::white, constant_image_region_borrow{});
+	builtin_page.insert(assets::builtin::shape_id::row_separator, line);
+	builtin_page.insert(assets::builtin::shape_id::round_square_edge, border);
+	builtin_page.insert(assets::builtin::shape_id::round_square_edge_thin, border_thin);
+	builtin_page.insert(assets::builtin::shape_id::round_square_base, base);
+	builtin_page.insert(assets::builtin::shape_id::side_bar, side_bar);
 
-	builtin::default_round_square_border = {border, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
-	builtin::default_round_square_border_thin = {border_thin, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
-	builtin::default_round_square_base = {base, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
+	assets::builtin::default_round_square_border = {border, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
+	assets::builtin::default_round_square_border_thin = {border_thin, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
+	assets::builtin::default_round_square_base = {base, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
 
 }
 
@@ -97,9 +95,7 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 void load_default_icons(graphic::image_atlas& image_atlas){
 	auto& atlas = image_atlas;
 	auto& page = atlas.create_image_page("ui");
-	using namespace assets;
-	using namespace builtin;
-	auto& builtin_page = get_page();
+	auto& builtin_page = assets::builtin::get_page();
 
 #define COMBINE(name) "i-"#name
 
@@ -110,7 +106,7 @@ void load_default_icons(graphic::image_atlas& image_atlas){
 	{ \
 	auto& i = load(page, COMBINE(name), \
 	graphic::sdf_load{graphic::msdf::msdf_generator{std::string(svgs::icons::basic:: name##_svg), true, orient_contours}, math::usize2{64u, 64u}, 3}); \
-	builtin_page.insert(shape_id:: name, i);	\
+	builtin_page.insert(assets::builtin::shape_id:: name, i);	\
 	}
 
 	LOAD_ICON(arrow_down, false)
@@ -137,9 +133,8 @@ void load_default_icons(graphic::image_atlas& image_atlas){
 }
 
 void dispose_generated_shapes(){
-	using namespace assets;
-	builtin::default_round_square_border = {};
-	builtin::default_round_square_border_thin = {};
-	builtin::default_round_square_base = {};
+	assets::builtin::default_round_square_border = {};
+	assets::builtin::default_round_square_border_thin = {};
+	assets::builtin::default_round_square_base = {};
 }
 }

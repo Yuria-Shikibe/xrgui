@@ -1,5 +1,6 @@
 module;
 
+#include <cassert>
 #include <GLFW/glfw3.h>
 
 #ifdef _WIN32
@@ -63,6 +64,40 @@ void UpdateIMEWindowPosition(GLFWwindow* window, const mo_yanxi::math::irect& ca
 }
 
 namespace mo_yanxi::backend::glfw{
+struct native_window_state{
+	GLFWwindow* window{};
+	gui::window_thread_dispatcher* dispatcher{};
+	std::atomic_bool stopped{false};
+
+	[[nodiscard]] explicit native_window_state(GLFWwindow* target_window, gui::window_thread_dispatcher& target_dispatcher)
+		: window(target_window), dispatcher(std::addressof(target_dispatcher)){
+	}
+
+	[[nodiscard]] bool is_stopped() const noexcept{
+		return stopped.load(std::memory_order_acquire);
+	}
+
+	void stop() noexcept{
+		stopped.store(true, std::memory_order_release);
+	}
+
+	void require_window_thread() const{
+		if(is_stopped()){
+			throw std::runtime_error{"native window state is stopped"};
+		}
+		if(window == nullptr){
+			throw std::runtime_error{"native window state has no GLFW window"};
+		}
+		if(dispatcher == nullptr){
+			throw std::runtime_error{"native window state has no dispatcher"};
+		}
+		if(!dispatcher->is_window_thread()){
+			throw std::runtime_error{"native window API called from a non-window thread"};
+		}
+		assert(dispatcher->is_window_thread());
+	}
+};
+
 export
 struct communicator : gui::native_communicator{
 	//
@@ -83,36 +118,72 @@ struct communicator : gui::native_communicator{
 		return CallWindowProc(g_OriginalWndProc, hwnd, uMsg, wParam, lParam);
 	}
 
-	GLFWwindow* window;
-	std::string cache_text{};
+	std::shared_ptr<native_window_state> state{};
 
-	[[nodiscard]] explicit communicator(GLFWwindow* window)
-	: window(window){
-		HWND hwnd = glfwGetWin32Window(window);
-		if (!hwnd) return;
-
-		// 替换窗口过程，并保存原来的指针
-		// g_OriginalWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)CustomWndProc);
+	[[nodiscard]] explicit communicator(GLFWwindow* window, gui::window_thread_dispatcher& dispatcher)
+		: state(std::make_shared<native_window_state>(window, dispatcher)){
 	}
 
-	std::string_view get_clipboard() override{
-		if(auto rst = glfwGetClipboardString(window))return {rst};
-		return {};
+	~communicator() override{
+		state->stop();
+	}
+
+	static void post_native(
+		std::shared_ptr<native_window_state> native_state,
+		std::move_only_function<void(native_window_state&)>&& task){
+		if(native_state->is_stopped()){
+			throw std::runtime_error{"native window state is stopped"};
+		}
+		if(native_state->dispatcher == nullptr){
+			throw std::runtime_error{"native window state has no dispatcher"};
+		}
+		native_state->dispatcher->post([
+			native_state = std::move(native_state),
+			task = std::move(task)
+		]() mutable {
+			native_state->require_window_thread();
+			std::invoke(std::move(task), *native_state);
+		});
 	}
 
 protected:
 	void set_clipboard_impl(std::string&& text) override{
-		cache_text = std::move(text);
-		glfwSetClipboardString(window, cache_text.data());
+		communicator::post_native(
+			state,
+			[text = std::move(text)](native_window_state& native_state) mutable {
+				glfwSetClipboardString(native_state.window, text.c_str());
+			});
+	}
+
+	void request_clipboard_impl(gui::native_clipboard_request&& request) override{
+		communicator::post_native(
+			state,
+			[request = std::move(request)](native_window_state& native_state) mutable {
+				std::string text{};
+				if(auto rst = glfwGetClipboardString(native_state.window)){
+					text = rst;
+				}
+				std::move(request).set_value(std::move(text));
+			});
 	}
 
 public:
 	void set_native_cursor_visibility(bool show) override{
-		glfwSetInputMode(window, GLFW_CURSOR, show ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_HIDDEN);
+		communicator::post_native(
+			state,
+			[show](native_window_state& native_state) {
+				glfwSetInputMode(native_state.window, GLFW_CURSOR, show ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_HIDDEN);
+			});
 	}
 
 	void set_ime_cursor_rect(const math::raw_frect region) override{
-		UpdateIMEWindowPosition(window, math::irect{tags::from_extent, region.src.round<int>(), region.extent.round<int>()});
+		communicator::post_native(
+			state,
+			[region](native_window_state& native_state) {
+				UpdateIMEWindowPosition(
+					native_state.window,
+					math::irect{tags::from_extent, region.src.round<int>(), region.extent.round<int>()});
+			});
 	}
 };
 

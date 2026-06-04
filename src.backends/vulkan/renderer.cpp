@@ -212,7 +212,7 @@ void renderer::command_recording_context::record(renderer& r, VkCommandBuffer cm
 	std::ranges::fill(cache_attachment_enter_mark_, 0);
 	cache_rendering_config_.clear_color_attachments();
 
-	auto get_section_params = [&](const graphic::draw::instruction::section_state_delta_set::exported_entry& e) noexcept{
+	auto get_section_params = [&](const graphic::g2d::section_state_delta_set::exported_entry& e) noexcept{
 		return section_state_apply_params{
 				e, cache_graphic_context_, draw_cfg, ctx_val
 			};

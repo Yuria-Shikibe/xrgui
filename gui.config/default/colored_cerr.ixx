@@ -2,7 +2,7 @@ module;
 
 #include <cstdio>
 
-export module mo_yanxi.gui.examples.default_config.colored_cerr;
+export module mo_yanxi.gui.cfg.builtin.colored_cerr;
 
 import std;
 

@@ -3,13 +3,13 @@ module;
 #include <cassert>
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.graphic.draw.instruction.state_tracker;
+export module mo_yanxi.graphic.g2d.state_tracker;
 
 import std;
-export import mo_yanxi.graphic.draw.instruction.batch.common;
+export import mo_yanxi.graphic.g2d.batch.common;
 export import mo_yanxi.binary_trace;
 
-namespace mo_yanxi::graphic::draw::instruction {
+namespace mo_yanxi::graphic::g2d {
 
 export
 struct state_tracker {

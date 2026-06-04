@@ -8,8 +8,8 @@ export module mo_yanxi.backend.vulkan.renderer;
 import std;
 import mo_yanxi.graphic_state_context;
 export import mo_yanxi.graphic.image_view_registry;
-export import mo_yanxi.graphic.draw.instruction.batch.frontend;
-import mo_yanxi.graphic.draw.instruction.batch.backend.vulkan;
+export import mo_yanxi.graphic.g2d.batch.frontend;
+import mo_yanxi.graphic.g2d.batch.backend.vulkan;
 
 import mo_yanxi.vk.sync_processor;
 
@@ -30,7 +30,7 @@ constexpr T mask(unsigned N) noexcept{
 }
 
 // --- 内部初始化与工具函数 ---
-graphic::draw::instruction::hardware_limit_config query_hardware_limits(vk::allocator_usage& usage){
+graphic::g2d::hardware_limit_config query_hardware_limits(vk::allocator_usage& usage){
 	VkPhysicalDeviceMeshShaderPropertiesEXT mesh_props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
 	VkPhysicalDeviceProperties2 prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &mesh_props};
 	vkGetPhysicalDeviceProperties2(usage.get_physical_device(), &prop);
@@ -47,11 +47,11 @@ gui::fx::render_target_mask get_render_target(const gui::fx::pipeline_config& pa
 }
 
 /** 预定义数据布局表 */
-const graphic::draw::data_layout_table table{
+const graphic::g2d::data_layout_table table{
 		std::in_place_type<gui::gui_reserved_user_data_tuple>
 	};
 
-const graphic::draw::data_layout_table table_non_vertex{
+const graphic::g2d::data_layout_table table_non_vertex{
 		std::in_place_type<std::tuple<gui::fx::ui_state, gui::fx::slide_line_config>>
 	};
 
@@ -65,7 +65,7 @@ export struct renderer_create_info{
 	compute_pipeline_create_config blit_pipe_config;
 
 	VkPipelineShaderStageCreateInfo resolver_shader_stage;
-	graphic::draw::instruction::gpu_stride_config stride_config;
+	graphic::g2d::gpu_stride_config stride_config;
 };
 
 export struct renderer{
@@ -84,7 +84,7 @@ export struct renderer{
 		};
 
 		struct section_state_apply_params{
-			const graphic::draw::instruction::section_state_delta_set::exported_entry& entry;
+			const graphic::g2d::section_state_delta_set::exported_entry& entry;
 			graphics_context_trace& context_trace;
 			gui::fx::pipeline_config& draw_cfg;
 			per_record_context_value& ctx_val;
@@ -95,7 +95,7 @@ export struct renderer{
 		};
 
 	private:
-		graphic::draw::record_context<> cache_descriptor_context_{};
+		graphic::g2d::record_context<> cache_descriptor_context_{};
 		vk::sync::sync_barrier_batch cache_barrier_gen_{};
 
 		vk::dynamic_rendering cache_rendering_config_{};
@@ -172,9 +172,9 @@ private:
 
 public:
 	/** 绘图指令批处理器 */
-	graphic::draw::instruction::draw_list_context batch_host{};
+	graphic::g2d::draw_list_context batch_host{};
 
-	graphic::draw::instruction::batch_vulkan_executor batch_device{};
+	graphic::g2d::batch_vulkan_executor batch_device{};
 
 private:
 	attachment_manager attachment_manager_{};
@@ -226,7 +226,7 @@ public:
 				  };
 			  VkPhysicalDeviceProperties2 prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &meshProperties};
 			  vkGetPhysicalDeviceProperties2(allocator_usage_.get_physical_device(), &prop);
-			  return graphic::draw::instruction::hardware_limit_config{};
+			  return graphic::g2d::hardware_limit_config{};
 		  }(), table, table_non_vertex, *image_view_registry_)
 		  , batch_device(allocator_usage_, batch_host, create_info.stride_config, frames_in_flight)
 		  , attachment_manager_{
@@ -272,7 +272,7 @@ public:
 
 		for(unsigned i = 0; i < frames_in_flight; ++i){
 			sections[get_heap_dynamic_image_section() + 1 + i] = {
-					graphic::draw::instruction::get_required_buffer_descriptor_count_per_frame(batch_host),
+					graphic::g2d::get_required_buffer_descriptor_count_per_frame(batch_host),
 					vk::heap_section_type::buffer
 				};
 		}
@@ -317,10 +317,10 @@ public:
 		return gui::renderer_frontend{
 				table, table_non_vertex, {
 					*this,
-					[](renderer& r, graphic::draw::instruction::instruction_head h, const std::byte* d) static{
+					[](renderer& r, graphic::g2d::instruction_head h, const std::byte* d) static{
 						return r.batch_host.push_instr(h, d);
 					},
-					[](renderer& r, std::span<const graphic::draw::instruction::instruction_head> h,
+					[](renderer& r, std::span<const graphic::g2d::instruction_head> h,
 					   const std::byte* d) static{
 						return r.batch_host.push_instr_batch(h, d);
 					},

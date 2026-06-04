@@ -2,7 +2,7 @@
 // Created by Matrix on 2026/4/6.
 //
 
-export module mo_yanxi.gui.default_config.main_loop;
+export module mo_yanxi.gui.cfg.builtin.main_loop;
 
 import std;
 import mo_yanxi.gui.global;
@@ -14,8 +14,9 @@ import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.concurrent.mpsc_double_buffer;
 
 import mo_yanxi.platform.thread;
+import mo_yanxi.gui.window_thread_dispatcher;
 
-namespace mo_yanxi::gui::example{
+namespace mo_yanxi::gui::cfg::builtin{
 
 class thread_sync_controller{
 private:
@@ -104,6 +105,7 @@ public:
 private:
 	thread_sync_controller sync_ctrl{};
 	std::exception_ptr captured_exception_{nullptr};
+	window_thread_dispatcher window_dispatcher_{};
 	std::jthread exec_thread;
 	scene* target_scene{};
 
@@ -151,6 +153,10 @@ public:
 
 	[[nodiscard]] backend::vulkan::context& get_ctx() const noexcept{
 		return *ctx_ptr;
+	}
+
+	[[nodiscard]] window_thread_dispatcher& get_window_dispatcher() noexcept{
+		return window_dispatcher_;
 	}
 
 	scene& get_scene() const noexcept{
