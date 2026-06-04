@@ -151,6 +151,11 @@ struct markdown_separator : elem {
 
 	using elem::elem;
 
+	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
+		extent.apply({0.f, std::max(stroke_width, 0.f)});
+		return extent.potential_extent();
+	}
+
 	void record_draw_layer(draw_recorder& call_stack_builder) const override {
 		call_stack_builder.push_call_noop(*this, [](const markdown_separator& s, const draw_call_param& p,
 		                                            const draw_immut_args& args) static {

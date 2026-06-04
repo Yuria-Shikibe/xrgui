@@ -79,6 +79,7 @@ public:
 		assert(where < exposed_children().size());
 
 		const auto itr = children_.begin() + where;
+		(*itr)->detach_from_scene_recursively();
 		expired_.push_back(std::move(*itr));
 		children_.erase(itr);
 

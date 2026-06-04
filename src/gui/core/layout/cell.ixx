@@ -68,6 +68,10 @@ namespace mo_yanxi::gui::layout{
 			elem.set_scaling(group.get_scaling() * scaling);
 			const auto extent = allocated_region.extent().fdim(margin.extent());
 
+			// Finite axes are bounded by this allocated cell; their numeric values are
+			// replaced with the margin-clipped allocated extent. Pending axes are
+			// preserved so the child may resolve that direction from content and
+			// propagate the requirement upward.
 			if(!cell_expected_restriction_extent.width_pending()){
 				cell_expected_restriction_extent.set_width(extent.x);
 			}

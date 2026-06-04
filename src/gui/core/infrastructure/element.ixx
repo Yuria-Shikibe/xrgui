@@ -190,6 +190,7 @@ struct input;
 
 export struct elem : tooltip::spawner_general<elem>{
 	friend elem_ptr;
+	friend elem_ref_access;
 	friend scene;
 	friend scene_base;
 	friend tooltip::tooltip_manager;
@@ -220,6 +221,12 @@ private:
 	mpsc_action_queue<elem> actions{};
 
 public:
+	// The maximum extent this element may freely occupy during layout-driven resize.
+	// A finite axis is the parent-granted allowance: resizing within that value should
+	// not require the parent to acquire a larger size on that axis. An infinite/pending
+	// axis means the parent allows this element to determine that axis from its content
+	// and propagate the resulting size requirement upward.
+	// This is layout context, not the element's current extent.
 	layout::optional_mastering_extent restriction_extent{layout::pending_size, layout::pending_size};
 
 protected:
@@ -248,15 +255,21 @@ private:
 	float propagate_opacity_{1.f};
 	float inherent_opacity_{1.f};
 	altitude_t layer_altitude_{};
-	std::shared_ptr<void> lifetime_token_{std::make_shared<int>(0)};
+	std::atomic_uint32_t external_ref_count_{};
+	std::atomic<elem_lifecycle_state> lifecycle_state_{elem_lifecycle_state::live};
+	std::stop_source lifetime_stop_source_{};
+	bool scene_refs_attached_{true};
 
 public:
 	unsigned _debug_identity{};
 
 	virtual ~elem(){
-		lifetime_token_.reset();
+		if(scene_refs_attached_){
+			detach_from_scene();
+		}
+		lifecycle_state_.store(elem_lifecycle_state::destroying, std::memory_order_release);
+		assert(external_ref_count_.load(std::memory_order_acquire) == 0);
 		scene_->decr_ref_count_();
-		clear_scene_references();
 	}
 
 	[[nodiscard]] elem(scene& scene, elem* parent) noexcept;
@@ -532,12 +545,20 @@ public:
 
 public:
 
-	void clear_scene_references() noexcept;
-	void clear_scene_references_recursively() noexcept{
+	void detach_from_scene() noexcept;
+	void detach_from_scene_recursively() noexcept{
 		for_each_collected_children([](elem& e){
-			e.clear_scene_references();
+			e.detach_from_scene_recursively();
 		});
-		clear_scene_references();
+		detach_from_scene();
+	}
+
+	void clear_scene_references() noexcept{
+		detach_from_scene();
+	}
+
+	void clear_scene_references_recursively() noexcept{
+		detach_from_scene_recursively();
 	}
 
 	void require_scene_cursor_update() const noexcept{
@@ -903,8 +924,29 @@ public:
 		return *scene_;
 	}
 
-	[[nodiscard]] std::weak_ptr<void> weak_lifetime_token() const noexcept{
-		return lifetime_token_;
+	[[nodiscard]] bool is_live() const noexcept{
+		return lifecycle_state_.load(std::memory_order_acquire) == elem_lifecycle_state::live;
+	}
+
+	[[nodiscard]] bool is_detached() const noexcept{
+		return lifecycle_state_.load(std::memory_order_acquire) == elem_lifecycle_state::detached;
+	}
+
+	[[nodiscard]] bool is_destroying() const noexcept{
+		return lifecycle_state_.load(std::memory_order_acquire) == elem_lifecycle_state::destroying;
+	}
+
+	template <std::derived_from<elem> T = elem>
+	[[nodiscard]] elem_ref<T> ref(){
+		if constexpr (std::same_as<T, elem>){
+			return elem_ref<T>{*this};
+		}else{
+			return elem_ref<T>{dynamic_cast<T&>(*this)};
+		}
+	}
+
+	[[nodiscard]] std::stop_token lifetime_stop_token() const noexcept{
+		return lifetime_stop_source_.get_token();
 	}
 
 	[[nodiscard]] FORCE_INLINE inline elem* parent() const noexcept{
@@ -1170,6 +1212,14 @@ public:
 protected:
 	void relocate_self_scene(scene& target_scene) noexcept;
 
+private:
+	[[nodiscard]] bool try_retain_external_ref_live_() noexcept;
+	void retain_external_ref_existing_() noexcept;
+	void release_external_ref_() noexcept;
+	[[nodiscard]] bool has_external_refs_() const noexcept{
+		return external_ref_count_.load(std::memory_order_acquire) != 0u;
+	}
+
 	template <typename S, typename T, typename ...Args>
 	T& request_and_cache_node(this S& self, T* S::* cache, Args&& ...args){
 		if(self.*cache){
@@ -1255,6 +1305,9 @@ layout::optional_mastering_extent get_fill_parent_restriction(
 	const math::vec2 boundSize,
 	const math::bool2 fillparent = {true, true},
 	const math::bool2 expansion_mask = {false, false}){
+	// For filled axes, the child is bounded by the parent content size. For non-filled
+	// axes, expansion_mask selects whether the child may resolve that axis freely and
+	// propagate the requirement upward (pending) or remains bounded by boundSize.
 	const auto [fx, fy] = fillparent;
 	layout::optional_mastering_extent restriction_extent;
 
@@ -1460,7 +1513,7 @@ void elem_ptr::set_deleter(elem* element, void (*p)(elem*) noexcept) noexcept{
 }
 
 void elem_ptr::delete_elem(elem* ptr) noexcept{
-	ptr->deleter_(ptr);
+	ptr->get_scene().retire_elem(ptr);
 }
 
 

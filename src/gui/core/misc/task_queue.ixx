@@ -14,11 +14,33 @@ export
 struct associated_async_sync_task_queue_base{
 protected:
 	struct task_entry{
-		void* e;
+		void* owner{};
+		std::move_only_function<bool(void*)> is_live;
 		std::move_only_function<void(void*)> func;
+		std::move_only_function<void()> keep_alive;
+
+		[[nodiscard]] task_entry(
+			void* owner,
+			std::move_only_function<bool(void*)>&& is_live,
+			std::move_only_function<void(void*)>&& func,
+			std::move_only_function<void()>&& keep_alive)
+			: owner(owner),
+			  is_live(std::move(is_live)),
+			  func(std::move(func)),
+			  keep_alive(std::move(keep_alive)){
+		}
 
 		void exec(){
-			func(e);
+			if(!is_live || !func){
+				throw std::runtime_error{"associated task entry is empty"};
+			}
+			if(std::invoke(is_live, owner)){
+				std::invoke(func, owner);
+			}
+		}
+
+		[[nodiscard]] bool owned_by(const void* element) const noexcept{
+			return owner == element;
 		}
 	};
 
@@ -58,22 +80,38 @@ struct associated_async_sync_task_queue : associated_async_sync_task_queue_base{
 
 	template <std::derived_from<owner_type> E, std::invocable<E&> Fn>
 	void post(E& e, Fn&& fn){
-		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](void* e) mutable {
-			std::invoke(f, *static_cast<E*>(e));
-		});
+		auto owner_ref = e.ref();
+		async_tasks_.emplace(
+			std::addressof(e),
+			[](void* owner){
+				return static_cast<E*>(owner)->is_live();
+			},
+			[f = std::forward<Fn>(fn)](void* owner) mutable {
+				std::invoke(f, *static_cast<E*>(owner));
+			},
+			[owner_ref = std::move(owner_ref)]{}
+		);
 	}
 
 	template <std::derived_from<owner_type> E, std::invocable<> Fn>
 	void post(E& e, Fn&& fn){
-		async_tasks_.emplace(std::addressof(e), [f = std::forward<Fn>(fn)](void* e) mutable {
-			std::invoke(f);
-		});
+		auto owner_ref = e.ref();
+		async_tasks_.emplace(
+			std::addressof(e),
+			[](void* owner){
+				return static_cast<E*>(owner)->is_live();
+			},
+			[f = std::forward<Fn>(fn)](void*) mutable {
+				std::invoke(f);
+			},
+			[owner_ref = std::move(owner_ref)]{}
+		);
 	}
 
 	void erase(const owner_type* e) noexcept {
 		async_tasks_.modify([&](container& c) noexcept {
 			std::erase_if(c, [&](const container::value_type& v) noexcept {
-				return v.e == e;
+				return v.owned_by(e);
 			});
 		});
 	}

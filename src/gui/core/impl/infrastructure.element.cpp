@@ -9,6 +9,30 @@ import mo_yanxi.gui.fx.compound;
 import mo_yanxi.graphic.g2d.fringe;
 
 namespace mo_yanxi::gui{
+bool elem_ref_access::retain_live(elem* element) noexcept{
+	assert(element != nullptr);
+	return element->try_retain_external_ref_live_();
+}
+
+void elem_ref_access::retain_existing(elem* element) noexcept{
+	assert(element != nullptr);
+	element->retain_external_ref_existing_();
+}
+
+void elem_ref_access::release(elem* element) noexcept{
+	assert(element != nullptr);
+	element->release_external_ref_();
+}
+
+bool elem_ref_access::is_live(const elem* element) noexcept{
+	return element != nullptr && element->is_live();
+}
+
+std::stop_token elem_ref_access::stop_token(const elem* element) noexcept{
+	assert(element != nullptr);
+	return element->lifetime_stop_token();
+}
+
 /*void style::debug_elem_drawer::draw_layer_impl(const elem& element, math::frect region, float opacityScl,
                                                fx::layer_param layer_param) const{
 	switch(layer_param.layer_index){
@@ -186,15 +210,46 @@ bool elem::update(float delta_in_ticks){
 	return true;
 }
 
-void elem::clear_scene_references() noexcept{
+bool elem::try_retain_external_ref_live_() noexcept{
+	if(!is_live()){
+		return false;
+	}
+	external_ref_count_.fetch_add(1u, std::memory_order_acq_rel);
+	if(is_live()){
+		return true;
+	}
+	release_external_ref_();
+	return false;
+}
+
+void elem::retain_external_ref_existing_() noexcept{
+	const auto state = lifecycle_state_.load(std::memory_order_acquire);
+	assert(state != elem_lifecycle_state::destroying);
+	external_ref_count_.fetch_add(1u, std::memory_order_acq_rel);
+}
+
+void elem::release_external_ref_() noexcept{
+	const auto last = external_ref_count_.fetch_sub(1u, std::memory_order_acq_rel);
+	assert(last != 0u);
+}
+
+void elem::detach_from_scene() noexcept{
 	assert(scene_ != nullptr);
 	assert(is_on_scene_thread(get_scene()));
+	if(!scene_refs_attached_){
+		return;
+	}
 
+	scene_refs_attached_ = false;
+	lifecycle_state_.store(elem_lifecycle_state::detached, std::memory_order_release);
+	lifetime_stop_source_.request_stop();
 	scene_->layer_altitude_record_.erase(layer_altitude_, 1);
 	scene_->drop_(this);
 	if(is_at_display_stage()){
 		scene_->notify_display_state_changed(get_channel());
 	}
+	is_at_display_stage_ = false;
+	parent_ = nullptr;
 }
 
 void elem::notify_layout_changed(propagate_mask propagation){

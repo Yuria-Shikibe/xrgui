@@ -253,6 +253,8 @@ public:
 
 				cell->cell.allocated_region = {tags::from_extent, currentOff, cell_sz};
 
+				// Only the pending/finite state of the parent major restriction is needed here;
+				// apply_to replaces finite values with the allocated cell extent.
 				cell_sz.*majorTarget = this->restriction_extent.potential_extent().*majorTarget;
 				if (cell->cell.stated_size.pending()) cell_sz.*minorTarget = std::numeric_limits<float>::infinity();
 

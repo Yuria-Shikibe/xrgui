@@ -158,6 +158,7 @@ bool tooltip_manager::drop(ActivesItr be, ActivesItr se){
 	auto range = std::ranges::subrange{be, se};
 	for (auto && validToolTip : range){
 		validToolTip.owner->on_tooltip_drop();
+		validToolTip.element->detach_from_scene_recursively();
 	}
 
 	dropped.append_range(range | std::ranges::views::as_rvalue | std::views::transform([](tooltip_instance&& validToolTip){

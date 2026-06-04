@@ -13,33 +13,20 @@ import :elem_ptr;
 
 namespace mo_yanxi::gui{
 export
-struct elem_async_owner_id{
-	std::size_t slot{std::numeric_limits<std::size_t>::max()};
-	std::uint64_t generation{};
-
-	[[nodiscard]] bool valid() const noexcept{
-		return slot != std::numeric_limits<std::size_t>::max();
-	}
-};
-
-export
 struct elem_async_task_runtime_state{
 	std::stop_source stop_source{};
 	std::atomic_uint progress_current{};
 	std::atomic_uint progress_total{};
 	std::atomic_bool active{};
-	std::atomic<std::uint64_t> generation{1u};
 };
 
 export
 struct elem_async_task_handle{
 private:
 	elem_async_task_runtime_state* state_{};
-	std::uint64_t generation_{};
 
 	[[nodiscard]] bool valid_state() const noexcept{
 		return state_ != nullptr
-			&& state_->generation.load(std::memory_order_acquire) == generation_
 			&& state_->active.load(std::memory_order_acquire);
 	}
 
@@ -47,8 +34,7 @@ public:
 	[[nodiscard]] elem_async_task_handle() = default;
 
 	[[nodiscard]] explicit elem_async_task_handle(elem_async_task_runtime_state& state) noexcept
-		: state_(std::addressof(state)),
-		  generation_(state.generation.load(std::memory_order_acquire)){
+		: state_(std::addressof(state)){
 	}
 
 	void request_stop() const noexcept{
@@ -62,14 +48,14 @@ public:
 	}
 
 	[[nodiscard]] unsigned progress() const noexcept{
-		if(state_ == nullptr || state_->generation.load(std::memory_order_acquire) != generation_){
+		if(state_ == nullptr){
 			return 0u;
 		}
 		return state_->progress_current.load(std::memory_order_acquire);
 	}
 
 	[[nodiscard]] unsigned progress_total() const noexcept{
-		if(state_ == nullptr || state_->generation.load(std::memory_order_acquire) != generation_){
+		if(state_ == nullptr){
 			return 0u;
 		}
 		return state_->progress_total.load(std::memory_order_acquire);
@@ -132,7 +118,7 @@ public:
 export
 struct basic_elem_async_task{
 private:
-	elem_async_owner_id owner_id_{};
+	elem_ref<> owner_ref_{};
 	std::stop_token owner_stop_token_{};
 	std::stop_token task_stop_token_{};
 	elem_async_task_runtime_state* runtime_state_{};
@@ -147,17 +133,17 @@ public:
 	[[nodiscard]] basic_elem_async_task() = default;
 
 	void bind_async_owner(
-		const elem_async_owner_id owner_id,
+		elem_ref<> owner_ref,
 		std::stop_token owner_stop_token,
 		elem_async_task_runtime_state& runtime_state) noexcept{
-		owner_id_ = owner_id;
+		owner_ref_ = std::move(owner_ref);
 		owner_stop_token_ = std::move(owner_stop_token);
 		runtime_state_ = std::addressof(runtime_state);
 		task_stop_token_ = runtime_state.stop_source.get_token();
 	}
 
-	[[nodiscard]] elem_async_owner_id owner_id() const noexcept{
-		return owner_id_;
+	[[nodiscard]] elem* owner() const noexcept{
+		return owner_ref_.get_live();
 	}
 
 	[[nodiscard]] bool stop_requested() const noexcept{

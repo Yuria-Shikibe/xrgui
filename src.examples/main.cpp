@@ -62,6 +62,19 @@ struct alignas(16) tonemap_args{
 	float saturation{1};
 };
 
+void configure_example_runtime_working_directory(const char* executable_path){
+	if(executable_path == nullptr || executable_path[0] == '\0'){
+		throw std::runtime_error{"xrgui.example executable path is unavailable"};
+	}
+
+	const auto executable_dir = std::filesystem::absolute(std::filesystem::path{executable_path}).parent_path();
+	if(executable_dir.empty()){
+		throw std::runtime_error{"xrgui.example executable directory is unavailable"};
+	}
+
+	std::filesystem::current_path(executable_dir);
+}
+
 void app_run(
 	mo_yanxi::gui::cfg::builtin::main_loop_type& main_loop,
 	mo_yanxi::vk::command_buffer& cmd_buf
@@ -615,11 +628,13 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	ctx.wait_on_device();
 }
 
-int main(){
+int main(int argc, char** argv){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
 	auto _cerr = make_colored_errc();
+	configure_example_runtime_working_directory(argc > 0 ? argv[0] : nullptr);
+	log::info({"Assets"}, "using runtime working directory {}", std::filesystem::current_path().string());
 
 #ifndef NDEBUG
 	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){

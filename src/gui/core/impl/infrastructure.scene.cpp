@@ -381,6 +381,38 @@ void scene_base::drop_(const elem* target) noexcept{
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
 }
 
+void scene_base::retire_elem(elem* target) noexcept{
+	assert(target != nullptr);
+	assert(is_on_scene_thread(*this));
+	assert(std::addressof(target->get_scene()) == this);
+
+	target->detach_from_scene_recursively();
+	if(target->has_external_refs_()){
+		retired_elements_.push_back({target});
+	}else{
+		target->lifecycle_state_.store(elem_lifecycle_state::destroying, std::memory_order_release);
+		target->deleter_(target);
+	}
+}
+
+void scene_base::collect_retired_elements() noexcept{
+	assert(is_on_scene_thread(*this));
+
+	for(std::size_t index = 0; index < retired_elements_.size();){
+		elem* target = retired_elements_[index].element;
+		assert(target != nullptr);
+		if(target->has_external_refs_()){
+			++index;
+			continue;
+		}
+
+		retired_elements_[index] = retired_elements_.back();
+		retired_elements_.pop_back();
+		target->lifecycle_state_.store(elem_lifecycle_state::destroying, std::memory_order_release);
+		target->deleter_(target);
+	}
+}
+
 void scene_base::resize(const math::frect region){
 	assert(is_on_scene_thread(*this));
 	if(util::try_modify(region_, region)){
@@ -427,6 +459,7 @@ void scene_base::update(double delta_in_tick){
 
 	current_time_ += delta_in_tick;
 	current_frame_++;
+	collect_retired_elements();
 }
 
 

@@ -23,6 +23,140 @@ export
 bool is_on_scene_thread(const scene_base& scene) noexcept;
 
 export
+enum struct elem_lifecycle_state : std::uint8_t{
+	live,
+	detached,
+	destroying
+};
+
+export
+struct elem_ref_access{
+	static bool retain_live(elem* element) noexcept;
+	static void retain_existing(elem* element) noexcept;
+	static void release(elem* element) noexcept;
+	static bool is_live(const elem* element) noexcept;
+	static std::stop_token stop_token(const elem* element) noexcept;
+};
+
+export
+template <std::derived_from<elem> T = elem>
+struct elem_ref{
+private:
+	T* element_{};
+
+public:
+	[[nodiscard]] elem_ref() = default;
+
+	template <std::derived_from<T> E>
+	[[nodiscard]] explicit(false) elem_ref(E& element) noexcept
+		: element_(std::addressof(element)){
+		if(!elem_ref_access::retain_live(element_)){
+			assert(false && "elem_ref can only be created from a live element");
+			std::terminate();
+		}
+	}
+
+	[[nodiscard]] elem_ref(const elem_ref& other) noexcept
+		: element_(other.element_){
+		if(element_ != nullptr){
+			elem_ref_access::retain_existing(element_);
+		}
+	}
+
+	template <std::derived_from<T> E>
+	[[nodiscard]] elem_ref(const elem_ref<E>& other) noexcept
+		: element_(other.get_retained()){
+		if(element_ != nullptr){
+			elem_ref_access::retain_existing(element_);
+		}
+	}
+
+	[[nodiscard]] elem_ref(elem_ref&& other) noexcept
+		: element_(std::exchange(other.element_, nullptr)){
+	}
+
+	template <std::derived_from<T> E>
+	[[nodiscard]] elem_ref(elem_ref<E>&& other) noexcept
+		: element_(std::exchange(other.element_, nullptr)){
+	}
+
+	~elem_ref(){
+		if(element_ != nullptr){
+			elem_ref_access::release(element_);
+		}
+	}
+
+	elem_ref& operator=(const elem_ref& other) noexcept{
+		if(this == std::addressof(other)){
+			return *this;
+		}
+		elem_ref copy{other};
+		this->swap(copy);
+		return *this;
+	}
+
+	template <std::derived_from<T> E>
+	elem_ref& operator=(const elem_ref<E>& other) noexcept{
+		elem_ref copy{other};
+		this->swap(copy);
+		return *this;
+	}
+
+	elem_ref& operator=(elem_ref&& other) noexcept{
+		if(this == std::addressof(other)){
+			return *this;
+		}
+		elem_ref copy{std::move(other)};
+		this->swap(copy);
+		return *this;
+	}
+
+	template <std::derived_from<T> E>
+	elem_ref& operator=(elem_ref<E>&& other) noexcept{
+		elem_ref copy{std::move(other)};
+		this->swap(copy);
+		return *this;
+	}
+
+	void swap(elem_ref& other) noexcept{
+		std::swap(element_, other.element_);
+	}
+
+	[[nodiscard]] T* get_live() const noexcept{
+		return elem_ref_access::is_live(element_) ? element_ : nullptr;
+	}
+
+	[[nodiscard]] T* get_retained() const noexcept{
+		return element_;
+	}
+
+	[[nodiscard]] explicit operator bool() const noexcept{
+		return element_ != nullptr;
+	}
+
+	[[nodiscard]] T& operator*() const noexcept{
+		auto* live = this->get_live();
+		assert(live != nullptr && "detached elem_ref cannot be used for UI access");
+		return *live;
+	}
+
+	[[nodiscard]] T* operator->() const noexcept{
+		auto* live = this->get_live();
+		assert(live != nullptr && "detached elem_ref cannot be used for UI access");
+		return live;
+	}
+
+	template <std::derived_from<elem>>
+	friend struct elem_ref;
+};
+
+export
+template <std::derived_from<elem> T>
+void swap(elem_ref<T>& lhs, elem_ref<T>& rhs) noexcept{
+	lhs.swap(rhs);
+}
+
+export
 template <typename Elem, typename ...Args>
 concept constructible_elem = std::constructible_from<Elem, scene&, elem*, Args&&...>;
 
