@@ -3,10 +3,14 @@ module;
 module mo_yanxi.graphic.bitmap;
 
 import mo_yanxi.io.image;
+import std;
 
 mo_yanxi::bitmap mo_yanxi::graphic::load_bitmap(const std::string_view path){
-	int width, height, bpp;
+	int width{}, height{}, bpp{};
 	const auto ptr = io::image::load_image(path, width, height, bpp, 4);
+	if(!ptr || width <= 0 || height <= 0 || bpp <= 0){
+		throw std::runtime_error{std::format("failed to load bitmap: {}", path)};
+	}
 
 	mo_yanxi::bitmap bitmap(width, height, reinterpret_cast<const color_bits*>(ptr.get()));
 	return bitmap;

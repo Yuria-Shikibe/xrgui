@@ -29,6 +29,12 @@ struct sample {
 };
 ```
 
+## Image
+
+这是图片前的文本。
+![XRGUI logo](../images/logo.png)
+这是图片后的文本。
+
 ## Table
 
 | Name         | Align | Notes |

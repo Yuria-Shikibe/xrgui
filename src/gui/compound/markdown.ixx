@@ -337,6 +337,7 @@ private:
 		line = trim_whitespace(line);
 		if(!line.empty() && line.front() == U'|') line = line.substr(1);
 		if(!line.empty() && line.back() == U'|') line = line.substr(0, line.size() - 1);
+		cells.reserve(static_cast<std::size_t>(std::ranges::count(line, U'|')) + 1);
 
 		std::size_t start = 0;
 		while(start < line.size()) {
@@ -349,6 +350,76 @@ private:
 			start = end + 1;
 		}
 		return cells;
+	}
+
+	struct inline_destination {
+		bool valid{};
+		std::size_t label_start{};
+		std::size_t label_end{};
+		std::size_t destination_start{};
+		std::size_t destination_end{};
+		std::size_t end_pos{};
+	};
+
+	static constexpr std::size_t find_unescaped(std::u32string_view text, char32_t target, std::size_t start) noexcept {
+		for(std::size_t pos = start; pos < text.size(); ++pos) {
+			if(text[pos] == U'\\') {
+				++pos;
+				continue;
+			}
+			if(text[pos] == target) {
+				return pos;
+			}
+		}
+		return std::u32string_view::npos;
+	}
+
+	static constexpr std::size_t find_closing_destination_paren(std::u32string_view text, std::size_t start) noexcept {
+		std::uint32_t nested_depth = 0;
+		for(std::size_t pos = start; pos < text.size(); ++pos) {
+			if(text[pos] == U'\\') {
+				++pos;
+				continue;
+			}
+			if(text[pos] == U'(') {
+				++nested_depth;
+				continue;
+			}
+			if(text[pos] == U')') {
+				if(nested_depth == 0) {
+					return pos;
+				}
+				--nested_depth;
+			}
+		}
+		return std::u32string_view::npos;
+	}
+
+	static constexpr inline_destination parse_inline_destination(
+		std::u32string_view inline_text,
+		std::size_t current_pos,
+		bool image_syntax
+	) noexcept {
+		const std::size_t label_start = current_pos + (image_syntax ? 2 : 1);
+		if(label_start > inline_text.size()) return {};
+
+		const std::size_t end_bracket = find_unescaped(inline_text, U']', label_start);
+		if(end_bracket == std::u32string_view::npos) return {};
+		if(end_bracket + 1 >= inline_text.size() || inline_text[end_bracket + 1] != U'(') return {};
+
+		const std::size_t destination_start = end_bracket + 2;
+		const std::size_t end_paren = find_closing_destination_paren(inline_text, destination_start);
+		if(end_paren == std::u32string_view::npos) return {};
+
+		auto destination = trim_whitespace(inline_text.substr(destination_start, end_paren - destination_start));
+		return inline_destination{
+			.valid = true,
+			.label_start = label_start,
+			.label_end = end_bracket,
+			.destination_start = static_cast<std::size_t>(destination.data() - inline_text.data()),
+			.destination_end = static_cast<std::size_t>(destination.data() - inline_text.data()) + destination.size(),
+			.end_pos = end_paren + 1,
+		};
 	}
 
 	static constexpr std::u32string_view strip_list_continuation_prefix(std::u32string_view line, const list_marker_info& marker) noexcept {
@@ -641,6 +712,7 @@ private:
 			return {ast_node{base_pos, std::move(t_node)}};
 		}
 		node_list inlines;
+		inlines.reserve(std::max<std::size_t>(1, inline_text.size() / 16));
 		std::size_t current_pos = 0;
 		std::size_t text_start = 0;
 
@@ -658,9 +730,9 @@ private:
 			std::size_t current_abs_pos = base_pos + current_pos;
 
 			if(c == U'`') {
-				flush_text();
 				std::size_t end_backtick = inline_text.find(U'`', current_pos + 1);
 				if(end_backtick != std::u32string_view::npos) {
+					flush_text();
 					code_span cs_node;
 					auto content = inline_text.substr(current_pos + 1, end_backtick - current_pos - 1);
 					cs_node.content.assign(content.begin(), content.end());
@@ -672,13 +744,13 @@ private:
 			}
 
 			if(c == U'*') {
-				flush_text();
 				bool is_strong = (current_pos + 1 < inline_text.size() && inline_text[current_pos + 1] == U'*');
 				std::u32string_view search_target = is_strong ? U"**" : U"*";
 				std::size_t offset = is_strong ? 2 : 1;
 
 				std::size_t end_star = inline_text.find(search_target, current_pos + offset);
 				if(end_star != std::u32string_view::npos) {
+					flush_text();
 					std::u32string_view inner_content = inline_text.substr(current_pos + offset, end_star - current_pos - offset);
 					if(is_strong) {
 				strong_emphasis se_node;
@@ -696,40 +768,32 @@ private:
 			}
 
 			if(c == U'!' && current_pos + 1 < inline_text.size() && inline_text[current_pos + 1] == U'[') {
-				std::size_t end_bracket = inline_text.find(U']', current_pos + 2);
-				if(end_bracket != std::u32string_view::npos && end_bracket + 1 < inline_text.size() && inline_text[end_bracket + 1] == U'(') {
-					std::size_t end_paren = inline_text.find(U')', end_bracket + 2);
-					if(end_paren != std::u32string_view::npos) {
+				if(auto match = parse_inline_destination(inline_text, current_pos, true); match.valid) {
 						flush_text();
 						image img_node;
-						std::u32string_view alt_content = inline_text.substr(current_pos + 2, end_bracket - current_pos - 2);
+						std::u32string_view alt_content = inline_text.substr(match.label_start, match.label_end - match.label_start);
 						img_node.alt = parse_inlines(alt_content, current_abs_pos + 2, depth + 1);
-						auto url = inline_text.substr(end_bracket + 2, end_paren - end_bracket - 2);
+						auto url = inline_text.substr(match.destination_start, match.destination_end - match.destination_start);
 						img_node.url.assign(url.begin(), url.end());
 						inlines.push_back(ast_node{current_abs_pos, std::move(img_node)});
-						current_pos = end_paren + 1;
+						current_pos = match.end_pos;
 						text_start = current_pos;
 						continue;
-					}
 				}
-			}
+		}
 
 			if(c == U'[') {
-				std::size_t end_bracket = inline_text.find(U']', current_pos + 1);
-				if(end_bracket != std::u32string_view::npos && end_bracket + 1 < inline_text.size() && inline_text[end_bracket + 1] == U'(') {
-					std::size_t end_paren = inline_text.find(U')', end_bracket + 2);
-					if(end_paren != std::u32string_view::npos) {
+				if(auto match = parse_inline_destination(inline_text, current_pos, false); match.valid) {
 						flush_text();
 						link l_node;
-						std::u32string_view title_content = inline_text.substr(current_pos + 1, end_bracket - current_pos - 1);
+						std::u32string_view title_content = inline_text.substr(match.label_start, match.label_end - match.label_start);
 						l_node.children = parse_inlines(title_content, current_abs_pos + 1, depth + 1);
-						auto url = inline_text.substr(end_bracket + 2, end_paren - end_bracket - 2);
+						auto url = inline_text.substr(match.destination_start, match.destination_end - match.destination_start);
 						l_node.url.assign(url.begin(), url.end());
 						inlines.push_back(ast_node{current_abs_pos, std::move(l_node)});
-						current_pos = end_paren + 1;
+						current_pos = match.end_pos;
 						text_start = current_pos;
 						continue;
-					}
 				}
 			}
 

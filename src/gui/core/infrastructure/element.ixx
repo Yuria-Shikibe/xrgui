@@ -202,6 +202,19 @@ private:
 	scene* scene_{};
 	elem* parent_{};
 
+	using lifecycle_ref_word = std::uint32_t;
+	static constexpr lifecycle_ref_word lifecycle_destroying_bit_ =
+		lifecycle_ref_word{1u} << (std::numeric_limits<lifecycle_ref_word>::digits - 1u);
+	static constexpr lifecycle_ref_word lifecycle_live_bit_ = lifecycle_destroying_bit_ >> 1u;
+	static constexpr lifecycle_ref_word lifecycle_ref_mask_ = lifecycle_live_bit_ - 1u;
+	static_assert((lifecycle_destroying_bit_ & lifecycle_live_bit_) == 0u);
+	static_assert((lifecycle_destroying_bit_ & lifecycle_ref_mask_) == 0u);
+	static_assert((lifecycle_live_bit_ & lifecycle_ref_mask_) == 0u);
+
+	std::atomic<lifecycle_ref_word> lifecycle_ref_{lifecycle_live_bit_};
+	bool scene_refs_attached_{true};
+	std::stop_source lifetime_stop_source_{};
+
 	clamped_fsize size_{};
 	std::optional<math::vec2> preferred_size_{};
 	math::vec2 relative_pos_{};
@@ -221,12 +234,16 @@ private:
 	mpsc_action_queue<elem> actions{};
 
 public:
-	// The maximum extent this element may freely occupy during layout-driven resize.
-	// A finite axis is the parent-granted allowance: resizing within that value should
-	// not require the parent to acquire a larger size on that axis. An infinite/pending
-	// axis means the parent allows this element to determine that axis from its content
-	// and propagate the resulting size requirement upward.
-	// This is layout context, not the element's current extent.
+	/**
+	 * @brief The maximum extent this element may freely occupy during layout-driven resize.
+	 *
+	 * A finite axis is the parent-granted allowance: resizing within that value should
+	 * not require the parent to acquire a larger size on that axis. An infinite/pending
+	 * axis means the parent allows this element to determine that axis from its content
+	 * and propagate the resulting size requirement upward.
+	 *
+	 * This is layout context, not the element's current extent.
+	 */
 	layout::optional_mastering_extent restriction_extent{layout::pending_size, layout::pending_size};
 
 protected:
@@ -255,10 +272,6 @@ private:
 	float propagate_opacity_{1.f};
 	float inherent_opacity_{1.f};
 	altitude_t layer_altitude_{};
-	std::atomic_uint32_t external_ref_count_{};
-	std::atomic<elem_lifecycle_state> lifecycle_state_{elem_lifecycle_state::live};
-	std::stop_source lifetime_stop_source_{};
-	bool scene_refs_attached_{true};
 
 public:
 	unsigned _debug_identity{};
@@ -267,8 +280,7 @@ public:
 		if(scene_refs_attached_){
 			detach_from_scene();
 		}
-		lifecycle_state_.store(elem_lifecycle_state::destroying, std::memory_order_release);
-		assert(external_ref_count_.load(std::memory_order_acquire) == 0);
+		mark_destroying_no_external_refs_();
 		scene_->decr_ref_count_();
 	}
 
@@ -925,15 +937,15 @@ public:
 	}
 
 	[[nodiscard]] bool is_live() const noexcept{
-		return lifecycle_state_.load(std::memory_order_acquire) == elem_lifecycle_state::live;
+		return elem::is_lifecycle_live_(lifecycle_ref_.load(std::memory_order_acquire));
 	}
 
 	[[nodiscard]] bool is_detached() const noexcept{
-		return lifecycle_state_.load(std::memory_order_acquire) == elem_lifecycle_state::detached;
+		return elem::is_lifecycle_detached_(lifecycle_ref_.load(std::memory_order_acquire));
 	}
 
 	[[nodiscard]] bool is_destroying() const noexcept{
-		return lifecycle_state_.load(std::memory_order_acquire) == elem_lifecycle_state::destroying;
+		return elem::is_lifecycle_destroying_(lifecycle_ref_.load(std::memory_order_acquire));
 	}
 
 	template <std::derived_from<elem> T = elem>
@@ -1213,11 +1225,28 @@ protected:
 	void relocate_self_scene(scene& target_scene) noexcept;
 
 private:
+	[[nodiscard]] static constexpr lifecycle_ref_word lifecycle_ref_count_(const lifecycle_ref_word state) noexcept{
+		return state & lifecycle_ref_mask_;
+	}
+
+	[[nodiscard]] static constexpr bool is_lifecycle_live_(const lifecycle_ref_word state) noexcept{
+		return (state & (lifecycle_destroying_bit_ | lifecycle_live_bit_)) == lifecycle_live_bit_;
+	}
+
+	[[nodiscard]] static constexpr bool is_lifecycle_detached_(const lifecycle_ref_word state) noexcept{
+		return (state & (lifecycle_destroying_bit_ | lifecycle_live_bit_)) == 0u;
+	}
+
+	[[nodiscard]] static constexpr bool is_lifecycle_destroying_(const lifecycle_ref_word state) noexcept{
+		return (state & lifecycle_destroying_bit_) != 0u;
+	}
+
+	void mark_destroying_no_external_refs_() noexcept;
 	[[nodiscard]] bool try_retain_external_ref_live_() noexcept;
 	void retain_external_ref_existing_() noexcept;
 	void release_external_ref_() noexcept;
 	[[nodiscard]] bool has_external_refs_() const noexcept{
-		return external_ref_count_.load(std::memory_order_acquire) != 0u;
+		return elem::lifecycle_ref_count_(lifecycle_ref_.load(std::memory_order_acquire)) != 0u;
 	}
 
 	template <typename S, typename T, typename ...Args>

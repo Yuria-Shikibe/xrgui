@@ -474,6 +474,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		auto ui_providers = gui::cfg::builtin::build_main_ui(
 			loop.get_ctx(),
 			loop.get_renderer().create_frontend(),
+			image_atlas,
 			loop.get_window_dispatcher());
 		auto& scene = *ui_providers.scene_ptr;
 		ret.main_scene = ui_providers.scene_ptr;

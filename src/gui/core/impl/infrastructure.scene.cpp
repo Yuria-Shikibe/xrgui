@@ -390,7 +390,7 @@ void scene_base::retire_elem(elem* target) noexcept{
 	if(target->has_external_refs_()){
 		retired_elements_.push_back({target});
 	}else{
-		target->lifecycle_state_.store(elem_lifecycle_state::destroying, std::memory_order_release);
+		target->mark_destroying_no_external_refs_();
 		target->deleter_(target);
 	}
 }
@@ -408,7 +408,7 @@ void scene_base::collect_retired_elements() noexcept{
 
 		retired_elements_[index] = retired_elements_.back();
 		retired_elements_.pop_back();
-		target->lifecycle_state_.store(elem_lifecycle_state::destroying, std::memory_order_release);
+		target->mark_destroying_no_external_refs_();
 		target->deleter_(target);
 	}
 }

@@ -482,6 +482,7 @@ struct vp : gui::viewport{
 ui_outputs build_main_ui(
 	backend::vulkan::context& ctx,
 	renderer_frontend renderer,
+	graphic::image_atlas& image_atlas,
 	window_thread_dispatcher& window_dispatcher){
 	auto& ui_root = global::manager;
 	auto& res = ui_root.add_scene_resources("main");
@@ -533,7 +534,7 @@ ui_outputs build_main_ui(
 	auto make_create_table = [&] -> std::vector<test_entry>{
 		std::vector<test_entry> tests{
 				test_entry{
-					"markdown preview", [](scroll_adaptor<sequence>& pane){
+					"markdown preview", [&image_atlas](scroll_adaptor<sequence>& pane){
 						pane.set_overlay_bar(true);
 						pane.set_layout_spec(layout::layout_policy::none);
 						auto& seq = pane.get_elem();
@@ -543,21 +544,19 @@ ui_outputs build_main_ui(
 					seq.template_cell.set_pad({8.f, 8.f});
 
 					const auto path = std::filesystem::current_path().append("assets/markdown/preview.md").make_preferred();
-						if(auto text = md::try_read_markdown_utf8_file(path)) {
-							md::append_markdown(seq, *text);
-							seq._debug_identity = 114;
-						} else {
-							seq.create_back([&](direct_label& label){
-								label.set_style();
-							label.set_fit(false);
-							label.set_expand_policy(layout::expand_policy::prefer);
-							label.text_entire_align = align::pos::top_left;
-							std::u32string error_text = U"{c:#FF8080}Failed to load markdown file:\n";
-							error_text.append(path.u32string());
-							error_text += U"{/c}";
-								label.set_tokenized_text(typesetting::tokenized_text{error_text, typesetting::tokenize_tag::def});
-							}).cell().set_pending();
-						}
+						auto& image_page = image_atlas.create_image_page("markdown.images");
+						md::markdown_config config{};
+						config.image = md::markdown_image_config{
+							.page = &image_page,
+							.atlas = &image_atlas,
+							.base_path = path.parent_path(),
+							.max_extent = {720.f, 420.f},
+							.scaling = align::scale::fit,
+							.align = align::pos::center_left,
+							.wait_for_load = true,
+						};
+						md::append_markdown_file(seq, path, std::move(config));
+						seq._debug_identity = 114;
 						seq.notify_isolated_layout_changed();
 					}
 				},

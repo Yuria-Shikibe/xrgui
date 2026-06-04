@@ -210,27 +210,78 @@ bool elem::update(float delta_in_ticks){
 	return true;
 }
 
+void elem::mark_destroying_no_external_refs_() noexcept{
+	const auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	if(elem::lifecycle_ref_count_(state) != 0u){
+		assert(false && "cannot destroy an externally referenced elem");
+		std::terminate();
+	}
+	lifecycle_ref_.store(lifecycle_destroying_bit_, std::memory_order_release);
+}
+
 bool elem::try_retain_external_ref_live_() noexcept{
-	if(!is_live()){
-		return false;
+	auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	while(elem::is_lifecycle_live_(state)){
+		const auto count = elem::lifecycle_ref_count_(state);
+		if(count == lifecycle_ref_mask_){
+			assert(false && "elem external reference count overflow");
+			std::terminate();
+		}
+		if(lifecycle_ref_.compare_exchange_weak(
+			state,
+			state + lifecycle_ref_word{1u},
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)){
+			if(is_live()){
+				return true;
+			}
+			release_external_ref_();
+			return false;
+		}
 	}
-	external_ref_count_.fetch_add(1u, std::memory_order_acq_rel);
-	if(is_live()){
-		return true;
-	}
-	release_external_ref_();
 	return false;
 }
 
 void elem::retain_external_ref_existing_() noexcept{
-	const auto state = lifecycle_state_.load(std::memory_order_acquire);
-	assert(state != elem_lifecycle_state::destroying);
-	external_ref_count_.fetch_add(1u, std::memory_order_acq_rel);
+	auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	while(!elem::is_lifecycle_destroying_(state)){
+		const auto count = elem::lifecycle_ref_count_(state);
+		if(count == 0u || count == lifecycle_ref_mask_){
+			assert(false && "invalid elem external reference count");
+			std::terminate();
+		}
+		if(lifecycle_ref_.compare_exchange_weak(
+			state,
+			state + lifecycle_ref_word{1u},
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)){
+			return;
+		}
+	}
+
+	assert(false && "cannot retain a destroying elem");
+	std::terminate();
 }
 
 void elem::release_external_ref_() noexcept{
-	const auto last = external_ref_count_.fetch_sub(1u, std::memory_order_acq_rel);
-	assert(last != 0u);
+	auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	while(!elem::is_lifecycle_destroying_(state)){
+		const auto count = elem::lifecycle_ref_count_(state);
+		if(count == 0u){
+			assert(false && "elem external reference count underflow");
+			std::terminate();
+		}
+		if(lifecycle_ref_.compare_exchange_weak(
+			state,
+			state - lifecycle_ref_word{1u},
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)){
+			return;
+		}
+	}
+
+	assert(false && "cannot release a destroying elem");
+	std::terminate();
 }
 
 void elem::detach_from_scene() noexcept{
@@ -241,7 +292,13 @@ void elem::detach_from_scene() noexcept{
 	}
 
 	scene_refs_attached_ = false;
-	lifecycle_state_.store(elem_lifecycle_state::detached, std::memory_order_release);
+	const auto previous_state = lifecycle_ref_.fetch_and(
+		static_cast<lifecycle_ref_word>(~lifecycle_live_bit_),
+		std::memory_order_acq_rel);
+	if(elem::is_lifecycle_destroying_(previous_state)){
+		assert(false && "cannot detach a destroying elem");
+		std::terminate();
+	}
 	lifetime_stop_source_.request_stop();
 	scene_->layer_altitude_record_.erase(layer_altitude_, 1);
 	scene_->drop_(this);

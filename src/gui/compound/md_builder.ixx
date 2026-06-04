@@ -10,8 +10,10 @@ export import mo_yanxi.gui.elem.table;
 export import mo_yanxi.gui.elem.grid;
 export import mo_yanxi.gui.elem.label;
 export import mo_yanxi.gui.elem.scroll_pane;
+export import mo_yanxi.gui.elem.image_frame;
 export import mo_yanxi.font.manager;
 export import mo_yanxi.graphic.color;
+export import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.unicode;
 import mo_yanxi.graphic.g2d;
 import mo_yanxi.utility;
@@ -27,6 +29,16 @@ enum variants{
 	quote,
 };
 }
+
+export struct markdown_image_config {
+	graphic::image_page* page{};
+	graphic::image_atlas* atlas{};
+	std::filesystem::path base_path{};
+	math::vec2 max_extent{1024.f, 640.f};
+	align::scale scaling{align::scale::fit};
+	align::pos align{align::pos::center_left};
+	bool wait_for_load{};
+};
 
 export struct markdown_config {
 	std::array<float, 6> heading_sizes{56.f, 44.f, 32.f, 24.f, 20.f, 16.f};
@@ -52,6 +64,7 @@ export struct markdown_config {
 	math::vec2 ppi{typesetting::glyph_size::screen_ppi};
 
 	std::string_view style_family_name{"markdown"};
+	std::optional<markdown_image_config> image{};
 
 	float to_px(float pt) const noexcept {
 		return typesetting::glyph_size::get_glyph_std_size_at(pt, ppi).x;
@@ -341,6 +354,34 @@ struct markdown_bullet : elem {
 	}
 };
 
+struct markdown_image : image_frame_single<drawable_image<>> {
+	math::vec2 max_extent{1024.f, 640.f};
+
+	using image_frame_single<drawable_image<>>::image_frame_single;
+
+	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
+		const auto preferred_optional = this->drawable_.get_preferred_extent();
+		if(!preferred_optional) return std::nullopt;
+
+		const math::vec2 preferred = preferred_optional.value_or();
+		if(preferred.x <= 0.f || preferred.y <= 0.f) return std::nullopt;
+
+		math::vec2 limit = max_extent;
+		const math::vec2 potential = extent.potential_extent();
+		if(std::isfinite(potential.x) && potential.x > 0.f) {
+			limit.x = std::min(limit.x, potential.x);
+		}
+		if(std::isfinite(potential.y) && potential.y > 0.f) {
+			limit.y = std::min(limit.y, potential.y);
+		}
+
+		if(limit.x <= 0.f || limit.y <= 0.f) return std::nullopt;
+
+		const float scale = std::min({1.f, limit.x / preferred.x, limit.y / preferred.y});
+		return preferred * std::max(scale, 0.f);
+	}
+};
+
 struct inline_renderer {
 	const markdown_config& config;
 
@@ -392,13 +433,14 @@ struct inline_renderer {
 	}
 
 	void append(std::u32string& out, const md::image& node) const {
-		out += U"[image: ";
-		append_u32(out, (*this)(node.alt));
+		append_u32(out, color_tag(graphic::color{1.0f, 0.40f, 0.40f, 1.0f}));
+		out += U"[unsupported inline image: ";
+		append_u32(out, escape_rich_text_literal((*this)(node.alt)));
 		if(!node.url.empty()) {
 			out += U" -> ";
-			append_u32(out, node.url);
+			append_u32(out, escape_rich_text_literal(node.url));
 		}
-		out += U"]";
+		out += U"]{/c}";
 	}
 
 	template <typename T>
@@ -469,6 +511,128 @@ create_handle<direct_label, sequence::cell_type> append_raw_label(
 	hdl.cell().set_pending();
 	hdl.cell().set_pad({config.block_pad, config.block_pad});
 	return hdl;
+}
+
+void append_markdown_error(sequence& parent, std::u32string_view message, const markdown_config& config) {
+	std::u32string text = color_tag(graphic::color{1.0f, 0.35f, 0.35f, 1.0f});
+	append_u32(text, escape_rich_text_literal(message));
+	text += U"{/c}";
+	append_raw_label(parent, std::move(text), config, false, false, typesetting::tokenize_tag::def);
+}
+
+void append_markdown_error(sequence& parent, std::string_view message, const markdown_config& config) {
+	std::u32string u32_message;
+	append_utf8(u32_message, message);
+	append_markdown_error(parent, u32_message, config);
+}
+
+bool is_ascii_alpha(char ch) noexcept {
+	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+}
+
+bool is_windows_drive_path(std::string_view value) noexcept {
+	if(value.size() < 2 || !is_ascii_alpha(value[0]) || value[1] != ':') return false;
+	return value.size() == 2 || value[2] == '\\' || value[2] == '/';
+}
+
+bool has_unsupported_image_scheme(std::string_view value) noexcept {
+	const std::size_t colon = value.find(':');
+	if(colon == std::string_view::npos) return false;
+	if(is_windows_drive_path(value)) return false;
+
+	const std::size_t first_separator = value.find_first_of("/\\");
+	return first_separator == std::string_view::npos || colon < first_separator;
+}
+
+std::filesystem::path resolve_markdown_image_path(
+	const markdown_image_config& image_config,
+	std::u32string_view url
+) {
+	const std::string url_utf8 = unicode::utf32_to_utf8(url);
+	if(url_utf8.empty()) {
+		throw std::runtime_error{"markdown image URL is empty"};
+	}
+	if(has_unsupported_image_scheme(url_utf8)) {
+		throw std::runtime_error{std::format("unsupported markdown image URL scheme: {}", url_utf8)};
+	}
+
+	std::filesystem::path raw_path{url_utf8};
+	std::filesystem::path resolved = raw_path.is_absolute()
+		? raw_path
+		: image_config.base_path / raw_path;
+
+	std::error_code ec;
+	resolved = std::filesystem::absolute(resolved, ec);
+	if(ec) {
+		throw std::runtime_error{std::format("failed to resolve markdown image path '{}': {}", url_utf8, ec.message())};
+	}
+
+	if(!std::filesystem::exists(resolved, ec)) {
+		if(ec) {
+			throw std::runtime_error{std::format("failed to inspect markdown image path '{}': {}", resolved.string(), ec.message())};
+		}
+		throw std::runtime_error{std::format("markdown image path does not exist: {}", resolved.string())};
+	}
+
+	resolved = std::filesystem::weakly_canonical(resolved, ec);
+	if(ec) {
+		throw std::runtime_error{std::format("failed to canonicalize markdown image path '{}': {}", resolved.string(), ec.message())};
+	}
+
+	return resolved;
+}
+
+constant_image_region_borrow load_markdown_image_region(
+	const markdown_image_config& image_config,
+	const md::image& node
+) {
+	if(image_config.page == nullptr) {
+		throw std::runtime_error{"markdown image page is not configured"};
+	}
+
+	const auto path = resolve_markdown_image_path(image_config, node.url);
+	const std::string path_string = path.string();
+	const std::string region_name = std::format("markdown:{}", path_string);
+	auto result = image_config.page->register_named_region(
+		region_name,
+		graphic::image_load_description{graphic::bitmap_path_load{path_string}});
+	return constant_image_region_borrow{result.region};
+}
+
+void append_markdown_image(sequence& parent, const md::image& node, const markdown_config& config) {
+	if(!config.image) {
+		append_markdown_error(parent, U"markdown image cannot render: markdown_config::image is not configured", config);
+		return;
+	}
+
+	try {
+		const auto region = load_markdown_image_region(*config.image, node);
+		auto hdl = parent.create_back([&](markdown_image& image) {
+			image.set_style();
+			image.max_extent = config.image->max_extent;
+			image.style.scaling = config.image->scaling;
+			image.style.align = config.image->align;
+			image.set_drawable(drawable_image<>{region});
+		});
+		hdl.cell().set_pending();
+		hdl.cell().set_pad({config.block_pad, config.block_pad});
+	} catch(const std::exception& e) {
+		std::u32string message = U"markdown image failed: ";
+		append_u32(message, node.url);
+		message += U" (";
+		append_utf8(message, e.what());
+		message += U")";
+		append_markdown_error(parent, message, config);
+	}
+}
+
+void wait_markdown_images_if_requested(sequence& parent, const markdown_config& config) {
+	if(!config.image || !config.image->wait_for_load) return;
+	if(config.image->atlas == nullptr) {
+		append_markdown_error(parent, U"markdown image wait_for_load requires markdown_image_config::atlas", config);
+		return;
+	}
+	config.image->atlas->wait_load();
 }
 
 sequence& append_block_container(sequence& parent, const markdown_config& config, float left_indent = 0.f, bool quote_style = false) {
@@ -651,6 +815,34 @@ void build_table(sequence& parent, const md::table& node, const markdown_config&
 	}
 }
 
+bool contains_top_level_image(const md::node_list& nodes) noexcept {
+	return std::ranges::any_of(nodes, [](const md::ast_node& node) {
+		return std::holds_alternative<md::image>(node.data);
+	});
+}
+
+void build_paragraph(sequence& parent, const md::paragraph& node, const markdown_config& config) {
+	inline_renderer render{config};
+	std::u32string pending_text;
+
+	const auto flush_text = [&]() {
+		if(pending_text.empty()) return;
+		append_rich_label(parent, std::move(pending_text), config);
+		pending_text.clear();
+	};
+
+	for(const md::ast_node& child : node.children) {
+		if(const auto* image = std::get_if<md::image>(&child.data)) {
+			flush_text();
+			append_markdown_image(parent, *image, config);
+			continue;
+		}
+		render.append_node(pending_text, child);
+	}
+
+	flush_text();
+}
+
 void build_blockquote(sequence& parent, const md::blockquote& node, const markdown_config& config, std::uint32_t depth = 0) {
 	if(depth > 128) return;
 	std::u32string combined;
@@ -658,6 +850,10 @@ void build_blockquote(sequence& parent, const md::blockquote& node, const markdo
 	bool all_paragraph_like = true;
 	for(const auto& child : node.children) {
 		if(const auto* para = std::get_if<md::paragraph>(&child.data)) {
+			if(contains_top_level_image(para->children)) {
+				all_paragraph_like = false;
+				break;
+			}
 			if(!combined.empty()) combined += U"\n\n";
 			render.append_children_to(combined, para->children);
 			continue;
@@ -688,9 +884,7 @@ void build_blocks(sequence& parent, const node_list& nodes, const markdown_confi
 		std::visit(overload_def_noop{
 			std::in_place_type<void>,
 			[&](const paragraph& val){
-				if(auto text = render(val.children); !text.empty()) {
-					append_rich_label(parent, std::move(text), config);
-				}
+				build_paragraph(parent, val, config);
 			},
 		[&](const heading& val){
 			auto text = rich_size_wrap(render(val.children), config.heading_size_px(val.level), true);
@@ -734,6 +928,26 @@ export inline void append_markdown(
 	auto ast = parser.parse();
 
 	build_blocks(parent, ast, config, depth);
+	wait_markdown_images_if_requested(parent, config);
+}
+
+export inline void append_markdown_file(
+	sequence& parent,
+	const std::filesystem::path& path,
+	markdown_config config = {},
+	std::uint32_t depth = 0
+) {
+	if(config.image && config.image->base_path.empty()) {
+		config.image->base_path = path.parent_path();
+	}
+
+	if(auto text = try_read_markdown_utf8_file(path)) {
+		append_markdown(parent, *text, config, depth);
+	} else {
+		std::u32string message = U"Failed to load markdown file:\n";
+		message.append(path.u32string());
+		append_markdown_error(parent, message, config);
+	}
 }
 
 export inline elem_ptr build_markdown(
