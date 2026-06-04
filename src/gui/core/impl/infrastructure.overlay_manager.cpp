@@ -2,6 +2,7 @@ module mo_yanxi.gui.infrastructure;
 
 import :scene;
 import mo_yanxi.gui.action.elem;
+import mo_yanxi.input_handle;
 import mo_yanxi.utility;
 
 namespace mo_yanxi::gui{
@@ -20,6 +21,9 @@ overlay_create_result<elem> overlay_manager::push_back(const overlay_layout& lay
 void overlay_manager::truncate(container::iterator where){
 	std::ranges::subrange rng{where, overlays_.end()};
 	for (const auto & dialog : rng){
+		if(dialog.layout_config.on_dismiss){
+			dialog.layout_config.on_dismiss();
+		}
 		dialog.element->clear_scene_references_recursively();
 	}
 
@@ -29,6 +33,30 @@ void overlay_manager::truncate(container::iterator where){
 		}), std::back_inserter(overlay_fadings_));
 
 	overlays_.erase(where, overlays_.end());
+}
+
+overlay_external_press_result overlay_manager::handle_external_press(
+	const math::vec2 scene_position,
+	const events::key_set key){
+	if(overlays_.empty() || key.action != input_handle::act::press){
+		return overlay_external_press_result::ignored;
+	}
+
+	auto where = std::prev(overlays_.end());
+	const overlay& target = *where;
+	if(target.layout_config.external_press_policy == overlay_external_press_policy::ignore
+		|| target.get() == nullptr
+		|| target.get()->bound_abs().contains_loose(scene_position)){
+		return overlay_external_press_result::ignored;
+	}
+
+	const overlay_external_press_policy policy = target.layout_config.external_press_policy;
+	this->truncate(where);
+	if(policy == overlay_external_press_policy::dismiss_and_retarget_right_press
+		&& key.as_mouse() == input_handle::mouse::RMB){
+		return overlay_external_press_result::retarget;
+	}
+	return overlay_external_press_result::intercepted;
 }
 
 void overlay_manager::update(float delta_in_tick){

@@ -6,6 +6,7 @@ add_rules("mode.debug", "mode.release")
 
 local current_dir = os.scriptdir()
 local root_dir = os.projectdir()
+local magic_enum_dir = path.join(current_dir, "external/magic_enum")
 
 if current_dir == root_dir then
     set_arch("x64")
@@ -76,14 +77,18 @@ function set_xrgui_deps()
     add_includedirs("./external/include")
     add_includedirs("./external/plf_hive")
     add_includedirs("./external/small_vector/source/include")
+    add_includedirs(path.join(magic_enum_dir, "include"), {public = true})
 
     add_defines("MO_YANXI_ALLOCATOR_2D_USE_STD_MODULE", "MO_YANXI_ALLOCATOR_2D_HAS_MATH_VECTOR2", {public = true})
     add_defines("MO_YANXI_DATA_FLOW_DISABLE_THREAD_CHECK", {public = true})
-
     -- msvc 新版好像没这问题了，哪天删了，，，
     add_defines("XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE", {public = true})
 
     add_files("./external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
+    add_files(path.join(magic_enum_dir, "module/magic_enum.cppm"), {
+        public = true,
+        defines = "MAGIC_ENUM_USE_STD_MODULE"
+    })
     add_files("./src/**.cpp")
     add_files("./src/**.ixx", {public = true})
 

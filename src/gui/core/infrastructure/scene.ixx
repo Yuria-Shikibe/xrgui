@@ -30,6 +30,7 @@ import mo_yanxi.concurrent.mpsc_double_buffer;
 import mo_yanxi.concurrent.mpsc_queue;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.circular_queue;
+import mo_yanxi.log;
 
 export import mo_yanxi.gui.util;
 export import mo_yanxi.gui.util.task_queue;
@@ -370,12 +371,27 @@ struct async_async_task_queue{
 	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
 
 private:
+	static constexpr std::size_t invalid_owner_slot = std::numeric_limits<std::size_t>::max();
+
+	struct async_owner_slot{
+		elem* owner{};
+		std::uint64_t generation{};
+		std::stop_source stop_source{};
+		std::size_t outstanding_tasks{};
+		std::size_t next_free{invalid_owner_slot};
+		bool alive{};
+		bool free{true};
+	};
+
 	ccur::mpsc_queue<elem_async_task_ptr, std::deque<
 			elem_async_task_ptr, mr::heap_allocator<elem_async_task_ptr>
 		>> element_async_tasks_pending_{};
 
 	std::atomic<basic_elem_async_task*> current_done_task_{};
-	mr::heap_umap<elem*, unsigned, transparent::ptr_hasher<elem>, transparent::ptr_equal_to<elem>> element_async_task_alive_owners_{};
+	mr::heap_umap<elem*, std::size_t, transparent::ptr_hasher<elem>, transparent::ptr_equal_to<elem>> owner_slot_by_elem_{};
+	mr::heap_vector<async_owner_slot> owner_slots_{};
+	std::size_t free_owner_head_{invalid_owner_slot};
+	std::deque<elem_async_task_runtime_state> task_runtime_states_{};
 	std::unique_ptr<scene, scene_deleter> forked_scene_{};
 	std::jthread element_async_task_thread_{};
 
@@ -384,7 +400,8 @@ public:
 	                                     std::unique_ptr<scene, scene_deleter>&& scene)
 		:
 		element_async_tasks_pending_(alloc),
-		element_async_task_alive_owners_(alloc),
+		owner_slot_by_elem_(alloc),
+		owner_slots_(alloc),
 		forked_scene_((assert(scene != nullptr), std::move(scene))),
 		element_async_task_thread_([this](std::stop_token&& stop_token){
 			exchange_scene_thread(*forked_scene_, std::this_thread::get_id());
@@ -397,6 +414,17 @@ public:
 	}
 
 	~async_async_task_queue(){
+		for(auto& slot : owner_slots_){
+			if(!slot.free){
+				slot.alive = false;
+				slot.owner = nullptr;
+				slot.stop_source.request_stop();
+			}
+		}
+		for(auto& state : task_runtime_states_){
+			state.stop_source.request_stop();
+			state.active.store(false, std::memory_order_release);
+		}
 		element_async_task_thread_.request_stop();
 		element_async_tasks_pending_.notify();
 
@@ -406,6 +434,113 @@ public:
 	}
 
 private:
+	void push_free_owner_slot(const std::size_t slot_index) noexcept{
+		auto& slot = owner_slots_[slot_index];
+		assert(!slot.free);
+		slot.free = true;
+		slot.owner = nullptr;
+		slot.alive = false;
+		slot.next_free = free_owner_head_;
+		free_owner_head_ = slot_index;
+	}
+
+	void release_owner_slot_if_ready(const std::size_t slot_index) noexcept{
+		auto& slot = owner_slots_[slot_index];
+		if(slot.outstanding_tasks == 0u && !slot.alive && !slot.free){
+			this->push_free_owner_slot(slot_index);
+		}
+	}
+
+	[[nodiscard]] elem_async_owner_id acquire_owner(elem& owner){
+		if(const auto itr = owner_slot_by_elem_.find(std::addressof(owner)); itr != owner_slot_by_elem_.end()){
+			auto& slot = owner_slots_[itr->second];
+			assert(slot.owner == std::addressof(owner));
+			assert(slot.alive);
+			assert(!slot.free);
+			return elem_async_owner_id{itr->second, slot.generation};
+		}
+
+		std::size_t slot_index{};
+		if(free_owner_head_ != invalid_owner_slot){
+			slot_index = free_owner_head_;
+			auto& slot = owner_slots_[slot_index];
+			free_owner_head_ = slot.next_free;
+			slot.next_free = invalid_owner_slot;
+		}else{
+			slot_index = owner_slots_.size();
+			owner_slots_.emplace_back();
+		}
+
+		auto& slot = owner_slots_[slot_index];
+		++slot.generation;
+		if(slot.generation == 0u){
+			++slot.generation;
+		}
+		slot.owner = std::addressof(owner);
+		slot.stop_source = std::stop_source{};
+		slot.outstanding_tasks = 0u;
+		slot.alive = true;
+		slot.free = false;
+		slot.next_free = invalid_owner_slot;
+		owner_slot_by_elem_[std::addressof(owner)] = slot_index;
+		return elem_async_owner_id{slot_index, slot.generation};
+	}
+
+	void release_owner_task(const elem_async_owner_id owner_id) noexcept{
+		if(!owner_id.valid() || owner_id.slot >= owner_slots_.size()){
+			return;
+		}
+		auto& slot = owner_slots_[owner_id.slot];
+		if(slot.generation != owner_id.generation || slot.outstanding_tasks == 0u){
+			return;
+		}
+		--slot.outstanding_tasks;
+		this->release_owner_slot_if_ready(owner_id.slot);
+	}
+
+	static void log_async_task_exception(std::exception_ptr exception){
+		if(exception == nullptr){
+			return;
+		}
+		try{
+			std::rethrow_exception(std::move(exception));
+		}catch(const std::exception& e){
+			log::error({"GUI"}, "elem async task failed: {}", e.what());
+		}catch(...){
+			log::error({"GUI"}, "elem async task failed with an unknown exception");
+		}
+	}
+
+	[[nodiscard]] elem* resolve_owner(const elem_async_owner_id owner_id) noexcept{
+		if(!owner_id.valid() || owner_id.slot >= owner_slots_.size()){
+			return nullptr;
+		}
+		auto& slot = owner_slots_[owner_id.slot];
+		if(slot.generation != owner_id.generation
+			|| !slot.alive
+			|| slot.owner == nullptr
+			|| slot.stop_source.stop_requested()){
+			return nullptr;
+		}
+		return slot.owner;
+	}
+
+	[[nodiscard]] std::stop_token owner_stop_token(const elem_async_owner_id owner_id) noexcept{
+		assert(owner_id.valid());
+		assert(owner_id.slot < owner_slots_.size());
+		auto& slot = owner_slots_[owner_id.slot];
+		assert(slot.generation == owner_id.generation);
+		return slot.stop_source.get_token();
+	}
+
+	[[nodiscard]] elem_async_task_runtime_state& create_task_runtime_state(){
+		auto& state = task_runtime_states_.emplace_back();
+		state.progress_current.store(0u, std::memory_order_release);
+		state.progress_total.store(0u, std::memory_order_release);
+		state.active.store(true, std::memory_order_release);
+		return state;
+	}
+
 	void elem_async_tasks_process(std::stop_token stop_token){
 		while(!stop_token.stop_requested()){
 			auto task = element_async_tasks_pending_.consume([&] noexcept {
@@ -427,39 +562,70 @@ public:
 		if(auto elem_async_task = current_done_task_.load(std::memory_order_acquire)){
 			auto thread = std::this_thread::get_id();
 			auto last = exchange_scene_thread(*forked_scene_, thread);
-			auto& alive_set = element_async_task_alive_owners_;
-			if(auto itr = alive_set.find(&elem_async_task->get_owner()); itr != alive_set.end()){
-				elem_async_task->on_done(*forked_scene_);
-				if(--(itr->second) == 0){
-					alive_set.erase(itr);
+			std::exception_ptr ui_exception{};
+			const elem_async_owner_id owner_id = elem_async_task->owner_id();
+			try{
+				elem* owner = this->resolve_owner(owner_id);
+				if(owner != nullptr && !elem_async_task->stop_requested()){
+					if(elem_async_task->has_exception()){
+						if(!elem_async_task->on_error(*owner, *forked_scene_, elem_async_task->exception())){
+							log_async_task_exception(elem_async_task->exception());
+						}
+					}else{
+						elem_async_task->on_done(*owner, *forked_scene_);
+					}
+				}else if(elem_async_task->has_exception()){
+					log_async_task_exception(elem_async_task->exception());
 				}
+			}catch(...){
+				ui_exception = std::current_exception();
 			}
+			elem_async_task->mark_finished();
+			this->release_owner_task(owner_id);
 			exchange_scene_thread(*forked_scene_, last);
 			current_done_task_.store(nullptr, std::memory_order_relaxed);
 			current_done_task_.notify_one();
+			if(ui_exception != nullptr){
+				std::rethrow_exception(ui_exception);
+			}
 		}
 	}
 
-	void erase(const elem* owner){
-		element_async_task_alive_owners_.erase(owner);
+	void cancel_owner(const elem* owner) noexcept{
+		if(const auto itr = owner_slot_by_elem_.find(owner); itr != owner_slot_by_elem_.end()){
+			const std::size_t slot_index = itr->second;
+			auto& slot = owner_slots_[slot_index];
+			slot.alive = false;
+			slot.owner = nullptr;
+			slot.stop_source.request_stop();
+			owner_slot_by_elem_.erase(itr);
+			this->release_owner_slot_if_ready(slot_index);
+		}
 	}
 
 	template <std::derived_from<elem> E, std::invocable<E&> Prov>
-	void post(E& e, Prov&& prov){
-		elem& owner = e;
-		++element_async_task_alive_owners_[&owner];
+	elem_async_task_handle post(E& e, Prov&& prov){
 		using task_type = std::decay_t<std::invoke_result_t<Prov&&, E&>>;
-		struct crop{
-			E& e;
-			Prov&& prov;
-
-			explicit(false) operator task_type(){
-				return std::invoke_r<task_type>(prov, e);
+		static_assert(std::derived_from<task_type, basic_elem_async_task>);
+		auto task = std::invoke_r<task_type>(std::forward<Prov>(prov), e);
+		const elem_async_owner_id owner_id = this->acquire_owner(e);
+		auto& owner_slot = owner_slots_[owner_id.slot];
+		++owner_slot.outstanding_tasks;
+		elem_async_task_runtime_state* task_runtime_state{};
+		try{
+			task_runtime_state = std::addressof(this->create_task_runtime_state());
+			task.bind_async_owner(owner_id, this->owner_stop_token(owner_id), *task_runtime_state);
+			element_async_tasks_pending_.push(
+				mo_yanxi::make_allocate_aware_poly_unique<task_type, basic_elem_async_task>(
+					owner_slot_by_elem_.get_allocator(), std::move(task)));
+		}catch(...){
+			if(task_runtime_state != nullptr){
+				task_runtime_state->active.store(false, std::memory_order_release);
 			}
-		};
-		element_async_tasks_pending_.push(
-			mo_yanxi::make_allocate_aware_poly_unique<task_type, basic_elem_async_task>(
-				element_async_task_alive_owners_.get_allocator(), crop{e, std::forward<Prov>(prov)}));
+			this->release_owner_task(owner_id);
+			throw;
+		}
+		return elem_async_task_handle{*task_runtime_state};
 	}
 };
 
@@ -881,6 +1047,24 @@ public:
 	events::op_afterwards on_mouse_input(const input_handle::key_set key){
 		assert(is_on_scene_thread(*this));
 		input_handler_.inputs_.inform(key);
+		switch(overlay_manager_.handle_external_press(input_handler_.inputs_.cursor_pos(), key)){
+		case overlay_external_press_result::ignored:
+			break;
+		case overlay_external_press_result::intercepted:{
+			auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
+			static_cast<void>(op);
+			current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
+			return events::op_afterwards::intercepted;
+		}
+		case overlay_external_press_result::retarget:{
+			auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
+			static_cast<void>(op);
+			current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
+			break;
+		}
+		default:
+			std::unreachable();
+		}
 		auto rst = input_handler_.on_mouse_input(key);
 		update_cursor_type();
 		return rst;
@@ -1006,13 +1190,19 @@ public:
 	void enable_elem_async_task_post(bool enable);
 
 	template <std::derived_from<elem> E, std::invocable<E&> Prov>
-	void post_elem_async_task(E& e, Prov&& prov){
+	elem_async_task_handle post_elem_async_task(E& e, Prov&& prov){
 		if(async_task_queue_){
-			async_task_queue_->post(e, std::forward<Prov>(prov));
+			return async_task_queue_->post(e, std::forward<Prov>(prov));
 		}else{
 			std::derived_from<basic_elem_async_task> auto task = std::invoke(std::forward<Prov>(prov), e);
 			task.process(*this);
-			task.on_done(*this);
+			if(!task.stop_requested() && !task.has_exception()){
+				task.on_done(e, *this);
+			}
+			if(task.has_exception()){
+				std::rethrow_exception(task.exception());
+			}
+			return elem_async_task_handle{};
 		}
 	}
 

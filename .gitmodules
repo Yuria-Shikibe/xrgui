@@ -13,3 +13,6 @@
 [submodule "external/mo_yanxi_react_flow"]
 	path = external/mo_yanxi_react_flow
 	url = https://github.com/Yuria-Shikibe/mo_yanxi_react_flow.git
+[submodule "external/magic_enum"]
+	path = external/magic_enum
+	url = https://github.com/Neargye/magic_enum.git

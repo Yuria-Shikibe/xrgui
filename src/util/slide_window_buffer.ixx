@@ -3,7 +3,7 @@ module;
 #include <mo_yanxi/adapted_attributes.hpp>
 #include <cassert>
 
-export module mo_yanxi.slide_window_buf;
+export module mo_yanxi.slide_window_buffer;
 import std;
 
 namespace mo_yanxi{

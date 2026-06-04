@@ -2,7 +2,7 @@ module;
 
 #include <mo_yanxi/adapted_attributes.hpp>
 
-export module mo_yanxi.gui.elem.drag_split;
+export module mo_yanxi.gui.elem.split_pane;
 
 import mo_yanxi.gui.elem.head_body_elem;
 import mo_yanxi.gui.layout.policies;

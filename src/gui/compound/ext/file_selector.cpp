@@ -1,3 +1,7 @@
+module;
+
+#include <cassert>
+
 module mo_yanxi.gui.compound.file_selector;
 
 import mo_yanxi.gui.fx.compound;
@@ -10,7 +14,7 @@ import mo_yanxi.gui.elem.check_box;
 import mo_yanxi.gui.elem.progress_bar;
 
 import mo_yanxi.gui.elem.scroll_pane;
-import mo_yanxi.gui.elem.drag_split;
+import mo_yanxi.gui.elem.split_pane;
 import mo_yanxi.gui.action.elem;
 
 import mo_yanxi.core.platform;
@@ -1000,6 +1004,7 @@ file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode
 			set_style_edge_only(p);
 			p.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
 			auto& seq = p.get_elem();
+			this->quick_access_entries_ = &seq;
 
 			seq.set_style();
 			seq.set_expand_policy(layout::expand_policy::prefer);
@@ -1018,10 +1023,12 @@ file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode
 				prog.set_progress_state(progress_state::rough);
 			}).cell().set_passive();
 
-			util::post_elem_async_task(*this, [&](file_selector& r){
-				return elem_async_yield_task{
-						r, [](file_selector& r, gui::scene& s){
-							return platform::get_quick_access_folders()
+			util::post_elem_async_task(*this, [](file_selector&){
+				return elem_async_yield_task<file_selector>{
+						[](gui::elem_async_task_context& context, gui::scene& s){
+							(void)s;
+							context.report_progress(0u, 1u);
+							auto folders = platform::get_quick_access_folders()
 								| std::views::filter([](const std::filesystem::path& p){
 									std::error_code ec{};
 									auto rst = std::filesystem::is_directory(p, ec);
@@ -1029,8 +1036,13 @@ file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode
 								})
 								| std::views::transform(&std::filesystem::path::u32string)
 								| std::ranges::to<std::vector>();
+							context.report_progress(1u, 1u);
+							return folders;
 						},
-						[&seq](file_selector& r, gui::scene& s, std::vector<std::u32string>&& fast_aceesses){
+						[](file_selector& r, gui::scene& s, std::vector<std::u32string>&& fast_aceesses){
+							(void)s;
+							assert(r.quick_access_entries_ != nullptr);
+							auto& seq = *r.quick_access_entries_;
 							seq.clear();
 
 							for(auto& quick_access_folder : fast_aceesses){

@@ -55,8 +55,8 @@ void sync_set_elem_style(elem& e, E v, std::string_view style_family_name){
 
 export
 template <std::derived_from<elem> E, std::invocable<E&> Prov>
-void post_elem_async_task(E& e, Prov&& prov){
-	static_cast<const elem&>(e).get_scene().post_elem_async_task(e, std::forward<Prov>(prov));
+elem_async_task_handle post_elem_async_task(E& e, Prov&& prov){
+	return static_cast<const elem&>(e).get_scene().post_elem_async_task(e, std::forward<Prov>(prov));
 }
 }
 

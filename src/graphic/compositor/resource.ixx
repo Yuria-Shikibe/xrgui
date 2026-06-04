@@ -3,7 +3,7 @@ module;
 #include <vulkan/vulkan.h>
 #include <mo_yanxi/enum_operator_gen.hpp>
 
-#if !defined(XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE) || defined(__RESHARPER__)
+#if !defined(XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE)
 #include <gch/small_vector.hpp>
 #endif
 
@@ -20,6 +20,7 @@ import mo_yanxi.vk;
 import mo_yanxi.math;
 import mo_yanxi.math.vector2;
 import std;
+import magic_enum;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 import <gch/small_vector.hpp>;
@@ -74,11 +75,11 @@ enum struct resource_type : unsigned{
 
 export
 [[nodiscard]] constexpr std::string_view type_to_name(const resource_type type) noexcept{
-	switch(type){
-	case resource_type::image : return "image";
-	case resource_type::buffer : return "buffer";
-	default : return "unknown";
+	const std::string_view name = ::magic_enum::enum_name(type);
+	if(name.empty()){
+		std::unreachable();
 	}
+	return name;
 }
 
 

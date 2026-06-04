@@ -5,7 +5,7 @@
 export module mo_yanxi.gui.elem.viewport;
 
 export import mo_yanxi.gui.infrastructure;
-export import mo_yanxi.graphic.camera;
+export import mo_yanxi.graphic.camera2;
 
 import std;
 

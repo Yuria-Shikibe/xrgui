@@ -7,11 +7,26 @@ export module mo_yanxi.gui.infrastructure:dialog_manager;
 import :defines;
 import :elem_ptr;
 import :events;
+import std;
 import mo_yanxi.gui.layout.policies;
+import mo_yanxi.input_handle;
 import mo_yanxi.utility;
 
 namespace mo_yanxi::gui{
 
+export
+enum class overlay_external_press_policy : std::uint8_t{
+	ignore,
+	dismiss_and_intercept,
+	dismiss_and_retarget_right_press
+};
+
+export
+enum class overlay_external_press_result : std::uint8_t{
+	ignored,
+	intercepted,
+	retarget
+};
 
 export
 struct overlay_layout{
@@ -21,6 +36,8 @@ struct overlay_layout{
 	math::vec2 absolute_offset{};
 	math::vec2 scaling_offset{};
 	math::vec2 scaling{1, 1};
+	overlay_external_press_policy external_press_policy{overlay_external_press_policy::ignore};
+	std::function<void()> on_dismiss{};
 };
 
 export
@@ -128,6 +145,10 @@ public:
 	}
 
 	void truncate(container::iterator where);
+
+	[[nodiscard]] overlay_external_press_result handle_external_press(
+		math::vec2 scene_position,
+		events::key_set key);
 
 	void resize(rect scene_viewport){
 		if(last_vp_ == scene_viewport)return;

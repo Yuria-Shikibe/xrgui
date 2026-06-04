@@ -12,7 +12,7 @@ import mo_yanxi.math;
 import mo_yanxi.timer;
 import mo_yanxi.concepts;
 import mo_yanxi.circular_queue;
-import mo_yanxi.slide_window_buf;
+import mo_yanxi.slide_window_buffer;
 
 import std;
 

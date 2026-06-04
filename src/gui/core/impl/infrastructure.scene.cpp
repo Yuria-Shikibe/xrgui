@@ -375,7 +375,7 @@ void scene_base::drop_(const elem* target) noexcept{
 	active_update_elems_.erase({const_cast<elem*>(target)});
 	std::erase(active_update_elems_state_changes, const_cast<elem*>(target));
 
-	if(async_task_queue_)async_task_queue_->erase(target);
+	if(async_task_queue_)async_task_queue_->cancel_owner(target);
 	action_queue_.erase(target);
 
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));

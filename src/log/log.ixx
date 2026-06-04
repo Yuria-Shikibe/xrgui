@@ -6,12 +6,10 @@ module;
 #endif
 #endif
 
-#include <cstdlib>
-#include <stacktrace>
-
 export module mo_yanxi.log;
 
 import std;
+import magic_enum;
 
 namespace mo_yanxi::log{
 
@@ -54,17 +52,11 @@ struct channel_config{
 
 export
 [[nodiscard]] constexpr std::string_view level_name(const level value) noexcept{
-	switch(value){
-	case level::trace: return "trace";
-	case level::debug: return "debug";
-	case level::info: return "info";
-	case level::warn: return "warn";
-	case level::error: return "error";
-	case level::fatal: return "fatal";
-	case level::off: return "off";
+	const std::string_view name = ::magic_enum::enum_name(value);
+	if(name.empty()){
+		std::unreachable();
 	}
-
-	std::unreachable();
+	return name;
 }
 
 export

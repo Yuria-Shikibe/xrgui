@@ -1,4 +1,4 @@
-export module mo_yanxi.graphic.camera;
+export module mo_yanxi.graphic.camera2;
 
 import mo_yanxi.math;
 import mo_yanxi.math.rect_ortho;

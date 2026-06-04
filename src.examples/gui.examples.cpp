@@ -31,7 +31,7 @@ import mo_yanxi.gui.elem.slider;
 import mo_yanxi.gui.elem.progress_bar;
 import mo_yanxi.gui.elem.image_frame;
 import mo_yanxi.gui.elem.image_frame;
-import mo_yanxi.gui.elem.drag_split;
+import mo_yanxi.gui.elem.split_pane;
 import mo_yanxi.gui.elem.label;
 import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.elem.viewport;
@@ -115,19 +115,30 @@ struct csv_file_reader : head_body{
 
 			carrier->get_scene().close_overlay(std::exchange(overlay, nullptr)->element.get());
 
-			util::post_elem_async_task(*carrier, [&](csv_file_reader& r){
-				return elem_async_yield_task{
-						r, [&](csv_file_reader& r, scene& s){
-							return elem_ptr{
-									s, &r, [p = path](cpd::data_table& table){
+			const std::filesystem::path selected_path = path;
+			util::post_elem_async_task(*carrier, [selected_path](csv_file_reader&){
+				return elem_async_yield_task<csv_file_reader>{
+						[selected_path](elem_async_task_context& context, scene& s){
+							context.report_progress(0u, 1u);
+							if(context.stop_requested()){
+								return elem_ptr{};
+							}
+							auto table = elem_ptr{
+									s, nullptr, [p = selected_path](cpd::data_table& table){
 										table.set_style();
 										table.get_item() = cpd::data_table_desc::from_csv(p, '|');
 										table.get_item().try_update_glyph_layouts();
 										table.notify_isolated_layout_changed();
 									}
 								};
+							context.report_progress(1u, 1u);
+							return table;
 						},
 						[](csv_file_reader& r, scene& s, elem_ptr&& ptr){
+							(void)s;
+							if(ptr == nullptr){
+								return;
+							}
 							util::sync_elem_tree(*ptr, r.get_scene());
 							r.set_body_elem(std::move(ptr));
 						}

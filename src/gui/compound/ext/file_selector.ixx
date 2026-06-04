@@ -151,6 +151,7 @@ protected:
 	};
 
 	sequence* menu{};
+	sequence* quick_access_entries_{};
 	sequence* entries{};
 	overflow_sequence* directory_trace_{};
 	text_edit* edit_current_directory_{};
