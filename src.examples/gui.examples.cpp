@@ -59,6 +59,7 @@ import mo_yanxi.gui.compound.file_selector;
 import mo_yanxi.gui.compound.data_table;
 import mo_yanxi.gui.compound.click_collapser;
 import mo_yanxi.gui.compound.numeric_input_area;
+import mo_yanxi.gui.compound.pie_menu;
 
 import mo_yanxi.gui.cfg.builtin.round_styles;
 import mo_yanxi.gui.style.progress_bars;
@@ -96,6 +97,21 @@ struct test_entry{
 		  }){
 	}
 };
+
+std::optional<std::size_t> requested_profile_page_index(const std::size_t page_count){
+	const char* raw = std::getenv("XRGUI_PROFILE_PAGE");
+	if(raw == nullptr || raw[0] == '\0') return std::nullopt;
+
+	std::string_view text{raw};
+	std::size_t value{};
+	const auto* begin = text.data();
+	const auto* end = text.data() + text.size();
+	const auto [ptr, ec] = std::from_chars(begin, end, value);
+	if(ec == std::errc{} && ptr == end && value < page_count){
+		return value;
+	}
+	return std::nullopt;
+}
 
 #pragma region ExampleUIStructs
 struct fps_counter_label : label{
@@ -148,6 +164,62 @@ struct fps_counter_label : label{
 		}
 
 		return true;
+	}
+};
+
+struct pie_menu_demo_area : label{
+	[[nodiscard]] pie_menu_demo_area(scene& scene, elem* parent)
+		: label(scene, parent){
+		interactivity = interactivity_flag::enabled;
+		set_style(style::family_variant::solid);
+		set_fit_type(label_fit_type::scl);
+		text_entire_align = align::pos::center;
+		set_self_border(border_t{}.set(24.f));
+		set_text("Hold RMB and release on a pie slice");
+	}
+
+	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+		label::on_click(event, aboves);
+		if(event.key.action == input_handle::act::press && event.key.as_mouse() == input_handle::mouse::RMB){
+			auto owner = ref<pie_menu_demo_area>();
+			std::vector<cpd::pie_menu_item> items;
+			items.reserve(8);
+
+			auto push_item = [&](std::string text, bool disabled = false){
+				items.push_back(cpd::pie_menu_item{
+					.label = text,
+					.action = [owner, text]{
+						if(auto* live = owner.get_live()){
+							live->set_text(std::format("Pie menu: {}", text));
+						}
+					},
+					.disabled = disabled
+				});
+			};
+
+			push_item("Select");
+			push_item("Move");
+			push_item("Rotate");
+			push_item("Scale");
+			push_item("Duplicate");
+			push_item("Disabled", true);
+			push_item("Delete");
+			push_item("Apply");
+
+			cpd::show_pie_menu(
+				get_scene(),
+				util::transform_local2scene(*this, event.pos),
+				std::move(items),
+				cpd::pie_menu_config{
+					.on_cancel = [owner]{
+						if(auto* live = owner.get_live()){
+							live->set_text("Pie menu canceled");
+						}
+					}
+				},
+				input_handle::mouse::RMB);
+		}
+		return events::op_afterwards::intercepted;
 	}
 };
 
@@ -1047,6 +1119,11 @@ ui_outputs build_main_ui(
 					}
 				},
 				test_entry{
+					"pie menu", [](pie_menu_demo_area& area){
+						area.set_expand_policy(layout::expand_policy::prefer);
+					}
+				},
+				test_entry{
 					"table/check box", [](scroll_pane& pane){
 						pane.create([](table& table){
 							table.set_expand_policy(layout::expand_policy::prefer);
@@ -1407,7 +1484,8 @@ Edge Cases:
 	menu_hdl->get_head_template_cell().set_pad({4, 4});
 	menu_hdl->get_button_pane().set_scroll_mode(scroll_pane_mode::proportional);
 
-	for(const auto& [idx, creator] : make_create_table() | std::views::enumerate){
+	auto profile_test_entries = make_create_table();
+	for(const auto& [idx, creator] : profile_test_entries | std::views::enumerate){
 		menu_hdl->push_back(
 			elem_ptr{
 				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
@@ -1422,6 +1500,10 @@ Edge Cases:
 						});
 				}
 			}, creator.creator(menu_hdl->get_scene(), &menu_hdl.elem()));
+	}
+
+	if(const auto page_index = requested_profile_page_index(profile_test_entries.size())){
+		menu_hdl->switch_to(*page_index);
 	}
 
 	auto fps_hdl = mroot.emplace_back<fps_counter_label>();

@@ -17,6 +17,7 @@ import mo_yanxi.graphic.compositor.manager;
 import mo_yanxi.graphic.compositor.post_process_pass;
 import mo_yanxi.graphic.compositor.post_process_pass_with_ubo;
 import mo_yanxi.graphic.compositor.bloom;
+import mo_yanxi.graphic.compositor.fullscreen_present_pass;
 
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.group;
@@ -46,6 +47,7 @@ import mo_yanxi.gui.cfg.builtin.main_loop;
 import mo_yanxi.gui.examples.loop_exec;
 import mo_yanxi.gui.cfg.builtin.colored_cerr;
 import mo_yanxi.gui.cfg.builtin.font_styles;
+import mo_yanxi.gui.cfg.builtin.log_channels;
 import mo_yanxi.log;
 
 
@@ -53,13 +55,6 @@ struct alignas(16) high_light_filter_args{
 	float threshold{1.3f};
 	float smoothness{.5f};
 	float max_brightness{10};
-};
-
-struct alignas(16) tonemap_args{
-	float exposure{1};
-	float contrast{1};
-	float gamma{1};
-	float saturation{1};
 };
 
 void configure_example_runtime_working_directory(const char* executable_path){
@@ -77,7 +72,7 @@ void configure_example_runtime_working_directory(const char* executable_path){
 
 void app_run(
 	mo_yanxi::gui::cfg::builtin::main_loop_type& main_loop,
-	mo_yanxi::vk::command_buffer& cmd_buf
+	std::vector<mo_yanxi::vk::command_buffer>& post_process_cmds
 ){
 	using namespace mo_yanxi;
 
@@ -94,6 +89,12 @@ void app_run(
 		timer.fetch_time();
 		//
 		gui::global::event_queue.push_frame_split(timer.global_delta());
+
+		auto output_token = ctx.acquire_output_frame();
+		if(!output_token.acquired){
+			continue;
+		}
+
 		main_loop.get_window_dispatcher().drain();
 		main_loop.permit_burst();
 		current_focus.get_output_communicate_async_task_queue(0).consume();
@@ -103,9 +104,20 @@ void app_run(
 
 		main_loop.wait_term();
 		main_loop.get_window_dispatcher().drain();
-		std::array<VkCommandBuffer, 2> buffers{main_loop.get_renderer().get_valid_cmd_buf(), cmd_buf};
-		vk::cmd::submit_command(ctx.graphic_queue(), buffers, main_loop.get_renderer().get_fence());
-		ctx.flush();
+		std::array<VkCommandBuffer, 2> buffers{
+			main_loop.get_renderer().get_valid_cmd_buf(),
+			post_process_cmds.at(output_token.image.index)
+		};
+		vk::cmd::submit_command(
+			ctx.graphic_queue(),
+			buffers,
+			output_token.frame_fence,
+			output_token.acquire_semaphore,
+			VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+			output_token.render_finished_semaphore,
+			VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+		main_loop.get_renderer().set_current_external_submit_fence(output_token.frame_fence);
+		ctx.present_output_frame(output_token);
 		main_loop.reset_term();
 	}
 	main_loop.get_window_dispatcher().drain();
@@ -351,8 +363,11 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	compositor::compute_shader_info shader_merge{
 		vk::shader_module{ctx.get_device(), shader_spv_path / "ui.merge.spv"}
 	};
-	compositor::compute_shader_info shader_hdr_to_sdr{
-		vk::shader_module{ctx.get_device(), shader_spv_path / "post_process.hdr_to_sdr.spv"}
+	vk::shader_module shader_present_vert{
+		ctx.get_device(), shader_spv_path / "post_process.fullscreen_present.vert.spv"
+	};
+	vk::shader_module shader_present_frag{
+		ctx.get_device(), shader_spv_path / "post_process.fullscreen_present.frag.spv"
 	};
 
 	vk::sampler sampler_blit{ctx.get_device(), vk::preset::default_blit_sampler};
@@ -381,6 +396,17 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 			compositor::image_entity{}, compositor::resource_dependency{
 				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+			}
+		});
+
+	auto& present_output = manager.add_external_resource(compositor::resource_entity_external{
+			compositor::image_entity{}, compositor::resource_dependency{
+				.src_stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+				.src_access = VK_ACCESS_2_NONE,
+				.dst_stage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+				.dst_access = VK_ACCESS_2_NONE,
+				.src_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.dst_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 			}
 		});
 
@@ -442,16 +468,14 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	pass_merge.id()->add_dep({pass_blur.id(), 0, 4});
 
 
-	compositor::post_process_meta meta{
-			std::move(shader_hdr_to_sdr), {
-				{{0}, compositor::no_slot, 0},
-				{{1}, 0, compositor::no_slot},
-			}
-		};
-	meta.sockets.at_out(0).get<compositor::image_requirement>().usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-	auto pass_h2s = manager.add_pass<compositor::post_process_pass_with_ubo<tonemap_args>>(std::move(meta));
-	pass_h2s.id()->add_dep({pass_merge.id(), 0, 0});
-	pass_h2s.id()->add_local({compositor::no_slot, 0});
+	auto pass_present = manager.add_pass<compositor::fullscreen_present_stage>(
+		compositor::fullscreen_present_shader_info{
+			.vertex_shader = std::move(shader_present_vert),
+			.fragment_shader = std::move(shader_present_frag),
+		},
+		ctx.output_image(0).format);
+	pass_present.id()->add_dep({pass_merge.id(), 0, 0});
+	pass_present.id()->add_output({{present_output, 0}});
 
 	manager.sort();
 
@@ -459,6 +483,13 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	ui_input_base.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[0]};
 	ui_input_back.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[1]};
 	input_background.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[2]};
+	manager.set_frame_count(ctx.output_image_count());
+	pass_present.data.set_output_format(ctx.output_image(0).format);
+	for(std::uint32_t frame_slot = 0; frame_slot < ctx.output_image_count(); ++frame_slot){
+		present_output.set_frame_resource(
+			frame_slot,
+			compositor::image_entity{.handle = ctx.output_image(frame_slot).handle});
+	}
 	manager.resize({64, 64}, true);
 
 	pass_blur.data.set_scale(1.25f);
@@ -523,27 +554,27 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 			}));
 
 		auto& tonemap_contrast = scene.request_independent_react_node(react_flow::make_listener(
-			[=, &p = pass_h2s.data, &scene](float val){
+			[=, &p = pass_present.data, &scene](float val){
 				post_task(scene, [&, val]{
-					p.set_ubo_value(&tonemap_args::contrast, val);
+					p.set_ubo_value(&compositor::fullscreen_present_params::contrast, val);
 				});
 			}));
 		auto& tonemap_exposure = scene.request_independent_react_node(react_flow::make_listener(
-			[=, &p = pass_h2s.data, &scene](float val){
+			[=, &p = pass_present.data, &scene](float val){
 				post_task(scene, [&, val]{
-					p.set_ubo_value(&tonemap_args::exposure, val);
+					p.set_ubo_value(&compositor::fullscreen_present_params::exposure, val);
 				});
 			}));
 		auto& tonemap_saturation = scene.request_independent_react_node(react_flow::make_listener(
-			[=, &p = pass_h2s.data, &scene](float val){
+			[=, &p = pass_present.data, &scene](float val){
 				post_task(scene, [&, val]{
-					p.set_ubo_value(&tonemap_args::saturation, val);
+					p.set_ubo_value(&compositor::fullscreen_present_params::saturation, val);
 				});
 			}));
 		auto& tonemap_gamma = scene.request_independent_react_node(react_flow::make_listener(
-			[=, &p = pass_h2s.data, &scene](float val){
+			[=, &p = pass_present.data, &scene](float val){
 				post_task(scene, [&, val]{
-					p.set_ubo_value(&tonemap_args::gamma, val);
+					p.set_ubo_value(&compositor::fullscreen_present_params::gamma, val);
 				});
 			}));
 
@@ -578,7 +609,38 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	log::info({"GUI"}, "async scene setup done");
 
-	auto post_process_cmd = ctx.get_compute_command_pool().obtain();
+	std::vector<vk::command_buffer> post_process_cmds{};
+	auto rebuild_post_process_commands = [&](
+		backend::vulkan::context& context,
+		const VkExtent2D extent){
+		const auto frame_count = context.output_image_count();
+		manager.set_frame_count(frame_count);
+		pass_present.data.set_output_format(context.output_image(0).format);
+		for(std::uint32_t frame_slot = 0; frame_slot < frame_count; ++frame_slot){
+			present_output.set_frame_resource(
+				frame_slot,
+				compositor::image_entity{.handle = context.output_image(frame_slot).handle});
+		}
+
+		manager.resize(extent, true);
+
+		if(post_process_cmds.size() != frame_count){
+			post_process_cmds.clear();
+			post_process_cmds.reserve(frame_count);
+			for(std::uint32_t frame_slot = 0; frame_slot < frame_count; ++frame_slot){
+				post_process_cmds.push_back(context.get_graphic_command_pool().obtain());
+			}
+		}
+
+		for(std::uint32_t frame_slot = 0; frame_slot < frame_count; ++frame_slot){
+			vk::scoped_recorder recorder{
+				post_process_cmds[frame_slot],
+				VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
+			};
+			manager.create_command(post_process_cmds[frame_slot], frame_slot);
+		}
+	};
+
 	ctx.register_post_resize("test", [&](backend::vulkan::context& context, window_instance::resize_event event){
 
 		main_loop.resize({event.size.width, event.size.height});
@@ -590,31 +652,10 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 			input_background.resource = compositor::image_entity{.handle = r.get_blit_attachments()[2]};
 		}
 
-		manager.resize(event.size, true);
-
-		{
-			vk::scoped_recorder r{post_process_cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT};
-			manager.create_command(post_process_cmd);
-		}
-
-		context.set_staging_image(
-			{
-				.image = pass_h2s.pass.get_used_resources().get_out(0).as_image().handle.image,
-				.extent = event.size,
-				.clear = false,
-				.owner_queue_family = context.graphic_family(),
-				.src_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-				.dst_stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-				.src_layout = VK_IMAGE_LAYOUT_GENERAL,
-				.dst_layout = VK_IMAGE_LAYOUT_GENERAL
-			}, false);
+		rebuild_post_process_commands(context, event.size);
 	});
 
-	ctx.record_post_command(true);
-
-	app_run(main_loop, post_process_cmd);
+	app_run(main_loop, post_process_cmds);
 
 	log::info({"GUI"}, "exiting");
 
@@ -633,7 +674,8 @@ int main(int argc, char** argv){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
-	auto _cerr = make_colored_errc();
+	//auto _cerr = make_colored_errc();
+	gui::cfg::builtin::configure_gui_log_channels();
 	configure_example_runtime_working_directory(argc > 0 ? argv[0] : nullptr);
 	log::info({"Assets"}, "using runtime working directory {}", std::filesystem::current_path().string());
 
@@ -664,9 +706,7 @@ int main(int argc, char** argv){
 
 	if (std::uint32_t supportedVersion = 0; vkEnumerateInstanceVersion(&supportedVersion) == VK_SUCCESS) {
 		if (supportedVersion >= VK_API_VERSION_1_4) {
-			// appInfo.apiVersion = VK_API_VERSION_1_3;
-			//currently using 1.4 cause the code dead, I really have no idea why
-			appInfo.apiVersion = VK_API_VERSION_1_3;
+			appInfo.apiVersion = VK_API_VERSION_1_4;
 		} else {
 			appInfo.apiVersion = VK_API_VERSION_1_3;
 		}

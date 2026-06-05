@@ -7,6 +7,7 @@ export module mo_yanxi.gui.elem.scroll_pane;
 
 export import mo_yanxi.gui.infrastructure;
 export import mo_yanxi.gui.layout.policies;
+export import mo_yanxi.gui.elem.element_slot;
 import mo_yanxi.math.matrix3;
 import mo_yanxi.cond_exist;
 
@@ -379,73 +380,19 @@ protected:
 
 export
 template <typename T>
-struct scroll_adaptor_apply_interface_schema{
-	using element_type = T;
-	void update(element_type& element, float delta_in_tick) = delete;
-	void draw_layer(const element_type& element, const scroll_adaptor_base& scroll_adaptor_base, rect clipSpace, float opacityScl, fx::layer_param_pass_t param) const = delete;
-	void layout_elem(element_type& element) = delete;
-	void set_prefer_extent(element_type& element, math::vec2 ext) = delete;
-	void on_context_sync_bind(element_type& element) = delete;
-	void update_abs_src(element_type& element, math::vec2 pos) = delete;
-	std::optional<math::vec2> pre_acq_size(element_type& element, layout::optional_mastering_extent bound) = delete;
-	bool resize(element_type& element, math::vec2 size, propagate_mask temp_mask) = delete;
-	math::vec2 get_extent(const element_type& element) const = delete;
-};
-
-template <typename Interface>
-struct interface_trait{
-	using interface_type = Interface;
-	using element_type = typename interface_type::element_type;
-
-	static constexpr bool has_update = requires(interface_type& i, element_type& e, float d){
-		i.update(e, d);
-	};
-
-	static constexpr bool has_draw_layer = requires(const interface_type& i, const scroll_adaptor_base& scroll_adaptor_base, const element_type& e, rect c, float o, fx::layer_param_pass_t p){
-		i.draw_layer(e, scroll_adaptor_base, c, o, p);
-	};
-
-	static constexpr bool has_layout_elem = requires(interface_type& i, element_type& e){
-		i.layout_elem(e);
-	};
-
-	static constexpr bool has_set_prefer_extent = requires(interface_type& i, element_type& e, math::vec2 ext){
-		i.set_prefer_extent(e, ext);
-	};
-
-	static constexpr bool has_on_context_sync_bind = requires(interface_type& i, element_type& e){
-		i.on_context_sync_bind(e);
-	};
-
-	static constexpr bool has_update_abs_src = requires(interface_type& i, element_type& e, math::vec2 pos){
-		i.update_abs_src(e, pos);
-	};
-
-	static constexpr bool has_pre_acq_size = requires(interface_type& i, element_type& e, layout::optional_mastering_extent b){
-		i.pre_acq_size(e, b);
-	};
-
-	static constexpr bool has_resize = requires(interface_type& i, element_type& e, math::vec2 s, propagate_mask m){
-		i.resize(e, s, m);
-	};
-
-	static constexpr bool has_get_extent = requires(const interface_type& i, const element_type& e){
-		i.get_extent(e);
-	};
-};
+using scroll_adaptor_apply_interface_schema = elem_slot_interface_schema<T, scroll_adaptor_base>;
 
 export
 template <typename ElementType = elem_ptr, typename Interface = scroll_adaptor_apply_interface_schema<ElementType>>
 struct scroll_adaptor : scroll_adaptor_base{
 	using element_type = ElementType;
 	using adaptor_interface_type = Interface;
-	using adaptor_interface_trait = interface_trait<adaptor_interface_type>;
+	using slot_access = elem_slot_access<element_type, adaptor_interface_type, scroll_adaptor_base>;
+	using adaptor_interface_trait = typename slot_access::interface_trait;
 
-	static constexpr bool is_elem_ptr = std::is_same_v<element_type, elem_ptr>;
-	static constexpr bool is_elem_value = std::derived_from<element_type, elem>;
-	static constexpr bool is_elem_child = is_elem_ptr || is_elem_value;
-	static_assert(is_elem_value || std::is_default_constructible_v<element_type>,
-	              "if element is not a T : elem, it must be default constructible");
+	static constexpr bool is_elem_ptr = slot_access::is_elem_ptr;
+	static constexpr bool is_elem_value = slot_access::is_elem_value;
+	static constexpr bool is_elem_child = slot_access::is_elem_child;
 
 public:
 	ADAPTED_NO_UNIQUE_ADDRESS adaptor_interface_type item_adaptor{};
@@ -471,12 +418,7 @@ public:
 	}
 
 	[[nodiscard]] elem_span exposed_children() const noexcept override {
-		if constexpr (is_elem_child){
-			return adaptor_children();
-		}else{
-			return {};
-		}
-
+		return slot_access::exposed_children(item_, children_ptr_cache_);
 	}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
@@ -516,15 +458,14 @@ public:
 					};
 			});
 
-		//TODO when has_draw_layer is specified , the draw call should be inlined...?
-		if constexpr(adaptor_interface_trait::has_draw_layer){
-			call_stack_builder.push_call_noop(*this, [](const scroll_adaptor& s, const draw_call_param& p,
-			                                            const draw_immut_args& args){
+		slot_access::record_draw_layer(
+			item_adaptor,
+			item_,
+			*this,
+			call_stack_builder,
+			[](const scroll_adaptor& s, const draw_call_param& p, const draw_immut_args& args){
 				s.adaptor_draw_layer(p.draw_bound, p.opacity_scl, args.layer);
 			});
-		} else if constexpr(is_elem_child){
-			get_elem().record_draw_layer(call_stack_builder);
-		}
 
 
 		call_stack_builder.push_call_leave(
@@ -671,11 +612,11 @@ private:
 			return policy;
 		}
 
-		if constexpr(is_elem_child){
-			switch(get_elem().get_layout_policy()){
+		if(const auto item_policy = slot_access::layout_policy(item_)){
+			switch(*item_policy){
 			case layout::layout_policy::hori_major:
 			case layout::layout_policy::vert_major:
-				return get_elem().get_layout_policy();
+				return *item_policy;
 			default:
 				break;
 			}
@@ -688,9 +629,9 @@ private:
 		force_hori_scroll_enabled_ = false;
 		force_vert_scroll_enabled_ = false;
 
-		if constexpr(is_elem_child){
-			this->deduced_set_child_fill_parent(get_elem());
-		}
+		slot_access::for_elem(item_, [this](elem& element){
+			this->deduced_set_child_fill_parent(element);
+		});
 
 		using namespace layout;
 		const auto policy = effective_item_layout_policy();
@@ -709,16 +650,18 @@ private:
 			}
 		}
 
-		optional_mastering_extent bound;
-		if constexpr(is_elem_child){
-			util::set_fill_parent(get_elem(), content_extent(), fill_mask, !fill_mask);
-			bound = static_cast<const elem&>(get_elem()).restriction_extent;
-			if(policy != layout::layout_policy::none){
-				adaptor_set_prefer_extent(get_viewport_extent());
-			}
-		} else{
-			bound = util::get_fill_parent_restriction(content_extent(), fill_mask, !fill_mask);
-		}
+		optional_mastering_extent bound = slot_access::elem_or(
+			item_,
+			[&]{
+				return util::get_fill_parent_restriction(content_extent(), fill_mask, !fill_mask);
+			},
+			[&](elem& element){
+				util::set_fill_parent(element, content_extent(), fill_mask, !fill_mask);
+				if(policy != layout::layout_policy::none){
+					adaptor_set_prefer_extent(get_viewport_extent());
+				}
+				return static_cast<const elem&>(element).restriction_extent;
+			});
 
 		if(auto szOpt = adaptor_pre_acq_size(bound)){
 			bool need_self_relayout = false;
@@ -760,9 +703,9 @@ private:
 				if(need_elem_relayout){
 					auto b = bound;
 					b.apply(content_extent());
-					if constexpr(is_elem_child){
+					slot_access::for_elem(item_, [&](elem&){
 						adaptor_set_prefer_extent(b.potential_extent());
-					}
+					});
 
 					if(auto s = adaptor_pre_acq_size(bound)) szOpt = s;
 				}
@@ -838,115 +781,52 @@ private:
 public:
 	template <typename S>
 	auto& get_item(this S& self) requires(!is_elem_ptr){
-		return self.item_;
+		return slot_access::get_item(self.item_);
 	}
 
 	template <typename S>
 	auto& get_elem(this S& self) noexcept requires(is_elem_child){
-		if constexpr(requires(element_type& e){
-			{ *e } -> std::convertible_to<elem&>;
-		}){
-			return *self.item_;
-		} else if constexpr(is_elem_value){
-			return self.item_;
-		} else{
-			static_assert(false, "cannot convert item to elem");
-		}
+		return slot_access::get_elem(self.item_);
 	}
 
 protected:
 	void adaptor_update(const float delta_in_ticks){
-		if constexpr (adaptor_interface_trait::has_update){
-			item_adaptor.update(item_, delta_in_ticks);
-		}else{
-		}
+		slot_access::update(item_adaptor, item_, delta_in_ticks);
 	}
 
 	void adaptor_draw_layer(rect clipSpace, float opacityScl, fx::layer_param_pass_t param) const{
-		if constexpr(adaptor_interface_trait::has_draw_layer){
-			item_adaptor.draw_layer(item_, *this, clipSpace, opacityScl, param);
-		} else if constexpr(is_elem_child){
-			get_elem().draw_layer(clipSpace, param);
-		}
+		slot_access::draw_layer(item_adaptor, item_, *this, clipSpace, opacityScl, param);
 	}
 
 	void adaptor_layout_elem(){
-		if constexpr(adaptor_interface_trait::has_layout_elem){
-			item_adaptor.layout_elem(item_);
-		} else if constexpr(is_elem_child){
-			get_elem().layout_elem();
-		}
+		slot_access::layout_elem(item_adaptor, item_);
 		item_extent_cache_ = get_real_item_extent();
 	}
 
 	void adaptor_set_prefer_extent(math::vec2 ext){
-		if constexpr(adaptor_interface_trait::has_set_prefer_extent){
-			item_adaptor.set_prefer_extent(item_, ext);
-		} else if constexpr(is_elem_child){
-			get_elem().set_prefer_extent(ext);
-		}
+		slot_access::set_prefer_extent(item_adaptor, item_, ext);
 	}
 
 	void adaptor_on_context_sync_bind(){
-		if constexpr(adaptor_interface_trait::has_on_context_sync_bind){
-			item_adaptor.on_context_sync_bind(item_);
-		} else if constexpr(is_elem_child){
-			get_elem().on_context_sync_bind();
-		}
+		slot_access::on_context_sync_bind(item_adaptor, item_);
 	}
 
 	void adaptor_update_abs_src(math::vec2 pos) noexcept{
-		if constexpr(adaptor_interface_trait::has_update_abs_src){
-			item_adaptor.update_abs_src(item_, pos);
-		} else if constexpr(is_elem_child){
-			get_elem().update_abs_src(pos);
-		}
-	}
-
-	elem_span adaptor_children() const noexcept requires(is_elem_child){
-		if constexpr(is_elem_child){
-			if constexpr(is_elem_ptr){
-				return {item_, elem_ptr::cvt_mptr};
-			} else if constexpr(is_elem_value){
-				return {&*children_ptr_cache_, 1};
-			} else{
-				static_assert(false, "unknown elem type");
-			}
-		}
+		slot_access::update_abs_src(item_adaptor, item_, pos);
 	}
 
 	std::optional<math::vec2> adaptor_pre_acq_size(layout::optional_mastering_extent bound){
-		if constexpr(adaptor_interface_trait::has_pre_acq_size){
-			return item_adaptor.pre_acq_size(item_, bound);
-		} else if constexpr(is_elem_child){
-			return get_elem().pre_acquire_size(bound);
-		} else{
-			return std::nullopt;
-		}
+		return slot_access::pre_acq_size(item_adaptor, item_, bound);
 	}
 
 	bool adaptor_resize(const math::vec2 size, propagate_mask temp_mask){
-		if constexpr(adaptor_interface_trait::has_resize){
-			auto rst = item_adaptor.resize(item_, size, temp_mask);
-			item_extent_cache_ = get_real_item_extent();
-			return rst;
-		} else if constexpr(is_elem_child){
-			auto rst = get_elem().resize(size, temp_mask);
-			item_extent_cache_ = get_real_item_extent();
-			return rst;
-		} else{
-			return true;
-		}
+		auto rst = slot_access::resize(item_adaptor, item_, size, temp_mask);
+		item_extent_cache_ = get_real_item_extent();
+		return rst;
 	}
 
 	[[nodiscard]] math::vec2 get_real_item_extent() const noexcept{
-		if constexpr(adaptor_interface_trait::has_get_extent){
-			return item_adaptor.get_extent(item_);
-		} else if constexpr(is_elem_child){
-			return get_elem().extent();
-		} else{
-			return {};
-		}
+		return slot_access::get_extent(item_adaptor, item_);
 	}
 #pragma endregion
 };

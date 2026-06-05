@@ -26,6 +26,7 @@ import mo_yanxi.gui.fx.instruction_extension;
 import mo_yanxi.gui.cfg.builtin.assets;
 import mo_yanxi.gui.cfg.builtin.constants;
 import mo_yanxi.gui.cfg.builtin.font_styles;
+import mo_yanxi.gui.cfg.builtin.log_channels;
 import mo_yanxi.gui.cfg.builtin.main_loop;
 import mo_yanxi.gui.cfg.builtin.scene;
 
@@ -317,6 +318,7 @@ struct default_application::state{
 	}
 
 	void initialize(){
+		builtin::configure_gui_log_channels();
 		configure_runtime_working_directory(app.config_.executable_path);
 
 		platform::initialize();

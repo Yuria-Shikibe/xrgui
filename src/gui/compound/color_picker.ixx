@@ -14,6 +14,7 @@ import mo_yanxi.gui.elem.slider;
 import mo_yanxi.gui.elem.grid;
 import mo_yanxi.gui.elem.label;
 import mo_yanxi.gui.elem.sequence;
+import mo_yanxi.gui.elem.text_edit;
 import mo_yanxi.gui.compound.numeric_input_area;
 
 
@@ -451,6 +452,104 @@ private:
 export
 struct precise_color_picker : head_body{
 private:
+	enum struct hex_parse_status{
+		valid,
+		incomplete,
+		invalid
+	};
+
+	enum struct hex_parse_mode{
+		editing,
+		commit
+	};
+
+	struct hex_parse_result{
+		hex_parse_status status{};
+		graphic::color color{};
+	};
+
+	static constexpr int hex_digit_value(char32_t ch) noexcept{
+		if(ch >= U'0' && ch <= U'9')return static_cast<int>(ch - U'0');
+		if(ch >= U'a' && ch <= U'f')return static_cast<int>(ch - U'a') + 10;
+		if(ch >= U'A' && ch <= U'F')return static_cast<int>(ch - U'A') + 10;
+		return -1;
+	}
+
+	static constexpr bool parse_hex_byte(std::u32string_view text, std::uint8_t& value) noexcept{
+		assert(text.size() == 2);
+		const int hi = hex_digit_value(text[0]);
+		const int lo = hex_digit_value(text[1]);
+		if(hi < 0 || lo < 0)return false;
+		value = static_cast<std::uint8_t>((hi << 4) | lo);
+		return true;
+	}
+
+	static constexpr graphic::color color_from_rgba8(std::array<std::uint8_t, 4> rgba) noexcept{
+		return {
+				static_cast<float>(rgba[0]) / graphic::color::max_val_f,
+				static_cast<float>(rgba[1]) / graphic::color::max_val_f,
+				static_cast<float>(rgba[2]) / graphic::color::max_val_f,
+				static_cast<float>(rgba[3]) / graphic::color::max_val_f,
+			};
+	}
+
+	static hex_parse_result parse_hex_color(std::u32string_view text, bool has_alpha, hex_parse_mode mode) noexcept{
+		if(text.empty())return {.status = hex_parse_status::incomplete};
+
+		if(text.front() == U'#'){
+			text.remove_prefix(1);
+		}
+
+		if(text.empty())return {.status = hex_parse_status::incomplete};
+		if(std::ranges::contains(text, U'#'))return {.status = hex_parse_status::invalid};
+
+		if(has_alpha && mode == hex_parse_mode::editing && text.size() == 6){
+			return {.status = hex_parse_status::incomplete};
+		}
+
+		const bool has_explicit_alpha = text.size() == 8;
+		const bool valid_length = text.size() == 6 || (has_alpha && has_explicit_alpha);
+		if(!valid_length){
+			const auto target = has_alpha ? 8uz : 6uz;
+			if(text.size() < target)return {.status = hex_parse_status::incomplete};
+			return {.status = hex_parse_status::invalid};
+		}
+
+		std::array<std::uint8_t, 4> rgba{0, 0, 0, std::numeric_limits<std::uint8_t>::max()};
+		for(std::size_t i = 0; i < (has_explicit_alpha ? 4uz : 3uz); ++i){
+			if(!parse_hex_byte(text.substr(i * 2, 2), rgba[i])){
+				return {.status = hex_parse_status::invalid};
+			}
+		}
+
+		return {.status = hex_parse_status::valid, .color = color_from_rgba8(rgba)};
+	}
+
+	static std::array<std::uint8_t, 4> color_to_rgba8(graphic::color color) noexcept{
+		auto rgba = color.to_rgba8888();
+		if constexpr (std::endian::native == std::endian::little){
+			rgba = std::byteswap(rgba);
+		}
+		return std::bit_cast<std::array<std::uint8_t, 4>>(rgba);
+	}
+
+	static std::u32string format_hex_color(graphic::color color, bool has_alpha){
+		static constexpr std::u32string_view hex_digits{U"0123456789ABCDEF"};
+		const auto rgba = color_to_rgba8(color);
+		std::u32string result{};
+		result.reserve(has_alpha ? 9 : 7);
+		result.push_back(U'#');
+
+		const int channel_count = has_alpha ? 4 : 3;
+		for(int i = 0; i < channel_count; ++i){
+			const auto byte = rgba[i];
+			result.push_back(hex_digits[byte >> 4]);
+			result.push_back(hex_digits[byte & 0x0f]);
+		}
+
+		return result;
+	}
+
 	struct rgba_input final : cpd::numeric_input_area<std::uint8_t>{
 		precise_color_picker* picker_{};
 		[[nodiscard]] rgba_input(scene& scene, elem* parent, precise_color_picker& picker)
@@ -471,19 +570,120 @@ private:
 			auto& hsv_picker = picker.head();
 			auto c = hsv_picker.get_current_color();
 			switch(get_rgba_channel()){
-			case 0 : c.r = float(val) / 255.5f; break;
-			case 1 : c.g = float(val) / 255.5f; break;
-			case 2 : c.b = float(val) / 255.5f; break;
-			case 3 : c.a = float(val) / 255.5f; break;
+			case 0 : c.r = float(val) / graphic::color::max_val_f; break;
+			case 1 : c.g = float(val) / graphic::color::max_val_f; break;
+			case 2 : c.b = float(val) / graphic::color::max_val_f; break;
+			case 3 : c.a = float(val) / graphic::color::max_val_f; break;
 			default : std::unreachable();
 			}
 			if(hsv_picker.set_current_color_no_propagate(c)){
+				picker.sync_hex_input(c);
 				picker.on_color_changed(c);
 			}
 		}
 	};
 
+	struct hex_text_edit final : text_edit{
+		precise_color_picker* picker_{};
+		bool syncing_{};
+
+		[[nodiscard]] hex_text_edit(scene& scene, elem* parent, precise_color_picker& picker)
+			: text_edit(scene, parent), picker_{&picker}{
+			set_on_changed_interval(0);
+			set_character_filter_mode(true);
+			set_filter_characters(std::u32string_view{U"#0123456789abcdefABCDEF"});
+			set_max_code_points(9);
+			set_hint_text(std::u32string_view{picker.has_alpha_ ? U"#RRGGBBAA" : U"#RRGGBB"});
+		}
+
+		precise_color_picker& get_picker() const noexcept{
+			return *picker_;
+		}
+
+		void sync_from_color(graphic::color color){
+			const auto formatted = precise_color_picker::format_hex_color(color, get_picker().has_alpha_);
+			syncing_ = true;
+			apply_edit([&](std::u32string& text){
+				if(text == formatted)return false;
+				text = formatted;
+				return true;
+			});
+			syncing_ = false;
+		}
+
+	protected:
+		void on_changed() override{
+			if(syncing_)return;
+
+			auto parsed = precise_color_picker::parse_hex_color(
+				get_text(), get_picker().has_alpha_, hex_parse_mode::editing);
+			switch(parsed.status){
+			case hex_parse_status::valid:
+				get_picker().set_color_from_hex_input(parsed.color);
+				break;
+			case hex_parse_status::invalid:
+				set_input_invalid();
+				break;
+			case hex_parse_status::incomplete:
+				break;
+			default:
+				std::unreachable();
+			}
+		}
+
+		void action_enter() override{
+			if(commit_text()){
+				action_select_all();
+			}
+		}
+
+		void on_last_clicked_changed(bool isFocused) override{
+			text_edit::on_last_clicked_changed(isFocused);
+			if(isFocused){
+				action_select_all();
+			} else if(!syncing_ && !commit_text()){
+				sync_from_color(get_picker().head().get_current_color());
+			}
+		}
+
+	private:
+		bool commit_text(){
+			auto parsed = precise_color_picker::parse_hex_color(
+				get_text(), get_picker().has_alpha_, hex_parse_mode::commit);
+			if(parsed.status == hex_parse_status::valid){
+				get_picker().set_color_from_hex_input(parsed.color);
+				return true;
+			}
+
+			set_input_invalid();
+			return false;
+		}
+	};
+
 	std::array<rgba_input*, 4> rgba_channel_inputs{};
+	hex_text_edit* hex_input_{};
+	bool has_alpha_{true};
+
+	void sync_rgba_inputs(graphic::color color){
+		const auto rgba = color_to_rgba8(color);
+		for(int i = 0; i < rgba.size(); ++i){
+			if(auto c = rgba_channel_inputs[i])c->set_value_no_propagate(rgba[i]);
+		}
+	}
+
+	void sync_hex_input(graphic::color color){
+		if(hex_input_)hex_input_->sync_from_color(color);
+	}
+
+	void set_color_from_hex_input(graphic::color color){
+		if(head().set_current_color_no_propagate(color)){
+			sync_rgba_inputs(color);
+			sync_hex_input(color);
+			on_color_changed(color);
+		} else{
+			sync_hex_input(color);
+		}
+	}
 
 protected:
 	virtual void on_color_changed(graphic::color color){
@@ -500,18 +700,9 @@ public:
 
 	protected:
 		void on_color_changed(graphic::color color) override{
-			auto rgba = color.to_rgba8888();
-
-			if constexpr (std::endian::native == std::endian::little){
-				rgba = std::byteswap(rgba);
-			}
-
-			auto arr = std::bit_cast<std::array<std::uint8_t, 4>>(rgba);
-
 			auto& p = parent_ref();
-			for(int i = 0; i < arr.size(); ++i){
-				if(auto c = p.rgba_channel_inputs[i])c->set_value_no_propagate(arr[i]);
-			}
+			p.sync_rgba_inputs(color);
+			p.sync_hex_input(color);
 			p.on_color_changed(color);
 		}
 	};
@@ -521,9 +712,9 @@ public:
 	}
 
 	[[nodiscard]] precise_color_picker(scene& scene, elem* parent, const layout::directional_layout_specifier layout_policy, float input_area_height, bool has_alpha = true)
-	: head_body(scene, parent, layout_policy){
+	: head_body(scene, parent, layout_policy), has_alpha_{has_alpha}{
 		using namespace std::literals;
-		static constexpr std::u32string_view titles[]{U"R: "sv, U"G: "sv, U"B: "sv, U"A: "sv};
+		static constexpr std::u32string_view titles[]{U"R: "sv, U"G: "sv, U"B: "sv, U"A: "sv, U"HEX: "sv};
 
 		create_head([](precise_hsv_picker& s){
 			s.set_style();
@@ -554,6 +745,22 @@ public:
 						}).cell().set_passive(.3f);
 					}
 				}
+				s.create_back([](elem& e){
+					e.set_style();
+				}).cell().set_passive(.3f);
+				s.create_back([](gui::direct_label& e){
+					e.set_style();
+					e.set_self_border({.left = 4});
+					e.set_fit_type(label_fit_type::scl);
+					e.set_tokenized_text({titles[4]});
+				}).cell().set_passive(1.4f);
+				s.create_back([&](hex_text_edit& e){
+					e.set_style();
+					e.set_view_type(text_edit_view_type::align_y);
+					e.set_expand_policy(layout::expand_policy::passive);
+					e.text_entire_align = align::pos::center;
+					hex_input_ = &e;
+				}, *this).cell().set_passive(3.2f);
 			}, layout::layout_policy::hori_major);
 
 			set_body_size(input_area_height);
@@ -576,31 +783,61 @@ public:
 				s.set_pad(4);
 			};
 
+			auto create_hex_view = [&](head_body_no_invariant& s) {
+				s.set_expand_policy(layout::expand_policy::passive);
+				s.create_head([](gui::direct_label& e) {
+					e.set_style();
+					e.set_self_border({.left = 4});
+					e.set_fit_type(label_fit_type::scl);
+					e.set_tokenized_text({titles[4]});
+				});
+				s.create_body([&](hex_text_edit& e) {
+					e.set_style();
+					e.set_view_type(text_edit_view_type::align_y);
+					e.set_expand_policy(layout::expand_policy::passive);
+					e.text_entire_align = align::pos::center;
+					hex_input_ = &e;
+				}, *this);
+				s.set_head_size({layout::size_category::passive, 1.f});
+				s.set_body_size({layout::size_category::passive, 4.f});
+				s.set_pad(4);
+			};
+
 			if(has_alpha){
 				create_body(
-					[&](grid& table){
-						table.set_expand_policy(layout::expand_policy::resize_to_fit);
-						table.set_style();
+					[&](sequence& controls){
+						controls.set_style();
+						controls.set_expand_policy(layout::expand_policy::passive);
+						controls.template_cell.set_pad({4, 4});
 
-						table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 0); }, layout::layout_policy::hori_major).cell().extent = {
-								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
-								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
-							};
-						table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 1); }, layout::layout_policy::hori_major).cell().extent = {
-								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
-								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
-							};
-						table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 2); }, layout::layout_policy::hori_major).cell().extent = {
-								{.type = grid_extent_type::src_extent, .desc = {0, 1},},
-								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
-							};
-						table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 3); }, layout::layout_policy::hori_major).cell().extent = {
-								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
-								{.type = grid_extent_type::src_extent, .desc = {1, 1},},
-							};
-					}, math::vector2<grid_dim_spec>{
-						grid_uniformed_passive{2, {4, 4}},
-						grid_uniformed_mastering{2, input_area_height, {4, 4}}
+						controls.create_back([&](grid& table){
+							table.set_expand_policy(layout::expand_policy::resize_to_fit);
+							table.set_style();
+
+							table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 0); }, layout::layout_policy::hori_major).cell().extent = {
+									{.type = grid_extent_type::src_extent, .desc = {0, 1},},
+									{.type = grid_extent_type::src_extent, .desc = {0, 1},},
+								};
+							table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 1); }, layout::layout_policy::hori_major).cell().extent = {
+									{.type = grid_extent_type::src_extent, .desc = {1, 1},},
+									{.type = grid_extent_type::src_extent, .desc = {0, 1},},
+								};
+							table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 2); }, layout::layout_policy::hori_major).cell().extent = {
+									{.type = grid_extent_type::src_extent, .desc = {0, 1},},
+									{.type = grid_extent_type::src_extent, .desc = {1, 1},},
+								};
+							table.create_back([&](head_body_no_invariant& s){ create_channel_view(s, 3); }, layout::layout_policy::hori_major).cell().extent = {
+									{.type = grid_extent_type::src_extent, .desc = {1, 1},},
+									{.type = grid_extent_type::src_extent, .desc = {1, 1},},
+								};
+						}, math::vector2<grid_dim_spec>{
+							grid_uniformed_passive{2, {4, 4}},
+							grid_uniformed_mastering{2, input_area_height, {4, 4}}
+						}).cell().set_size({layout::size_category::pending});
+
+						controls.create_back([&](head_body_no_invariant& row){
+							create_hex_view(row);
+						}, layout::layout_policy::hori_major).cell().set_size(input_area_height);
 					});
 			} else{
 				create_body([&](sequence& s){
@@ -612,6 +849,9 @@ public:
 							create_channel_view(row, i);
 						}, layout::layout_policy::hori_major).cell().set_size(input_area_height);
 					}
+					s.create_back([&](head_body_no_invariant& row){
+						create_hex_view(row);
+					}, layout::layout_policy::hori_major).cell().set_size(input_area_height);
 				}, layout::layout_policy::vert_major);
 			}
 
@@ -620,6 +860,7 @@ public:
 		for(int i = 0; i < rgba_channel_inputs.size(); ++i){
 			if(auto c = rgba_channel_inputs[i])c->set_value_no_propagate(std::numeric_limits<std::uint8_t>::max());
 		}
+		sync_hex_input(head().get_current_color());
 	}
 
 	[[nodiscard]] precise_color_picker(scene& scene, elem* parent)

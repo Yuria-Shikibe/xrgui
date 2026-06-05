@@ -26,6 +26,7 @@ enum class level : std::uint8_t{
 
 export
 enum class terminal_color : std::uint8_t{
+	none = 0,
 	black,
 	red,
 	green,
@@ -46,7 +47,7 @@ enum class terminal_color : std::uint8_t{
 
 export
 struct channel_config{
-	std::optional<terminal_color> color{};
+	terminal_color color{};
 	bool force_ignore{};
 };
 
@@ -90,7 +91,7 @@ struct record{
 	level severity{};
 	std::string category;
 	std::string message;
-	std::optional<terminal_color> category_color{};
+	terminal_color category_color{};
 	std::source_location location;
 	std::chrono::steady_clock::duration elapsed{};
 	std::thread::id thread_id{};
@@ -110,13 +111,13 @@ namespace impl{
 	return start;
 }
 
-[[nodiscard]] inline std::string short_file_name(const std::string_view file_name){
+[[nodiscard]] constexpr std::string_view short_file_name(const std::string_view file_name) noexcept{
 	const auto pos = file_name.find_last_of("/\\");
 	if(pos == std::string_view::npos){
-		return std::string{file_name};
+		return file_name;
 	}
 
-	return std::string{file_name.substr(pos + 1)};
+	return file_name.substr(pos + 1);
 }
 
 [[nodiscard]] inline std::string elapsed_time_text(const std::chrono::steady_clock::duration elapsed){
@@ -144,6 +145,7 @@ namespace impl{
 
 [[nodiscard]] constexpr std::string_view ansi_color_code(const terminal_color color) noexcept{
 	switch(color){
+	case terminal_color::none: return "";
 	case terminal_color::black: return "\x1b[30m";
 	case terminal_color::red: return "\x1b[31m";
 	case terminal_color::green: return "\x1b[32m";
@@ -205,16 +207,17 @@ namespace impl{
 
 inline void write_line(std::ostream& output, const record& entry, const bool use_color){
 	output
+		<< '['
 		<< elapsed_time_text(entry.elapsed)
 		<< ' ' << level_letter(entry.severity)
 		<< ' ';
-	if(use_color && entry.category_color){
-		output << ansi_color_code(*entry.category_color) << entry.category << "\x1b[0m";
+	if(use_color && entry.category_color != terminal_color::none){
+		output << ansi_color_code(entry.category_color) << entry.category << "\x1b[0m";
 	} else{
 		output << entry.category;
 	}
 	output
-		<< " | " << entry.message
+		<< "] " << entry.message
 		<< " @ " << location_text(entry.location)
 		<< '\n';
 	if(!entry.stacktrace.empty()){
@@ -353,7 +356,7 @@ public:
 		std::lock_guard lock{channel_mutex_};
 		for(auto& [channel, config] : channels_){
 			if(channel == category){
-				config.color.reset();
+				config.color = terminal_color::none;
 				return;
 			}
 		}
