@@ -41,6 +41,13 @@ struct caret_cache{
 	caret_section last_cached_caret_{};
 };
 
+struct ime_composition_state{
+	bool active{};
+	caret_section replacement{};
+	std::u32string text{};
+	std::uint32_t cursor{};
+};
+
 export enum struct text_edit_view_type : std::uint8_t {
 	fix,
 	fit,
@@ -55,6 +62,9 @@ private:
 protected:
 	text_editor_core core_{};
 	typesetting::tokenized_text tokenized_text_{};
+	typesetting::tokenized_text ime_display_tokenized_text_{};
+	std::u32string ime_display_text_{};
+	ime_composition_state ime_composition_{};
 	typesetting::layout_config layout_config_{};
 	typesetting::glyph_layout glyph_layout_{};
 	text_render_cache render_cache_{};
@@ -154,6 +164,31 @@ protected:
 	}
 
 	void apply_paste_text(std::string text);
+	void apply_committed_text(std::u32string text);
+
+	[[nodiscard]] bool has_active_ime_composition() const noexcept{
+		return ime_composition_.active;
+	}
+
+	[[nodiscard]] std::u32string_view get_layout_text() const noexcept{
+		return has_active_ime_composition() ? std::u32string_view{ime_display_text_} : tokenized_text_.get_text();
+	}
+
+	[[nodiscard]] caret_section get_effective_caret() const noexcept{
+		if(!has_active_ime_composition()){
+			return core_.get_caret();
+		}
+		const auto replacement = ime_composition_.replacement.get_ordered();
+		const auto cursor = std::min<std::size_t>(ime_composition_.cursor, ime_composition_.text.size());
+		const auto caret_pos = static_cast<unsigned>(replacement.src + cursor);
+		return {caret_pos, caret_pos};
+	}
+
+	typesetting::tokenized_text& prepare_layout_text_source();
+	void begin_ime_composition();
+	void cancel_ime_composition_preview();
+	void mark_ime_composition_layout_changed();
+
 public:
 	graphic::color text_color_scl{graphic::colors::white};
 
@@ -184,6 +219,7 @@ public:
 
 	[[nodiscard]] bool is_idle() const noexcept{ return is_idle_; }
 	[[nodiscard]] bool is_failed() const noexcept{ return failed_hint_timer_ > 0.f; }
+	[[nodiscard]] bool is_ime_composition_active() const noexcept{ return has_active_ime_composition(); }
 
 	[[nodiscard]] text_edit_view_type get_view_type() const noexcept { return view_mode_; }
 
@@ -246,6 +282,10 @@ public:
 #pragma region EditActions
 	template <std::predicate<std::u32string&> Action>
 	void apply_edit(Action&& action){
+		if(has_active_ime_composition()){
+			return;
+		}
+
 		bool actually_changed = tokenized_text_.modify(apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw,
 			[&](std::u32string& text) -> bool{
 				return std::invoke(std::forward<Action>(action), text);
@@ -296,38 +336,45 @@ public:
 	}
 
 	void action_move_left(bool select, bool jump){
+		if(has_active_ime_composition()) return;
 		if(jump) core_.action_jump_left(glyph_layout_, tokenized_text_.get_text(), select);
 		else core_.action_move_left(tokenized_text_.get_text(), select);
 		reset_blink();
 	}
 
 	void action_move_right(bool select, bool jump){
+		if(has_active_ime_composition()) return;
 		if(jump) core_.action_jump_right(glyph_layout_, tokenized_text_.get_text(), select);
 		else core_.action_move_right(tokenized_text_.get_text(), select);
 		reset_blink();
 	}
 
 	void action_move_up(bool select){
+		if(has_active_ime_composition()) return;
 		core_.action_move_up(glyph_layout_, tokenized_text_.get_text(), render_cache_.get_line_align(), select);
 		reset_blink();
 	}
 
 	void action_move_down(bool select){
+		if(has_active_ime_composition()) return;
 		core_.action_move_down(glyph_layout_, tokenized_text_.get_text(), render_cache_.get_line_align(), select);
 		reset_blink();
 	}
 
 	void action_move_line_begin(bool select){
+		if(has_active_ime_composition()) return;
 		core_.action_move_line_begin(glyph_layout_, tokenized_text_.get_text(), select);
 		reset_blink();
 	}
 
 	void action_move_line_end(bool select){
+		if(has_active_ime_composition()) return;
 		core_.action_move_line_end(glyph_layout_, tokenized_text_.get_text(), select);
 		reset_blink();
 	}
 
 	void action_select_all(){
+		if(has_active_ime_composition()) return;
 		core_.action_select_all(tokenized_text_.get_text());
 		reset_blink();
 	}
@@ -441,8 +488,8 @@ public:
 
 
 		const math::vec2 max_scroll = {
-			sz.x > vp.x ? std::max(0.f, sz.x + viewport_padding.x - vp.x) : 0.f,
-			sz.y > vp.y ? std::max(0.f, sz.y + viewport_padding.y - vp.y) : 0.f
+			sz.x > vp.x ? math::fdim(sz.x + viewport_padding.x, vp.x) : 0.f,
+			sz.y > vp.y ? math::fdim(sz.y + viewport_padding.y, vp.y) : 0.f
 		};
 		constexpr float epsilon = 1.f;
 
@@ -461,12 +508,23 @@ public:
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		elem::on_click(event, aboves);
 		if(!event.key.on_release()){
+			if(has_active_ime_composition()){
+				cancel_ime_composition_preview();
+				reset_blink();
+				return events::op_afterwards::intercepted;
+			}
+
 			auto t_params = get_transform_params();
 			math::vec2 raw_hit_pos = t_params.inverse_local(event.pos);
 
 			if(core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), raw_hit_pos,
 				render_cache_.get_line_align(), false)){
 				reset_blink();
+				if(!is_layout_expired_()){
+					update_caret_cache();
+					scroll_to_caret();
+					update_ime_position();
+				}
 				return events::op_afterwards::intercepted;
 			}
 		}else {
@@ -477,17 +535,10 @@ public:
 
 	events::op_afterwards on_key_input(const input_handle::key_set key) override;
 	events::op_afterwards on_unicode_input(const char32_t val) override;
+	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) override;
 	events::op_afterwards on_esc() override;
 
-	void update_ime_position() const{
-
-
-
-
-
-
-
-	}
+	void update_ime_position() const;
 
 	void on_last_clicked_changed(bool isFocused) override{
 		set_focused_key(isFocused);

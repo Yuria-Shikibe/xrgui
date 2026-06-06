@@ -37,6 +37,7 @@ export import mo_yanxi.gui.util.task_queue;
 export import mo_yanxi.gui.style.tree.manager;
 
 export import mo_yanxi.input_handle;
+export import mo_yanxi.input_handle.input_event_queue;
 export import mo_yanxi.gui.alloc;
 export import mo_yanxi.gui.fx.config;
 
@@ -468,6 +469,7 @@ struct input{
 	input_key_result on_key_input(input_handle::key_set key);
 
 	events::op_afterwards on_unicode_input(char32_t val) const;
+	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) const;
 	events::op_afterwards on_scroll(math::vec2 scroll) const;
 	events::op_afterwards on_mouse_input(input_handle::key_set k);
 
@@ -1168,6 +1170,11 @@ public:
 	events::op_afterwards on_unicode_input(char32_t val) const{
 		assert(is_on_scene_thread(*this));
 		return input_handler_.on_unicode_input(val);
+	}
+
+	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) const{
+		assert(is_on_scene_thread(*this));
+		return input_handler_.on_ime_composition(event);
 	}
 
 	events::op_afterwards on_scroll(const math::vec2 scroll) const{

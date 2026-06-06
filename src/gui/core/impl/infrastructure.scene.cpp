@@ -129,6 +129,13 @@ events::op_afterwards input::on_unicode_input(char32_t val) const{
 	return events::op_afterwards::fall_through;
 }
 
+events::op_afterwards input::on_ime_composition(const input_handle::ime_composition_event& event) const{
+	if(focus_key){
+		return focus_key->on_ime_composition(event);
+	}
+	return events::op_afterwards::fall_through;
+}
+
 events::op_afterwards input::on_scroll(math::vec2 scroll) const{
 	events::scroll e{scroll, inputs_.main_binds.get_mode()};
 	//TODO provide cursor position?

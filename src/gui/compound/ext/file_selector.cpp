@@ -17,7 +17,7 @@ import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.elem.split_pane;
 import mo_yanxi.gui.action.elem;
 
-import mo_yanxi.core.platform;
+import mo_yanxi.platform;
 import mo_yanxi.gui.util.animator;
 import mo_yanxi.gui.style.progress_bars;
 

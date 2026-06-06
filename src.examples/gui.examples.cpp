@@ -76,6 +76,7 @@ import mo_yanxi.math.rand;
 
 import mo_yanxi.gui.cfg.builtin.constants;
 import mo_yanxi.gui.cfg.builtin.scene;
+import mo_yanxi.platform;
 
 
 namespace mo_yanxi::gui::cfg::builtin{
@@ -99,10 +100,10 @@ struct test_entry{
 };
 
 std::optional<std::size_t> requested_profile_page_index(const std::size_t page_count){
-	const char* raw = std::getenv("XRGUI_PROFILE_PAGE");
-	if(raw == nullptr || raw[0] == '\0') return std::nullopt;
+	const auto raw = platform::get_environment_variable("XRGUI_PROFILE_PAGE");
+	if(!raw || raw->empty()) return std::nullopt;
 
-	std::string_view text{raw};
+	std::string_view text{*raw};
 	std::size_t value{};
 	const auto* begin = text.data();
 	const auto* end = text.data() + text.size();

@@ -1,15 +1,10 @@
 module;
 
-#ifdef _WIN32
-#define NOMINMAX
-#include <windows.h>
-#else
-#include <sys/mman.h>
-#endif
 #include <mimalloc.h>
 
 export module mo_yanxi.gui.alloc;
 import std;
+import mo_yanxi.platform.memory;
 
 namespace mo_yanxi::gui::mr{
 
@@ -48,20 +43,11 @@ private:
     mi_arena_id_t arena_id_{};
 
     static void* allocate(std::size_t size) {
-    #ifdef _WIN32
-        return VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    #else
-        return mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    #endif
+        return platform::reserve_commit_memory(size);
     }
 
     static void deallocate(void* ptr, std::size_t size) noexcept {
-    #ifdef _WIN32
-        VirtualFree(ptr, 0, MEM_RELEASE);
-        (void)size;
-    #else
-        munmap(ptr, size);
-    #endif
+        platform::release_memory(ptr, size);
     }
 };
 

@@ -5,8 +5,19 @@ import mo_yanxi.math.matrix3;
 import mo_yanxi.graphic.g2d;
 
 namespace mo_yanxi::gui{
+namespace{
+void transform_content_to_scene(const elem& where, std::span<math::vec2> positions) noexcept{
+	where.transform_from_content_space(positions);
+	for(auto* parent = where.parent(); parent != nullptr; parent = parent->parent()){
+		parent->transform_from_content_space(positions);
+	}
+}
+}
+
 bool text_edit::update(float delta_in_ticks){
 	if(!elem::update(delta_in_ticks)) return false;
+
+	bool ime_position_dirty = false;
 
 	if(is_scrollable_mode()) {
 		if(!scroll_offset_.equals(target_scroll_offset_)) {
@@ -16,6 +27,7 @@ bool text_edit::update(float delta_in_ticks){
 				scroll_offset_ = target_scroll_offset_;
 			}
 			get_scene().update_cursor_type();
+			ime_position_dirty = is_focused_key();
 
 		}
 
@@ -52,7 +64,10 @@ bool text_edit::update(float delta_in_ticks){
 				core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), new_raw_hit_pos, render_cache_.get_line_align(), true);
 
 
-				update_caret_cache();
+				if(!is_layout_expired_()){
+					update_caret_cache();
+					ime_position_dirty = is_focused_key();
+				}
 			}
 		}
 	}
@@ -78,13 +93,73 @@ bool text_edit::update(float delta_in_ticks){
 		if(caret_blink_timer_ > 60.f) caret_blink_timer_ = 0.f;
 	}
 
-	if(caret_cache_.last_cached_caret_ != core_.get_caret()){
+	if(caret_cache_.last_cached_caret_ != get_effective_caret() && !is_layout_expired_()){
 		update_caret_cache();
 
 		scroll_to_caret();
+		ime_position_dirty = is_focused_key();
+	}
+
+	if(ime_position_dirty){
+		update_ime_position();
 	}
 
 	return true;
+}
+
+typesetting::tokenized_text& text_edit::prepare_layout_text_source(){
+	if(!has_active_ime_composition()){
+		return tokenized_text_;
+	}
+
+	ime_display_text_ = tokenized_text_.get_text();
+	const auto replacement = ime_composition_.replacement.get_ordered();
+	const auto replace_src = std::min<std::size_t>(replacement.src, ime_display_text_.size());
+	const auto replace_dst = std::min<std::size_t>(replacement.dst, ime_display_text_.size());
+	ime_display_text_.replace(
+		replace_src,
+		replace_dst - replace_src,
+		ime_composition_.text);
+
+	ime_display_tokenized_text_.reset(
+		ime_display_text_,
+		apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw);
+	return ime_display_tokenized_text_;
+}
+
+void text_edit::mark_ime_composition_layout_changed(){
+	change_mark_ |= text_edit_change_type::text;
+	notify_isolated_layout_changed();
+	if(view_mode_ == text_edit_view_type::dyn){
+		get_scene().update_cursor_type();
+	}
+}
+
+void text_edit::begin_ime_composition(){
+	if(is_idle_){
+		is_idle_ = false;
+		core_.reset_state();
+		set_text_internal(U"");
+	}
+	if(!ime_composition_.active){
+		ime_composition_.replacement = core_.get_caret();
+		ime_composition_.text.clear();
+		ime_composition_.cursor = 0;
+		ime_composition_.active = true;
+	}
+	mark_ime_composition_layout_changed();
+}
+
+void text_edit::cancel_ime_composition_preview(){
+	if(!ime_composition_.active){
+		return;
+	}
+	ime_composition_ = {};
+	ime_display_text_.clear();
+	ime_display_tokenized_text_.reset(
+		tokenized_text_.get_text(),
+		apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw);
+	mark_ime_composition_layout_changed();
 }
 
 text_layout_result text_edit::layout_text(math::vec2 bound){
@@ -116,12 +191,13 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
 
     	if(is_layout_expired_()){
     		layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2);
-    		get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
+			get_layout()->layout(prepare_layout_text_source(), layout_config_, glyph_layout_);
     		render_cache_.update_buffer(glyph_layout_);
     		change_mark_ = text_edit_change_type::none;
 
     		update_caret_cache();
     		scroll_to_caret();
+			update_ime_position();
 
     		return {process_result_ext(), true};
     	}
@@ -138,21 +214,22 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
             if(layout_config_.set_max_extent(mo_yanxi::math::vectors::constant2<float>::inf_positive_vec2) ||
                 ((change_mark_ & text_edit_change_type::config) != text_edit_change_type::none) || ((change_mark_ &
                     text_edit_change_type::text) != text_edit_change_type::none)){
-            	get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
-            	render_cache_.update_buffer(glyph_layout_);
-            	change_mark_ = text_edit_change_type::none;
+				get_layout()->layout(prepare_layout_text_source(), layout_config_, glyph_layout_);
+				render_cache_.update_buffer(glyph_layout_);
+				change_mark_ = text_edit_change_type::none;
 
-            	update_caret_cache();
+				update_caret_cache();
+				update_ime_position();
 
 
-            	return {process_result_ext(), true};
+				return {process_result_ext(), true};
             }
             change_mark_ = text_edit_change_type::none;
         }
     } else if(layout_config_.set_max_extent(local_bound) || is_layout_expired_()){
 
         bool is_text_changed = (change_mark_ & text_edit_change_type::text) != text_edit_change_type::none;
-        get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
+        get_layout()->layout(prepare_layout_text_source(), layout_config_, glyph_layout_);
         if(!glyph_layout_.is_exhausted && is_text_changed){
             tokenized_text_.modify(apply_tokens_ ? typesetting::tokenize_tag::kep : typesetting::tokenize_tag::raw,
                 [&](std::u32string& text) -> bool{
@@ -161,11 +238,12 @@ text_layout_result text_edit::layout_text(math::vec2 bound){
                     return true;
                 });
             set_input_invalid();
-            get_layout()->layout(tokenized_text_, layout_config_, glyph_layout_);
+            get_layout()->layout(prepare_layout_text_source(), layout_config_, glyph_layout_);
         }
         render_cache_.update_buffer(glyph_layout_);
         change_mark_ = text_edit_change_type::none;
         update_caret_cache();
+        update_ime_position();
 
         return {process_result_ext(), true};
     }
@@ -284,7 +362,7 @@ void text_edit::record_draw_layer(draw_recorder& call_stack_builder) const{
 
 
 void text_edit::update_caret_cache(){
-	auto caret = core_.get_caret();
+	auto caret = get_effective_caret();
 	caret_cache_.last_cached_caret_ = caret;
 	caret_cache_.selection_rect_count_ = 0;
 
@@ -300,9 +378,9 @@ void text_edit::update_caret_cache(){
 		return;
 	}
 
-	bool has_sel = caret.has_region();
+	bool has_sel = !has_active_ime_composition() && caret.has_region();
 	auto ordered = caret.get_ordered();
-	auto text_u32 = tokenized_text_.get_text();
+	auto text_u32 = get_layout_text();
 
 	bool caret_found = false;
 	math::vec2 final_caret_pos{};
@@ -582,6 +660,43 @@ math::frect text_edit::get_caret_local_aabb() const{
 	return t_params.forward_local(logical_rect);
 }
 
+void text_edit::update_ime_position() const{
+	if(!is_focused_key()){
+		return;
+	}
+	if(is_layout_expired_()){
+		return;
+	}
+
+	const auto cmt = get_scene().get_communicator();
+	if(cmt == nullptr){
+		return;
+	}
+
+	const math::frect caret_rect = get_caret_local_aabb();
+	std::array points{caret_rect.vert_00(), caret_rect.vert_11()};
+	transform_content_to_scene(*this, std::span<math::vec2>{points});
+
+	const math::vec2 src{
+		std::min(points[0].x, points[1].x),
+		std::min(points[0].y, points[1].y)
+	};
+	const math::vec2 end{
+		std::max(points[0].x, points[1].x),
+		std::max(points[0].y, points[1].y)
+	};
+
+	math::vec2 extent = end - src;
+	if(extent.x < 1.0f){
+		extent.x = 1.0f;
+	}
+	if(extent.y < 1.0f){
+		extent.y = 1.0f;
+	}
+
+	cmt->set_ime_cursor_rect(math::raw_frect{src, extent});
+}
+
 void text_edit::clamp_scroll_offset() {
 	if (!is_scrollable_mode()) return;
 	math::vec2 sz = get_glyph_draw_extent();
@@ -641,6 +756,13 @@ events::op_afterwards text_edit::on_scroll(const events::scroll event, std::span
 }
 
 events::op_afterwards text_edit::on_drag(const events::drag event){
+	if(has_active_ime_composition()){
+		last_drag_dst_.reset();
+		cancel_ime_composition_preview();
+		reset_blink();
+		return events::op_afterwards::intercepted;
+	}
+
 	last_drag_dst_ = event.dst;
 
 	auto t_params = get_transform_params();
@@ -649,13 +771,20 @@ events::op_afterwards text_edit::on_drag(const events::drag event){
 	core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), raw_hit_pos, render_cache_.get_line_align(), true);
 	reset_blink();
 
-
-	scroll_to_caret();
+	if(!is_layout_expired_()){
+		update_caret_cache();
+		scroll_to_caret();
+		update_ime_position();
+	}
 
 	return events::op_afterwards::intercepted;
 }
 
 events::op_afterwards text_edit::on_unicode_input(const char32_t val){
+	if(has_active_ime_composition()){
+		return events::op_afterwards::intercepted;
+	}
+
 	if(!is_character_allowed(val)){
 		set_input_invalid();
 	} else{
@@ -667,18 +796,60 @@ events::op_afterwards text_edit::on_unicode_input(const char32_t val){
 		} else{
 			const std::u32string_view buf{&val, 1};
 			action_do_insert(buf);
-			update_ime_position();
 		}
 	}
 	return events::op_afterwards::intercepted;
 }
 
+events::op_afterwards text_edit::on_ime_composition(const input_handle::ime_composition_event& event){
+	using input_handle::ime_composition_event_type;
+
+	switch(event.type){
+	case ime_composition_event_type::begin:
+		begin_ime_composition();
+		reset_blink();
+		return events::op_afterwards::intercepted;
+	case ime_composition_event_type::update:
+		if(!has_active_ime_composition()){
+			begin_ime_composition();
+		}
+		ime_composition_.text = event.text;
+		ime_composition_.cursor = static_cast<std::uint32_t>(
+			std::min<std::size_t>(event.cursor, ime_composition_.text.size()));
+		mark_ime_composition_layout_changed();
+		reset_blink();
+		return events::op_afterwards::intercepted;
+	case ime_composition_event_type::commit: {
+		auto text = event.text;
+		cancel_ime_composition_preview();
+		apply_committed_text(std::move(text));
+		reset_blink();
+		return events::op_afterwards::intercepted;
+	}
+	case ime_composition_event_type::cancel:
+		cancel_ime_composition_preview();
+		reset_blink();
+		return events::op_afterwards::intercepted;
+	}
+
+	return events::op_afterwards::intercepted;
+}
+
 events::op_afterwards text_edit::on_key_input(const input_handle::key_set key){
+	if(caret_cache_.last_cached_caret_ != get_effective_caret() && !is_layout_expired_()){
+		update_caret_cache();
+		scroll_to_caret();
+	}
 	update_ime_position();
 	return events::op_afterwards::intercepted;
 }
 
 events::op_afterwards text_edit::on_esc(){
+	if(has_active_ime_composition()){
+		cancel_ime_composition_preview();
+		return events::op_afterwards::intercepted;
+	}
+
 	if(elem::on_esc() == events::op_afterwards::fall_through && is_focused_key()){
 		set_focus(false);
 		set_focused_key(false);
@@ -717,6 +888,8 @@ void text_edit::set_focus(bool keyFocused){
 			kmap.set_activated(true);
 		}
 	} else{
+		cancel_ime_composition_preview();
+
 		if(on_changed_timer_ > 0.f){
 			on_changed_timer_ = 0.f;
 			on_changed();
@@ -746,8 +919,10 @@ void text_edit::set_focus(bool keyFocused){
 	}
 }
 
-void text_edit::apply_paste_text(std::string text){
-	auto rst = unicode::utf8_to_utf32(text);
+void text_edit::apply_committed_text(std::u32string rst){
+	if(has_active_ime_composition()){
+		return;
+	}
 
 	if(!filter_code_points.empty()){
 		const std::size_t original_size = rst.size();
@@ -783,7 +958,13 @@ void text_edit::apply_paste_text(std::string text){
 	action_do_insert(std::u32string_view{rst.data(), rst.size()});
 }
 
+void text_edit::apply_paste_text(std::string text){
+	apply_committed_text(unicode::utf8_to_utf32(text));
+}
+
 void text_edit::action_copy() const{
+	if(has_active_ime_composition()) return;
+
 	auto caret = core_.get_caret();
 	if(!caret.has_region()) return;
 	auto ordered = caret.get_ordered();
@@ -795,6 +976,8 @@ void text_edit::action_copy() const{
 }
 
 void text_edit::action_paste(){
+	if(has_active_ime_composition()) return;
+
 	if(const auto cmt = get_scene().get_communicator()){
 		cmt->request_clipboard(*this, [](text_edit& self, std::string text) {
 			self.apply_paste_text(std::move(text));
@@ -803,6 +986,8 @@ void text_edit::action_paste(){
 }
 
 void text_edit::action_cut(){
+	if(has_active_ime_composition()) return;
+
 	action_copy();
 	action_do_delete();
 }
@@ -810,8 +995,12 @@ void text_edit::action_cut(){
 template <auto Fn, auto ... Args>
 	requires (std::invocable<decltype(Fn), text_edit&, decltype(Args)...>)
 consteval auto make_bind() noexcept{
-	return [](input_handle::key_set key, float, text_edit& text_edit) static{
-		std::invoke(Fn, text_edit, Args...);
+	return [](input_handle::key_set key, float, text_edit& self) static{
+		(void)key;
+		if(self.is_ime_composition_active()){
+			return;
+		}
+		std::invoke(Fn, self, Args...);
 	};
 }
 
@@ -829,23 +1018,29 @@ void load_default_text_edit_v2_key_binding(text_edit_key_binding& bind){
 	};
 
 	add_deduced(key::right, [](key_set key, float, text_edit& self) static{
+		if(self.is_ime_composition_active()) return;
 		self.action_move_right(matched(key.mode_bits, mode::shift), matched(key.mode_bits, mode::ctrl));
 	});
 	add_deduced(key::left, [](key_set key, float, text_edit& self) static{
+		if(self.is_ime_composition_active()) return;
 		self.action_move_left(matched(key.mode_bits, mode::shift), matched(key.mode_bits, mode::ctrl));
 	});
 
 	add_deduced(key::up, [](key_set key, float, text_edit& self) static{
+		if(self.is_ime_composition_active()) return;
 		self.action_move_up(matched(key.mode_bits, mode::shift));
 	});
 	add_deduced(key::down, [](key_set key, float, text_edit& self) static{
+		if(self.is_ime_composition_active()) return;
 		self.action_move_down(matched(key.mode_bits, mode::shift));
 	});
 
 	add_deduced(key::home, [](key_set key, float, text_edit& self) static{
+		if(self.is_ime_composition_active()) return;
 		self.action_move_line_begin(matched(key.mode_bits, mode::shift));
 	});
 	add_deduced(key::end, [](key_set key, float, text_edit& self) static{
+		if(self.is_ime_composition_active()) return;
 		self.action_move_line_end(matched(key.mode_bits, mode::shift));
 	});
 

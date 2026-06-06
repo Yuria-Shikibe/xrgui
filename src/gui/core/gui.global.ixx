@@ -43,6 +43,9 @@ void consume(scene& f, std::span<const input_handle::input_event_variant> events
 		case input_event_type::input_u32:
 			status = f.on_unicode_input(ev.input_char);
 			break;
+		case input_event_type::input_ime_composition:
+			status = f.on_ime_composition(ev.ime_composition);
+			break;
 		case input_event_type::cursor_move:
 			status = f.on_cursor_move(ev.cursor);
 			break;

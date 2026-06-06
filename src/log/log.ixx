@@ -10,6 +10,7 @@ export module mo_yanxi.log;
 
 import std;
 import magic_enum;
+import mo_yanxi.platform;
 
 namespace mo_yanxi::log{
 
@@ -234,18 +235,7 @@ inline void write_line(std::ostream& output, const record& entry, const bool use
 }
 
 [[nodiscard]] inline std::optional<std::string> environment_variable(const char* name){
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable: 4996)
-#endif
-	const char* value = std::getenv(name);
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-	if(value != nullptr){
-		return std::string{value};
-	}
-	return std::nullopt;
+	return platform::get_environment_variable(name);
 }
 }
 

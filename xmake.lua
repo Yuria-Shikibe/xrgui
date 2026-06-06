@@ -182,7 +182,7 @@ function add_defaults()
         set_policy("build.optimization.lto", true)
     end
     if is_plat("windows") then
-        add_syslinks("imm32", {public = true})
+        add_syslinks("advapi32", "imm32", "ole32", "shell32", "user32", {public = true})
     end
 end
 
@@ -217,6 +217,23 @@ target("xrgui.hello")
     add_defaults()
 
     add_files("src.hello/**.cpp")
+target_end()
+
+target("xrgui.text_tree_test")
+    set_kind("binary")
+    set_extension(".exe")
+    set_languages("c++latest")
+
+    set_warnings("all", "pedantic")
+
+    add_deps("mo_yanxi.utility")
+    add_includedirs(path.join(magic_enum_dir, "include"), {public = true})
+    add_files(path.join(magic_enum_dir, "module/magic_enum.cppm"), {
+        public = true,
+        defines = "MAGIC_ENUM_USE_STD_MODULE"
+    })
+    add_files("src/i18n/text_tree.ixx", {public = true})
+    add_files("src.tests/text_tree_tests.cpp")
 target_end()
 
 local function run_xrgui_doctor()

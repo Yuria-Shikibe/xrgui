@@ -2,19 +2,13 @@ module;
 
 #define GLFW_INCLUDE_VULKAN
 
-#ifdef _WIN32
-#define GLFW_EXPOSE_NATIVE_WIN32
-#else
-#define GLFW_NATIVE_INCLUDE_NONE
-#endif
-
 #include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 
 export module mo_yanxi.backend.glfw.window;
 import std;
 import mo_yanxi.backend.glfw.window.callback;
 import mo_yanxi.handle_wrapper;
+import mo_yanxi.platform.glfw;
 import mo_yanxi.vk.util;
 
 namespace mo_yanxi{
@@ -203,11 +197,9 @@ public:
 		return *this;
 	}
 
-#ifdef _WIN32
-	HWND get_native() const noexcept{
-		return glfwGetWin32Window(handle);
+	[[nodiscard]] platform::native_window_handle get_native() const noexcept{
+		return platform::get_native_window_handle(handle);
 	}
-#endif
 
 private:
 	struct window_geometry{

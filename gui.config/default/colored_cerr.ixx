@@ -5,6 +5,7 @@ module;
 export module mo_yanxi.gui.cfg.builtin.colored_cerr;
 
 import std;
+import mo_yanxi.platform;
 
 namespace mo_yanxi{
 
@@ -81,7 +82,7 @@ auto make_colored_errc(){
 
 	using namespace mo_yanxi;
 
-	if(auto ptr = std::getenv("COLORED"); ptr != nullptr && std::strcmp(ptr, "0") == 0){
+	if(platform::get_environment_variable("COLORED").value_or(std::string{}) == "0"){
 
 	} else{
 		_.emplace();

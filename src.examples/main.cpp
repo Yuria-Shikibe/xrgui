@@ -40,7 +40,7 @@ import mo_yanxi.react_flow.common;
 import mo_yanxi.react_flow;
 
 import mo_yanxi.gui.markdown;
-import mo_yanxi.core.platform;
+import mo_yanxi.platform;
 
 import mo_yanxi.gui.examples;
 import mo_yanxi.gui.cfg.builtin.main_loop;
@@ -680,7 +680,7 @@ int main(int argc, char** argv){
 	log::info({"Assets"}, "using runtime working directory {}", std::filesystem::current_path().string());
 
 #ifndef NDEBUG
-	if(auto ptr = std::getenv("NSIGHT"); ptr != nullptr && std::strcmp(ptr, "1") == 0){
+	if(platform::environment_flag_enabled("NSIGHT")){
 		vk::enable_validation_layers = false;
 	} else{
 		vk::enable_validation_layers = true;

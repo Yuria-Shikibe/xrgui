@@ -16,6 +16,7 @@ enum struct input_event_type : std::uint8_t{
 	input_mouse,
 	input_scroll,
 	input_u32,
+	input_ime_composition,
 
 	cursor_inbound,
 	cursor_move,
@@ -24,16 +25,30 @@ enum struct input_event_type : std::uint8_t{
 };
 
 export
-struct input_event_variant{
-	input_event_type type;
+enum struct ime_composition_event_type : std::uint8_t{
+	begin,
+	update,
+	commit,
+	cancel,
+};
 
-	union{
-		key_set input_key;
-		math::vec2 cursor;
-		char32_t input_char;
-		bool is_inbound;
-		std::chrono::duration<double> frame_delta_time;
-	};
+export
+struct ime_composition_event{
+	ime_composition_event_type type{};
+	std::u32string text{};
+	std::uint32_t cursor{};
+};
+
+export
+struct input_event_variant{
+	input_event_type type{};
+
+	key_set input_key{};
+	math::vec2 cursor{};
+	char32_t input_char{};
+	bool is_inbound{};
+	std::chrono::duration<double> frame_delta_time{};
+	ime_composition_event ime_composition{};
 };
 
 export
@@ -69,6 +84,13 @@ public:
 		buffer_.push(input_event_variant{
 				.type = input_event_type::input_u32,
 				.input_char = val
+			});
+	}
+
+	void push_ime_composition(ime_composition_event event){
+		buffer_.push(input_event_variant{
+				.type = input_event_type::input_ime_composition,
+				.ime_composition = std::move(event)
 			});
 	}
 

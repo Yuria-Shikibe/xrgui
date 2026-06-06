@@ -1,6 +1,5 @@
 module;
 
-#include <cstdlib>
 #include <vulkan/vulkan.h>
 
 module mo_yanxi.gui.cfg.default_application;
@@ -34,7 +33,7 @@ import mo_yanxi.font;
 import mo_yanxi.font.manager;
 import mo_yanxi.typesetting.rich_text;
 
-import mo_yanxi.core.platform;
+import mo_yanxi.platform;
 
 namespace mo_yanxi::gui::cfg{
 namespace{
@@ -74,24 +73,6 @@ VkApplicationInfo make_application_info(const default_application_config& config
 	}
 
 	return app_info;
-}
-
-bool env_flag_enabled(const char* name){
-#ifdef _WIN32
-	char* value{};
-	std::size_t value_size{};
-	if(_dupenv_s(&value, &value_size, name) != 0 || value == nullptr){
-		return false;
-	}
-
-	std::unique_ptr<char, decltype(&std::free)> holder{value, std::free};
-	return std::string_view{value} == "1";
-#else
-	if(auto value = std::getenv(name); value != nullptr){
-		return std::string_view{value} == "1";
-	}
-	return false;
-#endif
 }
 
 backend::vulkan::renderer make_default_renderer(
@@ -338,7 +319,7 @@ struct default_application::state{
 		assets_manager_initialized = true;
 
 		vk::enable_validation_layers = app.config_.enable_validation_layers;
-		if(env_flag_enabled("NSIGHT")){
+		if(platform::environment_flag_enabled("NSIGHT")){
 			vk::enable_validation_layers = false;
 		}
 

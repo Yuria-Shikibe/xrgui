@@ -243,6 +243,115 @@ constexpr void append_to_u32(std::u32string& dest, std::u32string_view source){
 	dest.append_range(source);
 }
 
+namespace{
+enum struct grouped_revert_channel : std::uint8_t{
+	none,
+	underline,
+	italic,
+	bold,
+	wrap,
+	offset,
+	color,
+	size,
+	feature,
+	font,
+	script,
+	count
+};
+
+enum struct grouped_revert_kind : std::uint8_t{
+	none,
+	stack_open,
+	stack_close,
+	assignment_active,
+	assignment_inactive
+};
+
+struct grouped_revert_info{
+	grouped_revert_channel channel{};
+	grouped_revert_kind kind{};
+};
+
+[[nodiscard]] constexpr std::size_t grouped_revert_channel_index(grouped_revert_channel channel) noexcept{
+	return static_cast<std::size_t>(channel);
+}
+
+[[nodiscard]] constexpr bool is_feature_open_token(const rich_text_token::tokens& token) noexcept{
+	return std::holds_alternative<rich_text_token::set_feature>(token);
+}
+
+[[nodiscard]] constexpr grouped_revert_info classify_grouped_revert_token(
+	const rich_text_token::tokens& token) noexcept{
+	using namespace rich_text_token;
+
+	switch(token.index()){
+	case token_index_of<set_underline> :
+		return {
+			grouped_revert_channel::underline,
+			std::get<set_underline>(token).enabled
+				? grouped_revert_kind::assignment_active
+				: grouped_revert_kind::assignment_inactive
+		};
+	case token_index_of<set_italic> :
+		return {
+			grouped_revert_channel::italic,
+			std::get<set_italic>(token).enabled
+				? grouped_revert_kind::assignment_active
+				: grouped_revert_kind::assignment_inactive
+		};
+	case token_index_of<set_bold> :
+		return {
+			grouped_revert_channel::bold,
+			std::get<set_bold>(token).enabled
+				? grouped_revert_kind::assignment_active
+				: grouped_revert_kind::assignment_inactive
+		};
+	case token_index_of<set_wrap_frame> :{
+		const auto type = std::get<set_wrap_frame>(token).type;
+		if(type == wrap_frame_type::invalid){
+			return {};
+		}
+		return {
+			grouped_revert_channel::wrap,
+			type == wrap_frame_type::none
+				? grouped_revert_kind::assignment_inactive
+				: grouped_revert_kind::assignment_active
+		};
+	}
+	case token_index_of<set_offset> :
+		return {grouped_revert_channel::offset, grouped_revert_kind::stack_open};
+	case token_index_of<set_color> :
+		return {grouped_revert_channel::color, grouped_revert_kind::stack_open};
+	case token_index_of<set_size> :
+		return {grouped_revert_channel::size, grouped_revert_kind::stack_open};
+	case token_index_of<set_feature> :
+		return {grouped_revert_channel::feature, grouped_revert_kind::stack_open};
+	case token_index_of<set_font_by_name> :
+	case token_index_of<set_font_directly> :
+		return {grouped_revert_channel::font, grouped_revert_kind::stack_open};
+	case token_index_of<set_script> :
+		return {
+			grouped_revert_channel::script,
+			std::get<set_script>(token).type == script_type::ends
+				? grouped_revert_kind::stack_close
+				: grouped_revert_kind::stack_open
+		};
+	case token_index_of<revert_offset> :
+		return {grouped_revert_channel::offset, grouped_revert_kind::stack_close};
+	case token_index_of<revert_color> :
+		return {grouped_revert_channel::color, grouped_revert_kind::stack_close};
+	case token_index_of<revert_size> :
+		return {grouped_revert_channel::size, grouped_revert_kind::stack_close};
+	case token_index_of<revert_feature> :
+		return {grouped_revert_channel::feature, grouped_revert_kind::stack_close};
+	case token_index_of<revert_font> :
+		return {grouped_revert_channel::font, grouped_revert_kind::stack_close};
+	default :
+		return {};
+	}
+}
+}
+
 template <bool IsKepMode>
 constexpr void tokenized_text::parse_state_machine_(const rich_text_look_up_table* table){
 	const std::size_t size = chars_.size();
@@ -424,15 +533,67 @@ constexpr void tokenized_text::parse_tokens_(const rich_text_look_up_table* tabl
 		} else if(name.back() == '/' && name.find_first_not_of('/') == std::string_view::npos){
 			std::size_t target_count = name.size();
 			std::size_t added_count = 0;
+			static constexpr std::size_t channel_count = grouped_revert_channel_index(grouped_revert_channel::count);
+			std::array<std::size_t, channel_count> covered_stack_opens{};
+			std::array<bool, channel_count> seen_assignment_channel{};
 
-			for (std::size_t i = 0; i < original_size && added_count < target_count; ++i) {
-				const std::size_t src_index = original_size - 1 - i;
+			auto skip_feature_group = [&](std::size_t& src_index){
+				const std::uint32_t group_pos = tokens_[src_index].pos;
+				while(src_index > 0){
+					const std::size_t prev_index = src_index - 1;
+					if(tokens_[prev_index].pos != group_pos || !is_feature_open_token(tokens_[prev_index].token)){
+						break;
+					}
+					--src_index;
+				}
+			};
 
-				auto t = tokens_[src_index].make_revert();
-
-				if (!std::holds_alternative<std::monostate>(t)) {
+			auto append_revert = [&](const posed_token_argument& src){
+				auto t = src.make_revert();
+				if(!std::holds_alternative<std::monostate>(t)){
 					tokens_.emplace_back(std::move(t), pos);
 					++added_count;
+				}
+			};
+
+			for(std::size_t src_index = original_size; src_index > 0 && added_count < target_count;){
+				--src_index;
+				const auto& src = tokens_[src_index];
+				const auto info = classify_grouped_revert_token(src.token);
+				if(info.kind == grouped_revert_kind::none){
+					continue;
+				}
+
+				const std::size_t channel_index = grouped_revert_channel_index(info.channel);
+
+				switch(info.kind){
+				case grouped_revert_kind::stack_close :
+					++covered_stack_opens[channel_index];
+					break;
+				case grouped_revert_kind::stack_open :
+					if(covered_stack_opens[channel_index] != 0){
+						if(info.channel == grouped_revert_channel::feature){
+							skip_feature_group(src_index);
+						}
+						--covered_stack_opens[channel_index];
+						break;
+					}
+					append_revert(src);
+					if(info.channel == grouped_revert_channel::feature){
+						skip_feature_group(src_index);
+					}
+					break;
+				case grouped_revert_kind::assignment_inactive :
+					seen_assignment_channel[channel_index] = true;
+					break;
+				case grouped_revert_kind::assignment_active :
+					if(!seen_assignment_channel[channel_index]){
+						seen_assignment_channel[channel_index] = true;
+						append_revert(src);
+					}
+					break;
+				default :
+					break;
 				}
 			}
 			return;

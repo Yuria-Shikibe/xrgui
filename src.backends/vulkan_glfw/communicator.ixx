@@ -3,151 +3,192 @@ module;
 #include <cassert>
 #include <GLFW/glfw3.h>
 
-#ifdef _WIN32
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
-#include <imm.h>
-#endif
-
-
 export module mo_yanxi.backend.communicator;
 
 import mo_yanxi.gui.infrastructure;
+import mo_yanxi.gui.global;
+import mo_yanxi.platform.glfw;
 import std;
 
-void UpdateIMEWindowPosition(GLFWwindow* window, const mo_yanxi::math::irect& caretRectScreen) {
-	if (!window) return;
+namespace mo_yanxi::backend::glfw {
+struct native_window_state;
+using native_window_state_shared = std::shared_ptr<native_window_state>;
 
-	HWND hwnd = glfwGetWin32Window(window);
-	if (!hwnd) return;
+[[nodiscard]] platform::native_ime_rect normalize_client_rect(
+	GLFWwindow* window,
+	const math::raw_frect region) {
+	int window_w = 0;
+	int window_h = 0;
+	int framebuffer_w = 0;
+	int framebuffer_h = 0;
+	glfwGetWindowSize(window, &window_w, &window_h);
+	glfwGetFramebufferSize(window, &framebuffer_w, &framebuffer_h);
 
-	// 使用你封装的 is_zero_area 进行早期无效数据拦截
-	if (caretRectScreen.is_zero_area()) return;
+	const float scale_x =
+		framebuffer_w > 0 ? static_cast<float>(window_w) / static_cast<float>(framebuffer_w) : 1.0f;
+	const float scale_y =
+		framebuffer_h > 0 ? static_cast<float>(window_h) / static_cast<float>(framebuffer_h) : 1.0f;
 
-	// 1. 坐标获取与转换：屏幕坐标 -> 客户端坐标
-	POINT ptTopLeft = { caretRectScreen.get_src_x(), caretRectScreen.get_src_y() };
-	POINT ptBottomRight = { caretRectScreen.get_end_x(), caretRectScreen.get_end_y() };
+	const math::vec2 p0 = region.vert_00() * math::vec2{scale_x, scale_y};
+	const math::vec2 p1 = region.vert_11() * math::vec2{scale_x, scale_y};
 
-	ScreenToClient(hwnd, &ptTopLeft);
-	ScreenToClient(hwnd, &ptBottomRight);
+	const int left = static_cast<int>(std::floor(std::min(p0.x, p1.x)));
+	const int top = static_cast<int>(std::floor(std::min(p0.y, p1.y)));
+	const int right = std::max(left + 1, static_cast<int>(std::ceil(std::max(p0.x, p1.x))));
+	const int bottom = std::max(top + 1, static_cast<int>(std::ceil(std::max(p0.y, p1.y))));
 
-	// 2. 操作输入法上下文
-	HIMC himc = ImmGetContext(hwnd);
-	if (himc) {
-		// --- 设置组合窗口位置（正在输入的未确认拼音字符） ---
-		COMPOSITIONFORM compForm = {};
-		compForm.dwStyle = CFS_FORCE_POSITION;
-		compForm.ptCurrentPos.x = -1000;//ptTopLeft.x;
-		compForm.ptCurrentPos.y = -1000;//ptTopLeft.y;
-		ImmSetCompositionWindow(himc, &compForm);
-
-		// --- 设置候选词窗口位置（弹出的中文备选项） ---
-		CANDIDATEFORM candForm = {};
-		candForm.dwIndex = 0;
-		candForm.dwStyle = CFS_EXCLUDE;
-
-		// 设置基准建议位置为光标区域的左下角
-		candForm.ptCurrentPos.x = ptTopLeft.x;
-		candForm.ptCurrentPos.y = ptBottomRight.y;
-
-		// 设置输入法必须避开的光标/文字包围盒区域
-		candForm.rcArea.left = ptTopLeft.x;
-		candForm.rcArea.top = ptTopLeft.y;
-		candForm.rcArea.right = ptBottomRight.x;
-		candForm.rcArea.bottom = ptBottomRight.y;
-
-		ImmSetCandidateWindow(himc, &candForm);
-
-		// 释放上下文，防止内存和句柄泄漏
-		ImmReleaseContext(hwnd, himc);
-	}
+	return platform::native_ime_rect{
+		.left = left,
+		.top = top,
+		.right = right,
+		.bottom = bottom
+	};
 }
 
-namespace mo_yanxi::backend::glfw{
-struct native_window_state{
+[[nodiscard]] input_handle::ime_composition_event_type to_gui_ime_event_type(
+	const platform::native_ime_composition_event_type type) noexcept {
+	using platform_type = platform::native_ime_composition_event_type;
+	using gui_type = input_handle::ime_composition_event_type;
+
+	switch(type) {
+	case platform_type::begin:
+		return gui_type::begin;
+	case platform_type::update:
+		return gui_type::update;
+	case platform_type::commit:
+		return gui_type::commit;
+	case platform_type::cancel:
+		return gui_type::cancel;
+	}
+
+	return gui_type::cancel;
+}
+
+void push_ime_composition_event(platform::native_ime_composition_event event) {
+	gui::global::event_queue.push_ime_composition(input_handle::ime_composition_event{
+		.type = to_gui_ime_event_type(event.type),
+		.text = std::move(event.text),
+		.cursor = event.cursor
+	});
+}
+
+struct native_window_state : std::enable_shared_from_this<native_window_state> {
 	GLFWwindow* window{};
 	gui::window_thread_dispatcher* dispatcher{};
 	std::atomic_bool stopped{false};
+	platform::native_ime_controller ime_controller{};
 
 	[[nodiscard]] explicit native_window_state(GLFWwindow* target_window, gui::window_thread_dispatcher& target_dispatcher)
-		: window(target_window), dispatcher(std::addressof(target_dispatcher)){
+		: window(target_window),
+		  dispatcher(std::addressof(target_dispatcher)),
+		  ime_controller(target_window, [](platform::native_ime_composition_event event) {
+			  push_ime_composition_event(std::move(event));
+		  }) {
 	}
 
-	[[nodiscard]] bool is_stopped() const noexcept{
+	[[nodiscard]] bool is_stopped() const noexcept {
 		return stopped.load(std::memory_order_acquire);
 	}
 
-	void stop() noexcept{
+	void stop() noexcept {
 		stopped.store(true, std::memory_order_release);
+		ime_controller.stop();
 	}
 
-	void require_window_thread() const{
-		if(is_stopped()){
+	void require_window_thread() const {
+		if(is_stopped()) {
 			throw std::runtime_error{"native window state is stopped"};
 		}
-		if(window == nullptr){
+		if(window == nullptr) {
 			throw std::runtime_error{"native window state has no GLFW window"};
 		}
-		if(dispatcher == nullptr){
+		if(dispatcher == nullptr) {
 			throw std::runtime_error{"native window state has no dispatcher"};
 		}
-		if(!dispatcher->is_window_thread()){
+		if(!dispatcher->is_window_thread()) {
 			throw std::runtime_error{"native window API called from a non-window thread"};
 		}
 		assert(dispatcher->is_window_thread());
 	}
-};
 
-export
-struct communicator : gui::native_communicator{
-	//
-	inline static WNDPROC g_OriginalWndProc = nullptr;
-
-	static LRESULT CALLBACK CustomWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-		if (uMsg == WM_IME_SETCONTEXT) {
-			// 关键点：清除显示组合窗口的标志位
-			// 这样系统自带的输入拼音的那个小框就不会出现了
-			lParam &= ~ISC_SHOWUICOMPOSITIONWINDOW;
-			lParam &= ~ISC_SHOWUIGUIDELINE;
-			// 注意：如果你连候选词窗口（选中文的那个框）也不想要，
-			// 可以继续清除 ISC_SHOWUICANDIDATEWINDOW 标志
-			// lParam &= ~ISC_SHOWUICANDIDATEWINDOW;
-		}
-
-		// 将其他消息交还给 GLFW 原始的处理函数
-		return CallWindowProc(g_OriginalWndProc, hwnd, uMsg, wParam, lParam);
+	void install_ime_hook() {
+		require_window_thread();
+		ime_controller.install();
 	}
 
+	void uninstall_ime_hook_noexcept() noexcept {
+		ime_controller.uninstall_noexcept();
+	}
+
+	void set_ime_enabled_native(const bool enabled) {
+		require_window_thread();
+		ime_controller.set_enabled(enabled);
+	}
+
+	void set_ime_cursor_rect_native(const math::raw_frect region) {
+		require_window_thread();
+		ime_controller.set_cursor_rect(normalize_client_rect(window, region));
+	}
+};
+
+export struct communicator : gui::native_communicator {
 	std::shared_ptr<native_window_state> state{};
 
 	[[nodiscard]] explicit communicator(GLFWwindow* window, gui::window_thread_dispatcher& dispatcher)
-		: state(std::make_shared<native_window_state>(window, dispatcher)){
+		: state(std::make_shared<native_window_state>(window, dispatcher)) {
+		state->dispatcher->post([native_state = state] {
+			if(native_state->is_stopped()) {
+				return;
+			}
+			native_state->install_ime_hook();
+		});
 	}
 
-	~communicator() override{
-		state->stop();
+	~communicator() override {
+		auto native_state = state;
+		if(native_state == nullptr) {
+			return;
+		}
+
+		try {
+			native_state->stop();
+			if(native_state->dispatcher != nullptr && native_state->dispatcher->is_window_thread()) {
+				native_state->uninstall_ime_hook_noexcept();
+			}else if(native_state->dispatcher != nullptr) {
+				native_state->dispatcher->post([native_state = std::move(native_state)] {
+					native_state->uninstall_ime_hook_noexcept();
+				});
+			}
+		}catch(...) {
+			if(native_state != nullptr) {
+				native_state->stop();
+			}
+		}
 	}
 
 	static void post_native(
 		std::shared_ptr<native_window_state> native_state,
-		std::move_only_function<void(native_window_state&)>&& task){
-		if(native_state->is_stopped()){
-			throw std::runtime_error{"native window state is stopped"};
+		std::move_only_function<void(native_window_state&)>&& task) {
+		if(native_state == nullptr || native_state->is_stopped()) {
+			return;
 		}
-		if(native_state->dispatcher == nullptr){
+		if(native_state->dispatcher == nullptr) {
 			throw std::runtime_error{"native window state has no dispatcher"};
 		}
 		native_state->dispatcher->post([
 			native_state = std::move(native_state),
 			task = std::move(task)
 		]() mutable {
+			if(native_state->is_stopped()) {
+				return;
+			}
 			native_state->require_window_thread();
 			std::invoke(std::move(task), *native_state);
 		});
 	}
 
 protected:
-	void set_clipboard_impl(std::string&& text) override{
+	void set_clipboard_impl(std::string&& text) override {
 		communicator::post_native(
 			state,
 			[text = std::move(text)](native_window_state& native_state) mutable {
@@ -155,20 +196,20 @@ protected:
 			});
 	}
 
-	void request_clipboard_impl(gui::native_clipboard_request&& request) override{
+	void request_clipboard_impl(gui::native_clipboard_request&& request) override {
 		communicator::post_native(
 			state,
 			[request = std::move(request)](native_window_state& native_state) mutable {
-				std::string text{};
-				if(auto rst = glfwGetClipboardString(native_state.window)){
-					text = rst;
+				std::string text;
+				if(const auto value = glfwGetClipboardString(native_state.window); value != nullptr) {
+					text = value;
 				}
 				std::move(request).set_value(std::move(text));
 			});
 	}
 
 public:
-	void set_native_cursor_visibility(bool show) override{
+	void set_native_cursor_visibility(bool show) override {
 		communicator::post_native(
 			state,
 			[show](native_window_state& native_state) {
@@ -176,13 +217,19 @@ public:
 			});
 	}
 
-	void set_ime_cursor_rect(const math::raw_frect region) override{
+	void set_ime_enabled(bool enabled) override {
+		communicator::post_native(
+			state,
+			[enabled](native_window_state& native_state) {
+				native_state.set_ime_enabled_native(enabled);
+			});
+	}
+
+	void set_ime_cursor_rect(const math::raw_frect region) override {
 		communicator::post_native(
 			state,
 			[region](native_window_state& native_state) {
-				UpdateIMEWindowPosition(
-					native_state.window,
-					math::irect{tags::from_extent, region.src.round<int>(), region.extent.round<int>()});
+				native_state.set_ime_cursor_rect_native(region);
 			});
 	}
 };

@@ -438,6 +438,13 @@ public:
 	}
 
 	/**
+	 * @brief Handle native IME composition preview/update/commit events.
+	 */
+	virtual events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event){
+		return events::op_afterwards::fall_through;
+	}
+
+	/**
 	 * @brief Handle mouse button input in this element's local coordinate space.
 	 *
 	 * `aboves` contains elements above this element in the current inbound stack

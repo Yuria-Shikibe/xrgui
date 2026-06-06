@@ -23,6 +23,9 @@ export template <typename T>
 concept utf8_type = sizeof(T) == sizeof(char8_t) && std::integral<T>;
 
 export template <typename T>
+concept utf16_type = sizeof(T) == sizeof(char16_t) && std::integral<T>;
+
+export template <typename T>
 concept utf32_type = sizeof(T) == sizeof(char32_t) && std::integral<T>;
 
 
@@ -70,6 +73,62 @@ constexpr std::size_t fallback_utf8_to_utf32(const InChar* src, std::size_t src_
     }
 
     return dest_pos;
+}
+
+// --- Fallback: UTF-16 转 UTF-32 ---
+template <utf16_type InChar, utf32_type OutChar>
+constexpr std::size_t fallback_utf16_to_utf32(const InChar* src, std::size_t src_len, OutChar* dest, std::size_t dest_len) noexcept {
+    std::size_t src_pos = 0;
+    std::size_t dest_pos = 0;
+
+    while (src_pos < src_len && dest_pos < dest_len) {
+        char32_t code_point = static_cast<char32_t>(src[src_pos]);
+        ++src_pos;
+
+        if (code_point >= 0xD800 && code_point <= 0xDBFF) {
+            if (src_pos < src_len) {
+                const char32_t low = static_cast<char32_t>(src[src_pos]);
+                if (low >= 0xDC00 && low <= 0xDFFF) {
+                    code_point = 0x10000 + ((code_point - 0xD800) << 10) + (low - 0xDC00);
+                    ++src_pos;
+                } else {
+                    code_point = 0xFFFD;
+                }
+            } else {
+                code_point = 0xFFFD;
+            }
+        } else if (code_point >= 0xDC00 && code_point <= 0xDFFF) {
+            code_point = 0xFFFD;
+        }
+
+        dest[dest_pos++] = static_cast<OutChar>(code_point);
+    }
+
+    return dest_pos;
+}
+
+template <utf16_type InChar>
+constexpr std::size_t fallback_utf32_length_from_utf16(const InChar* src, std::size_t src_len) noexcept {
+    std::size_t src_pos = 0;
+    std::size_t dest_len = 0;
+
+    while (src_pos < src_len) {
+        const char32_t code_point = static_cast<char32_t>(src[src_pos]);
+        ++src_pos;
+
+        if (code_point >= 0xD800 && code_point <= 0xDBFF) {
+            if (src_pos < src_len) {
+                const char32_t low = static_cast<char32_t>(src[src_pos]);
+                if (low >= 0xDC00 && low <= 0xDFFF) {
+                    ++src_pos;
+                }
+            }
+        }
+
+        ++dest_len;
+    }
+
+    return dest_len;
 }
 
 // --- Fallback: UTF-32 转 UTF-8 ---
@@ -132,6 +191,52 @@ constexpr std::size_t utf8_to_utf32(const InChar* src, std::size_t src_len, OutC
     return unicode::fallback_utf8_to_utf32(src, src_len, dest, dest_len);
 }
 
+export template <utf16_type InChar, utf32_type OutChar>
+constexpr std::size_t utf16_to_utf32(const InChar* src, std::size_t src_len, OutChar* dest, std::size_t dest_len) noexcept {
+#if HAS_SIMDUTF
+    if !consteval {
+        if (src_len == 0) {
+            return 0;
+        }
+
+        const auto* simd_src = reinterpret_cast<const char16_t*>(src);
+        if (dest_len >= src_len) {
+            const std::size_t converted = simdutf::convert_utf16_to_utf32(
+                simd_src,
+                src_len,
+                reinterpret_cast<char32_t*>(dest)
+            );
+            if (converted != 0) {
+                return converted;
+            }
+        } else if (simdutf::validate_utf16(simd_src, src_len)) {
+            const std::size_t req_len = simdutf::utf32_length_from_utf16(simd_src, src_len);
+            if (req_len <= dest_len) {
+                return simdutf::convert_utf16_to_utf32(
+                    simd_src,
+                    src_len,
+                    reinterpret_cast<char32_t*>(dest)
+                );
+            }
+        }
+    }
+#endif
+    return unicode::fallback_utf16_to_utf32(src, src_len, dest, dest_len);
+}
+
+export template <utf16_type InChar>
+constexpr std::size_t utf32_length_from_utf16(const InChar* src, std::size_t src_len) noexcept {
+#if HAS_SIMDUTF
+    if !consteval {
+        const auto* simd_src = reinterpret_cast<const char16_t*>(src);
+        if (simdutf::validate_utf16(simd_src, src_len)) {
+            return simdutf::utf32_length_from_utf16(simd_src, src_len);
+        }
+    }
+#endif
+    return unicode::fallback_utf32_length_from_utf16(src, src_len);
+}
+
 export template <utf32_type InChar, utf8_type OutChar>
 constexpr std::size_t utf32_to_utf8(const InChar* src, std::size_t src_len, OutChar* dest, std::size_t dest_len) noexcept {
 #if HAS_SIMDUTF
@@ -157,6 +262,18 @@ export template <std::ranges::contiguous_range R, utf32_type OutChar>
 requires utf8_type<std::ranges::range_value_t<R>>
 constexpr std::size_t utf8_to_utf32(R&& src_rng, OutChar* dest, std::size_t dest_len) noexcept {
     return unicode::utf8_to_utf32(std::ranges::data(src_rng), std::ranges::size(src_rng), dest, dest_len);
+}
+
+export template <std::ranges::contiguous_range R, utf32_type OutChar>
+requires utf16_type<std::ranges::range_value_t<R>>
+constexpr std::size_t utf16_to_utf32(R&& src_rng, OutChar* dest, std::size_t dest_len) noexcept {
+    return unicode::utf16_to_utf32(std::ranges::data(src_rng), std::ranges::size(src_rng), dest, dest_len);
+}
+
+export template <std::ranges::contiguous_range R>
+requires utf16_type<std::ranges::range_value_t<R>>
+constexpr std::size_t utf32_length_from_utf16(R&& src_rng) noexcept {
+    return unicode::utf32_length_from_utf16(std::ranges::data(src_rng), std::ranges::size(src_rng));
 }
 
 export template <std::ranges::contiguous_range R, utf8_type OutChar>
@@ -188,6 +305,20 @@ constexpr void assign_utf8_to_utf32(const InChar* source, std::size_t length, st
 #endif
     target.resize(max_len);
     std::size_t actual_len = unicode::utf8_to_utf32(source, length, target.data(), max_len);
+    target.resize(actual_len);
+}
+
+export template <utf16_type InChar, utf32_type OutChar, typename Traits, typename Alloc>
+constexpr void assign_utf16_to_utf32(const InChar* source, std::size_t length, std::basic_string<OutChar, Traits, Alloc>& target) {
+    target.resize_and_overwrite(length, [source, length](OutChar* buf, std::size_t buf_size) {
+        return unicode::utf16_to_utf32(source, length, buf, buf_size);
+    });
+}
+
+export template <utf16_type InChar, utf32_type OutChar, typename Alloc>
+constexpr void assign_utf16_to_utf32(const InChar* source, std::size_t length, std::vector<OutChar, Alloc>& target) {
+    target.resize(length);
+    std::size_t actual_len = unicode::utf16_to_utf32(source, length, target.data(), length);
     target.resize(actual_len);
 }
 
@@ -229,6 +360,18 @@ constexpr void assign_utf8_to_utf32(R&& source, std::vector<OutChar, Alloc>& tar
     unicode::assign_utf8_to_utf32(std::ranges::data(source), std::ranges::size(source), target);
 }
 
+export template <std::ranges::contiguous_range R, utf32_type OutChar, typename Traits, typename Alloc>
+requires utf16_type<std::ranges::range_value_t<R>>
+constexpr void assign_utf16_to_utf32(R&& source, std::basic_string<OutChar, Traits, Alloc>& target) {
+    unicode::assign_utf16_to_utf32(std::ranges::data(source), std::ranges::size(source), target);
+}
+
+export template <std::ranges::contiguous_range R, utf32_type OutChar, typename Alloc>
+requires utf16_type<std::ranges::range_value_t<R>>
+constexpr void assign_utf16_to_utf32(R&& source, std::vector<OutChar, Alloc>& target) {
+    unicode::assign_utf16_to_utf32(std::ranges::data(source), std::ranges::size(source), target);
+}
+
 export template <std::ranges::contiguous_range R, utf8_type OutChar, typename Traits, typename Alloc>
 requires utf32_type<std::ranges::range_value_t<R>>
 constexpr void assign_utf32_to_utf8(R&& source, std::basic_string<OutChar, Traits, Alloc>& target) {
@@ -247,6 +390,14 @@ requires utf8_type<std::ranges::range_value_t<R>>
 constexpr std::u32string utf8_to_utf32(R&& src_rng) {
 	std::u32string rst;
 	unicode::assign_utf8_to_utf32(std::forward<R>(src_rng), rst);
+	return rst;
+}
+
+export template <std::ranges::contiguous_range R>
+requires utf16_type<std::ranges::range_value_t<R>>
+constexpr std::u32string utf16_to_utf32(R&& src_rng) {
+	std::u32string rst;
+	unicode::assign_utf16_to_utf32(std::forward<R>(src_rng), rst);
 	return rst;
 }
 
