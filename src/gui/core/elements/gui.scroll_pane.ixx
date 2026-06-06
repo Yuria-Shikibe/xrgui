@@ -379,16 +379,11 @@ protected:
 };
 
 export
-template <typename T>
-using scroll_adaptor_apply_interface_schema = elem_slot_interface_schema<T, scroll_adaptor_base>;
-
-export
-template <typename ElementType = elem_ptr, typename Interface = scroll_adaptor_apply_interface_schema<ElementType>>
+template <typename ElementType = elem_ptr, typename Interface = elem_slot_interface_schema_spec<ElementType, scroll_adaptor_base>>
 struct scroll_adaptor : scroll_adaptor_base{
 	using element_type = ElementType;
 	using adaptor_interface_type = Interface;
 	using slot_access = elem_slot_access<element_type, adaptor_interface_type, scroll_adaptor_base>;
-	using adaptor_interface_trait = typename slot_access::interface_trait;
 
 	static constexpr bool is_elem_ptr = slot_access::is_elem_ptr;
 	static constexpr bool is_elem_value = slot_access::is_elem_value;
@@ -612,7 +607,7 @@ private:
 			return policy;
 		}
 
-		if(const auto item_policy = slot_access::layout_policy(item_)){
+		if(const auto item_policy = slot_access::layout_policy(item_adaptor, item_)){
 			switch(*item_policy){
 			case layout::layout_policy::hori_major:
 			case layout::layout_policy::vert_major:

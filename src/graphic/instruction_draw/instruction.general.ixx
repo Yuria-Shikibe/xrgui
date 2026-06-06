@@ -5,6 +5,15 @@ module;
 #define BACKEND_HAS_VULKAN
 #endif
 
+#if defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1) || defined(__SSE__)
+#define XRGUI_G2D_QUAD_GROUP_HAS_SSE 1
+#include <immintrin.h>
+#endif
+
+#if defined(__FMA__)
+#define XRGUI_G2D_QUAD_GROUP_HAS_FMA 1
+#endif
+
 #include <mo_yanxi/adapted_attributes.hpp>
 
 export module mo_yanxi.graphic.g2d.general;
@@ -15,6 +24,8 @@ import std;
 import mo_yanxi.meta_programming;
 import mo_yanxi.concepts;
 import mo_yanxi.binary_trace;
+import mo_yanxi.aligned_allocator;
+import mo_yanxi.raw_byte_buffer;
 
 namespace mo_yanxi::graphic::g2d{
 
@@ -39,54 +50,59 @@ export FORCE_INLINE const std::byte* find_aligned_on(const std::byte* where) noe
 export struct instruction_buffer{
  	static constexpr std::size_t align = 32;
 private:
-	std::byte* src{};
-	std::byte* dst{};
+	using storage_type = raw_buffer<std::byte, aligned_allocator<std::byte, align>, std::size_t>;
+
+	storage_type storage_{};
+
+	static std::size_t align_size_(std::size_t byte_size) noexcept{
+		return ((byte_size + (align - 1)) / align) * align;
+	}
 
 public:
-	[[nodiscard]] constexpr instruction_buffer() noexcept = default;
+	[[nodiscard]] instruction_buffer() noexcept = default;
 	[[nodiscard]] explicit instruction_buffer(std::size_t byte_size){
-		const auto actual_size = ((byte_size + (align - 1)) / align) * align;
-		const auto p = operator new(actual_size, std::align_val_t{align});
-		src = new(p) std::byte[actual_size]{};
-		dst = src + actual_size;
+		const auto actual_size = align_size_(byte_size);
+		storage_.resize_and_overwrite(actual_size, [](std::byte* data, std::size_t, std::size_t requested_size) noexcept{
+			if(requested_size != 0){
+				std::memset(data, 0, requested_size);
+			}
+			return requested_size;
+		});
 	}
 
-	~instruction_buffer(){
-		if(src) {
-			std::destroy_n(src, size());
-			operator delete(src, size(), std::align_val_t{align});
-		}
+	~instruction_buffer() = default;
+
+	[[nodiscard]] FORCE_INLINE CONST_FN std::size_t size() const noexcept{
+		return storage_.size();
 	}
 
-	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::size_t size() const noexcept{
-		return dst - src;
+	[[nodiscard]] FORCE_INLINE CONST_FN std::byte* begin() const noexcept{
+		return std::assume_aligned<align>(const_cast<std::byte*>(storage_.data()));
 	}
 
-	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::byte* begin() const noexcept{
-		return std::assume_aligned<align>(src);
-	}
-
-	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::byte* data() const noexcept{
-		return std::assume_aligned<align>(src);
+	[[nodiscard]] FORCE_INLINE CONST_FN std::byte* data() const noexcept{
+		return std::assume_aligned<align>(const_cast<std::byte*>(storage_.data()));
 	}
 
 	void clear() const noexcept{
-		std::memset(begin(), 0, size());
+		if(size() != 0){
+			std::memset(begin(), 0, size());
+		}
 	}
 
-	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::byte* end() const noexcept{
-		return std::assume_aligned<align>(dst);
+	[[nodiscard]] FORCE_INLINE CONST_FN std::byte* end() const noexcept{
+		auto* const first = const_cast<std::byte*>(storage_.data());
+		return first == nullptr ? nullptr : std::assume_aligned<align>(first + storage_.size());
 	}
 
 	instruction_buffer(const instruction_buffer& other)
 		: instruction_buffer(other.size()){
-		std::memcpy(src, other.src, size());
+		if(size() != 0){
+			std::memcpy(data(), other.data(), size());
+		}
 	}
 
-	constexpr instruction_buffer(instruction_buffer&& other) noexcept
-		: src{std::exchange(other.src, {})},
-		  dst{std::exchange(other.dst, {})}{
-	}
+	instruction_buffer(instruction_buffer&& other) noexcept = default;
 
 	instruction_buffer& operator=(const instruction_buffer& other){
 		if(this == &other) return *this;
@@ -94,16 +110,7 @@ public:
 		return *this;
 	}
 
-	constexpr instruction_buffer& operator=(instruction_buffer&& other) noexcept{
-		if(this == &other) return *this;
-		if(src) {
-			std::destroy_n(src, size());
-			operator delete(src, size(), std::align_val_t{align});
-		}
-		src = std::exchange(other.src, {});
-		dst = std::exchange(other.dst, {});
-		return *this;
-	}
+	instruction_buffer& operator=(instruction_buffer&& other) noexcept = default;
 
 	template <bool noCheck = false>
 	void resize(const std::size_t new_size){
@@ -112,23 +119,19 @@ public:
 				return;
 			}
 		}
-		const auto p = operator new(new_size, std::align_val_t{align});
-		auto* next = new(p) std::byte[new_size];
-		std::memcpy(next, src, size());
-		operator delete(src, size(), std::align_val_t{align});
-		src = next;
-		dst = src + new_size;
+		storage_.resize_and_overwrite(new_size, [](std::byte*, std::size_t, std::size_t requested_size) noexcept{
+			return requested_size;
+		});
 	}
 
 	void set_size(const std::size_t new_size){
 		if(size() == new_size){
 			return;
 		}
-		const auto p = operator new(new_size, std::align_val_t{align});
-		auto* next = new(p) std::byte[new_size];
-		operator delete(src, size(), std::align_val_t{align});
-		src = next;
-		dst = src + new_size;
+		storage_.release();
+		storage_.resize_and_overwrite(new_size, [](std::byte*, std::size_t, std::size_t requested_size) noexcept{
+			return requested_size;
+		});
 	}
 };
 
@@ -606,9 +609,9 @@ public:
 
 export
 template <typename T>
-struct quad_group{
+struct alignas(instr_required_align) quad_group{
 	using value_type = T;
-	T v00{}, v10{}, v01{}, v11{};
+	T values[4]{};
 
 	[[nodiscard]] FORCE_INLINE constexpr quad_group() = default;
 
@@ -616,91 +619,452 @@ struct quad_group{
 
 	template <typename Ty>
 		requires (std::constructible_from<T, const Ty&> && !std::convertible_to<const Ty&, quad_group> && !spec_of<Ty, quad_group>)
-	[[nodiscard]] FORCE_INLINE explicit(false) constexpr quad_group(const Ty& v) noexcept : v00(v), v10(v), v01(v), v11(v){}
+	[[nodiscard]] FORCE_INLINE explicit(false) constexpr quad_group(const Ty& v) noexcept : values{T(v), T(v), T(v), T(v)}{}
 
 	template <typename Ty>
 		requires (std::constructible_from<T, const typename std::remove_cvref_t<Ty>::value_type&> && spec_of<std::remove_cvref_t<Ty>, quad_group>)
 	[[nodiscard]] FORCE_INLINE explicit(!std::convertible_to<const typename std::remove_cvref_t<Ty>::value_type&, T> && !std::derived_from<T, typename std::remove_cvref_t<Ty>::value_type>) constexpr
-	quad_group(Ty&& v) noexcept : v00(std::forward_like<Ty>(v.v00)), v10(std::forward_like<Ty>(v.v10)),
-		v01(std::forward_like<Ty>(v.v01)), v11(std::forward_like<Ty>(v.v11)){
+	quad_group(Ty&& v) noexcept : values{
+		T(std::forward_like<Ty>(v.values[0])),
+		T(std::forward_like<Ty>(v.values[1])),
+		T(std::forward_like<Ty>(v.values[2])),
+		T(std::forward_like<Ty>(v.values[3]))
+	}{
 	}
 
 	template <typename T1, typename T2, typename T3, typename T4>
 		requires (std::constructible_from<T, const T1&> && std::constructible_from<T, const T2&> && std::constructible_from<T, const T3&> && std::constructible_from<T, const T4&>)
 	[[nodiscard]] FORCE_INLINE constexpr quad_group(const T1& v00, const T2& v10, const T3& v01, const T4& v11) noexcept
-			: v00(v00),
-			  v10(v10),
-			  v01(v01),
-			  v11(v11){
+			: values{T(v00), T(v10), T(v01), T(v11)}{
 	}
 
 	[[nodiscard]] FORCE_INLINE constexpr quad_group(const T& v00, const T& v10, const T& v01, const T& v11) noexcept
-		: v00(v00),
-		  v10(v10),
-		  v01(v01),
-		  v11(v11){
+		: values{T(v00), T(v10), T(v01), T(v11)}{
 	}
 
 	constexpr bool operator==(const quad_group&) const noexcept = default;
 
+	template <std::integral Index>
+	[[nodiscard]] FORCE_INLINE constexpr T& operator[](const Index index) noexcept{
+		return values[static_cast<std::uint32_t>(index) & 0b11U];
+	}
+
+	template <std::integral Index>
+	[[nodiscard]] FORCE_INLINE constexpr const T& operator[](const Index index) const noexcept{
+		return values[static_cast<std::uint32_t>(index) & 0b11U];
+	}
+
+private:
+	[[nodiscard]] FORCE_INLINE static constexpr float fma_scalar_(const float a, const float b, const float c) noexcept
+		requires std::same_as<T, float>{
+		if(std::is_constant_evaluated()){
+			return a * b + c;
+		}
+		return std::fma(a, b, c);
+	}
+
+public:
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+	[[nodiscard]] FORCE_INLINE __m128 load_m128() const noexcept requires std::same_as<T, float>{
+		return _mm_load_ps(values);
+	}
+
+	FORCE_INLINE void store_m128(const __m128 v) noexcept requires std::same_as<T, float>{
+		_mm_store_ps(values, v);
+	}
+
+	[[nodiscard]] FORCE_INLINE static quad_group from_m128(const __m128 v) noexcept requires std::same_as<T, float>{
+		quad_group rst;
+		rst.store_m128(v);
+		return rst;
+	}
+#endif
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator+(const quad_group& lhs, const quad_group& rhs) noexcept
+		requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			return from_m128(_mm_add_ps(lhs.load_m128(), rhs.load_m128()));
+		}
+#endif
+		return {lhs[0] + rhs[0], lhs[1] + rhs[1], lhs[2] + rhs[2], lhs[3] + rhs[3]};
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator-(const quad_group& lhs, const quad_group& rhs) noexcept
+		requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			return from_m128(_mm_sub_ps(lhs.load_m128(), rhs.load_m128()));
+		}
+#endif
+		return {lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2], lhs[3] - rhs[3]};
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator*(const quad_group& lhs, const quad_group& rhs) noexcept
+		requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			return from_m128(_mm_mul_ps(lhs.load_m128(), rhs.load_m128()));
+		}
+#endif
+		return {lhs[0] * rhs[0], lhs[1] * rhs[1], lhs[2] * rhs[2], lhs[3] * rhs[3]};
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator/(const quad_group& lhs, const quad_group& rhs) noexcept
+		requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			return from_m128(_mm_div_ps(lhs.load_m128(), rhs.load_m128()));
+		}
+#endif
+		return {lhs[0] / rhs[0], lhs[1] / rhs[1], lhs[2] / rhs[2], lhs[3] / rhs[3]};
+	}
+
 	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator+(const quad_group& lhs, const T& rhs) noexcept{
-		return {lhs.v00 + rhs, lhs.v10 + rhs, lhs.v01 + rhs, lhs.v11 + rhs};
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				return from_m128(_mm_add_ps(lhs.load_m128(), _mm_set1_ps(rhs)));
+			}
+		}
+#endif
+		return {lhs[0] + rhs, lhs[1] + rhs, lhs[2] + rhs, lhs[3] + rhs};
 	}
 
 	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator-(const quad_group& lhs, const T& rhs) noexcept{
-		return {lhs.v00 - rhs, lhs.v10 - rhs, lhs.v01 - rhs, lhs.v11 - rhs};
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				return from_m128(_mm_sub_ps(lhs.load_m128(), _mm_set1_ps(rhs)));
+			}
+		}
+#endif
+		return {lhs[0] - rhs, lhs[1] - rhs, lhs[2] - rhs, lhs[3] - rhs};
 	}
 
 	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator*(const quad_group& lhs, const T& rhs) noexcept{
-		return {lhs.v00 * rhs, lhs.v10 * rhs, lhs.v01 * rhs, lhs.v11 * rhs};
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				return from_m128(_mm_mul_ps(lhs.load_m128(), _mm_set1_ps(rhs)));
+			}
+		}
+#endif
+		return {lhs[0] * rhs, lhs[1] * rhs, lhs[2] * rhs, lhs[3] * rhs};
 	}
 
 	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator/(const quad_group& lhs, const T& rhs) noexcept{
-		return {lhs.v00 / rhs, lhs.v10 / rhs, lhs.v01 / rhs, lhs.v11 / rhs};
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				return from_m128(_mm_div_ps(lhs.load_m128(), _mm_set1_ps(rhs)));
+			}
+		}
+#endif
+		return {lhs[0] / rhs, lhs[1] / rhs, lhs[2] / rhs, lhs[3] / rhs};
 	}
 
 	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator+(const T& lhs, const quad_group& rhs) noexcept{
-		return {lhs + rhs.v00, lhs + rhs.v10, lhs + rhs.v01, lhs + rhs.v11};
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				return from_m128(_mm_add_ps(_mm_set1_ps(lhs), rhs.load_m128()));
+			}
+		}
+#endif
+		return {lhs + rhs[0], lhs + rhs[1], lhs + rhs[2], lhs + rhs[3]};
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator-(const T& lhs, const quad_group& rhs) noexcept{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				return from_m128(_mm_sub_ps(_mm_set1_ps(lhs), rhs.load_m128()));
+			}
+		}
+#endif
+		return {lhs - rhs[0], lhs - rhs[1], lhs - rhs[2], lhs - rhs[3]};
 	}
 
 	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator*(const T& lhs, const quad_group& rhs) noexcept{
-		return {lhs * rhs.v00, lhs * rhs.v10, lhs * rhs.v01, lhs * rhs.v11};
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				return from_m128(_mm_mul_ps(_mm_set1_ps(lhs), rhs.load_m128()));
+			}
+		}
+#endif
+		return {lhs * rhs[0], lhs * rhs[1], lhs * rhs[2], lhs * rhs[3]};
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group operator/(const T& lhs, const quad_group& rhs) noexcept{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				return from_m128(_mm_div_ps(_mm_set1_ps(lhs), rhs.load_m128()));
+			}
+		}
+#endif
+		return {lhs / rhs[0], lhs / rhs[1], lhs / rhs[2], lhs / rhs[3]};
+	}
+
+	FORCE_INLINE constexpr quad_group& operator+=(const quad_group& rhs) noexcept requires std::same_as<T, float>{
+		return *this = *this + rhs;
+	}
+
+	FORCE_INLINE constexpr quad_group& operator-=(const quad_group& rhs) noexcept requires std::same_as<T, float>{
+		return *this = *this - rhs;
+	}
+
+	FORCE_INLINE constexpr quad_group& operator*=(const quad_group& rhs) noexcept requires std::same_as<T, float>{
+		return *this = *this * rhs;
+	}
+
+	FORCE_INLINE constexpr quad_group& operator/=(const quad_group& rhs) noexcept requires std::same_as<T, float>{
+		return *this = *this / rhs;
 	}
 
 	FORCE_INLINE constexpr quad_group& operator+=(const T& rhs) noexcept{
-		v00 += rhs;
-		v10 += rhs;
-		v01 += rhs;
-		v11 += rhs;
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				store_m128(_mm_add_ps(load_m128(), _mm_set1_ps(rhs)));
+				return *this;
+			}
+		}
+#endif
+		values[0] += rhs;
+		values[1] += rhs;
+		values[2] += rhs;
+		values[3] += rhs;
 		return *this;
 	}
 
 	FORCE_INLINE constexpr quad_group& operator-=(const T& rhs) noexcept{
-		v00 -= rhs;
-		v10 -= rhs;
-		v01 -= rhs;
-		v11 -= rhs;
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				store_m128(_mm_sub_ps(load_m128(), _mm_set1_ps(rhs)));
+				return *this;
+			}
+		}
+#endif
+		values[0] -= rhs;
+		values[1] -= rhs;
+		values[2] -= rhs;
+		values[3] -= rhs;
 		return *this;
 	}
 
 	FORCE_INLINE constexpr quad_group& operator*=(const T& rhs) noexcept{
-		v00 *= rhs;
-		v10 *= rhs;
-		v01 *= rhs;
-		v11 *= rhs;
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				store_m128(_mm_mul_ps(load_m128(), _mm_set1_ps(rhs)));
+				return *this;
+			}
+		}
+#endif
+		values[0] *= rhs;
+		values[1] *= rhs;
+		values[2] *= rhs;
+		values[3] *= rhs;
 		return *this;
 	}
 
 	FORCE_INLINE constexpr quad_group& operator/=(const T& rhs) noexcept{
-		v00 /= rhs;
-		v10 /= rhs;
-		v01 /= rhs;
-		v11 /= rhs;
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if constexpr(std::same_as<T, float>){
+			if(!std::is_constant_evaluated()){
+				store_m128(_mm_div_ps(load_m128(), _mm_set1_ps(rhs)));
+				return *this;
+			}
+		}
+#endif
+		values[0] /= rhs;
+		values[1] /= rhs;
+		values[2] /= rhs;
+		values[3] /= rhs;
 		return *this;
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group min(const quad_group& lhs, const quad_group& rhs) noexcept
+		requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			return from_m128(_mm_min_ps(lhs.load_m128(), rhs.load_m128()));
+		}
+#endif
+		return {
+			(std::min)(lhs[0], rhs[0]),
+			(std::min)(lhs[1], rhs[1]),
+			(std::min)(lhs[2], rhs[2]),
+			(std::min)(lhs[3], rhs[3])
+		};
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group max(const quad_group& lhs, const quad_group& rhs) noexcept
+		requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			return from_m128(_mm_max_ps(lhs.load_m128(), rhs.load_m128()));
+		}
+#endif
+		return {
+			(std::max)(lhs[0], rhs[0]),
+			(std::max)(lhs[1], rhs[1]),
+			(std::max)(lhs[2], rhs[2]),
+			(std::max)(lhs[3], rhs[3])
+		};
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group clamp(
+		const quad_group& value,
+		const quad_group& low,
+		const quad_group& high) noexcept requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			return from_m128(_mm_min_ps(_mm_max_ps(value.load_m128(), low.load_m128()), high.load_m128()));
+		}
+#endif
+		return {
+			(std::clamp)(value[0], low[0], high[0]),
+			(std::clamp)(value[1], low[1], high[1]),
+			(std::clamp)(value[2], low[2], high[2]),
+			(std::clamp)(value[3], low[3], high[3])
+		};
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr float sum(const quad_group& value) noexcept requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			const __m128 data = value.load_m128();
+			const __m128 high = _mm_movehl_ps(data, data);
+			const __m128 pair_sum = _mm_add_ps(data, high);
+			const __m128 swapped = _mm_shuffle_ps(pair_sum, pair_sum, _MM_SHUFFLE(1, 1, 1, 1));
+			return _mm_cvtss_f32(_mm_add_ss(pair_sum, swapped));
+		}
+#endif
+		return value[0] + value[1] + value[2] + value[3];
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr float horizontal_min(const quad_group& value) noexcept
+		requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			const __m128 data = value.load_m128();
+			const __m128 shuffled = _mm_shuffle_ps(data, data, _MM_SHUFFLE(2, 3, 0, 1));
+			const __m128 pair_min = _mm_min_ps(data, shuffled);
+			const __m128 pair_shuffled = _mm_shuffle_ps(pair_min, pair_min, _MM_SHUFFLE(1, 0, 3, 2));
+			return _mm_cvtss_f32(_mm_min_ps(pair_min, pair_shuffled));
+		}
+#endif
+		return (std::min)((std::min)(value[0], value[1]), (std::min)(value[2], value[3]));
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr float horizontal_max(const quad_group& value) noexcept
+		requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			const __m128 data = value.load_m128();
+			const __m128 shuffled = _mm_shuffle_ps(data, data, _MM_SHUFFLE(2, 3, 0, 1));
+			const __m128 pair_max = _mm_max_ps(data, shuffled);
+			const __m128 pair_shuffled = _mm_shuffle_ps(pair_max, pair_max, _MM_SHUFFLE(1, 0, 3, 2));
+			return _mm_cvtss_f32(_mm_max_ps(pair_max, pair_shuffled));
+		}
+#endif
+		return (std::max)((std::max)(value[0], value[1]), (std::max)(value[2], value[3]));
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr float dot(const quad_group& lhs, const quad_group& rhs) noexcept
+		requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			const __m128 products = _mm_mul_ps(lhs.load_m128(), rhs.load_m128());
+			const __m128 high = _mm_movehl_ps(products, products);
+			const __m128 pair_sum = _mm_add_ps(products, high);
+			const __m128 swapped = _mm_shuffle_ps(pair_sum, pair_sum, _MM_SHUFFLE(1, 1, 1, 1));
+			return _mm_cvtss_f32(_mm_add_ss(pair_sum, swapped));
+		}
+#endif
+		return lhs[0] * rhs[0] + lhs[1] * rhs[1] + lhs[2] * rhs[2] + lhs[3] * rhs[3];
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group lerp(
+		const quad_group& src,
+		const quad_group& dst,
+		const float alpha) noexcept requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
+		if(!std::is_constant_evaluated()){
+			const __m128 src_data = src.load_m128();
+			const __m128 delta = _mm_sub_ps(dst.load_m128(), src_data);
+			return from_m128(_mm_add_ps(src_data, _mm_mul_ps(delta, _mm_set1_ps(alpha))));
+		}
+#endif
+		return {
+			src[0] + (dst[0] - src[0]) * alpha,
+			src[1] + (dst[1] - src[1]) * alpha,
+			src[2] + (dst[2] - src[2]) * alpha,
+			src[3] + (dst[3] - src[3]) * alpha
+		};
+	}
+
+	[[nodiscard]] FORCE_INLINE friend constexpr quad_group fma(
+		const quad_group& a,
+		const quad_group& b,
+		const quad_group& c) noexcept requires std::same_as<T, float>{
+#if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE) && defined(XRGUI_G2D_QUAD_GROUP_HAS_FMA)
+		if(!std::is_constant_evaluated()){
+			return from_m128(_mm_fmadd_ps(a.load_m128(), b.load_m128(), c.load_m128()));
+		}
+#endif
+		return {
+			fma_scalar_(a[0], b[0], c[0]),
+			fma_scalar_(a[1], b[1], c[1]),
+			fma_scalar_(a[2], b[2], c[2]),
+			fma_scalar_(a[3], b[3], c[3])
+		};
 	}
 };
 
 template <typename T>
 quad_group(const T&) -> quad_group<T>;
+
+static_assert(std::is_standard_layout_v<quad_group<float>>);
+static_assert(std::is_trivially_copyable_v<quad_group<float>>);
+static_assert(sizeof(quad_group<float>) == sizeof(float) * 4);
+static_assert(alignof(quad_group<float>) == instr_required_align);
+static_assert(offsetof(quad_group<float>, values) == 0);
+
+consteval bool quad_group_float_constexpr_ops_test(){
+	const quad_group<float> a{1.0f, 2.0f, 3.0f, 4.0f};
+	const quad_group<float> b{5.0f, 6.0f, 7.0f, 8.0f};
+	const quad_group<float> c{2.0f, 4.0f, 5.0f, 10.0f};
+	quad_group<float> mut = a;
+	mut += b;
+	mut -= 1.0f;
+	mut *= 2.0f;
+	mut /= 2.0f;
+
+	return
+		(a + b) == quad_group<float>{6.0f, 8.0f, 10.0f, 12.0f} &&
+		(b - a) == quad_group<float>{4.0f, 4.0f, 4.0f, 4.0f} &&
+		(a * b) == quad_group<float>{5.0f, 12.0f, 21.0f, 32.0f} &&
+		(b / a) == quad_group<float>{5.0f, 3.0f, 7.0f / 3.0f, 2.0f} &&
+		(10.0f - a) == quad_group<float>{9.0f, 8.0f, 7.0f, 6.0f} &&
+		(20.0f / c) == quad_group<float>{10.0f, 5.0f, 4.0f, 2.0f} &&
+		mut == quad_group<float>{5.0f, 7.0f, 9.0f, 11.0f} &&
+		min(a, b) == a &&
+		max(a, b) == b &&
+		clamp(quad_group<float>{0.0f, 3.0f, 9.0f, 6.0f}, a, b) == quad_group<float>{1.0f, 3.0f, 7.0f, 6.0f} &&
+		lerp(a, b, 0.5f) == quad_group<float>{3.0f, 4.0f, 5.0f, 6.0f} &&
+		fma(a, b, quad_group<float>{1.0f}) == quad_group<float>{6.0f, 13.0f, 22.0f, 33.0f} &&
+		sum(a) == 10.0f &&
+		horizontal_min(a) == 1.0f &&
+		horizontal_max(a) == 4.0f &&
+		dot(a, b) == 70.0f;
+}
+
+static_assert(quad_group_float_constexpr_ops_test());
 
 }

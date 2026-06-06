@@ -926,6 +926,13 @@ public:
 		return input_handler_.inputs_;
 	}
 
+	[[nodiscard]] bool is_mouse_pressed(input_handle::mouse mouse_button_code) const noexcept{
+		assert(is_on_scene_thread(*this));
+		return input_handler_.is_mouse_pressed(mouse_button_code);
+	}
+
+	void capture_mouse(elem& target, input_handle::mouse mouse_button_code, math::vec2 press_scene_pos);
+
 	[[nodiscard]] input_handle::key_mapping_interface* find_input(std::string_view name) const noexcept{
 		assert(is_on_scene_thread(*this));
 		return input_handler_.inputs_.find_sub_input(name);

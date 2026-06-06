@@ -10,6 +10,7 @@ import mo_yanxi.graphic_state_context;
 export import mo_yanxi.graphic.image_view_registry;
 export import mo_yanxi.graphic.g2d.batch.frontend;
 import mo_yanxi.graphic.g2d.batch.backend.vulkan;
+import mo_yanxi.raw_byte_buffer;
 
 import mo_yanxi.vk.sync_processor;
 
@@ -106,7 +107,7 @@ export struct renderer{
 		graphics_context_trace cache_graphic_context_{};
 
 		static constexpr unsigned kMaxShaderStages = 6;
-		std::array<std::vector<std::byte>, kMaxShaderStages> cache_push_constants_{};
+		std::array<raw_vector<std::byte, std::allocator<std::byte>, std::size_t>, kMaxShaderStages> cache_push_constants_{};
 
 		static constexpr unsigned stage_index(VkShaderStageFlags flags) noexcept{
 			unsigned idx = 0;

@@ -10,81 +10,6 @@ import std;
 namespace mo_yanxi::gui{
 
 export
-template <typename T, typename Owner = elem>
-struct elem_slot_interface_schema{
-	using element_type = T;
-	using owner_type = Owner;
-
-	void update(element_type& element, float delta_in_tick) = delete;
-	void draw_layer(
-		const element_type& element,
-		const owner_type& owner,
-		rect clipSpace,
-		float opacityScl,
-		fx::layer_param_pass_t param) const = delete;
-	void layout_elem(element_type& element) = delete;
-	void set_prefer_extent(element_type& element, math::vec2 ext) = delete;
-	void on_context_sync_bind(element_type& element) = delete;
-	void update_abs_src(element_type& element, math::vec2 pos) = delete;
-	std::optional<math::vec2> pre_acq_size(element_type& element, layout::optional_mastering_extent bound) = delete;
-	bool resize(element_type& element, math::vec2 size, propagate_mask temp_mask) = delete;
-	math::vec2 get_extent(const element_type& element) const = delete;
-};
-
-export
-template <typename Interface, typename Owner>
-struct elem_slot_interface_trait{
-	using interface_type = Interface;
-	using owner_type = Owner;
-	using element_type = typename interface_type::element_type;
-
-	static constexpr bool has_update = requires(interface_type& i, element_type& e, float d){
-		i.update(e, d);
-	};
-
-	static constexpr bool has_draw_layer = requires(
-		const interface_type& i,
-		const owner_type& owner,
-		const element_type& e,
-		rect c,
-		float o,
-		fx::layer_param_pass_t p){
-		i.draw_layer(e, owner, c, o, p);
-	};
-
-	static constexpr bool has_layout_elem = requires(interface_type& i, element_type& e){
-		i.layout_elem(e);
-	};
-
-	static constexpr bool has_set_prefer_extent = requires(interface_type& i, element_type& e, math::vec2 ext){
-		i.set_prefer_extent(e, ext);
-	};
-
-	static constexpr bool has_on_context_sync_bind = requires(interface_type& i, element_type& e){
-		i.on_context_sync_bind(e);
-	};
-
-	static constexpr bool has_update_abs_src = requires(interface_type& i, element_type& e, math::vec2 pos){
-		i.update_abs_src(e, pos);
-	};
-
-	static constexpr bool has_pre_acq_size = requires(
-		interface_type& i,
-		element_type& e,
-		layout::optional_mastering_extent b){
-		i.pre_acq_size(e, b);
-	};
-
-	static constexpr bool has_resize = requires(interface_type& i, element_type& e, math::vec2 s, propagate_mask m){
-		i.resize(e, s, m);
-	};
-
-	static constexpr bool has_get_extent = requires(const interface_type& i, const element_type& e){
-		i.get_extent(e);
-	};
-};
-
-export
 template <typename ElementType>
 struct elem_slot_kind{
 	using element_type = ElementType;
@@ -95,7 +20,190 @@ struct elem_slot_kind{
 
 	static_assert(is_elem_value || std::is_default_constructible_v<element_type>,
 	              "if element is not a T : elem, it must be default constructible");
+
+	template <typename Item>
+	static auto& get_item(Item& item) requires(!is_elem_ptr){
+		return item;
+	}
+
+	template <typename Item>
+	static decltype(auto) get_elem(Item& item) noexcept requires(is_elem_child){
+		if constexpr(requires(Item& e){
+			{ *e } -> std::convertible_to<elem&>;
+		}){
+			return *item;
+		} else if constexpr(is_elem_value){
+			return item;
+		}
+	}
+
+	template <typename Item, typename Fn>
+	static void for_elem(Item& item, Fn&& fn){
+		if constexpr(is_elem_child){
+			std::invoke(std::forward<Fn>(fn), elem_slot_kind::get_elem(item));
+		}
+	}
+
+	template <typename Item, typename FallbackFn, typename ElemFn>
+	static decltype(auto) elem_or(Item& item, FallbackFn&& fallback_fn, ElemFn&& elem_fn){
+		if constexpr(is_elem_child){
+			return std::invoke(std::forward<ElemFn>(elem_fn), elem_slot_kind::get_elem(item));
+		} else{
+			return std::invoke(std::forward<FallbackFn>(fallback_fn));
+		}
+	}
 };
+
+export
+template <typename T, typename Owner = elem>
+struct elem_slot_interface_schema : elem_slot_kind<T>{
+	using element_type = T;
+	using owner_type = Owner;
+	using slot_kind = elem_slot_kind<element_type>;
+
+	void update(element_type&, float){
+	}
+
+	void draw_layer(
+		const element_type& element,
+		const owner_type& owner,
+		rect clipSpace,
+		float opacityScl,
+		fx::layer_param_pass_t param) const = delete;
+
+	template <typename Self, typename Host, typename DrawLayerFn>
+	void record_draw_layer(
+		this const Self& self,
+		const element_type& element,
+		const Host& owner,
+		draw_recorder& call_stack_builder,
+		DrawLayerFn&& draw_layer_fn){
+		if constexpr(requires(
+			const Self& interface,
+			const element_type& item,
+			const owner_type& owner_ref,
+			rect clipSpace,
+			float opacityScl,
+			fx::layer_param_pass_t param){
+			interface.draw_layer(item, owner_ref, clipSpace, opacityScl, param);
+		}){
+			call_stack_builder.push_call_noop(owner, std::forward<DrawLayerFn>(draw_layer_fn));
+		} else{
+			slot_kind::for_elem(element, [&](const elem& elem_child){
+				elem_child.record_draw_layer(call_stack_builder);
+			});
+		}
+	}
+
+	void layout_elem(element_type& element){
+		slot_kind::for_elem(element, [](elem& elem_child){
+			elem_child.layout_elem();
+		});
+	}
+
+	void set_prefer_extent(element_type& element, math::vec2 ext){
+		slot_kind::for_elem(element, [ext](elem& elem_child){
+			elem_child.set_prefer_extent(ext);
+		});
+	}
+
+	void on_context_sync_bind(element_type& element){
+		slot_kind::for_elem(element, [](auto& elem_child){
+			if constexpr(requires{
+				elem_child.on_context_sync_bind();
+			}){
+				elem_child.on_context_sync_bind();
+			}
+		});
+	}
+
+	void update_abs_src(element_type& element, math::vec2 pos) noexcept{
+		slot_kind::for_elem(element, [pos](elem& elem_child){
+			elem_child.update_abs_src(pos);
+		});
+	}
+
+	[[nodiscard]] std::optional<layout::layout_policy> layout_policy(const element_type& element) const noexcept{
+		return slot_kind::elem_or(
+			element,
+			[]() -> std::optional<layout::layout_policy>{
+				return std::nullopt;
+			},
+			[](const elem& elem_child) -> std::optional<layout::layout_policy>{
+				return elem_child.get_layout_policy();
+			}
+		);
+	}
+
+	std::optional<math::vec2> pre_acq_size(element_type& element, layout::optional_mastering_extent bound){
+		return slot_kind::elem_or(
+			element,
+			[]() -> std::optional<math::vec2>{
+				return std::nullopt;
+			},
+			[bound](elem& elem_child) mutable -> std::optional<math::vec2>{
+				return elem_child.pre_acquire_size(bound);
+			}
+		);
+	}
+
+	bool resize(element_type& element, math::vec2 size, propagate_mask temp_mask){
+		return slot_kind::elem_or(
+			element,
+			[](){
+				return true;
+			},
+			[size, temp_mask](elem& elem_child){
+				return elem_child.resize(size, temp_mask);
+			}
+		);
+	}
+
+	[[nodiscard]] math::vec2 get_extent(const element_type& element) const noexcept{
+		return slot_kind::elem_or(
+			element,
+			[](){
+				return math::vec2{};
+			},
+			[](const elem& elem_child){
+				return elem_child.extent();
+			}
+		);
+	}
+};
+
+export
+template <typename T, typename Owner = elem>
+struct elem_slot_interface_schema_spec : elem_slot_interface_schema<T, Owner>{
+};
+
+namespace detail{
+struct elem_slot_schema_spec_probe{};
+}
+
+template <>
+struct elem_slot_interface_schema_spec<detail::elem_slot_schema_spec_probe, elem>
+	: elem_slot_interface_schema<detail::elem_slot_schema_spec_probe, elem>{
+	[[nodiscard]] math::vec2 get_extent(const detail::elem_slot_schema_spec_probe&) const noexcept{
+		return {1.f, 1.f};
+	}
+};
+
+namespace detail{
+static_assert(requires(
+	elem_slot_interface_schema_spec<elem_slot_schema_spec_probe, elem>& interface,
+	elem_slot_schema_spec_probe& item,
+	layout::optional_mastering_extent bound){
+	interface.update(item, 0.f);
+	interface.layout_elem(item);
+	interface.set_prefer_extent(item, {});
+	interface.on_context_sync_bind(item);
+	interface.update_abs_src(item, {});
+	interface.pre_acq_size(item, bound);
+	interface.resize(item, {}, propagate_mask::none);
+	interface.get_extent(item);
+});
+}
 
 export
 template <typename ElementType, typename Interface, typename Owner>
@@ -103,44 +211,30 @@ struct elem_slot_access : elem_slot_kind<ElementType>{
 	using element_type = ElementType;
 	using interface_type = Interface;
 	using owner_type = Owner;
-	using interface_trait = elem_slot_interface_trait<interface_type, owner_type>;
+	using slot_kind = elem_slot_kind<element_type>;
 
 	template <typename Item>
 	static auto& get_item(Item& item) requires(!elem_slot_access::is_elem_ptr){
-		return item;
+		return slot_kind::get_item(item);
 	}
 
 	template <typename Item>
 	static decltype(auto) get_elem(Item& item) noexcept requires(elem_slot_access::is_elem_child){
-		if constexpr(requires(Item& e){
-			{ *e } -> std::convertible_to<elem&>;
-		}){
-			return *item;
-		} else if constexpr(elem_slot_access::is_elem_value){
-			return item;
-		}
+		return slot_kind::get_elem(item);
 	}
 
 	template <typename Item, typename Fn>
 	static void for_elem(Item& item, Fn&& fn){
-		if constexpr(elem_slot_access::is_elem_child){
-			std::invoke(std::forward<Fn>(fn), elem_slot_access::get_elem(item));
-		}
+		slot_kind::for_elem(item, std::forward<Fn>(fn));
 	}
 
 	template <typename Item, typename FallbackFn, typename ElemFn>
 	static decltype(auto) elem_or(Item& item, FallbackFn&& fallback_fn, ElemFn&& elem_fn){
-		if constexpr(elem_slot_access::is_elem_child){
-			return std::invoke(std::forward<ElemFn>(elem_fn), elem_slot_access::get_elem(item));
-		} else{
-			return std::invoke(std::forward<FallbackFn>(fallback_fn));
-		}
+		return slot_kind::elem_or(item, std::forward<FallbackFn>(fallback_fn), std::forward<ElemFn>(elem_fn));
 	}
 
 	static void update(interface_type& interface, element_type& item, const float delta_in_ticks){
-		if constexpr(interface_trait::has_update){
-			interface.update(item, delta_in_ticks);
-		}
+		interface.update(item, delta_in_ticks);
 	}
 
 	static void draw_layer(
@@ -150,57 +244,37 @@ struct elem_slot_access : elem_slot_kind<ElementType>{
 		rect clipSpace,
 		float opacityScl,
 		fx::layer_param_pass_t param){
-		if constexpr(interface_trait::has_draw_layer){
+		if constexpr(requires{
+			interface.draw_layer(item, owner, clipSpace, opacityScl, param);
+		}){
 			interface.draw_layer(item, owner, clipSpace, opacityScl, param);
 		}
 	}
 
 	template <typename Host, typename DrawLayerFn>
 	static void record_draw_layer(
-		[[maybe_unused]] const interface_type& interface,
-		[[maybe_unused]] const element_type& item,
+		const interface_type& interface,
+		const element_type& item,
 		const Host& owner,
 		draw_recorder& call_stack_builder,
 		DrawLayerFn&& draw_layer_fn){
-		if constexpr(interface_trait::has_draw_layer){
-			call_stack_builder.push_call_noop(owner, std::forward<DrawLayerFn>(draw_layer_fn));
-		} else{
-			elem_slot_access::for_elem(item, [&](const elem& element){
-				element.record_draw_layer(call_stack_builder);
-			});
-		}
+		interface.record_draw_layer(item, owner, call_stack_builder, std::forward<DrawLayerFn>(draw_layer_fn));
 	}
 
 	static void layout_elem(interface_type& interface, element_type& item){
-		if constexpr(interface_trait::has_layout_elem){
-			interface.layout_elem(item);
-		} else if constexpr(elem_slot_access::is_elem_child){
-			elem_slot_access::get_elem(item).layout_elem();
-		}
+		interface.layout_elem(item);
 	}
 
 	static void set_prefer_extent(interface_type& interface, element_type& item, math::vec2 ext){
-		if constexpr(interface_trait::has_set_prefer_extent){
-			interface.set_prefer_extent(item, ext);
-		} else if constexpr(elem_slot_access::is_elem_child){
-			elem_slot_access::get_elem(item).set_prefer_extent(ext);
-		}
+		interface.set_prefer_extent(item, ext);
 	}
 
 	static void on_context_sync_bind(interface_type& interface, element_type& item){
-		if constexpr(interface_trait::has_on_context_sync_bind){
-			interface.on_context_sync_bind(item);
-		} else if constexpr(elem_slot_access::is_elem_child){
-			elem_slot_access::get_elem(item).on_context_sync_bind();
-		}
+		interface.on_context_sync_bind(item);
 	}
 
 	static void update_abs_src(interface_type& interface, element_type& item, math::vec2 pos) noexcept{
-		if constexpr(interface_trait::has_update_abs_src){
-			interface.update_abs_src(item, pos);
-		} else if constexpr(elem_slot_access::is_elem_child){
-			elem_slot_access::get_elem(item).update_abs_src(pos);
-		}
+		interface.update_abs_src(item, pos);
 	}
 
 	template <typename ValueChildCache>
@@ -222,49 +296,25 @@ struct elem_slot_access : elem_slot_kind<ElementType>{
 		return {child, 1};
 	}
 
-	[[nodiscard]] static std::optional<layout::layout_policy> layout_policy(const element_type& item) noexcept{
-		return elem_slot_access::elem_or(
-			item,
-			[]() -> std::optional<layout::layout_policy>{
-				return std::nullopt;
-			},
-			[](const elem& element) -> std::optional<layout::layout_policy>{
-				return element.get_layout_policy();
-			}
-		);
+	[[nodiscard]] static std::optional<layout::layout_policy> layout_policy(
+		const interface_type& interface,
+		const element_type& item) noexcept{
+		return interface.layout_policy(item);
 	}
 
 	static std::optional<math::vec2> pre_acq_size(
 		interface_type& interface,
 		element_type& item,
 		layout::optional_mastering_extent bound){
-		if constexpr(interface_trait::has_pre_acq_size){
-			return interface.pre_acq_size(item, bound);
-		} else if constexpr(elem_slot_access::is_elem_child){
-			return elem_slot_access::get_elem(item).pre_acquire_size(bound);
-		} else{
-			return std::nullopt;
-		}
+		return interface.pre_acq_size(item, bound);
 	}
 
 	static bool resize(interface_type& interface, element_type& item, const math::vec2 size, propagate_mask temp_mask){
-		if constexpr(interface_trait::has_resize){
-			return interface.resize(item, size, temp_mask);
-		} else if constexpr(elem_slot_access::is_elem_child){
-			return elem_slot_access::get_elem(item).resize(size, temp_mask);
-		} else{
-			return true;
-		}
+		return interface.resize(item, size, temp_mask);
 	}
 
 	[[nodiscard]] static math::vec2 get_extent(const interface_type& interface, const element_type& item) noexcept{
-		if constexpr(interface_trait::has_get_extent){
-			return interface.get_extent(item);
-		} else if constexpr(elem_slot_access::is_elem_child){
-			return elem_slot_access::get_elem(item).extent();
-		} else{
-			return {};
-		}
+		return interface.get_extent(item);
 	}
 };
 

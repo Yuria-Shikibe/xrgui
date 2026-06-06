@@ -175,7 +175,7 @@ struct pie_menu_demo_area : label{
 		set_fit_type(label_fit_type::scl);
 		text_entire_align = align::pos::center;
 		set_self_border(border_t{}.set(24.f));
-		set_text("Hold RMB and release on a pie slice");
+		set_text("Hold RMB, move toward an item, then release");
 	}
 
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
@@ -187,7 +187,18 @@ struct pie_menu_demo_area : label{
 
 			auto push_item = [&](std::string text, bool disabled = false){
 				items.push_back(cpd::pie_menu_item{
-					.label = text,
+					.element = elem_ptr{
+						get_scene(), nullptr,
+						[text, disabled](label& label){
+							label.interactivity = interactivity_flag::enabled;
+							label.set_style(style::family_variant::base_only);
+							label.set_fit_type(label_fit_type::scl);
+							label.text_entire_align = align::pos::center;
+							label.text_color_scl = graphic::colors::white.copy_set_a(disabled ? .45f : .95f);
+							label.set_text(text);
+							label.set_disabled(disabled);
+						}
+					},
 					.action = [owner, text]{
 						if(auto* live = owner.get_live()){
 							live->set_text(std::format("Pie menu: {}", text));

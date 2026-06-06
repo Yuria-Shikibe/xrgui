@@ -13,37 +13,34 @@ overlay_create_result<elem> overlay_manager::push_back(const overlay_layout& lay
 		elem_ptr->set_propagate_opacity(0.f);
 		elem_ptr->push_action<action::alpha_action>(10, nullptr, 1.);
 	}
-	overlay& dlg = overlays_.emplace_back(overlay{std::move(elem_ptr), layout});
+	overlay& dlg = *overlays_.emplace(std::move(elem_ptr), layout);
+	active_stack_.push_back(std::addressof(dlg));
 	draw_sequence_.push_back(dlg.get());
 	return {dlg};
 }
 
-void overlay_manager::truncate(container::iterator where){
-	std::ranges::subrange rng{where, overlays_.end()};
-	for (const auto & dialog : rng){
-		if(dialog.layout_config.on_dismiss){
-			dialog.layout_config.on_dismiss();
-		}
-		dialog.element->clear_scene_references_recursively();
+void overlay_manager::truncate(active_container::iterator where){
+	std::ranges::subrange rng{where, active_stack_.end()};
+	for (overlay* dialog : rng){
+		dialog->notify_operation(overlay_operation::dismiss);
+		dialog->element->clear_scene_references_recursively();
+		fading_overlays_.push_back({
+			.dialog = dialog
+		});
 	}
 
-	std::ranges::move(
-		rng | std::views::transform([](auto&& v){
-			return overlay_fading{std::move(v)};
-		}), std::back_inserter(overlay_fadings_));
-
-	overlays_.erase(where, overlays_.end());
+	active_stack_.erase(where, active_stack_.end());
 }
 
 overlay_external_press_result overlay_manager::handle_external_press(
 	const math::vec2 scene_position,
 	const events::key_set key){
-	if(overlays_.empty() || key.action != input_handle::act::press){
+	if(active_stack_.empty() || key.action != input_handle::act::press){
 		return overlay_external_press_result::ignored;
 	}
 
-	auto where = std::prev(overlays_.end());
-	const overlay& target = *where;
+	auto where = std::prev(active_stack_.end());
+	const overlay& target = **where;
 	if(target.layout_config.external_press_policy == overlay_external_press_policy::ignore
 		|| target.get() == nullptr
 		|| target.get()->bound_abs().contains_loose(scene_position)){
@@ -60,26 +57,28 @@ overlay_external_press_result overlay_manager::handle_external_press(
 }
 
 void overlay_manager::update(float delta_in_tick){
-	modifiable_erase_if(overlay_fadings_, [&, this](overlay_fading& dialog){
-		dialog.duration -= delta_in_tick;
-		if(dialog.duration <= 0){
+	modifiable_erase_if(fading_overlays_, [&, this](overlay_fading& fading){
+		overlay& dialog = *fading.dialog;
+		fading.duration -= delta_in_tick;
+		if(fading.duration <= 0){
 			std::erase(draw_sequence_, dialog.get());
+			overlays_.erase(overlays_.get_iterator(fading.dialog));
 
 			return true;
 		}else{
-			dialog.element->set_propagate_opacity(dialog.duration / overlay_fading::fading_time);
+			dialog.element->set_propagate_opacity(fading.duration / overlay_fading::fading_time);
 			dialog.element->update(delta_in_tick);
 			return false;
 		}
 	});
 
-	for (auto& value : overlays_){
-		if(value.layout_changed){
-			value.layout_changed = false;
-			value.update_bound(last_vp_);
-			value.get()->try_layout();
+	for (overlay* value : active_stack_){
+		if(value->layout_changed){
+			value->layout_changed = false;
+			value->update_bound(last_vp_);
+			value->get()->try_layout();
 		}
-		value.get()->update(delta_in_tick);
+		value->get()->update(delta_in_tick);
 	}
 
 }
@@ -132,14 +131,14 @@ void overlay::update_bound(const rect scene_viewport) const{
 }
 
 events::op_afterwards overlay_manager::on_esc() noexcept{
-	for (auto&& elem : overlays_ | std::views::reverse){
-		if(util::thoroughly_esc(elem.element.get()) != events::op_afterwards::fall_through){
+	for (overlay* elem : active_stack_ | std::views::reverse){
+		if(util::thoroughly_esc(elem->element.get()) != events::op_afterwards::fall_through){
 			return events::op_afterwards::intercepted;
 		}
 	}
 
-	if(!overlays_.empty()){
-		truncate(std::prev(overlays_.end()));
+	if(!active_stack_.empty()){
+		truncate(std::prev(active_stack_.end()));
 		return events::op_afterwards::intercepted;
 	}
 

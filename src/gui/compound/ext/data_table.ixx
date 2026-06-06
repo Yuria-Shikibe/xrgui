@@ -22,7 +22,7 @@ import mo_yanxi.csv;
 
 namespace mo_yanxi::gui::cpd{
 
-export 
+export
 struct data_table_config{
 	float entry_height{80};
 	math::vec2 pad{16, 4};
@@ -530,30 +530,40 @@ private:
 	}
 };
 
-struct interface : scroll_adaptor_apply_interface_schema<data_table_desc>{
-	math::vec2 get_extent(const element_type& element) const{
+}
+
+namespace mo_yanxi::gui{
+
+template <>
+struct elem_slot_interface_schema_spec<cpd::data_table_desc, scroll_adaptor_base>
+	: elem_slot_interface_schema<cpd::data_table_desc, scroll_adaptor_base>{
+	math::vec2 get_extent(const cpd::data_table_desc& element) const{
 		return element.get_extent();
 	}
 
-	void layout_elem(element_type& element) const{
+	void layout_elem(cpd::data_table_desc& element) const{
 		if(element.check_changed())element.try_update_glyph_layouts();
 	}
 
-	std::optional<math::vec2> pre_acq_size(element_type& element, layout::optional_mastering_extent bound) const{
+	std::optional<math::vec2> pre_acq_size(cpd::data_table_desc& element, layout::optional_mastering_extent bound) const{
 		return element.pre_acquire_size(bound);
 	}
 
-	void draw_layer(const element_type& element, const scroll_adaptor_base& scroll_adaptor_base, rect clipSpace,
+	void draw_layer(const cpd::data_table_desc& element, const scroll_adaptor_base& owner, rect clipSpace,
 	                float opacityScl, fx::layer_param_pass_t param) const{
 		if(!param.is_top()) return;
-		gui::color_guard g_{scroll_adaptor_base.renderer(), graphic::colors::white.copy_set_a(opacityScl)};
-		element.draw(scroll_adaptor_base.renderer(), clipSpace, scroll_adaptor_base.content_src_pos_abs());
+		color_guard g_{owner.renderer(), graphic::colors::white.copy_set_a(opacityScl)};
+		element.draw(owner.renderer(), clipSpace, owner.content_src_pos_abs());
 	}
 };
 
+}
+
+namespace mo_yanxi::gui::cpd{
+
 
 export
-struct data_table : public scroll_adaptor<data_table_desc, interface>{
+struct data_table : public scroll_adaptor<data_table_desc>{
 private:
 	static constexpr std::size_t no_modified = std::numeric_limits<std::size_t>::max();
 	std::size_t last_modified_col = no_modified;

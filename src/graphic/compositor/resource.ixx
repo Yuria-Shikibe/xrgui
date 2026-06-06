@@ -19,6 +19,7 @@ import mo_yanxi.utility;
 import mo_yanxi.vk;
 import mo_yanxi.math;
 import mo_yanxi.math.vector2;
+import mo_yanxi.raw_byte_buffer;
 import std;
 import magic_enum;
 
@@ -997,7 +998,7 @@ struct sub_pass_dispatch{
 export
 struct sub_pass_setup{
 	std::vector<sub_pass_binding_view> bindings{};
-	std::vector<std::byte> push_constants{};
+	raw_vector<std::byte, std::allocator<std::byte>, std::size_t> push_constants{};
 	std::uint32_t push_offset{};
 	VkShaderStageFlags push_stages{VK_SHADER_STAGE_COMPUTE_BIT};
 	sub_pass_dispatch dispatch{};

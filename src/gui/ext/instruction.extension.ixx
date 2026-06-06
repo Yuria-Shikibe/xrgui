@@ -154,14 +154,14 @@ struct nine_patch_draw_vert_color{
 		auto coords = img_patch.get_row_coords(region);
 		auto uvs = img_patch.get_row_uvs();
 
-		auto [CLB, CLT] = img_patch.interpolate_middle_row_values(color.v00, color.v01, region.extent.y);
-		auto [CRB, CRT] = img_patch.interpolate_middle_row_values(color.v10, color.v11, region.extent.y);
+		auto [CLB, CLT] = img_patch.interpolate_middle_row_values(color[0], color[2], region.extent.y);
+		auto [CRB, CRT] = img_patch.interpolate_middle_row_values(color[1], color[3], region.extent.y);
 
 		emit(sink, graphic::g2d::row_patch{
 			.generic = {.image = img_patch.texture_binding()},
 			.coords = coords[0],
 			.uvs = uvs[0],
-			.vert_color = graphic::g2d::quad_vert_color{color.v00, color.v10, CLB, CRB}
+			.vert_color = graphic::g2d::quad_vert_color{color[0], color[1], CLB, CRB}
 		});
 		emit(sink, graphic::g2d::row_patch{
 			.generic = {.image = img_patch.texture_binding()},
@@ -173,7 +173,7 @@ struct nine_patch_draw_vert_color{
 			.generic = {.image = img_patch.texture_binding()},
 			.coords = coords[2],
 			.uvs = uvs[2],
-			.vert_color = graphic::g2d::quad_vert_color{CLT, CRT, color.v01, color.v11}
+			.vert_color = graphic::g2d::quad_vert_color{CLT, CRT, color[2], color[3]}
 		});
 	}
 };

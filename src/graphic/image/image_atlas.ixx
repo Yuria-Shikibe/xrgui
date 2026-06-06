@@ -23,6 +23,7 @@ import mo_yanxi.meta_programming;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.allocator2d;
 import mo_yanxi.circular_queue;
+import mo_yanxi.raw_byte_buffer;
 
 
 
@@ -214,11 +215,19 @@ struct texture_allocation_request{
 };
 
 struct prepared_image_upload{
+	using mip_level_data = raw_vector<std::byte, std::allocator<std::byte>, std::size_t>;
+
 	vk::image_handle texture{};
 	std::uint32_t mip_level{};
 	std::uint32_t layer_index{};
 	math::urect region{};
-	std::vector<std::vector<std::byte>> mip_data{};
+	std::vector<mip_level_data> mip_data{};
+
+	prepared_image_upload() = default;
+	prepared_image_upload(const prepared_image_upload&) = delete;
+	prepared_image_upload& operator=(const prepared_image_upload&) = delete;
+	prepared_image_upload(prepared_image_upload&&) = default;
+	prepared_image_upload& operator=(prepared_image_upload&&) = default;
 };
 
 struct async_loader_task{

@@ -19,6 +19,7 @@ export import mo_yanxi.vk;
 
 import mo_yanxi.meta_programming;
 import mo_yanxi.utility;
+import mo_yanxi.raw_byte_buffer;
 
 #ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
 import <spirv_reflect.h>;
@@ -280,7 +281,7 @@ protected:
 
 
 	std::vector<external_descriptor_usage> external_descriptor_usages_{};
-	std::vector<std::byte> push_constants_{};
+	raw_vector<std::byte, std::allocator<std::byte>, std::size_t> push_constants_{};
 
 public:
 	[[nodiscard]] post_process_stage() = default;
@@ -324,8 +325,19 @@ public:
 		}
 	}
 
+	void set_push_constants(std::span<const std::byte> data){
+		push_constants_.resize_and_overwrite(
+			data.size(),
+			[data](std::byte* target, std::size_t, std::size_t requested_size) noexcept{
+				if(requested_size != 0){
+					std::memcpy(target, data.data(), requested_size);
+				}
+				return requested_size;
+			});
+	}
+
 	void set_push_constants(std::vector<std::byte> data){
-		push_constants_ = std::move(data);
+		this->set_push_constants(std::span<const std::byte>{data.data(), data.size()});
 	}
 
 protected:

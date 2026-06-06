@@ -509,6 +509,32 @@ export struct row_patch{
 	}
 };
 
+static_assert(sizeof(quad_group<float>) == sizeof(float) * 4);
+static_assert(alignof(quad_group<float>) == instr_required_align);
+static_assert(alignof(quad_vert_color) == instr_required_align);
+static_assert(sizeof(quad_vert_color) == sizeof(float4) * 4);
+static_assert(offsetof(rect_aabb_outline, stroke) % instr_required_align == 0);
+static_assert(offsetof(rect_aabb_outline, vert_color) % instr_required_align == 0);
+
+template <typename T>
+consteval bool fixed_instruction_payload_aligned(){
+	return sizeof(T) % instr_required_align == 0;
+}
+
+static_assert(fixed_instruction_payload_aligned<triangle>());
+static_assert(fixed_instruction_payload_aligned<quad>());
+static_assert(fixed_instruction_payload_aligned<rectangle>());
+static_assert(fixed_instruction_payload_aligned<rect_aabb>());
+static_assert(fixed_instruction_payload_aligned<rect_aabb_outline>());
+static_assert(fixed_instruction_payload_aligned<line>());
+static_assert(fixed_instruction_payload_aligned<line_segments>());
+static_assert(fixed_instruction_payload_aligned<line_segments_closed>());
+static_assert(fixed_instruction_payload_aligned<line_node>());
+static_assert(fixed_instruction_payload_aligned<poly>());
+static_assert(fixed_instruction_payload_aligned<poly_partial>());
+static_assert(fixed_instruction_payload_aligned<parametric_curve>());
+static_assert(fixed_instruction_payload_aligned<row_patch>());
+
 
 template <std::derived_from<line_segments> T>
 struct is_valid_consequent_argument<T, line_node> : std::true_type{};

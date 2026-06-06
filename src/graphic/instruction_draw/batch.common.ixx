@@ -9,6 +9,7 @@ export import mo_yanxi.graphic.g2d.general;
 export import mo_yanxi.binary_trace;
 
 import std;
+import mo_yanxi.raw_byte_buffer;
 
 namespace mo_yanxi::graphic::g2d{
 
@@ -56,7 +57,18 @@ struct section_state_delta_set{
 
 private:
 	std::vector<entry> entries_{};
-	std::vector<std::byte> payload_storage{};
+	raw_vector<std::byte, std::allocator<std::byte>, std::size_t> payload_storage{};
+
+	void append_payload_(std::span<const std::byte> payload){
+		if(payload.empty()) return;
+		const auto offset = payload_storage.size();
+		payload_storage.resize_and_overwrite(
+			offset + payload.size(),
+			[payload, offset](std::byte* data, std::size_t, std::size_t requested_size) noexcept{
+				std::memcpy(data + offset, payload.data(), payload.size());
+				return requested_size;
+			});
+	}
 
 public:
 
@@ -74,10 +86,7 @@ public:
 		e.size = static_cast<std::uint32_t>(payload.size());
 		e.logical_offset = logical_offset;
 
-		if(!payload.empty()){
-			payload_storage.resize(e.offset + e.size);
-			std::memcpy(payload_storage.data() + e.offset, payload.data(), e.size);
-		}
+		this->append_payload_(payload);
 
 		entries_.push_back(e);
 	}
@@ -92,7 +101,7 @@ public:
 		const auto curOff = static_cast<std::uint32_t>(payload_storage.size());
 		const auto curEntrySz = entries_.size();
 
-		payload_storage.append_range(other.payload_storage);
+		this->append_payload_(other.payload_storage.span());
 		entries_.append_range(other.entries_);
 
 		for(std::size_t i = curEntrySz; i < entries_.size(); ++i){
@@ -135,7 +144,7 @@ export
 struct draw_uniform_data_entry{
 	std::uint32_t unit_size{};
 	bool pending{};
-	std::vector<std::byte> data_{};
+	raw_vector<std::byte, std::allocator<std::byte>, std::size_t> data_{};
 
 	FORCE_INLINE inline std::span<const std::byte> operator[](const std::size_t idx) const noexcept{
 		const auto off = idx * unit_size;
@@ -154,8 +163,10 @@ struct draw_uniform_data_entry{
 
 	FORCE_INLINE inline void push_default(const void* data){
 		assert(data_.empty());
-		data_.resize(unit_size);
-		std::memcpy(data_.data(), data, unit_size);
+		data_.resize_and_overwrite(unit_size, [data, unit_size = unit_size](std::byte* target, std::size_t, std::size_t requested_size) noexcept{
+			std::memcpy(target, data, unit_size);
+			return requested_size;
+		});
 	}
 
 	template <typename T>
@@ -176,7 +187,7 @@ struct draw_uniform_data_entry{
 		} else{
 			auto p_base = (count - 2) * unit_size + data_.data();
 			if(std::memcmp(std::to_address(p), p_base, unit_size) == 0){
-				data_.erase(p, data_.end());
+				data_.resize((count - 1) * unit_size);
 				return false;
 			}
 			return true;
@@ -191,9 +202,13 @@ struct draw_uniform_data_entry{
 			std::memcpy(p, data, unit_size);
 		} else{
 			auto last = get_count();
-			data_.resize(data_.size() + unit_size);
-			auto p = last * unit_size + data_.data();
-			std::memcpy(p, data, unit_size);
+			const auto offset = last * unit_size;
+			data_.resize_and_overwrite(
+				data_.size() + unit_size,
+				[data, offset, unit_size = unit_size](std::byte* target, std::size_t, std::size_t requested_size) noexcept{
+					std::memcpy(target + offset, data, unit_size);
+					return requested_size;
+				});
 			pending = true;
 		}
 	}

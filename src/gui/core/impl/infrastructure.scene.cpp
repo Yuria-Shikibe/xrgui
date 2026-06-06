@@ -268,9 +268,8 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
 			if(!container.empty())goto upt;
 		}
 
-		if(!overlays.empty()){
-			const auto& top = *std::ranges::rbegin(overlays);
-			util::dfs_record_inbound_element(get_cursor_pos(), container, top.get());
+		if(const overlay* top = overlays.top_active_overlay()){
+			util::dfs_record_inbound_element(get_cursor_pos(), container, top->get());
 		}else{
 			if(container.empty()){
 				util::dfs_record_inbound_element(get_cursor_pos(), container, &scene_root);
@@ -424,6 +423,44 @@ void scene_base::resize(const math::frect region){
 
 void scene_base::update_cursor_type(){
 	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(input_handler_.get_cursor_style());
+}
+
+void scene_base::capture_mouse(elem& target, input_handle::mouse mouse_button_code, math::vec2 press_scene_pos){
+	assert(is_on_scene_thread(*this));
+	assert(std::addressof(target.get_scene()) == this);
+
+	auto& current_inbounds = input_handler_.inbounds_.get_cur();
+	for(elem* previous : current_inbounds){
+		if(previous != std::addressof(target)){
+			previous->on_inbound_changed(false, true);
+		}
+	}
+
+	current_inbounds.clear();
+	current_inbounds.push_back(std::addressof(target));
+
+	auto& next_inbounds = input_handler_.inbounds_.get_bak();
+	next_inbounds.clear();
+	next_inbounds.push_back(std::addressof(target));
+
+	target.on_inbound_changed(true, true);
+	input_handler_.cursor_event_active_elems_.insert(std::addressof(target));
+
+	input_handler_.swap_focus(std::addressof(target));
+	input_handler_.mouse_states_[std::to_underlying(mouse_button_code)].reset(
+		press_scene_pos,
+		mouse_capture_owner::ui);
+
+	if(input_handler_.last_inbound_click != std::addressof(target)){
+		if(input_handler_.last_inbound_click){
+			input_handler_.last_inbound_click->on_last_clicked_changed(false);
+		}
+		input_handler_.last_inbound_click = std::addressof(target);
+		input_handler_.last_inbound_click->on_last_clicked_changed(true);
+	}
+
+	target.cursor_states_.update_press(input_handle::key_set{mouse_button_code, input_handle::act::press});
+	request_cursor_update();
 }
 
 

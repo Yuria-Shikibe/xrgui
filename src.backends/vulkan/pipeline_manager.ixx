@@ -531,7 +531,6 @@ export
 class uniform_buffer_manager{
 private:
 	user_data_table merged_user_data_table_{};
-	std::vector<std::byte> ubo_data_cache_{};
 	vk::uniform_buffer uniform_buffer_{};
 
 public:
@@ -546,7 +545,7 @@ public:
 			table.append(t);
 		}
 		return table;
-	}()), ubo_data_cache_(merged_user_data_table_.required_capacity()), uniform_buffer_(allocator, merged_user_data_table_.required_capacity()){}
+	}()), uniform_buffer_(allocator, merged_user_data_table_.required_capacity()){}
 
 };
 

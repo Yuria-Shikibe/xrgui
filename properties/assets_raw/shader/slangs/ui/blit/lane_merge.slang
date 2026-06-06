@@ -71,7 +71,12 @@ void main(
 
 
 
-    float4 final_back_dst = pp::blend::pre_scaled_alpha_blend(color_back_src, color_back_dst);
+    float4 faded_back_dst = float4(
+        color_back_dst.rgb * alpha_fade_factor * luma_fade_factor,
+        color_back_dst.a
+    );
+
+    float4 final_back_dst = pp::blend::pre_scaled_alpha_blend(color_back_src, faded_back_dst);
 
 
     float4 final_base_dst = pp::blend::pre_scaled_alpha_blend(color_base_src, temp_base_dst);

@@ -2,15 +2,24 @@ module;
 
 #include <cassert>
 
+#if !defined(XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE) || defined(__RESHARPER__)
+#include "plf_hive.h"
+#endif
+
 export module mo_yanxi.gui.infrastructure:dialog_manager;
 
 import :defines;
 import :elem_ptr;
 import :events;
 import std;
+export import mo_yanxi.react_flow;
 import mo_yanxi.gui.layout.policies;
 import mo_yanxi.input_handle;
 import mo_yanxi.utility;
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <plf_hive.h>;
+#endif
 
 namespace mo_yanxi::gui{
 
@@ -32,23 +41,59 @@ export
 struct overlay_layout{
 	layout::stated_extent extent{};
 	align::pos align{align::pos::center};
+	overlay_external_press_policy external_press_policy{overlay_external_press_policy::ignore};
 
 	math::vec2 absolute_offset{};
 	math::vec2 scaling_offset{};
 	math::vec2 scaling{1, 1};
-	overlay_external_press_policy external_press_policy{overlay_external_press_policy::ignore};
-	std::function<void()> on_dismiss{};
 };
+
+export
+struct overlay;
+
+export
+enum class overlay_operation : std::uint8_t{
+	dismiss
+};
+
+export
+struct overlay_operation_context{
+	overlay_operation operation{};
+	overlay* dialog{};
+	elem* element{};
+};
+
+export
+using overlay_operation_provider = react_flow::provider_general<overlay_operation_context>;
 
 export
 struct overlay{
 	elem_ptr element{};
 	overlay_layout layout_config{};
+	react_flow::node_holder_pinned<overlay_operation_provider> operation_provider{};
 	bool layout_changed{true};
+
+	[[nodiscard]] overlay() = default;
+
+	[[nodiscard]] overlay(elem_ptr&& element, overlay_layout layout_config)
+		: element(std::move(element)), layout_config(layout_config){
+	}
 
 	[[nodiscard]] math::vec2 get_overlay_extent(const math::vec2 scene_viewport_size) const;
 
 	void update_bound(const rect scene_viewport) const;
+
+	[[nodiscard]] overlay_operation_provider& get_operation_provider(){
+		return operation_provider.node;
+	}
+
+	void notify_operation(overlay_operation operation){
+		operation_provider->update_value(overlay_operation_context{
+			.operation = operation,
+			.dialog = this,
+			.element = element.get()
+		});
+	}
 
 	[[nodiscard]] elem* get() const noexcept{
 		return element.get();
@@ -77,18 +122,21 @@ struct overlay_create_result{
 	}
 };
 
-struct overlay_fading : overlay{
+struct overlay_fading{
 	static constexpr float fading_time{15};
+	overlay* dialog{};
 	float duration{fading_time};
 };
 
 export
 struct overlay_manager{
 private:
-	using container = mr::heap_vector<overlay>;
+	using container = plf::hive<overlay, mr::heap_allocator<overlay>>;
+	using active_container = mr::heap_vector<overlay*>;
 
 	container overlays_{};
-	mr::heap_vector<overlay_fading> overlay_fadings_{};
+	active_container active_stack_{};
+	mr::heap_vector<overlay_fading> fading_overlays_{};
 	mr::heap_vector<const elem*> draw_sequence_{};
 
 	rect last_vp_{};
@@ -97,8 +145,9 @@ public:
 	}
 
 	[[nodiscard]] explicit overlay_manager(const mr::heap_allocator<>& allocator) :
-	overlays_(allocator),
-	overlay_fadings_(allocator),
+	overlays_(mr::heap_allocator<overlay>{allocator}),
+	active_stack_(allocator),
+	fading_overlays_(allocator),
 	draw_sequence_(allocator){
 	}
 
@@ -106,32 +155,43 @@ public:
 
 	void clear() noexcept{
 		draw_sequence_.clear();
+		active_stack_.clear();
+		fading_overlays_.clear();
 		overlays_.clear();
-		overlay_fadings_.clear();
 		last_vp_ = {};
 	}
 
-	void pop_back() noexcept{
-		if(overlays_.empty()){
+	void pop_back(){
+		if(active_stack_.empty()){
 			//TODO throw instead?
 			return;
 		}
 
-		auto dialog = std::move(overlays_.back());
-		overlays_.pop_back();
-		overlay_fadings_.push_back({std::move(dialog)});
+		truncate(std::prev(active_stack_.end()));
 	}
 
-	auto begin(this auto& self) noexcept{
-		return self.overlays_.begin();
+	[[nodiscard]] auto active_overlays() noexcept{
+		return active_stack_ | std::views::transform([](overlay* dialog) -> overlay&{
+			return *dialog;
+		});
 	}
 
-	auto end(this auto& self) noexcept{
-		return self.overlays_.end();
+	[[nodiscard]] auto active_overlays() const noexcept{
+		return active_stack_ | std::views::transform([](overlay* dialog) -> const overlay&{
+			return *dialog;
+		});
+	}
+
+	[[nodiscard]] overlay* top_active_overlay() noexcept{
+		return active_stack_.empty() ? nullptr : active_stack_.back();
+	}
+
+	[[nodiscard]] const overlay* top_active_overlay() const noexcept{
+		return active_stack_.empty() ? nullptr : active_stack_.back();
 	}
 
 	[[nodiscard]] bool empty() const noexcept{
-		return overlays_.empty();
+		return active_stack_.empty();
 	}
 
 	[[nodiscard]] std::span<const elem* const> get_draw_sequence() const noexcept{
@@ -139,12 +199,15 @@ public:
 	}
 
 	void truncate(const elem* overlay_elem){
-		if(const auto itr = std::ranges::find(overlays_, overlay_elem, &overlay::get); itr != overlays_.end()){
+		const auto itr = std::ranges::find(active_stack_, overlay_elem, [](const overlay* dialog){
+			return dialog->get();
+		});
+		if(itr != active_stack_.end()){
 			truncate(itr);
 		}
 	}
 
-	void truncate(container::iterator where);
+	void truncate(active_container::iterator where);
 
 	[[nodiscard]] overlay_external_press_result handle_external_press(
 		math::vec2 scene_position,
@@ -153,8 +216,8 @@ public:
 	void resize(rect scene_viewport){
 		if(last_vp_ == scene_viewport)return;
 		last_vp_ = scene_viewport;
-		for (auto & overlay : overlays_){
-			overlay.layout_changed = true;
+		for (overlay* overlay : active_stack_){
+			overlay->layout_changed = true;
 		}
 	}
 

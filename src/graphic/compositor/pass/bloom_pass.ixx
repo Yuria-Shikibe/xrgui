@@ -158,14 +158,18 @@ private:
 		setups.reserve(total_passes);
 		for(std::uint32_t i = 0; i < total_passes; ++i){
 			sub_pass_setup setup{};
-			setup.push_constants.resize(sizeof(bloom_defines));
 			const auto layer_info = get_current_defines(i, extent, total_mip_level);
 			if (layer_info.currentLayerExtent.x == 0 || layer_info.currentLayerExtent.y == 0) {
 				throw std::runtime_error(std::format(
 					"Bloom sub-pass {} has zero extent (extent={}x{}, mip={}/{})",
 					i, extent.x, extent.y, layer_info.current_layer, total_mip_level));
 			}
-			std::memcpy(setup.push_constants.data(), &layer_info, sizeof(layer_info));
+			setup.push_constants.resize_and_overwrite(
+				sizeof(bloom_defines),
+				[&layer_info](std::byte* data, std::size_t, std::size_t requested_size) noexcept{
+					std::memcpy(data, std::addressof(layer_info), requested_size);
+					return requested_size;
+				});
 
 			const auto& unit_size = meta().shader_info().thread_group_size;
 			setup.dispatch.fixed_group_count = VkExtent3D{

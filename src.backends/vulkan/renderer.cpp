@@ -290,7 +290,15 @@ bool renderer::command_recording_context::apply_section_state_(
 		if(off + sz <= cache.size() && std::memcmp(cache.data() + off, params.entry.payload.data(), sz) == 0){
 			break;
 		}
-		if(off + sz > cache.size()) cache.resize(off + sz, std::byte{0});
+		if(off + sz > cache.size()){
+			const auto old_size = cache.size();
+			cache.resize_and_overwrite(
+				off + sz,
+				[old_size](std::byte* data, std::size_t, std::size_t requested_size) noexcept{
+					std::memset(data + old_size, 0, requested_size - old_size);
+					return requested_size;
+				});
+		}
 		std::memcpy(cache.data() + off, params.entry.payload.data(), sz);
 
 		vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, off, sz,

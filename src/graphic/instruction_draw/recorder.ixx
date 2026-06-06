@@ -8,6 +8,7 @@ import std;
 import mo_yanxi.graphic.g2d.general;
 import mo_yanxi.user_data_entry;
 import mo_yanxi.type_register;
+import mo_yanxi.raw_byte_buffer;
 
 namespace mo_yanxi::graphic::g2d {
 
@@ -15,13 +16,19 @@ export
 template <typename Alloc = std::allocator<std::byte>>
 struct draw_record_storage : emit_stream_sink<draw_record_storage<Alloc>> {
 private:
+	using data_allocator_type = typename std::allocator_traits<Alloc>::template rebind_alloc<std::byte>;
+
     std::vector<instruction_head, typename std::allocator_traits<Alloc>::template rebind_alloc<instruction_head>> heads_{};
-    std::vector<std::byte, typename std::allocator_traits<Alloc>::template rebind_alloc<std::byte>> data_{};
+    raw_vector<std::byte, data_allocator_type, std::size_t> data_{};
 
     void push_bytes(const void* bytes, std::size_t size) {
         const auto cur = data_.size();
-        data_.resize(cur + size);
-        std::memcpy(data_.data() + cur, bytes, size);
+        data_.resize_and_overwrite(cur + size, [bytes, size, cur](std::byte* data, std::size_t, std::size_t requested_size) noexcept {
+            if(size != 0) {
+                std::memcpy(data + cur, bytes, size);
+            }
+            return requested_size;
+        });
     }
 
     void push_bytes(const auto& val) {
@@ -35,8 +42,8 @@ private:
 	}
 
 public:
-    [[nodiscard]] constexpr draw_record_storage() = default;
-    [[nodiscard]] explicit(false) constexpr draw_record_storage(const Alloc& alloc) : heads_(alloc), data_(alloc) {}
+    [[nodiscard]] draw_record_storage() = default;
+    [[nodiscard]] explicit(false) draw_record_storage(const Alloc& alloc) : heads_(alloc), data_(alloc) {}
 
     void reserve_heads(std::size_t count) {
         heads_.reserve(count);
@@ -121,12 +128,12 @@ private:
     std::vector<chunk_start_pos, typename std::allocator_traits<Alloc>::template rebind_alloc<chunk_start_pos>> chunks_{};
 
 public:
-    [[nodiscard]] constexpr draw_record_chunked_storage() {
+    [[nodiscard]] draw_record_chunked_storage() {
 
         chunks_.push_back({0, 0});
     }
 
-    [[nodiscard]] explicit(false) constexpr draw_record_chunked_storage(const Alloc& alloc)
+    [[nodiscard]] explicit(false) draw_record_chunked_storage(const Alloc& alloc)
         : storage_(alloc), chunks_(alloc) {
         chunks_.push_back({0, 0});
     }

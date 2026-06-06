@@ -76,12 +76,12 @@ enum struct stroke_band : bool{
 
 	if(edge == edge_position::from){
 		fringe_instr.radius.to = fringe_instr.radius.from - fringe;
-		fringe_instr.color.v10 = fringe_instr.color.v00.make_transparent();
-		fringe_instr.color.v11 = fringe_instr.color.v01.make_transparent();
+		fringe_instr.color[1] = fringe_instr.color[0].make_transparent();
+		fringe_instr.color[3] = fringe_instr.color[2].make_transparent();
 	} else{
 		fringe_instr.radius.from = fringe_instr.radius.to + fringe;
-		fringe_instr.color.v00 = fringe_instr.color.v10.make_transparent();
-		fringe_instr.color.v01 = fringe_instr.color.v11.make_transparent();
+		fringe_instr.color[0] = fringe_instr.color[1].make_transparent();
+		fringe_instr.color[2] = fringe_instr.color[3].make_transparent();
 	}
 
 	return fringe_instr;
@@ -98,14 +98,14 @@ enum struct stroke_band : bool{
 
 	if(edge == edge_position::from){
 		cap_instr.range.extent = std::copysign(rad_scale, -instr.range.extent);
-		cap_instr.color.v01 = cap_instr.color.v00.make_transparent();
-		cap_instr.color.v11 = cap_instr.color.v10.make_transparent();
+		cap_instr.color[2] = cap_instr.color[0].make_transparent();
+		cap_instr.color[3] = cap_instr.color[1].make_transparent();
 	} else{
 		const auto off = std::copysign(rad_scale, instr.range.extent);
 		cap_instr.range.base = instr.range.dst() + off;
 		cap_instr.range.extent = -off;
-		cap_instr.color.v00 = cap_instr.color.v01.make_transparent();
-		cap_instr.color.v10 = cap_instr.color.v11.make_transparent();
+		cap_instr.color[0] = cap_instr.color[2].make_transparent();
+		cap_instr.color[1] = cap_instr.color[3].make_transparent();
 	}
 
 	cap_instr.segments = 1;
@@ -123,13 +123,13 @@ enum struct stroke_band : bool{
 	if(band == stroke_band::inner){
 		fringe_instr.offset += half_stroke;
 		fringe_instr.offset += fringe / 2;
-		fringe_instr.color.v00 = fringe_instr.color.v10.make_transparent();
-		fringe_instr.color.v01 = fringe_instr.color.v11.make_transparent();
+		fringe_instr.color[0] = fringe_instr.color[1].make_transparent();
+		fringe_instr.color[2] = fringe_instr.color[3].make_transparent();
 	} else{
 		fringe_instr.offset -= half_stroke;
 		fringe_instr.offset -= fringe / 2;
-		fringe_instr.color.v10 = fringe_instr.color.v10.make_transparent();
-		fringe_instr.color.v11 = fringe_instr.color.v11.make_transparent();
+		fringe_instr.color[1] = fringe_instr.color[1].make_transparent();
+		fringe_instr.color[3] = fringe_instr.color[3].make_transparent();
 	}
 
 	fringe_instr.stroke = {fringe, fringe};
@@ -259,17 +259,17 @@ FORCE_INLINE void emit_curve_cap(
 		cap_instr.margin.from = instr.margin.from - dt;
 		cap_instr.margin.to = 1.0f - instr.margin.from;
 		cap_instr.stroke.to = cap_instr.stroke.from;
-		cap_instr.color.v00 = cap_instr.color.v01;
-		cap_instr.color.v10 = cap_instr.color.v11;
-		cap_instr.color.v00.a = {};
-		cap_instr.color.v10.a = {};
+		cap_instr.color[0] = cap_instr.color[2];
+		cap_instr.color[1] = cap_instr.color[3];
+		cap_instr.color[0].a = {};
+		cap_instr.color[1].a = {};
 	} else{
 		cap_instr.margin.from = 1.f - t;
 		cap_instr.margin.to = instr.margin.to - dt;
-		cap_instr.color.v01 = cap_instr.color.v00;
-		cap_instr.color.v11 = cap_instr.color.v10;
-		cap_instr.color.v01.a = {};
-		cap_instr.color.v11.a = {};
+		cap_instr.color[2] = cap_instr.color[0];
+		cap_instr.color[3] = cap_instr.color[1];
+		cap_instr.color[2].a = {};
+		cap_instr.color[3].a = {};
 	}
 
 	emit(sink, curve_draw{cap_instr, fringe});

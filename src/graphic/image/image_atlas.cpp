@@ -148,12 +148,11 @@ std::optional<prepared_image_upload> async_image_loader::prepare(allocated_image
 		const auto mipmap_level = std::min(std::min(max_prov, desc.mip_level), desc.desc.get_prov_levels());
 		assert(mipmap_level > 0);
 
-		prepared_image_upload prepared{
-			.texture = std::move(desc.texture),
-			.mip_level = desc.mip_level,
-			.layer_index = desc.layer_index,
-			.region = desc.region,
-		};
+		prepared_image_upload prepared{};
+		prepared.texture = std::move(desc.texture);
+		prepared.mip_level = desc.mip_level;
+		prepared.layer_index = desc.layer_index;
+		prepared.region = desc.region;
 		prepared.mip_data.reserve(mipmap_level);
 
 		for(std::uint32_t mip_lv = 0; mip_lv < mipmap_level; ++mip_lv){
@@ -168,12 +167,17 @@ std::optional<prepared_image_upload> async_image_loader::prepare(allocated_image
 				return std::nullopt;
 			}
 			auto bytes = bitmap.get_bytes();
-			std::vector<std::byte> level_data(bytes.size());
-			std::memcpy(level_data.data(), bytes.data(), bytes.size());
+			prepared_image_upload::mip_level_data level_data{};
+			level_data.resize_and_overwrite(bytes.size(), [bytes](std::byte* data, std::size_t, std::size_t requested_size) noexcept{
+				if(requested_size != 0){
+					std::memcpy(data, bytes.data(), requested_size);
+				}
+				return requested_size;
+			});
 			prepared.mip_data.push_back(std::move(level_data));
 		}
 
-		return prepared;
+		return std::move(prepared);
 	}
 
 	void async_image_loader::load(prepared_image_upload&& desc){
@@ -218,7 +222,9 @@ std::optional<prepared_image_upload> async_image_loader::prepare(allocated_image
 					if(stop_requested())return;
 
 					const auto& level_data = desc.mip_data[mip_lv];
-					(void)vk::buffer_mapper{buffer}.load_range(std::span{level_data}, static_cast<std::ptrdiff_t>(off));
+					(void)vk::buffer_mapper{buffer}.load_range(
+						std::span<const std::byte>{level_data.data(), level_data.size()},
+						static_cast<std::ptrdiff_t>(off));
 					off += static_cast<VkDeviceSize>(level_data.size());
 				}
 			}

@@ -18,6 +18,7 @@ import mo_yanxi.binary_trace;
 
 import mo_yanxi.gui.alloc;
 import mo_yanxi.type_register;
+import mo_yanxi.raw_byte_buffer;
 
 import mo_yanxi.byte_pool;
 
@@ -161,7 +162,7 @@ private:
 	mr::vector<layer_viewport> viewports_{};
 	math::mat3 uniform_proj_{};
 
-	std::vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>> cache_instr_buffer_inner_usage_{};
+	raw_vector<std::byte, mr::aligned_heap_allocator<std::byte, 16>, std::size_t> cache_instr_buffer_inner_usage_{};
 
 	binary_config_trace state_trace_{};
 
@@ -259,7 +260,13 @@ public:
 			pbuffer = buffer_;
 		}else{
 			if(instr_size > sizeof(buffer_)) [[unlikely]] {
-				if(instr_size > cache_instr_buffer_inner_usage_.size()) cache_instr_buffer_inner_usage_.resize(instr_size);
+				if(instr_size > cache_instr_buffer_inner_usage_.size()) {
+					cache_instr_buffer_inner_usage_.resize_and_overwrite(
+						instr_size,
+						[](std::byte*, std::size_t, std::size_t requested_size) noexcept {
+							return requested_size;
+						});
+				}
 				pbuffer = cache_instr_buffer_inner_usage_.data();
 			} else{
 				pbuffer = buffer_;

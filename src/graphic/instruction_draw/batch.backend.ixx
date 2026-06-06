@@ -4,6 +4,7 @@ module;
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 #include <cassert>
+#include <cstddef>
 #include <mo_yanxi/adapted_attributes.hpp>
 
 export module mo_yanxi.graphic.g2d.batch.backend.vulkan;
@@ -15,6 +16,7 @@ import mo_yanxi.vk.cmd;
 import mo_yanxi.vk.sync_processor;
 import mo_yanxi.vk.util;
 import mo_yanxi.type_register;
+import mo_yanxi.raw_byte_buffer;
 import std;
 
 namespace mo_yanxi::graphic::g2d{
@@ -48,15 +50,14 @@ struct alignas(16) mesh_dispatch_info_v3{
 struct alignas(16) dispatch_config{
 	std::uint32_t group_offset;
 	std::uint32_t global_primitive_offset;
-	std::uint32_t _cap[2];
 };
 
 struct resolved_vertex{
-	float position[3];
+	math::vec2 position;
+	float depth;
 	std::uint32_t timeline_index;
-	float color[4];
-	float uv[2];
-	std::uint32_t _cap[2];
+	float4 color;
+	math::vec2 uv;
 };
 
 struct resolved_primitive{
@@ -66,7 +67,14 @@ struct resolved_primitive{
 	float sdf_expand;
 };
 
+static_assert(sizeof(dispatch_config) == 16);
 static_assert(sizeof(resolved_vertex) == 48);
+static_assert(alignof(resolved_vertex) == alignof(float4));
+static_assert(offsetof(resolved_vertex, position) == 0);
+static_assert(offsetof(resolved_vertex, depth) == 8);
+static_assert(offsetof(resolved_vertex, timeline_index) == 12);
+static_assert(offsetof(resolved_vertex, color) == 16);
+static_assert(offsetof(resolved_vertex, uv) == 32);
 static_assert(sizeof(resolved_primitive) == 16);
 
 using resolved_index_triangle = std::array<std::uint32_t, 3>;
@@ -94,10 +102,17 @@ struct geometry_copy_range{
 	std::uint32_t count;
 };
 
+template <typename T>
+FORCE_INLINE void resize_uninitialized(raw_vector<T>& buffer, std::size_t new_size){
+	buffer.resize_and_overwrite(new_size, [](T*, std::size_t, std::size_t requested_size) noexcept{
+		return requested_size;
+	});
+}
+
 FORCE_INLINE void append_geometry_copy_range(
-	std::vector<geometry_copy_range>& ranges,
+	raw_vector<geometry_copy_range>& ranges,
 	const std::uint32_t begin,
-	const std::uint32_t count) noexcept{
+	const std::uint32_t count){
 	if(count == 0){
 		return;
 	}
@@ -153,21 +168,11 @@ template <typename T>
 }
 
 [[nodiscard]] FORCE_INLINE constexpr const float4& quad_color_at(const quad_vert_color& colors, const std::uint32_t index) noexcept{
-	switch(index & 3U){
-	case 0 : return colors.v00;
-	case 1 : return colors.v10;
-	case 2 : return colors.v01;
-	default : return colors.v11;
-	}
+	return colors[index];
 }
 
 [[nodiscard]] FORCE_INLINE constexpr float quad_scalar_at(const quad_group<float>& values, const std::uint32_t index) noexcept{
-	switch(index & 3U){
-	case 0 : return values.v00;
-	case 1 : return values.v10;
-	case 2 : return values.v01;
-	default : return values.v11;
-	}
+	return values[index];
 }
 
 [[nodiscard]] FORCE_INLINE constexpr resolved_primitive make_resolved_primitive(const primitive_generic& generic, float sdf_expand = {}) noexcept{
@@ -186,10 +191,11 @@ template <typename T>
 	const math::vec2 uv,
 	const std::uint32_t timeline_index) noexcept{
 	return {
-		.position = {position.x, position.y, depth},
+		.position = position,
+		.depth = depth,
 		.timeline_index = timeline_index,
-		.color = {color.r, color.g, color.b, color.a},
-		.uv = {uv.x, uv.y},
+		.color = color,
+		.uv = uv,
 	};
 }
 
@@ -330,17 +336,19 @@ std::uint32_t get_required_buffer_descriptor_count_per_frame(const draw_list_con
 }
 
 struct instruction_resolve_info{
-    std::vector<std::uint32_t> timelines;
-    std::vector<vertex_resolve_info> thread_resolve_info;
-    std::vector<mesh_dispatch_info_v3> group_dispatch_info;
-    std::vector<std::byte> gpu_instruction_payload;
-    std::vector<geometry_copy_range> vertex_copy_ranges;
-    std::vector<geometry_copy_range> primitive_copy_ranges;
+    raw_vector<std::uint32_t> timelines;
+    raw_vector<vertex_resolve_info> thread_resolve_info;
+    raw_vector<mesh_dispatch_info_v3> group_dispatch_info;
+    raw_vector<std::byte> gpu_instruction_payload;
+    raw_vector<geometry_copy_range> vertex_copy_ranges;
+    raw_vector<geometry_copy_range> primitive_copy_ranges;
 
     std::uint32_t total_vertices{};
     std::uint32_t total_primitives{};
     std::uint32_t gpu_generated_vertices{};
     std::uint32_t compute_dispatch_threads{};
+    std::uint32_t gpu_instruction_payload_bytes{};
+    std::uint32_t timeline_block_count{};
 
     struct geometry_output{
        std::span<resolved_vertex> vertices;
@@ -350,20 +358,32 @@ struct instruction_resolve_info{
 
     void prepare_allocation(const draw_list_context& host_ctx){
        const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
+       const auto num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().size());
 
-       std::uint32_t pre_total_vertices = 0;
-       std::uint32_t pre_total_primitives = 0;
-       std::uint32_t pre_gpu_vertices = 0;
+       auto pre_total_vertices = 0U;
+       auto pre_total_primitives = 0U;
+       auto pre_gpu_vertices = 0U;
+       auto pre_gpu_payload_size = 0U;
+       auto pre_committed_blocks = num_timeline_slots > 0 ? 1U : 0U;
+       auto pre_timeline_dirty = false;
 
        for(const auto& submit_group : submit_group_subrange){
           for(const auto& head : submit_group.get_instruction_heads()){
              if(head.type == instr_type::uniform_update){
+                if(num_timeline_slots > 0){
+                   pre_timeline_dirty = true;
+                }
                 continue;
+             }
+             if(pre_timeline_dirty){
+                pre_committed_blocks++;
+                pre_timeline_dirty = false;
              }
              pre_total_vertices += head.payload.draw.vertex_count;
              pre_total_primitives += head.payload.draw.primitive_count;
              if(mo_yanxi::graphic::g2d::is_gpu_resolved_instruction(head.type)){
                 pre_gpu_vertices += head.payload.draw.vertex_count;
+                pre_gpu_payload_size += head.payload_size;
              }
           }
        }
@@ -374,93 +394,64 @@ struct instruction_resolve_info{
        compute_dispatch_threads = pre_gpu_vertices == 0
           ? 0
           : (pre_gpu_vertices + gpu_resolve_group_size - 1U) / gpu_resolve_group_size * gpu_resolve_group_size;
+       gpu_instruction_payload_bytes = pre_gpu_payload_size;
+       timeline_block_count = pre_committed_blocks;
     }
 
     void update(const draw_list_context& host_ctx, geometry_output output){
        const auto submit_group_subrange = host_ctx.get_valid_submit_groups();
-       const std::uint32_t num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().size());
+       const auto num_timeline_slots = static_cast<std::uint32_t>(host_ctx.get_data_group_vertex_info().size());
+       const auto expected_gpu_vertices = gpu_generated_vertices;
+       const auto expected_compute_dispatch_threads = compute_dispatch_threads;
+       const auto expected_gpu_payload_size = gpu_instruction_payload_bytes;
 
-       // 第一阶段：进行一次轻量级的预扫描，精确计算各 vector 所需的最终容量
-       std::uint32_t pre_total_vertices = 0;
-       std::uint32_t pre_total_primitives = 0;
-       std::uint32_t pre_gpu_vertices = 0;
-       std::uint32_t pre_gpu_payload_size = 0;
-       std::uint32_t pre_committed_blocks = (num_timeline_slots > 0) ? 1 : 0;
-       bool pre_timeline_dirty = false;
-
-       for(std::size_t i = 0; i < submit_group_subrange.size(); ++i){
-          const auto heads = submit_group_subrange[i].get_instruction_heads();
-          for(const auto& head : heads){
-             if(head.type == instr_type::uniform_update){
-                if(num_timeline_slots > 0) {
-                   pre_timeline_dirty = true;
-                }
-             } else {
-                if(pre_timeline_dirty){
-                   pre_committed_blocks++;
-                   pre_timeline_dirty = false;
-                }
-                pre_total_vertices += head.payload.draw.vertex_count;
-                pre_total_primitives += head.payload.draw.primitive_count;
-                if(is_gpu_resolved_instruction(head.type)){
-                   pre_gpu_vertices += head.payload.draw.vertex_count;
-                   pre_gpu_payload_size += head.payload_size;
-                }
-             }
-          }
+       if(num_timeline_slots > 0){
+          resize_uninitialized(timelines, (timeline_block_count + 1U) * num_timeline_slots);
+          std::fill_n(timelines.data(), static_cast<std::size_t>(num_timeline_slots) * 2U, 0U);
+       } else{
+          timelines.clear();
        }
 
-       // 第二阶段：一次性分配所需的所有内存，彻底消除后续的动态扩容
-       if (num_timeline_slots > 0) {
-           // pre_committed_blocks 是最终有效块数，加 1 是为了给最后一次尚未提交的脏写入提供空间
-           timelines.assign((pre_committed_blocks + 1) * num_timeline_slots, 0);
-       } else {
-           timelines.clear();
-       }
+       assert(output.vertices.size() >= total_vertices);
+       assert(output.indices.size() >= total_primitives);
+       assert(output.primitive_data.size() >= total_primitives);
 
-       const std::uint32_t padded_gpu_vertices = pre_gpu_vertices == 0
-          ? 0
-          : (pre_gpu_vertices + gpu_resolve_group_size - 1U) / gpu_resolve_group_size * gpu_resolve_group_size;
-
-       assert(output.vertices.size() >= pre_total_vertices);
-       assert(output.indices.size() >= pre_total_primitives);
-       assert(output.primitive_data.size() >= pre_total_primitives);
-
-       thread_resolve_info.assign(padded_gpu_vertices, {});
-       group_dispatch_info.resize(submit_group_subrange.size());
-       gpu_instruction_payload.resize(pre_gpu_payload_size);
+       resize_uninitialized(thread_resolve_info, expected_compute_dispatch_threads);
+       resize_uninitialized(group_dispatch_info, submit_group_subrange.size());
+       resize_uninitialized(gpu_instruction_payload, expected_gpu_payload_size);
        vertex_copy_ranges.clear();
        primitive_copy_ranges.clear();
        output_ = output;
 
-       std::uint32_t current_global_thread = 0;
-       std::uint32_t current_global_primitive = 0;
-       std::uint32_t current_gpu_payload = 0;
+       auto current_global_thread = 0U;
+       auto current_global_primitive = 0U;
+       auto current_gpu_payload = 0U;
        gpu_generated_vertices = 0;
        compute_dispatch_threads = 0;
 
-       bool timeline_dirty = false;
-       std::uint32_t committed_blocks = num_timeline_slots > 0 ? 1 : 0;
+       auto timeline_dirty = false;
+       auto committed_blocks = num_timeline_slots > 0 ? 1U : 0U;
 
        auto mark_timeline_dirty = [&](std::uint32_t slot_idx){
           timelines[committed_blocks * num_timeline_slots + slot_idx]++;
           timeline_dirty = true;
        };
 
-       for(std::size_t i = 0; i < submit_group_subrange.size(); ++i){
+       for(auto i = std::size_t{}; i < submit_group_subrange.size(); ++i){
           const auto& group = submit_group_subrange[i];
           const auto heads = group.get_instruction_heads();
-          const std::byte* group_payload = group.get_buffer_data();
+          const auto* group_payload = group.get_buffer_data();
 
-          mesh_dispatch_info_v3 v3_info{};
-          v3_info.global_vertex_offset = current_global_thread;
-          v3_info.base_timeline_index = num_timeline_slots > 0 ? (committed_blocks - 1) : 0;
-          v3_info.global_primitive_offset = current_global_primitive;
+          auto v3_info = mesh_dispatch_info_v3{
+             .global_vertex_offset = current_global_thread,
+             .base_timeline_index = num_timeline_slots > 0 ? committed_blocks - 1U : 0U,
+             .global_primitive_offset = current_global_primitive,
+          };
 
-          std::uint32_t group_primitives = 0;
-          std::uint32_t group_vertices = 0;
-          std::uint32_t group_payload_offset = 0;
-          std::uint32_t relative_timeline = 0;
+          auto group_primitives = 0U;
+          auto group_vertices = 0U;
+          auto group_payload_offset = 0U;
+          auto relative_timeline = 0U;
 
           for(const auto& head : heads){
              if(head.type == instr_type::uniform_update){
@@ -472,7 +463,6 @@ struct instruction_resolve_info{
              }
 
              if(timeline_dirty){
-                // 内存已在 Pass 1 预分配完毕，将当前的 timeline 拷贝到紧接着的下一个预分配块中
                 std::memcpy(
                    timelines.data() + (committed_blocks + 1) * num_timeline_slots,
                    timelines.data() + committed_blocks * num_timeline_slots,
@@ -482,36 +472,38 @@ struct instruction_resolve_info{
                 timeline_dirty = false;
              }
 
-             const std::uint32_t head_vtx_count = head.payload.draw.vertex_count;
-             const std::uint32_t head_prm_count = head.payload.draw.primitive_count;
-             const std::uint32_t global_vertex_begin = current_global_thread + group_vertices;
-             const std::uint32_t global_primitive_begin = current_global_primitive + group_primitives;
-             const std::uint32_t absolute_timeline = v3_info.base_timeline_index + relative_timeline;
-             const std::byte* payload = group_payload + group_payload_offset;
+             const auto head_vtx_count = head.payload.draw.vertex_count;
+             const auto head_prm_count = head.payload.draw.primitive_count;
+             const auto global_vertex_begin = current_global_thread + group_vertices;
+             const auto global_primitive_begin = current_global_primitive + group_primitives;
+             const auto absolute_timeline = v3_info.base_timeline_index + relative_timeline;
+             const auto* payload = group_payload + group_payload_offset;
 
              if(is_gpu_resolved_instruction(head.type)){
-                const std::uint32_t gpu_payload_begin = current_gpu_payload;
+                const auto gpu_payload_begin = current_gpu_payload;
                 std::memcpy(gpu_instruction_payload.data() + gpu_payload_begin, payload, head.payload_size);
                 current_gpu_payload += head.payload_size;
 
-                const gpu_instr_type gpu_type = to_gpu_instr_type(head.type);
-                const std::uint32_t gpu_resolve_begin = gpu_generated_vertices;
-                for(std::uint32_t local_vtx = 0; local_vtx < head_vtx_count; ++local_vtx){
-                   vertex_resolve_info resolve_res{};
-                   resolve_res.packed_type_timeline = mo_yanxi::graphic::g2d::pack_u16_pair(
-                      std::to_underlying(gpu_type), relative_timeline);
-                   resolve_res.payload_offset = gpu_payload_begin;
-
-                   std::uint32_t prm_skip = invalid_primitive_skip;
+                const auto gpu_type = to_gpu_instr_type(head.type);
+                const auto packed_type_timeline = mo_yanxi::graphic::g2d::pack_u16_pair(
+                   std::to_underlying(gpu_type), relative_timeline);
+                const auto packed_dispatch_size = mo_yanxi::graphic::g2d::pack_u16_pair(
+                   static_cast<std::uint32_t>(i), head.payload_size);
+                const auto gpu_resolve_begin = gpu_generated_vertices;
+                auto* resolve_out = thread_resolve_info.data() + gpu_resolve_begin;
+                for(auto local_vtx = 0U; local_vtx < head_vtx_count; ++local_vtx){
+                   auto prm_skip = invalid_primitive_skip;
                    if(local_vtx >= 2 && (local_vtx - 2) < head_prm_count){
                       prm_skip = group_primitives + local_vtx - 2;
                    }
 
-                   resolve_res.packed_skips = mo_yanxi::graphic::g2d::pack_u16_pair(local_vtx, prm_skip);
-                   resolve_res.packed_dispatch_size = mo_yanxi::graphic::g2d::pack_u16_pair(
-                      static_cast<std::uint32_t>(i), head.payload_size);
-                   resolve_res.global_vertex_index = global_vertex_begin + local_vtx;
-                   thread_resolve_info[gpu_resolve_begin + local_vtx] = resolve_res;
+                   resolve_out[local_vtx] = {
+                      .packed_type_timeline = packed_type_timeline,
+                      .payload_offset = gpu_payload_begin,
+                      .packed_skips = mo_yanxi::graphic::g2d::pack_u16_pair(local_vtx, prm_skip),
+                      .packed_dispatch_size = packed_dispatch_size,
+                      .global_vertex_index = global_vertex_begin + local_vtx,
+                   };
                 }
                 gpu_generated_vertices += head_vtx_count;
              } else{
@@ -526,21 +518,25 @@ struct instruction_resolve_info{
           }
 
           v3_info.primitives = group_primitives;
-          // group 的数量恰好对应 submit_group_subrange 的大小，直接利用外层循环的索引 i
           group_dispatch_info[i] = v3_info;
 
           current_global_thread += group_vertices;
           current_global_primitive += group_primitives;
        }
 
-       total_vertices = current_global_thread;
-       total_primitives = current_global_primitive;
-       compute_dispatch_threads = padded_gpu_vertices;
-       assert(current_gpu_payload == gpu_instruction_payload.size());
-       assert(gpu_generated_vertices == pre_gpu_vertices);
+       assert(current_global_thread == total_vertices);
+       assert(current_global_primitive == total_primitives);
+       assert(current_gpu_payload == expected_gpu_payload_size);
+       assert(gpu_generated_vertices == expected_gpu_vertices);
+       compute_dispatch_threads = expected_compute_dispatch_threads;
+       if(gpu_generated_vertices < thread_resolve_info.size()){
+          std::ranges::fill(
+             thread_resolve_info.begin() + static_cast<std::ptrdiff_t>(gpu_generated_vertices),
+             thread_resolve_info.end(),
+             vertex_resolve_info{});
+       }
        output_ = {};
 
-       // 截断到实际提交的块大小，丢弃最后为了安全写入而多分配但未生效的缓冲区
        if(num_timeline_slots > 0){
           timelines.resize(committed_blocks * num_timeline_slots);
        }
@@ -554,14 +550,16 @@ private:
        const std::uint32_t global_primitive_begin,
        const std::uint32_t primitive_count,
        const resolved_primitive& primitive) noexcept{
+       auto* indices = output_.indices.data() + global_primitive_begin;
+       auto* primitive_data = output_.primitive_data.data() + global_primitive_begin;
        for(std::uint32_t primitive_idx = 0; primitive_idx < primitive_count; ++primitive_idx){
           const std::uint32_t local_vtx = primitive_idx + 2;
-          output_.indices[global_primitive_begin + primitive_idx] = {
+          indices[primitive_idx] = {
              global_vertex_begin + local_vtx - 2,
              global_vertex_begin + local_vtx - 1,
              global_vertex_begin + local_vtx,
           };
-          output_.primitive_data[global_primitive_begin + primitive_idx] = primitive;
+          primitive_data[primitive_idx] = primitive;
        }
     }
 
@@ -572,7 +570,7 @@ private:
        const float4& color,
        const math::vec2 uv,
        const std::uint32_t timeline_index) noexcept{
-       output_.vertices[global_vertex_index] = mo_yanxi::graphic::g2d::make_resolved_vertex(position, depth, color, uv, timeline_index);
+       output_.vertices[global_vertex_index] = make_resolved_vertex(position, depth, color, uv, timeline_index);
     }
 
     void generate_cpu_geometry(
@@ -692,22 +690,14 @@ private:
        }
        case instr_type::rect_ortho :{
           const auto& instr = *std::launder(reinterpret_cast<const rect_aabb*>(payload));
-          for(std::uint32_t local_vtx = 0; local_vtx < head.payload.draw.vertex_count; ++local_vtx){
-             const bool bit_x = (local_vtx & 1U) != 0;
-             const bool bit_y = (local_vtx & 2U) != 0;
-             const math::vec2 uv{
-                bit_x ? instr.uv11.x : instr.uv00.x,
-                bit_y ? instr.uv11.y : instr.uv00.y,
-             };
-             const float4& color = quad_color_at(instr.vert_color, (bit_y ? 2U : 0U) | (bit_x ? 1U : 0U));
-             const float slant_x = bit_y ? -instr.slant_factor_desc : instr.slant_factor_asc;
-             const float slant_y = local_vtx == 3U ? -instr.slant_factor_desc : 0.0f;
-             const math::vec2 position{
-                (bit_x ? instr.v11.x : instr.v00.x) + slant_x,
-                (bit_y ? instr.v11.y : instr.v00.y) + slant_y,
-             };
-             write_vertex(global_vertex_begin + local_vtx, position, instr.generic.depth, color, uv, timeline_index);
-          }
+          write_vertex(global_vertex_begin + 0, {instr.v00.x + instr.slant_factor_asc, instr.v00.y},
+                       instr.generic.depth, instr.vert_color[0], instr.uv00, timeline_index);
+          write_vertex(global_vertex_begin + 1, {instr.v11.x + instr.slant_factor_asc, instr.v00.y},
+                       instr.generic.depth, instr.vert_color[1], {instr.uv11.x, instr.uv00.y}, timeline_index);
+          write_vertex(global_vertex_begin + 2, {instr.v00.x - instr.slant_factor_desc, instr.v11.y},
+                       instr.generic.depth, instr.vert_color[2], {instr.uv00.x, instr.uv11.y}, timeline_index);
+          write_vertex(global_vertex_begin + 3, {instr.v11.x - instr.slant_factor_desc, instr.v11.y - instr.slant_factor_desc},
+                       instr.generic.depth, instr.vert_color[3], instr.uv11, timeline_index);
           write_trivial_primitives(global_vertex_begin, global_primitive_begin, head.payload.draw.primitive_count,
                                    make_resolved_primitive(instr.generic, instr.sdf_expand));
           break;
@@ -758,8 +748,8 @@ private:
 
              const math::vec2 uv{instr.uvs[2U + uv_x], instr.uvs[uv_y]};
              const float mix_major = (instr.coords[coord_x] - instr.coords[0]) * inv_major_span;
-             const float4& color_a = coord_y ? instr.vert_color.v01 : instr.vert_color.v00;
-             const float4& color_b = coord_y ? instr.vert_color.v11 : instr.vert_color.v10;
+             const float4& color_a = instr.vert_color[coord_y ? 2U : 0U];
+             const float4& color_b = instr.vert_color[coord_y ? 3U : 1U];
              const float4 color = math::lerp(color_a, color_b, mix_major);
              write_vertex(global_vertex_begin + local_vtx, position, instr.generic.depth,
                           color, uv, timeline_index);
@@ -938,7 +928,7 @@ struct frame_resource{
 				if(buffer_dispatch_info.get_size() < dispatch_bytes){
 					buffer_dispatch_info = vk::buffer_cpu_to_gpu{allocator, dispatch_bytes, storage_flags};
 				}
-				vk::buffer_mapper{buffer_dispatch_info}.load_range(resolve_info.group_dispatch_info);
+				vk::buffer_mapper{buffer_dispatch_info}.load_range(resolve_info.group_dispatch_info.span());
 			}
 
 			const auto resolve_bytes = resolve_info.thread_resolve_info.size() * sizeof(vertex_resolve_info);
@@ -946,7 +936,7 @@ struct frame_resource{
 				if(buffer_resolve_infos.get_size() < resolve_bytes){
 					buffer_resolve_infos = vk::buffer_cpu_to_gpu{allocator, resolve_bytes, storage_flags};
 				}
-				vk::buffer_mapper{buffer_resolve_infos}.load_range(resolve_info.thread_resolve_info);
+				vk::buffer_mapper{buffer_resolve_infos}.load_range(resolve_info.thread_resolve_info.span());
 			}
 		}
 
@@ -956,7 +946,7 @@ struct frame_resource{
 			if(buffer_timelines.get_size() < timeline_bytes){
 				buffer_timelines = vk::buffer_cpu_to_gpu{allocator, timeline_bytes, storage_flags};
 			}
-			vk::buffer_mapper{buffer_timelines}.load_range(resolve_info.timelines);
+			vk::buffer_mapper{buffer_timelines}.load_range(resolve_info.timelines.span());
 		}
 
 		payloadSize = static_cast<std::uint32_t>(resolve_info.gpu_instruction_payload.size());
@@ -965,7 +955,7 @@ struct frame_resource{
 			if(buffer_instruction.get_size() < payloadSize){
 				buffer_instruction = vk::buffer_cpu_to_gpu{allocator, payloadSize, storage_flags};
 			}
-			vk::buffer_mapper{buffer_instruction}.load_range(resolve_info.gpu_instruction_payload);
+			vk::buffer_mapper{buffer_instruction}.load_range(resolve_info.gpu_instruction_payload.span());
 		}
 
 	}
@@ -1238,7 +1228,7 @@ public:
 		std::uint32_t payloadSize = 0;
 		frame.upload_v3_data(allocator_, cached_instruction_resolve_info_, payloadSize, stride_cfg_);
 
-		frame.upload_user_data(allocator_, host_ctx, cached_instruction_resolve_info_.group_dispatch_info, volatile_data_layout_,
+		frame.upload_user_data(allocator_, host_ctx, cached_instruction_resolve_info_.group_dispatch_info.span(), volatile_data_layout_,
 		                       cached_state_timelines_);
 
 		frame.update_descriptors(host_ctx, image_view_registry, cached_instruction_resolve_info_, payloadSize);
@@ -1325,7 +1315,7 @@ public:
 
 		copy_ranges_cache_.clear();
 		mo_yanxi::graphic::g2d::append_vk_buffer_copy_ranges(
-			copy_ranges_cache_, resolve_info.vertex_copy_ranges, stride_cfg_.vertex_stride);
+			copy_ranges_cache_, resolve_info.vertex_copy_ranges.span(), stride_cfg_.vertex_stride);
 		if(!copy_ranges_cache_.empty()){
 			vkCmdCopyBuffer(
 				cmd,
@@ -1337,7 +1327,7 @@ public:
 
 		copy_ranges_cache_.clear();
 		mo_yanxi::graphic::g2d::append_vk_buffer_copy_ranges(
-			copy_ranges_cache_, resolve_info.primitive_copy_ranges, sizeof(resolved_index_triangle));
+			copy_ranges_cache_, resolve_info.primitive_copy_ranges.span(), sizeof(resolved_index_triangle));
 		if(!copy_ranges_cache_.empty()){
 			vkCmdCopyBuffer(
 				cmd,
@@ -1349,7 +1339,7 @@ public:
 
 		copy_ranges_cache_.clear();
 		mo_yanxi::graphic::g2d::append_vk_buffer_copy_ranges(
-			copy_ranges_cache_, resolve_info.primitive_copy_ranges, stride_cfg_.primitive_stride);
+			copy_ranges_cache_, resolve_info.primitive_copy_ranges.span(), stride_cfg_.primitive_stride);
 		if(!copy_ranges_cache_.empty()){
 			vkCmdCopyBuffer(
 				cmd,
