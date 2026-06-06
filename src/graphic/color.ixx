@@ -132,7 +132,7 @@ public:
 	}
 
 	[[nodiscard]] FORCE_INLINE constexpr color to_light_by_luma(float target) const noexcept{
-		auto luma = r * 0.299 + g * 0.587 + b * 0.114;
+		auto luma = r * 0.299f + g * 0.587f + b * 0.114f;
 		if(luma < std::numeric_limits<float>::epsilon()){
 			return {};
 		}

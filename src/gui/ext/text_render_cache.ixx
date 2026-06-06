@@ -34,7 +34,7 @@ void record_elems(
 			    glyph_layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size
 		    } | std::views::enumerate){
 			if(!val.texture->view) continue;
-			auto start = math::fma(idx, spacing, line_src + val.aabb.src);
+			auto start = math::fma(static_cast<float>(idx), spacing, line_src + val.aabb.src);
 			std::invoke(
 				std::forward<Fn>(fn),
 				rect_aabb{

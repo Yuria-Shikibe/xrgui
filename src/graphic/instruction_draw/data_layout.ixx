@@ -129,7 +129,7 @@ public:
 	}
 
 	[[nodiscard]] std::uint32_t required_capacity() const noexcept{
-		return required_capacity_;
+		return (std::uint32_t)required_capacity_;
 	}
 
 	[[nodiscard]] data_layout_type_aware_entry* begin() noexcept{
@@ -197,7 +197,7 @@ public:
 
 		for(data_layout_type_aware_entry entry : other.entries){
 			entry.entry.group_index += group_base;
-			entry.entry.global_offset += required_capacity_;
+			entry.entry.global_offset += (std::uint32_t)required_capacity_;
 			entries.push_back(entry);
 		}
 		required_capacity_ += other.required_capacity_;

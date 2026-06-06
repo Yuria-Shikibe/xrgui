@@ -21,6 +21,14 @@ constexpr bool operator==(const hb_feature_t& lhs, const hb_feature_t& rhs) noex
 
 namespace mo_yanxi::typesetting{
 export
+/**
+ * @brief Optional symbol table used while parsing rich text tokens.
+ *
+ * Color and font tokens first try to resolve their argument through this table.
+ * For example, `{c:accent}` reads `color["accent"]`, and `{f:body}` reads
+ * `family["body"]`. When a name is not found, colors fall back to white and
+ * fonts are kept as a family name for the font manager to resolve later.
+ */
 struct rich_text_look_up_table{
 	string_hash_map<font::font_family> family;
 	string_hash_map<graphic::color> color;
@@ -29,6 +37,13 @@ struct rich_text_look_up_table{
 export inline rich_text_look_up_table* look_up_table{};
 
 export namespace rich_text_token{
+/**
+ * @brief How a numeric rich text setter modifies the active value.
+ *
+ * Tokens without a prefix, or with `=`, replace the current value. `+` applies
+ * an additive delta and `*` applies a multiplicative delta. The same prefix
+ * grammar is shared by color, size and offset tokens.
+ */
 enum struct setter_type{
 	/** @brief set current to specified */
 	absolute,
@@ -328,7 +343,7 @@ consteval hb_feature_t parse_feature_constexpr(std::string_view str){
 	if consteval{
 		feature = hb_constexpr::parse_feature_constexpr(args);
 	} else{
-		hb_feature_from_string(args.data(), args.length(), &feature);
+		hb_feature_from_string(args.data(), (int)args.length(), &feature);
 	}
 
 	return {feature};
@@ -336,6 +351,16 @@ consteval hb_feature_t parse_feature_constexpr(std::string_view str){
 }
 
 
+/**
+ * @brief A parsed rich text command.
+ *
+ * The source grammar is `{name}` or `{name:args}`. Recognized names are:
+ * `off`, `s`/`sz`/`size`, `f`/`font`, `c`/`#`/`color`, `ftr`, `wrap`/`w`,
+ * `^`, `_`, `-`, `u`, `i` and `b`, plus their slash-prefixed reset forms.
+ * Empty arguments on setter tokens reset that property. `make_revert()`
+ * returns the inverse/reset token used by grouped resets such as `{/2}` and
+ * `{///}` in `tokenized_text`.
+ */
 struct rich_text_token_argument{
 	rich_text_token::tokens token;
 

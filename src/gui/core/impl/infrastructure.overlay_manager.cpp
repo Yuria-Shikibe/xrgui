@@ -11,7 +11,7 @@ overlay_create_result<elem> overlay_manager::push_back(const overlay_layout& lay
 
 	if(fade_in){
 		elem_ptr->set_propagate_opacity(0.f);
-		elem_ptr->push_action<action::alpha_action>(10, nullptr, 1.);
+		elem_ptr->push_action<action::alpha_action>(10.f, nullptr, 1.f);
 	}
 	overlay& dlg = *overlays_.emplace(std::move(elem_ptr), layout);
 	active_stack_.push_back(std::addressof(dlg));

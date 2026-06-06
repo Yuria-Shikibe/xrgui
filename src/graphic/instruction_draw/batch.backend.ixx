@@ -104,7 +104,7 @@ struct geometry_copy_range{
 
 template <typename T>
 FORCE_INLINE void resize_uninitialized(raw_vector<T>& buffer, std::size_t new_size){
-	buffer.resize_and_overwrite(new_size, [](T*, std::size_t, std::size_t requested_size) noexcept{
+	buffer.resize_and_overwrite((typename raw_vector<T>::size_type)new_size, [](T*, std::size_t, std::size_t requested_size) noexcept{
 		return requested_size;
 	});
 }
@@ -518,7 +518,7 @@ struct instruction_resolve_info{
           }
 
           v3_info.primitives = group_primitives;
-          group_dispatch_info[i] = v3_info;
+          group_dispatch_info[(std::uint32_t)i] = v3_info;
 
           current_global_thread += group_vertices;
           current_global_primitive += group_primitives;
@@ -971,7 +971,7 @@ struct frame_resource{
 		                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
 		state_data_layout_cache_.begin_push();
-		state_data_layout_cache_.push(sizeof(dispatch_config), dispatch_infos.size());
+		state_data_layout_cache_.push(sizeof(dispatch_config), (unsigned)dispatch_infos.size());
 
 		for(const auto& entry : host_ctx.get_data_group_non_vertex_info().entries){
 			auto total = entry.get_count();
@@ -990,7 +990,7 @@ struct frame_resource{
 
 		for(const auto& [idx, entry] : vtx_info.entries | std::views::enumerate){
 			const auto total = entry.get_count();
-			state_data_layout_cache_.load(1 + idx, entry.data(), total);
+			state_data_layout_cache_.load(1U + (unsigned)idx, entry.data(), total);
 		}
 
 		const auto payload = state_data_layout_cache_.get_payload();
@@ -1003,7 +1003,7 @@ struct frame_resource{
 		vk::buffer_mapper{buffer_per_draw_call_data}.load_range(payload);
 
 		if(gfx_descriptor_buffer_per_draw_call.get_chunk_count() < dispatch_infos.size() + 1){
-			gfx_descriptor_buffer_per_draw_call.set_chunk_count(dispatch_infos.size() + 1);
+			gfx_descriptor_buffer_per_draw_call.set_chunk_count((std::uint32_t)(dispatch_infos.size() + 1));
 		}
 
 		auto section_events = host_ctx.get_section_events();
@@ -1016,11 +1016,11 @@ struct frame_resource{
 
 		auto load_timelines = [&](std::size_t current_chunk){
 			mapper.set_uniform_buffer(0,
-			                          buffer_per_draw_call_data.get_address() + state_data_layout_cache_.offset_at(0, current_chunk),
-			                          sizeof(dispatch_config), current_chunk);
+			                          buffer_per_draw_call_data.get_address() + state_data_layout_cache_.offset_at(0, (unsigned)current_chunk),
+			                          sizeof(dispatch_config), (std::uint32_t)current_chunk);
 			for(auto [idx, timeline] : cached_volatile_timelines | std::views::enumerate){
-				auto [off, sz] = state_data_layout_cache_[idx + 1, timeline];
-				mapper.set_uniform_buffer(idx + 1, buffer_per_draw_call_data.get_address() + off, sz, current_chunk);
+				auto [off, sz] = state_data_layout_cache_[(unsigned)idx + 1U, timeline];
+				mapper.set_uniform_buffer((std::uint32_t)idx + 1U, buffer_per_draw_call_data.get_address() + off, sz, (std::uint32_t)current_chunk);
 			}
 		};
 
@@ -1031,7 +1031,7 @@ struct frame_resource{
 				++cached_volatile_timelines[i];
 			}
 			auto where = dispatch_timeline_stamps_.begin() + (chunk_idx + 1) * dispatch_timeline_chunk_size;
-			*where = chunk_idx;
+			*where = (std::uint32_t)chunk_idx;
 			std::ranges::copy(cached_volatile_timelines, std::ranges::next(where));
 			load_timelines(chunk_idx + 1);
 		}
@@ -1111,7 +1111,7 @@ struct frame_resource{
 
 			VkDeviceSize cur_offset{};
 			for(const auto& [i, entry] : host_ctx.get_data_group_vertex_info().entries | std::views::enumerate){
-				gfx_mapper.set_element_at(timeline_binding_index + i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+				gfx_mapper.set_element_at(timeline_binding_index + (std::uint32_t)i, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				                          buffer_per_timeline_data.get_address() + cur_offset, entry.get_required_byte_size());
 				cur_offset += entry.get_required_byte_size();
 			}

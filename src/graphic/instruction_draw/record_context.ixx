@@ -13,6 +13,13 @@ import std;
 namespace mo_yanxi::graphic::g2d{
 
 export
+/**
+ * @brief One descriptor buffer binding and the set it targets.
+ *
+ * `chunk_size` and `initial_offset` let the renderer select per-frame or
+ * per-draw slices from a descriptor buffer when recording command buffer
+ * offsets.
+ */
 struct descriptor_buffer_usage{
 	VkDescriptorBufferBindingInfoEXT info;
 	std::uint32_t target_set;
@@ -21,6 +28,16 @@ struct descriptor_buffer_usage{
 };
 
 export
+/**
+ * @brief Batches Vulkan descriptor-buffer bind and offset commands.
+ *
+ * Callers push the descriptor buffers needed by a compute or graphics pass,
+ * then call `prepare_bindings()` before recording. The context sorts by target
+ * set, binds descriptor buffers only when the actual buffer addresses changed,
+ * and emits consecutive `vkCmdSetDescriptorBufferOffsetsEXT` ranges. This is
+ * the current renderer path; Descriptor Heap support is not wired into command
+ * recording yet.
+ */
 template <typename Alloc = std::allocator<descriptor_buffer_usage>>
 struct record_context{
 private:
@@ -29,7 +46,7 @@ private:
 	std::vector<VkDeviceSize, typename std::allocator_traits<Alloc>::template rebind_alloc<VkDeviceSize>> tempOffsets{};
 	std::vector<VkDescriptorBufferBindingInfoEXT, typename std::allocator_traits<Alloc>::template rebind_alloc<VkDescriptorBufferBindingInfoEXT>> tempBindInfos{};
 
-	// 新增：用于追踪当前 Command Buffer 实际已绑定的 Descriptor Buffers
+	// Tracks the descriptor buffers currently bound in this command buffer.
 	std::vector<VkDescriptorBufferBindingInfoEXT, typename std::allocator_traits<Alloc>::template rebind_alloc<VkDescriptorBufferBindingInfoEXT>> boundBindInfos{};
 
 public:
@@ -46,10 +63,10 @@ public:
 		designators.clear();
 		tempOffsets.clear();
 		tempBindInfos.clear();
-		// 注意：不要在这里 clear boundBindInfos，因为它需要在单次绘制循环间保持
+		// Keep boundBindInfos across pass-level clears inside one command buffer.
 	}
 
-	// 新增：在每次切换或重新录制 Command Buffer 时调用，重置底层绑定状态
+	// Call when switching or rerecording command buffers.
 	void reset_binding_state() noexcept{
 		boundBindInfos.clear();
 	}
@@ -85,13 +102,13 @@ public:
 		}
 
 		if(needs_bind){
-			vk::cmd::bindDescriptorBuffersEXT(buf, std::ranges::size(tempBindInfos), std::ranges::data(tempBindInfos));
+			vk::cmd::bindDescriptorBuffersEXT(buf, (std::uint32_t)std::ranges::size(tempBindInfos), std::ranges::data(tempBindInfos));
 			boundBindInfos.assign(tempBindInfos.begin(), tempBindInfos.end());
 		}
 
 		std::uint32_t current_src{};
 		for(auto&& chunk : binding_infos | std::views::chunk_by(is_consecutive)){
-			const std::uint32_t chunk_size = std::ranges::size(chunk);
+			const std::uint32_t chunk_size = (std::uint32_t)std::ranges::size(chunk);
 			designators.assign_range(std::views::iota(current_src, current_src + chunk_size));
 			tempOffsets.assign_range(chunk | std::views::transform([&](const descriptor_buffer_usage& info){
 				return info.chunk_size * index + info.initial_offset;

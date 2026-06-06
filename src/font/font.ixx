@@ -670,7 +670,7 @@ public:
 	}
 
 	[[nodiscard]] std::uint32_t generation() const noexcept {
-		return generation_.load(std::memory_order_acquire);
+		return static_cast<std::uint32_t>(generation_.load(std::memory_order_acquire));
 	}
 
 	// 获取特定样式的数据视图

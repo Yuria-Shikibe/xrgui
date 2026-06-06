@@ -569,9 +569,9 @@ public:
 					return e.target_slot.in;
 				}))continue;
 
-				auto& rst = bounds.emplace_back(inout.at_in(i));
+				auto& rst = bounds.emplace_back(inout.at_in((inout_index)i));
 				auto& cur = rst.passed_by.emplace_back(&pass);
-				cur.slot.in = i;
+				cur.slot.in = (inout_index)i;
 			}
 		}
 
@@ -1260,7 +1260,7 @@ private:
 
 
 			for (const auto& [in_idx, data_idx] : inout_sockets.get_valid_in()) {
-				const auto rentity = resources.get_in(in_idx);
+				const auto rentity = resources.get_in((inout_index)in_idx);
 				if (!rentity) continue;
 
 				const auto identity = rentity.get_identity();
@@ -1354,7 +1354,7 @@ private:
 
 
 			for (const auto& [out_idx, data_idx] : inout_sockets.get_valid_out()) {
-				const auto rentity = resources.get_out(out_idx);
+				const auto rentity = resources.get_out((inout_index)out_idx);
 				if (!rentity) continue;
 				const auto identity = rentity.get_identity();
 				auto& req_obj = inout_sockets.data[data_idx];

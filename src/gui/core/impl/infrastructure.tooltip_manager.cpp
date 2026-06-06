@@ -79,7 +79,7 @@ tooltip_instance& tooltip_manager::append_tooltip(spawner& owner, elem_ptr&& ele
 
 	if(fade_in){
 		val.element->set_propagate_opacity(0.f);
-		val.element->push_action<action::alpha_action>(10, nullptr, 1.);
+		val.element->push_action<action::alpha_action>(10.f, nullptr, 1.f);
 	}
 
 	drawSequence.push_back({val.element.get(), belowScene});

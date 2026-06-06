@@ -1,22 +1,35 @@
+# XRGUI 绘制流程概要
+
+本文只保留面向使用者的绘制数据流。具体数据结构、descriptor buffer 录制、GPU resolve、状态 diff 和 attachment 同步语义已放到源码 `/** */` Doxygen 注释中：
+
+- `src/graphic/instruction_draw/recorder.ixx`
+- `src/graphic/instruction_draw/binary_trace.ixx`
+- `src/graphic/instruction_draw/record_context.ixx`
+- `src/graphic/image/image_view_registry.ixx`
+- `src.backends/vulkan/renderer.components.ixx`
+- `src.backends/vulkan/renderer.ixx`
+
 ## 总览
 
-自顶向下的绘制过程描述：
-1. 如有需要，GUI重新录制平铺的绘制指令到函数指针级平铺绘制栈
-2. 对于需要绘制的GUI树，遍历绘制栈N次，绘制函数将图元指令和状态指令推送到渲染器后端，渲染器会在命令提交后得到M个Layer。
-3. M个Layer经由渲染器后处理产生I个Layer
-4. 如使用了合成器，使用合成器将I个Layer结合外部数据，绘制到J个Layer上
+当前默认 Vulkan 后端的高层流程：
+
+1. GUI 元素和样式把抽象绘制指令写入 draw record。
+2. 前端按状态和 pass 组织指令，交给 Vulkan batch backend。
+3. 如有需要，compute resolver 将抽象指令解析成 GPU 侧几何/索引/元数据。
+4. renderer 录制 graphics pass，把结果绘制到 GUI draw attachments。
+5. 可选 blit/post-process/compositor pass 继续处理这些 attachments。
 
 ![draw_structure.drawio.svg](draw_structure.drawio.svg)
 
-#### 目前渲染方案并未完全定稿，在Descriptor Heap的支持完备之后会进行一轮改动，计划是使用Descriptor Heap替换现有的Descriptor Buffer
+## 用户侧关注点
 
-* [ ] 添加内置的Depth/Stencil缓冲区支持
+- 普通 GUI 代码只需要通过元素、样式和控件发出绘制；不要直接依赖内部 draw record 格式。
+- 当前命令录制路径使用 Vulkan descriptor buffer；Descriptor Heap 相关代码还不是用户 API 或接入契约。
+- 自定义 renderer backend 或 shader 时，应与当前抽象绘制指令、image registry 和 state/pipeline 配置兼容。
+- 自定义后处理更适合从 compositor/pass 层接入，而不是绕过 GUI renderer 的 attachment 生命周期。
 
-* 理论上你可以替换自己的渲染器后端，或者向默认后端注册你自己写的着色器，只要它与默认的网格指令兼容
-* 同理，后处理着色器也可也自行修改
+## GUI 渲染流程图
 
-## GUI渲染流程
-
-* 下图展示了绘图命令的大体数据流。除了图上绘制的以外，还支持采样Image以实现像素级别的Mask
+下图展示绘图命令的大体数据流。图中未完整展开 mask、image sampling、post-process 和 compositor 的所有分支；实现细节以源码注释为准。
 
 ![draw_procedure.drawio.svg](draw_procedure.drawio.svg)

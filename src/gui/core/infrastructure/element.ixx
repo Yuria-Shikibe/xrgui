@@ -304,6 +304,13 @@ public:
 
 	template <typename E, typename Fn, typename ...Args>
 		requires (std::derived_from<std::remove_const_t<E>, elem> && std::invocable<Fn&&, E&, Args&&...>)
+	/**
+	 * @brief Run a mutation on the owning scene thread.
+	 *
+	 * If the caller is already on the scene thread, `fn(e, args...)` runs
+	 * immediately. Otherwise it is posted to the element's task queue and later
+	 * consumed by the scene. Arguments are moved into the posted task.
+	 */
 	void sync_run(this E& e, Fn&& fn, Args&&... args){
 		if(is_on_scene_thread(static_cast<const elem&>(e).get_scene())){
 			std::invoke(fn, e, std::forward<Args>(args)...);
@@ -405,19 +412,37 @@ public:
 		cursor_states_.inbound = is_inbounded;
 	}
 
+	/**
+	 * @brief Called when this element gains or loses cursor focus.
+	 */
 	virtual void on_focus_changed(bool is_focused){
 		cursor_states_.focused = is_focused;
 		if(!is_focused && !is_focus_extended_by_mouse())cursor_states_.pressed = false;
 	}
 
+	/**
+	 * @brief Handle key input delivered to the key focus or inbound stack.
+	 *
+	 * Return `intercepted` to stop propagation. Key input is delivered on the
+	 * scene thread after global input state has been updated.
+	 */
 	virtual events::op_afterwards on_key_input(const input_handle::key_set key){
 		return events::op_afterwards::fall_through;
 	}
 
+	/**
+	 * @brief Handle Unicode text input delivered to the current key focus.
+	 */
 	virtual events::op_afterwards on_unicode_input(const char32_t val){
 		return events::op_afterwards::fall_through;
 	}
 
+	/**
+	 * @brief Handle mouse button input in this element's local coordinate space.
+	 *
+	 * `aboves` contains elements above this element in the current inbound stack
+	 * and can be used for occlusion-aware behavior.
+	 */
 	virtual events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves){
 		if(!is_interactable()){
 			return events::op_afterwards::fall_through;
@@ -428,11 +453,17 @@ public:
 		return events::op_afterwards::fall_through;
 	}
 
+	/**
+	 * @brief Handle drag updates while a mouse button captured by UI remains down.
+	 */
 	virtual events::op_afterwards on_drag(const events::drag event){
 		return events::op_afterwards::fall_through;
 	}
 
 
+	/**
+	 * @brief Handle cursor movement after hit testing and focus updates.
+	 */
 	virtual events::op_afterwards on_cursor_moved(const events::cursor_move event){
 		cursor_states_.time_stagnate = 0;
 		if(tooltip_create_config.use_stagnate_time && !event.delta().equals({})){
@@ -442,10 +473,19 @@ public:
 		return events::op_afterwards::fall_through;
 	}
 
+	/**
+	 * @brief Handle scroll input from focus-scroll or the inbound stack.
+	 */
 	virtual events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves){
 		return events::op_afterwards::fall_through;
 	}
 
+	/**
+	 * @brief Handle the scene ESC chain.
+	 *
+	 * Scene-level ESC handling first gives tooltips and overlays a chance to
+	 * close, then calls this through the focused element's parent chain.
+	 */
 	virtual events::op_afterwards on_esc(){
 		return events::op_afterwards::fall_through;
 	}
@@ -644,11 +684,28 @@ public:
 
 	//TODO responsibility chain to notify one?
 
+	/**
+	 * @brief Mark this element, ancestors, and/or children dirty for layout.
+	 *
+	 * `propagation` selects local, upper, lower, or forced upper propagation. A
+	 * parent with `layout_state.intercept_lower_to_isolated` redirects child
+	 * changes into the scene's isolated layout queue instead of propagating
+	 * farther upward.
+	 */
 	void notify_layout_changed(propagate_mask propagation);
 
+	/**
+	 * @brief Mark this element for scene-level isolated layout update.
+	 */
 	void notify_isolated_layout_changed();
 
 protected:
+	/**
+	 * @brief Accept or reject a layout policy update.
+	 *
+	 * Containers override this to store fixed or mapped policies. The default
+	 * implementation accepts raw policies and ignores specifier mappings.
+	 */
 	virtual bool set_layout_policy_impl(const layout::layout_policy_setting setting){
 		return setting.is_policy();
 	}
@@ -1386,9 +1443,20 @@ unsigned inline get_nest_depth(const elem* where) noexcept{
 }
 
 void inline helper_transform_scene2content(const elem* where, std::span<math::vec2> inPos) noexcept{
-	if(where){
-		helper_transform_scene2content(where->parent(), inPos);
-		where->transform_to_content_space(inPos);
+	std::array<const elem*, 16> elem_buffer;
+	std::size_t elem_count = 0;
+
+	auto current = where;
+	for(; current && elem_count < elem_buffer.size(); current = current->parent()){
+		elem_buffer[elem_count++] = current;
+	}
+
+	if(current){
+		helper_transform_scene2content(current, inPos);
+	}
+
+	while(elem_count != 0){
+		elem_buffer[--elem_count]->transform_to_content_space(inPos);
 	}
 }
 

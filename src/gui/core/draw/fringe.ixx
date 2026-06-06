@@ -498,20 +498,20 @@ public:
 	FORCE_INLINE void add_fringe_cap_src(float cap_stroke){
 		
 		auto& node = add_cap_src(cap_stroke);
-		node.color.invoke(&graphic::color::set_a, 0);
+		node.color.invoke(&graphic::color::set_a, 0.f);
 	}
 
 	FORCE_INLINE void add_fringe_cap_dst(float cap_stroke){
 		
 		auto& node = add_cap_dst(cap_stroke);
-		node.color.invoke(&graphic::color::set_a, 0);
+		node.color.invoke(&graphic::color::set_a, 0.f);
 	}
 
 	FORCE_INLINE void add_fringe_cap(float cap_stroke_src = fringe_size, float cap_stroke_dst = fringe_size){
 		using namespace graphic::g2d;
 		auto [src, dst] = add_cap(cap_stroke_src, cap_stroke_dst);
-		src.color.invoke(&graphic::color::set_a, 0);
-		dst.color.invoke(&graphic::color::set_a, 0);
+		src.color.invoke(&graphic::color::set_a, 0.f);
+		dst.color.invoke(&graphic::color::set_a, 0.f);
 	}
 
 	FORCE_INLINE std::size_t size() const noexcept{

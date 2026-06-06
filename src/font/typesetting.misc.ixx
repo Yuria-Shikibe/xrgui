@@ -211,7 +211,7 @@ export struct glyph_layout : glyph_layout_draw_only{
 
 		typst_szt best_line_idx = 0;
 		if(line_it == lines.end()){
-			best_line_idx = lines.size() - 1;
+			best_line_idx = (typst_szt)(lines.size() - 1);
 		} else if(line_it == lines.begin()){
 			best_line_idx = 0;
 		} else{
@@ -219,8 +219,8 @@ export struct glyph_layout : glyph_layout_draw_only{
 			float dist_current = std::abs(get_line_cross_center(*line_it) - (is_vertical ? pos.x : pos.y));
 			float dist_prev = std::abs(get_line_cross_center(*prev_it) - (is_vertical ? pos.x : pos.y));
 			best_line_idx = (dist_prev < dist_current)
-				                ? std::ranges::distance(lines.begin(), prev_it)
-				                : std::ranges::distance(lines.begin(), line_it);
+				                ? (typst_szt)std::ranges::distance(lines.begin(), prev_it)
+				                : (typst_szt)std::ranges::distance(lines.begin(), line_it);
 		}
 
 		const auto& best_line = lines[best_line_idx];
@@ -430,10 +430,10 @@ struct layout_buffer : block_data, line_data{
 
 	template <bool HasClusters>
 	FORCE_INLINE inline void block_sync_start(const glyph_layout& results){
-		block_span.elem_start = results.elems.size();
-		block_span.ul_start = results.underlines.size();
-		block_span.wrap_start = results.wrap_frames.size(); // 同步点
-		if constexpr(HasClusters) block_span.cluster_start = results.clusters.size();
+		block_span.elem_start = (typst_szt)results.elems.size();
+		block_span.ul_start = (typst_szt)results.underlines.size();
+		block_span.wrap_start = (typst_szt)results.wrap_frames.size(); // 同步点
+		if constexpr(HasClusters) block_span.cluster_start = (typst_szt)results.clusters.size();
 	}
 
 	FORCE_INLINE inline void clear() & noexcept{
@@ -668,7 +668,7 @@ struct rich_text_enabled{
 				rich_context.token_soft_last = tokens.end();
 			}
 		}
-		rich_context.next_apply_pos = target_cluster + 1;
+		rich_context.next_apply_pos = (typst_szt)(target_cluster + 1);
 	}
 
 	FORCE_INLINE static graphic::color get_color(const rich_text_state& rich_context,

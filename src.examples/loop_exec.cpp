@@ -23,11 +23,11 @@ void mo_yanxi::gui::cfg::builtin::main_loop_fn(struct main_loop<main_loop_payloa
 
 	auto& trail = main_loop.payload.trail;
 
-	trail.update(deltatime.count() * 60, current_focus.get_cursor_pos(), 2);
+	trail.update(static_cast<float>(deltatime.count() * 60), current_focus.get_cursor_pos(), 2);
 	renderer.batch_host.begin_rendering();
 	renderer.batch_host.get_data_group_non_vertex_info().push_default(fx::ui_state(
 		r.get_region().extent(),
-		current_focus.get_current_time() / 60.
+		static_cast<float>(current_focus.get_current_time() / 60.)
 	));
 	renderer.batch_host.get_data_group_non_vertex_info().push_default(fx::slide_line_config{});
 

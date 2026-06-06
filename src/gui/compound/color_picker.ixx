@@ -83,7 +83,7 @@ struct hue_gradient_drawer final {
 				context.push(pos, stroke * .6f, color);
 			}
 
-			context.add_cap(0.1, 0.1);
+			context.add_cap(0.1f, 0.1f);
 			element.renderer() << context.mid(graphic::g2d::line_segments{});
 		}
 
@@ -562,7 +562,7 @@ private:
 
 		unsigned get_rgba_channel() const noexcept{
 			auto& cs = get_picker().rgba_channel_inputs;
-			return std::ranges::find(cs, static_cast<const numeric_input_area*>(this)) - cs.begin();
+			return (unsigned)(std::ranges::find(cs, static_cast<const numeric_input_area*>(this)) - cs.begin());
 		}
 
 		void on_changed(value_type val) override{

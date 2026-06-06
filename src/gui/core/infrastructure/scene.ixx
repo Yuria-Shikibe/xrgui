@@ -139,6 +139,13 @@ public:
 };
 
 export
+/**
+ * @brief One-shot request object used by native clipboard implementations.
+ *
+ * Window-thread code receives this object, obtains the clipboard text, then
+ * calls `std::move(request).set_value(text)`. The completion is routed back to
+ * the GUI scene through an owner-bound callback.
+ */
 struct native_clipboard_request{
 	std::move_only_function<void(std::string)> complete{};
 
@@ -151,20 +158,47 @@ struct native_clipboard_request{
 };
 
 export
+/**
+ * @brief GUI-thread facade for native window operations.
+ *
+ * Elements should use this interface instead of touching `GLFWwindow*`, Win32
+ * IME, clipboard, or cursor APIs directly. Concrete backends may marshal calls
+ * to the window thread. Requests that return data must bind an owner element so
+ * completion is dropped safely if that element is detached before the native
+ * result arrives.
+ */
 struct native_communicator{
 	virtual ~native_communicator() = default;
 
+	/**
+	 * @brief Set native clipboard text.
+	 *
+	 * Fire-and-forget operations may be called from the GUI thread; backend
+	 * implementations decide how to dispatch to the native window thread.
+	 */
 	void set_clipboard(std::string text){
 		set_clipboard_impl(std::move(text));
 	}
 
+	/**
+	 * @brief Request clipboard text and deliver it to a live owner element.
+	 *
+	 * `on_ready` runs later on the GUI thread as `on_ready(owner, text)`. Do not
+	 * capture raw element pointers in the callback; use the owner parameter.
+	 */
 	template <typename E, typename Fn>
 	void request_clipboard(E& owner, Fn&& on_ready);
 
+	/**
+	 * @brief Enable or disable native IME composition support.
+	 */
 	virtual void set_ime_enabled(bool enabled){
 
 	}
 
+	/**
+	 * @brief Report the caret rectangle for native IME candidate placement.
+	 */
 	virtual void set_ime_cursor_rect(const math::raw_frect region){
 
 	}
@@ -179,6 +213,12 @@ protected:
 	}
 
 public:
+	/**
+	 * @brief Show or hide the native cursor.
+	 *
+	 * Default standalone applications usually hide it and let XRGUI draw the
+	 * cursor style from scene state.
+	 */
 	virtual void set_native_cursor_visibility(bool show){
 
 	}
@@ -269,6 +309,13 @@ public:
 };
 
 export
+/**
+ * @brief Shared resources owned outside an individual scene instance.
+ *
+ * A `scene` and its forked async scenes share the heap, style manager, cursor
+ * collection, object pool, and native communicator stored here. Access to GUI
+ * resource managers is intended from the scene/UI thread.
+ */
 struct scene_resources{
 	friend scene_base;
 	friend scene;
@@ -283,6 +330,12 @@ public:
 	UI_MAIN_THREAD_ACCESS_ONLY style::style_tree_manager style_tree_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
 
+	/**
+	 * @brief Install the backend communicator used by GUI elements.
+	 *
+	 * For GLFW this is normally called during scene setup with the native window
+	 * handle and the window-thread dispatcher.
+	 */
 	template <std::derived_from<native_communicator> Ty, typename ...Args>
 	void set_native_communicator(Args&& ...args){
 		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
@@ -780,14 +833,29 @@ public:
 		output_communicate_async_task_queues_ = decltype(output_communicate_async_task_queues_){std::allocator_arg, get_heap_allocator(), total_channels};
 	}
 
+	/**
+	 * @brief Queue used by GUI code to send work out to the renderer/main loop side.
+	 *
+	 * The default examples use channel 0 for post-render updates such as
+	 * compositor parameter changes.
+	 */
 	auto& get_output_communicate_async_task_queue(std::size_t channel){
 		return output_communicate_async_task_queues_.at(channel);
 	}
 
+	/**
+	 * @brief Queue consumed on the GUI thread before scene update work.
+	 */
 	auto& get_input_communicate_async_task_queue(){
 		return input_communicate_async_task_queue_;
 	}
 
+	/**
+	 * @brief Create an owner-bound native clipboard completion.
+	 *
+	 * The returned request may be completed from a native/window thread. It posts
+	 * a GUI callback that executes only if `owner` is still live.
+	 */
 	template <std::derived_from<elem> E, std::invocable<E&, std::string> Fn>
 	native_clipboard_request make_native_clipboard_request(E& owner, Fn&& on_ready){
 		assert(is_on_scene_thread(*this));
@@ -882,11 +950,17 @@ public:
 		return resources_->communicator_.get();
 	}
 
+	/**
+	 * @brief Renderer frontend for the current GUI thread.
+	 */
 	[[nodiscard]] renderer_frontend& renderer() noexcept{
 		assert(is_on_scene_thread(*this));
 		return renderer_;
 	}
 
+	/**
+	 * @brief Shared scene resources.
+	 */
 	[[nodiscard]] scene_resources& resources() const noexcept{
 		assert(resources_ != nullptr);
 		return *resources_;
@@ -967,6 +1041,9 @@ protected:
 public:
 	void resize(const math::frect region);
 
+	/**
+	 * @brief Close the overlay containing `overlay_elem`, if present.
+	 */
 	void close_overlay(const elem* overlay_elem){
 		overlay_manager_.truncate(overlay_elem);
 		this->request_cursor_update();
@@ -976,6 +1053,12 @@ public:
 	//TODO make these API async safe
 
 public:
+	/**
+	 * @brief Add a react-flow node owned directly by the scene.
+	 *
+	 * Must be called on the scene/UI thread. Use `elem::request_embedded_react_node`
+	 * when the node should be removed automatically with an element.
+	 */
 	template <typename T, typename ...Args>
 	[[nodiscard]] T& request_independent_react_node(Args&& ...args){
 		if(!is_on_scene_thread(*this)){
@@ -999,6 +1082,11 @@ public:
 		return react_flow_.erase_node(node);
 	}
 
+	/**
+	 * @brief Add a react-flow node owned by `elem`.
+	 *
+	 * Owned nodes are removed automatically when the element is dropped.
+	 */
 	template <typename T, std::derived_from<elem> E, typename ...Args>
 	T& request_react_node(E& elem, Args&& ...args){
 		if(!is_on_scene_thread(*this)){
@@ -1156,6 +1244,13 @@ protected:
 };
 
 export
+/**
+ * @brief Main retained GUI scene.
+ *
+ * A scene owns the element tree root, input focus state, update queues, overlay
+ * and tooltip managers, react-flow graph, and the renderer frontend used by GUI
+ * drawing. Public methods that mutate GUI state assert the scene/UI thread.
+ */
 struct scene : scene_base{
 	friend elem;
 	friend ui_manager;
@@ -1196,6 +1291,13 @@ public:
 
 	void enable_elem_async_task_post(bool enable);
 
+	/**
+	 * @brief Post an element-owned async task.
+	 *
+	 * When async posting is enabled, the task is processed on the forked scene
+	 * worker and completed back on the GUI thread. Otherwise it is processed
+	 * synchronously on the current scene.
+	 */
 	template <std::derived_from<elem> E, std::invocable<E&> Prov>
 	elem_async_task_handle post_elem_async_task(E& e, Prov&& prov){
 		if(async_task_queue_){
@@ -1243,11 +1345,21 @@ public:
 		draw_impl(region);
 	}
 
+	/**
+	 * @brief Allocate a detached element owned by this scene.
+	 *
+	 * The returned `elem_ptr` must be inserted into a group or otherwise stored.
+	 * Most container code should prefer `create_back()` / `emplace_back()` so the
+	 * element and its cell metadata are created together.
+	 */
 	template <std::derived_from<elem> T, typename ...Args>
 	[[nodiscard]] elem_ptr create(Args&& ...args){
 		return elem_ptr{*this, nullptr, std::in_place_type<T>, std::forward<Args>(args)...};
 	}
 
+	/**
+	 * @brief Create an overlay element with an initializer function.
+	 */
 	template <invocable_elem_init_func Fn, typename... Args>
 	auto create_overlay(const overlay_layout layout, Fn&& fn, Args&&... args){
 		auto result = overlay_manager_.push_back(
@@ -1257,6 +1369,9 @@ public:
 		return static_cast<overlay_create_result<elem_init_func_create_t<Fn>>>(result);
 	}
 
+	/**
+	 * @brief Emplace an overlay element from constructor arguments.
+	 */
 	template <typename T, typename... Args>
 		requires (constructible_elem<T, Args&&...>)
 	overlay_create_result<T> emplace_overlay(const overlay_layout layout, Args&&... args){

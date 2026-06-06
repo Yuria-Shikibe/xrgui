@@ -56,6 +56,14 @@ const graphic::g2d::data_layout_table table_non_vertex{
 		std::in_place_type<std::tuple<gui::fx::ui_state, gui::fx::slide_line_config>>
 	};
 
+/**
+ * @brief Construction inputs for the default Vulkan GUI renderer.
+ *
+ * The renderer consumes GUI draw instructions, resolves them through the
+ * configured compute shader stage, draws to the configured draw attachments,
+ * and optionally runs blit/post-process passes over the configured blit
+ * attachments.
+ */
 export struct renderer_create_info{
 	vk::allocator_usage allocator_usage;
 	VkCommandPool command_pool;
@@ -73,7 +81,14 @@ export struct renderer{
 	//TODO change it to other value is not supported currently: attachments TODO
 	static constexpr std::size_t frames_in_flight = 3;
 
-	/** 命令录制上下文：作为 renderer 的内部结构体，拥有访问外部私有成员的权限 */
+	/**
+	 * @brief Per-command-buffer state used while recording resolved GUI draws.
+	 *
+	 * The context caches descriptor-buffer binding state, Vulkan dynamic
+	 * rendering state, attachment/mask layer transitions, graphics state deltas
+	 * and push constants. It is intentionally nested so it can read renderer
+	 * internals while keeping the public renderer surface small.
+	 */
 	struct command_recording_context{
 		struct per_record_context_value{
 			unsigned mask_depth{};

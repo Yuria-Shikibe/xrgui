@@ -50,7 +50,7 @@ struct ring_progress {
 
     if (state == progress_state::rough) {
 
-        const float time = element.get_scene().get_current_time() / 60.f;
+        const float time = static_cast<float>(element.get_scene().get_current_time() / 60.0);
 
 
         const float cycle_duration = 1.5f;

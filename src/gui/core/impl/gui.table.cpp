@@ -63,8 +63,8 @@ table_layout_context::pre_layout_result table_layout_context::layout_masters(
 
 	{
 		const auto [major_target, minor_target] = get_vec_ptr<table_size_t>(policy_);
-		known_masterings.*major_target = std::ranges::count_if(get_majors(), &table_head::mastering);
-		known_masterings.*minor_target = std::ranges::count_if(get_minors(), &table_head::mastering);
+		known_masterings.*major_target = static_cast<table_size_t>(std::ranges::count_if(get_majors(), &table_head::mastering));
+		known_masterings.*minor_target = static_cast<table_size_t>(std::ranges::count_if(get_minors(), &table_head::mastering));
 	}
 
 	return {masterings_captured, known_masterings};
@@ -163,12 +163,12 @@ math::vec2 table_layout_context::restricted_allocate_pendings(const std::span<co
 				if(float major_sum{std::ranges::fold_left(remain_major_pending_sizes, 0.f, std::plus{})}; major_sum > 0){
 					if(const auto ratio = passive_usable_extent.*major_target / major_sum; ratio < 1){
 						for(auto [midx, new_] : remain_major_pending_sizes | std::views::enumerate){
-							if(new_ > 0) at_major(midx).max_size = {layout::size_category::mastering, new_ * ratio};
+							if(new_ > 0) at_major(static_cast<table_size_t>(midx)).max_size = {layout::size_category::mastering, new_ * ratio};
 						}
 						passive_usable_extent.*major_target = 0;
 					} else{
 						for(auto [midx, new_] : remain_major_pending_sizes | std::views::enumerate){
-							if(new_ > 0) at_major(midx).max_size = {layout::size_category::mastering, new_};
+							if(new_ > 0) at_major(static_cast<table_size_t>(midx)).max_size = {layout::size_category::mastering, new_};
 						}
 						passive_usable_extent.*major_target -= major_sum;
 					}

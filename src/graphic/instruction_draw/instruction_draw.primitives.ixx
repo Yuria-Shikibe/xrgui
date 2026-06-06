@@ -170,7 +170,7 @@ public:
 		std::size_t node_payload_size
 	) noexcept{
 		assert(node_payload_size >= 4);
-		return (node_payload_size - 2) * 2;
+		return (std::uint32_t)((node_payload_size - 2) * 2);
 	}
 
 
@@ -178,7 +178,7 @@ public:
 		std::size_t node_payload_size
 	) noexcept{
 		assert(node_payload_size >= 4);
-		return (node_payload_size - 3) * 2;
+		return (std::uint32_t)((node_payload_size - 3) * 2);
 	}
 
 	template <typename... Args>
@@ -249,7 +249,7 @@ export struct line_segments_closed : line_segments{
 		std::size_t node_payload_size
 	) noexcept{
 		assert(node_payload_size >= 3);
-		return (node_payload_size) * 2 + 2;
+		return (std::uint32_t)(node_payload_size * 2 + 2);
 	}
 
 
@@ -257,7 +257,7 @@ export struct line_segments_closed : line_segments{
 		std::size_t node_payload_size
 	) noexcept{
 		assert(node_payload_size >= 3);
-		return (node_payload_size) * 2;
+		return (std::uint32_t)(node_payload_size * 2);
 	}
 
 	template <typename... Args>

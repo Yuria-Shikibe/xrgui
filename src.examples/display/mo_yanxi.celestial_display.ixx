@@ -85,7 +85,7 @@ namespace celestial {
             states_.push_back(body_state{
                 .global_position = mo_yanxi::math::vec2{0.0f, 0.0f},
                 .current_rotation = 0.0f,
-                .path_trail = mo_yanxi::graphic::trail(def.trail_length)
+                .path_trail = mo_yanxi::graphic::trail((unsigned)def.trail_length)
             });
 
             return new_index;
@@ -99,12 +99,12 @@ namespace celestial {
                 const auto& constant = constants_[i];
                 auto& state = states_[i];
 
-                state.current_rotation = constant.initial_rot_phase + constant.rot_angular_velocity * global_time;
+                state.current_rotation = static_cast<float>(constant.initial_rot_phase + constant.rot_angular_velocity * global_time);
 
                 if (constant.parent_index == invalid_parent) {
                     state.global_position.set_zero();
                 } else {
-                    float current_rev_angle = constant.initial_rev_phase + constant.rev_angular_velocity * global_time;
+                    float current_rev_angle = static_cast<float>(constant.initial_rev_phase + constant.rev_angular_velocity * global_time);
                     mo_yanxi::math::vec2 local_pos{
                         constant.semi_major_axis * mo_yanxi::math::cos(current_rev_angle),
                         constant.semi_minor_axis * mo_yanxi::math::sin(current_rev_angle)

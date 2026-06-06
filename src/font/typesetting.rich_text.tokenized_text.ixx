@@ -11,24 +11,36 @@ import :argument;
 
 namespace mo_yanxi::typesetting{
 export
+/**
+ * @brief Parsing mode for rich text input.
+ *
+ * `def` parses rich text commands, applies escaping, and removes command text
+ * from the stored string. `raw` stores the input as plain text. `kep` parses
+ * commands and applies escaping while keeping the original command characters
+ * in the stored string, which is useful for editable text that needs source
+ * positions to stay stable.
+ */
 enum struct tokenize_tag{
-	/**
-	 * @brief apply escape and token and clip token command
-	 */
 	def,
-
-	/**
-	 * @brief input as raw string, no token parse
-	 */
 	raw,
-
-	/**
-	 * @brief input as raw string, but also parse the token and apply escape
-	 */
 	kep
 };
 
 export
+/**
+ * @brief UTF-32 text with positioned rich text token actions.
+ *
+ * Input commands use `{name}` or `{name:args}`. Escaped braces can be written
+ * as `{{` and `}}`, or with backslash escapes for `\\`, `{` and `}`. In `def`
+ * mode, command spans are removed and token positions are measured in the
+ * resulting visible text. In `kep` mode, command spans remain and positions are
+ * measured in the original source string.
+ *
+ * Reset groups are parsed here before dispatching to `rich_text_token_argument`:
+ * `{/N}` emits reverts for the last N token entries, and a slash-only token such
+ * as `{///}` emits up to that many meaningful inverse tokens, skipping commands
+ * that cannot be reverted.
+ */
 struct tokenized_text{
 	struct posed_token_argument : rich_text_token_argument{
 		std::uint32_t pos{};

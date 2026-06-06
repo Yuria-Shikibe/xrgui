@@ -149,6 +149,14 @@ public:
 };
 
 export
+/**
+ * @brief Compute pass that resolves abstract draw instructions into GPU buffers.
+ *
+ * When the batch backend has pending resolve work, this helper binds the
+ * compute pipeline, loads the descriptor-buffer state for the current frame,
+ * dispatches the resolver shader, and inserts the compute-to-draw barrier used
+ * by the graphics pass.
+ */
 class renderer_instruction_resolver{
 private:
 	vk::pipeline_layout pipeline_layout_{};

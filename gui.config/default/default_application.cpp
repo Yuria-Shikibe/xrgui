@@ -498,7 +498,7 @@ struct default_application::state{
 		renderer.batch_host.begin_rendering();
 		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::ui_state(
 			frontend.get_region().extent(),
-			current_focus.get_current_time() / 60.));
+			static_cast<float>(current_focus.get_current_time() / 60.)));
 		renderer.batch_host.get_data_group_non_vertex_info().push_default(gui::fx::slide_line_config{});
 
 		frontend.init_timeline_variable();

@@ -12,6 +12,14 @@ constexpr void memcpy_constexpr(std::byte* dst, const std::byte* src, std::size_
 }
 
 export
+/**
+ * @brief Tracks byte-level state changes for tagged renderer state records.
+ *
+ * Each tag identifies one logical state slot. `update()` records whether a slot
+ * was created, appended, reallocated or byte-diffed, while `undo()` can roll
+ * the latest change back. The draw frontend uses this to avoid replaying full
+ * state payloads when only a small part of a state block changed.
+ */
 struct binary_diff_trace{
 	using flag_type = std::uint32_t;
 
@@ -138,7 +146,7 @@ public:
 		bool is_phys_tail = (rec.src_span.offset + rec.src_span.size == record_data_.size());
 
 		if(is_logical_append && is_phys_tail){
-			unsigned append_size = data.size();
+			unsigned append_size = (unsigned)data.size();
 			unsigned old_phys_size = static_cast<unsigned>(record_data_.size());
 
 			record_data_.resize(old_phys_size + append_size);
@@ -286,6 +294,14 @@ public:
 };
 
 export
+/**
+ * @brief Stores the latest byte range for each tagged state record.
+ *
+ * Unlike `binary_diff_trace`, this type is optimized for the current snapshot:
+ * callers can load a tag, patch a byte range, and store the result back. It is
+ * used where command recording needs the compact active state block rather than
+ * a history of changes.
+ */
 struct tagged_range_store{
 	using tag = binary_diff_trace::tag;
 	using sub_span = binary_diff_trace::sub_span;
@@ -389,7 +405,7 @@ public:
 		const bool is_shrink_or_same = (r.data.size <= old_size);
 
 		unsigned new_phys_off = old_offset;
-		unsigned new_total_size = record_data_.size();
+		unsigned new_total_size = (unsigned)record_data_.size();
 		bool requires_resize = false;
 
 		if(!is_shrink_or_same){
@@ -474,7 +490,7 @@ public:
 		bool is_phys_tail = (rec.src_span.offset + rec.src_span.size == record_data_.size());
 
 		if(is_logical_append && is_phys_tail){
-			unsigned append_size = data.size();
+			unsigned append_size = (unsigned)data.size();
 			unsigned old_phys_size = static_cast<unsigned>(record_data_.size());
 
 			record_data_.resize(old_phys_size + append_size);

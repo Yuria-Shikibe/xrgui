@@ -301,7 +301,7 @@ bool renderer::command_recording_context::apply_section_state_(
 		}
 		std::memcpy(cache.data() + off, params.entry.payload.data(), sz);
 
-		vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, off, sz,
+		vkCmdPushConstants(buffer, cur_pipe.pipeline_layout, flags, (std::uint32_t)off, (std::uint32_t)sz,
 		                   params.entry.payload.data());
 		break;
 	}
@@ -353,7 +353,7 @@ bool renderer::command_recording_context::apply_section_state_(
 					.baseArrayLayer = 0,
 					.layerCount = 1
 				};
-			vkCmdClearAttachments(buffer, cache_clear_attachments_.size(), cache_clear_attachments_.data(), 1, &rect);
+			vkCmdClearAttachments(buffer, (std::uint32_t)cache_clear_attachments_.size(), cache_clear_attachments_.data(), 1, &rect);
 		} else{
 			throw std::runtime_error{"not impl"};
 		}
@@ -478,7 +478,7 @@ void renderer::resize(VkExtent2D extent){
 	{
 		vk::descriptor_mapper mapper{mask_descriptor_buffer_};
 		for(auto&& [i, mask_image_view] : attachment_manager_.get_mask_image_views() | std::views::enumerate){
-			mapper.set_image(0, mask_image_view, i, VK_IMAGE_LAYOUT_GENERAL, nullptr,
+			mapper.set_image(0, mask_image_view, (std::uint32_t)i, VK_IMAGE_LAYOUT_GENERAL, nullptr,
 			                 VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 		}
 	}

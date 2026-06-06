@@ -466,6 +466,7 @@ void scene_base::capture_mouse(elem& target, input_handle::mouse mouse_button_co
 
 void scene_base::update(double delta_in_tick){
 	assert(is_on_scene_thread(*this));
+	const auto delta_in_tick_f = static_cast<float>(delta_in_tick);
 	native_gui_callbacks_->consume();
 	input_communicate_async_task_queue_.consume(static_cast<scene&>(*this));
 
@@ -473,8 +474,8 @@ void scene_base::update(double delta_in_tick){
 	if(async_task_queue_)async_task_queue_->process_done();
 	instant_task_queue_.consume();
 
-	tooltip_manager_.update(delta_in_tick, get_cursor_pos(), input_handler_.is_mouse_pressed());
-	overlay_manager_.update(delta_in_tick);
+	tooltip_manager_.update(delta_in_tick_f, get_cursor_pos(), input_handler_.is_mouse_pressed());
+	overlay_manager_.update(delta_in_tick_f);
 
 	if(input_handler_.request_cursor_update_){
 		auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
@@ -483,14 +484,14 @@ void scene_base::update(double delta_in_tick){
 		apply_update_state_changes();
 	}
 
-	root().update(delta_in_tick);
+	root().update(delta_in_tick_f);
 
 	for (auto active_update_elem : active_update_elems_){
-		active_update_elem.elem->update(delta_in_tick);
+		active_update_elem.elem->update(delta_in_tick_f);
 	}
 
-	input_handler_.update_elem_cursor_state(delta_in_tick, tooltip_manager_);
-	action_queue_.update(delta_in_tick);
+	input_handler_.update_elem_cursor_state(delta_in_tick_f, tooltip_manager_);
+	action_queue_.update(delta_in_tick_f);
 
 	apply_update_state_changes();
 

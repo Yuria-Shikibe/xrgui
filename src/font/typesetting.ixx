@@ -451,7 +451,7 @@ private:
 
 	typst_szt get_current_gap_index(const glyph_layout& results, bool is_delimiter) const noexcept{
 		const auto size = results.elems.size() - layout_buffer_.line_span.elem_start;
-		return (is_delimiter && size > 0) ? size - 1 : size;
+		return (typst_szt)((is_delimiter && size > 0) ? size - 1 : size);
 	}
 
 	void apply_newline_wrap_padding(glyph_layout& results, persistent_run_state& rs) {
@@ -658,7 +658,7 @@ private:
 
 		const run_metrics metrics = this->calculate_metrics(config_, face);
 		::hb_shape(this->get_hb_font(&face, metrics.snapped_size), hb_buffer_.get(), feature_stack_.data(),
-			feature_stack_.size());
+			(unsigned int)feature_stack_.size());
 
 		unsigned int len;
 		hb_glyph_info_t* infos = hb_buffer_get_glyph_infos(hb_buffer_.get(), &len);
@@ -1121,10 +1121,10 @@ private:
 		new_line.start_pos = offset_vec;
 		new_line.rect = layout_buffer_.line_bound;
 		new_line.glyph_range = subrange(layout_buffer_.line_span.elem_start,
-			line_elem_end - layout_buffer_.line_span.elem_start);
+			(typst_szt)(line_elem_end - layout_buffer_.line_span.elem_start));
 		if constexpr(enable_cluster_record){
 			new_line.cluster_range = subrange(layout_buffer_.line_span.cluster_start,
-				line_cluster_end - layout_buffer_.line_span.cluster_start);
+				(typst_szt)(line_cluster_end - layout_buffer_.line_span.cluster_start));
 		}
 
 
@@ -1169,7 +1169,7 @@ private:
 		results.lines.push_back(std::move(new_line));
 		state_.prev_line_descender = current_desc;
 
-		layout_buffer_.block_span.wrap_start = line_wrap_end;
+		layout_buffer_.block_span.wrap_start = (typst_szt)line_wrap_end;
 		static_cast<line_data&>(layout_buffer_).clear();
 		layout_buffer_.line_span = layout_buffer_.block_span;
 
@@ -1316,7 +1316,7 @@ private:
 		
 		if(current_style.face){
 			if(!process_text_run_impl<IsInf>(full_text, config_, results, run_start,
-				full_text.get_text().size() - run_start, *current_style.face,
+				(typst_szt)(full_text.get_text().size() - run_start), *current_style.face,
 				current_style.synthetic_italic, current_style.synthetic_bold, rs))
 				return false;
 		}

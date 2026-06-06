@@ -168,7 +168,7 @@ public:
 	}
 
 	[[nodiscard]] unsigned get_attachment_count() const noexcept{
-		return blend_states.size() / blending_state_count;
+		return (unsigned)(blend_states.size() / blending_state_count);
 	}
 
 	template <typename S>

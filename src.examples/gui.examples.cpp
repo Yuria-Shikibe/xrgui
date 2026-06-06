@@ -171,7 +171,8 @@ struct pie_menu_demo_area : label{
 	[[nodiscard]] pie_menu_demo_area(scene& scene, elem* parent)
 		: label(scene, parent){
 		interactivity = interactivity_flag::enabled;
-		set_style(style::family_variant::solid);
+		set_style();
+		// set_style(style::family_variant::solid);
 		set_fit_type(label_fit_type::scl);
 		text_entire_align = align::pos::center;
 		set_self_border(border_t{}.set(24.f));
@@ -191,7 +192,7 @@ struct pie_menu_demo_area : label{
 						get_scene(), nullptr,
 						[text, disabled](label& label){
 							label.interactivity = interactivity_flag::enabled;
-							label.set_style(style::family_variant::base_only);
+							// label.set_style(style::family_variant::base_only);
 							label.set_fit_type(label_fit_type::scl);
 							label.text_entire_align = align::pos::center;
 							label.text_color_scl = graphic::colors::white.copy_set_a(disabled ? .45f : .95f);
@@ -373,7 +374,7 @@ struct vp : gui::viewport{
 					    layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size
 				    } | std::views::enumerate){
 					if(!val.texture->view) continue;
-					auto start = math::fma(idx, spacing, line_src + val.aabb.src);
+					auto start = math::fma(static_cast<float>(idx), spacing, line_src + val.aabb.src);
 					text_render_cache.push(graphic::g2d::rect_aabb{
 							.generic = {.image = val.texture->texture_binding()},
 							.v00 = start,
@@ -1403,11 +1404,11 @@ Edge Cases:
 						};
 						table.create_back([&](picker& p){
 							p.prov = &style_pal_prov.front();
-						}, layout::layout_policy::hori_major, 120);
+						}, layout::layout_policy::hori_major, 120.f);
 
 						table.create_back([&](picker& p){
 							p.prov = &style_pal_prov.back();
-						}, layout::layout_policy::hori_major, 120);
+						}, layout::layout_policy::hori_major, 120.f);
 					}
 				},
 				test_entry{

@@ -104,6 +104,14 @@ struct image_view_key_less{
 };
 
 export
+/**
+ * @brief Stable descriptor indices for Vulkan image views and samplers.
+ *
+ * Draw instructions store compact image/sampler indices instead of raw Vulkan
+ * handles. The registry deduplicates image view + layout pairs and samplers,
+ * reserves index 0 for invalid/automatic bindings, and tracks dirty slots so
+ * descriptor buffers can be updated incrementally before command recording.
+ */
 class image_view_registry{
 	std::vector<image_view_sampler_record> sampler_records_{image_view_sampler_record{}};
 	std::vector<image_view_record> image_records_{};

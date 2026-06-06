@@ -71,7 +71,7 @@ private:
 					    glyph_layout.elems.begin() + current_line.glyph_range.pos, current_line.glyph_range.size
 				    } | std::views::enumerate){
 					if(!val.texture->view) continue;
-					auto start = math::fma(idx, spacing, line_src + val.aabb.src);
+					auto start = math::fma(static_cast<float>(idx), spacing, line_src + val.aabb.src);
 					buffer.push(rect_aabb{
 							.generic = {.image = val.texture->texture_binding()},
 							.v00 = start,
@@ -391,7 +391,7 @@ public:
 
 
           draw_entry(head_entry, current_offset + draw_offset, {head_entry.actual_size.temp, head_max_height},
-                     math::usize2(col));
+                     math::usize2((unsigned)col));
 
 
 
@@ -402,7 +402,7 @@ public:
           for(std::size_t row = visible_row_start; row < visible_row_end; ++row){
              auto& grid_entry = grid[row, col];
              draw_entry(grid_entry, current_offset + draw_offset, {head_entry.actual_size.temp, config_.entry_height},
-                        math::usize2(col, row + 1));
+                        math::usize2((unsigned)col, (unsigned)(row + 1)));
 
              current_offset.y += row_step;
           }
@@ -444,7 +444,7 @@ public:
 
 
 
-				unsigned expected_index = (coord.row - 1) * col_count + coord.col;
+				unsigned expected_index = (unsigned)((coord.row - 1) * col_count + coord.col);
 
 
 

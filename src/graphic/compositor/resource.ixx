@@ -786,12 +786,12 @@ struct pass_logical_socket{
 private:
 	void resize_and_set_in(const inout_index idx, const std::size_t desc_index){
 		input_slots.resize(std::max<std::size_t>(input_slots.size(), idx + 1), no_slot);
-		input_slots[idx] = desc_index;
+		input_slots[idx] = (data_index)desc_index;
 	}
 
 	void resize_and_set_out(const inout_index idx, const std::size_t desc_index){
 		output_slots.resize(std::max<std::size_t>(output_slots.size(), idx + 1), no_slot);
-		output_slots[idx] = desc_index;
+		output_slots[idx] = (data_index)desc_index;
 	}
 
 	[[nodiscard]] bool has_index(const inout_index idx, slot_to_data_index pass_logical_socket::* mptr) const noexcept{

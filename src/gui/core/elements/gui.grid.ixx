@@ -104,7 +104,7 @@ struct variable_extent{
 	container_t<variable_extent_entry> value{};
 
 	[[nodiscard]] std::uint32_t size() const noexcept{
-		return value.size();
+		return (std::uint32_t)value.size();
 	}
 
 	[[nodiscard]] layout::stated_size load_to(std::span<layout::stated_size> target) const noexcept{
@@ -196,7 +196,7 @@ struct grid_mixed{
 	container_t<entry> heads;
 
 	[[nodiscard]] std::uint32_t size() const noexcept{
-		return heads.size();
+		return (std::uint32_t)heads.size();
 	}
 
 	[[nodiscard]] layout::stated_size load_to(std::span<layout::stated_size> target) const noexcept{

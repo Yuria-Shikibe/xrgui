@@ -77,7 +77,7 @@ public:
 		auto src_len_ = src_len;
 		auto end_len_ = end_len;
 
-		float len = region.width();
+		float len = static_cast<float>(region.width());
 
 		if(cap_inner_len > len){
 			src_len_ = len * src_len_ / cap_inner_len;

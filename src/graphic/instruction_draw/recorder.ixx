@@ -13,6 +13,15 @@ import mo_yanxi.raw_byte_buffer;
 namespace mo_yanxi::graphic::g2d {
 
 export
+/**
+ * @brief CPU-side storage for abstract 2D drawing instructions.
+ *
+ * Style and element code emits typed instructions into this sink instead of
+ * building vertices directly. The storage keeps compact instruction headers
+ * separately from trivially-copyable payload bytes so the Vulkan backend can
+ * upload a contiguous stream and let the GPU-side resolver expand it into
+ * draw-ready geometry.
+ */
 template <typename Alloc = std::allocator<std::byte>>
 struct draw_record_storage : emit_stream_sink<draw_record_storage<Alloc>> {
 private:
@@ -119,6 +128,13 @@ struct instr_chunk {
 };
 
 export
+/**
+ * @brief Draw instruction storage with explicit split points.
+ *
+ * Chunks preserve the same underlying instruction stream as
+ * `draw_record_storage`, but expose ranges for callers that need to reuse or
+ * replay separately recorded draw segments, such as text layout caches.
+ */
 template <typename Alloc = std::allocator<std::byte>>
 struct draw_record_chunked_storage : graphic::g2d::emit_stream_sink<draw_record_chunked_storage<Alloc>> {
 private:

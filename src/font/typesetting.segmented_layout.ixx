@@ -78,8 +78,8 @@ public:
     	segments_.clear();
     	for(auto subrange : text | std::views::split(std::forward<Pat>(pat))){
     		std::u32string_view substr{subrange};
-    		auto beg = substr.data() - src;
-    		auto end = beg + substr.size();
+    		auto beg = (std::uint32_t)(substr.data() - src);
+    		auto end = (std::uint32_t)(beg + substr.size());
     		segments_.emplace_back(beg, end);
     	}
     }

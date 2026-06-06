@@ -108,7 +108,7 @@ public:
 		if(auto* op = history_.to_next()){
 			switch(op->type){
 			case text_edit_type::insert : target.insert(op->position, op->text_after);
-				caret = caret_section(op->caret_state.src + op->text_after.size(), op->caret_state.dst + op->text_after.size());
+				caret = caret_section(op->caret_state.src + (unsigned)op->text_after.size(), op->caret_state.dst + (unsigned)op->text_after.size());
 				break;
 			case text_edit_type::del : target.erase(op->position, op->text_before.size());
 				caret = op->caret_state;
@@ -134,6 +134,10 @@ private:
 
 	std::optional<float> preferred_cross_pos_{};
 
+	[[nodiscard]] static constexpr unsigned text_index(const std::size_t index) noexcept{
+		return (unsigned)index;
+	}
+
 	static constexpr bool cares_about(const char32_t code) noexcept{
 		if(code > 127) return true;
 		return std::isalnum(code) || code == U'_';
@@ -157,7 +161,7 @@ private:
 	};
 
 	[[nodiscard]] line_bounds get_line_bounds(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, unsigned line_idx) const {
-        if (line_idx >= layout.lines.size()) {
+        if (std::cmp_greater_equal(line_idx, layout.lines.size())) {
             return {0, 0, 0};
         }
 
@@ -169,7 +173,7 @@ private:
                 const auto& prev = layout.clusters[line.cluster_range.pos - 1];
                 idx = prev.cluster_index + prev.cluster_span;
             } else if (!text_buffer_.empty()) {
-                idx = text_buffer_.size();
+                idx = text_index(text_buffer_.size());
             }
             return {idx, idx, idx};
         }
@@ -196,12 +200,12 @@ private:
     [[nodiscard]] unsigned get_line_index(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, unsigned pos) const {
         if (layout.lines.empty()) return 0;
 
-        for (unsigned i = 0; i < layout.lines.size(); ++i) {
+        for (unsigned i = 0; std::cmp_less(i, layout.lines.size()); ++i) {
             auto b = get_line_bounds(layout, text_buffer_, i);
             if (pos >= b.start_idx && pos < b.end_idx) return i;
-            if (i == layout.lines.size() - 1 && pos == b.end_idx) return i;
+            if (i == text_index(layout.lines.size() - 1) && pos == b.end_idx) return i;
         }
-        return layout.lines.size() > 0 ? layout.lines.size() - 1 : 0;
+        return layout.lines.size() > 0 ? text_index(layout.lines.size() - 1) : 0;
     }
 
 public:
@@ -225,11 +229,11 @@ public:
 			auto sorted = caret_.get_ordered();
 			history_.commit_replace(text_buffer_, caret_, sorted.src, sorted.length(), inserted_text);
 			text_buffer_.replace(sorted.src, sorted.length(), inserted_text);
-			caret_.dst = sorted.src + inserted_text.size();
+			caret_.dst = sorted.src + text_index(inserted_text.size());
 		} else{
 			history_.commit_insertion(text_buffer_, caret_, caret_.dst, inserted_text);
 			text_buffer_.insert(caret_.dst, inserted_text);
-			caret_.dst += inserted_text.size();
+			caret_.dst += text_index(inserted_text.size());
 		}
 		caret_.src = caret_.dst;
 		return true;
@@ -259,7 +263,7 @@ public:
 
 	bool action_delete(std::u32string& text_buffer_){
 		if(delete_selection(text_buffer_)) return true;
-		if(caret_.dst >= text_buffer_.size()) return false;
+		if(std::cmp_greater_equal(caret_.dst, text_buffer_.size())) return false;
 		reset_preferred_cross_pos();
 
 		history_.commit_delete(text_buffer_, caret_, caret_.dst, 1);
@@ -285,19 +289,19 @@ public:
 	void action_move_left(const std::u32string_view text_buffer_, bool select){
 		reset_preferred_cross_pos();
 		if(!select && caret_.has_region()){
-			merge_caret(caret_.get_ordered().src, false, text_buffer_.size());
+			merge_caret(caret_.get_ordered().src, false, text_index(text_buffer_.size()));
 			return;
 		}
-		if(caret_.dst > 0) merge_caret(caret_.dst - 1, select, text_buffer_.size());
+		if(caret_.dst > 0) merge_caret(caret_.dst - 1, select, text_index(text_buffer_.size()));
 	}
 
 	void action_move_right(const std::u32string_view text_buffer_, bool select){
 		reset_preferred_cross_pos();
 		if(!select && caret_.has_region()){
-			merge_caret(caret_.get_ordered().dst, false, text_buffer_.size());
+			merge_caret(caret_.get_ordered().dst, false, text_index(text_buffer_.size()));
 			return;
 		}
-		if(caret_.dst < text_buffer_.size()) merge_caret(caret_.dst + 1, select, text_buffer_.size());
+		if(std::cmp_less(caret_.dst, text_buffer_.size())) merge_caret(caret_.dst + 1, select, text_index(text_buffer_.size()));
 	}
 
 	static constexpr char_class get_char_class(const char32_t code) noexcept {
@@ -314,7 +318,7 @@ public:
 	void action_jump_left(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select) {
 		reset_preferred_cross_pos();
 		if (!select && caret_.has_region()) {
-			merge_caret(caret_.get_ordered().src, false, text_buffer_.size());
+			merge_caret(caret_.get_ordered().src, false, text_index(text_buffer_.size()));
 			return;
 		}
 		if (caret_.dst == 0) return;
@@ -334,71 +338,71 @@ public:
 			}
 		}
 
-		merge_caret(p, select, text_buffer_.size());
+		merge_caret(p, select, text_index(text_buffer_.size()));
 	}
 
 	void action_jump_right(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select) {
 		reset_preferred_cross_pos();
 		if (!select && caret_.has_region()) {
-			merge_caret(caret_.get_ordered().dst, false, text_buffer_.size());
+			merge_caret(caret_.get_ordered().dst, false, text_index(text_buffer_.size()));
 			return;
 		}
-		if (caret_.dst >= text_buffer_.size()) return;
+		if (std::cmp_greater_equal(caret_.dst, text_buffer_.size())) return;
 
 		unsigned p = caret_.dst;
 
 		
 		
 		char_class target_class = get_char_class(text_buffer_[p]);
-		while (p < text_buffer_.size() && get_char_class(text_buffer_[p]) == target_class) {
+		while (std::cmp_less(p, text_buffer_.size()) && get_char_class(text_buffer_[p]) == target_class) {
 			p++;
 		}
 
 		
 		
 		if (target_class != char_class::whitespace) {
-			while (p < text_buffer_.size() && get_char_class(text_buffer_[p]) == char_class::whitespace) {
+			while (std::cmp_less(p, text_buffer_.size()) && get_char_class(text_buffer_[p]) == char_class::whitespace) {
 				p++;
 			}
 		}
 
-		merge_caret(p, select, text_buffer_.size());
+		merge_caret(p, select, text_index(text_buffer_.size()));
 	}
 
 	void action_move_line_begin(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select){
 		reset_preferred_cross_pos();
 		if(layout.empty()){
-			merge_caret(0, select, text_buffer_.size());
+			merge_caret(0, select, text_index(text_buffer_.size()));
 			return;
 		}
 		unsigned line_idx = get_line_index(layout, text_buffer_, caret_.dst);
 		auto bounds = get_line_bounds(layout, text_buffer_, line_idx);
-		merge_caret(bounds.start_idx, select, text_buffer_.size());
+		merge_caret(bounds.start_idx, select, text_index(text_buffer_.size()));
 	}
 
 	void action_move_line_end(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select){
 		reset_preferred_cross_pos();
 		if(layout.empty()){
-			merge_caret(text_buffer_.size(), select, text_buffer_.size());
+			merge_caret(text_index(text_buffer_.size()), select, text_index(text_buffer_.size()));
 			return;
 		}
 		unsigned line_idx = get_line_index(layout, text_buffer_, caret_.dst);
 		auto bounds = get_line_bounds(layout, text_buffer_, line_idx);
-		merge_caret(bounds.visual_end, select, text_buffer_.size());
+		merge_caret(bounds.visual_end, select, text_index(text_buffer_.size()));
 	}
 
 	
 	void action_select_all(const std::u32string_view text_buffer_) noexcept {
 		reset_preferred_cross_pos();
 		caret_.src = 0;
-		caret_.dst = text_buffer_.size();
+		caret_.dst = text_index(text_buffer_.size());
 	}
 
 	bool action_hit_test(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, math::vec2 pos, typesetting::line_alignment align,
 		bool select){
 		reset_preferred_cross_pos();
 		if(layout.empty()){
-			merge_caret(0, select, text_buffer_.size());
+			merge_caret(0, select, text_index(text_buffer_.size()));
 			return false;
 		}
 
@@ -410,7 +414,7 @@ public:
 			auto bounds = get_line_bounds(layout, text_buffer_, line_idx);
 			new_index = std::clamp(new_index, bounds.start_idx, bounds.visual_end);
 
-			merge_caret(new_index, select, text_buffer_.size());
+			merge_caret(new_index, select, text_index(text_buffer_.size()));
 			return true;
 		}
 
@@ -420,7 +424,7 @@ public:
 		unsigned closest_line_idx = 0;
 		float min_dist = std::numeric_limits<float>::max();
 
-		for (unsigned i = 0; i < layout.lines.size(); ++i) {
+		for (unsigned i = 0; std::cmp_less(i, layout.lines.size()); ++i) {
 			auto align_res = layout.lines[i].calculate_alignment(layout.extent, align, layout.direction);
 			float dist = is_vertical_layout ? std::abs(align_res.start_pos.x - pos.x) : std::abs(align_res.start_pos.y - pos.y);
 			if (dist < min_dist) {
@@ -431,7 +435,7 @@ public:
 
 		
 		auto bounds = get_line_bounds(layout, text_buffer_, closest_line_idx);
-		merge_caret(bounds.visual_end, select, text_buffer_.size());
+		merge_caret(bounds.visual_end, select, text_index(text_buffer_.size()));
 
 		
 		return true;
@@ -443,8 +447,8 @@ public:
         if (layout.empty() || layout.lines.empty()) return;
         unsigned line_idx = get_line_index(layout, text_buffer_, caret_.dst);
 
-        if (line_idx >= layout.lines.size()) {
-            line_idx = layout.lines.size() - 1;
+        if (std::cmp_greater_equal(line_idx, layout.lines.size())) {
+            line_idx = text_index(layout.lines.size() - 1);
         }
 
         const bool is_vertical_layout = (layout.direction == typesetting::layout_direction::ttb || layout.direction == typesetting::layout_direction::btt);
@@ -478,19 +482,19 @@ public:
             }
         }
 
-        if (move_down && line_idx + 1 >= layout.lines.size()) {
-            merge_caret(text_buffer_.size(), select, text_buffer_.size());
+        if (move_down && std::cmp_greater_equal(line_idx + 1U, layout.lines.size())) {
+            merge_caret(text_index(text_buffer_.size()), select, text_index(text_buffer_.size()));
             return;
         }
         if (!move_down && line_idx == 0) {
-            merge_caret(0, select, text_buffer_.size());
+            merge_caret(0, select, text_index(text_buffer_.size()));
             return;
         }
 
         unsigned target_line_idx = move_down ? line_idx + 1 : line_idx - 1;
 
-        if(target_line_idx >= layout.lines.size()) {
-            merge_caret(text_buffer_.size(), select, text_buffer_.size());
+        if(std::cmp_greater_equal(target_line_idx, layout.lines.size())) {
+            merge_caret(text_index(text_buffer_.size()), select, text_index(text_buffer_.size()));
             return;
         }
 
@@ -511,10 +515,10 @@ public:
 			unsigned new_index = hit.source->cluster_index + hit.span_offset;
 			auto bounds = get_line_bounds(layout, text_buffer_, target_line_idx);
 			new_index = std::clamp(new_index, bounds.start_idx, bounds.visual_end);
-			merge_caret(new_index, select, text_buffer_.size());
+			merge_caret(new_index, select, text_index(text_buffer_.size()));
 		} else {
 			auto bounds = get_line_bounds(layout, text_buffer_, target_line_idx);
-			merge_caret(bounds.visual_end, select, text_buffer_.size());
+			merge_caret(bounds.visual_end, select, text_index(text_buffer_.size()));
 		}
     }
 

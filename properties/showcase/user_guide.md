@@ -1,985 +1,418 @@
-# XRGUI 用户指南
+# XRGUI GUI 使用指南
 
-> XRGUI 是一个**每帧重绘+按需局部更新**、内置**自动布局**、基于 **Vulkan** 渲染后端的**保留式 GUI** 库。采用 C++23 模块编写。
+本文档是 GUI 使用方式的集中入口。更细的实现语义应查看源码中的 `/** */` Doxygen 注释；这里优先保留能按当前代码使用的入口、构建模式和常用控件写法。
 
----
+## 1. 快速运行
 
-## 1. 设计理念
+默认支持路径是 Windows + MSVC + Vulkan：
 
-XRGUI 被设计为**应用程序的一个组件**，而非完整的应用框架：
-
-- **不拥有窗口** — 窗口由您创建和管理
-- **不运行于主线程** — GUI 线程独立运行，主线程负责输入和渲染提交
-- **只输出到附件** — 绘制结果输出到 Vulkan Image
-- **即时重绘** — 每帧重绘，但扁平绘制指令仅在状态变化时重录
-- **纯命令式** — 所有 UI 通过 C++ 代码构建
-- **永远从源码构建** — 不支持动态链接
-
-### 典型集成模式
-
-```
-[主线程]                     [GUI线程]
-   |                            |
-   输入事件 ----------------> 消费事件
-   放行GUI -----------------> 布局+绘制
-   等待完成 <---------------- 录制完成
-   提交GPU命令                  |
-   呈现到屏幕                   |
-```
-
----
-
-## 2. 快速开始
-
-### 环境要求
-
-| 依赖 | 用途 |
-|------|------|
-| MSVC 14.52+ (VS 2026) | 编译器 |
-| Vulkan SDK 1.4+ | 渲染后端 |
-| xmake | 构建系统 |
-| slangc | Shader编译 |
-| Python 3.11+ | 构建脚本 |
-| Node.js | SVG图标处理 |
-
-### 构建步骤
-
-```bash
-# 1. 初始化子模块
+```powershell
 git submodule update --init --recursive
+xmake quickstart
+```
 
-# 2. 配置
-xmake f --toolchain=msvc -y
+`quickstart` 会配置 MSVC debug 构建，按需生成 shader/icon，运行 `xmake doctor`，构建并启动 `xrgui.hello`。
 
-# 3. 生成资源（必须，不可跳过）
-xmake gen_slang      # 编译 Slang Shader -> SPIR-V
-xmake gen_icon       # 处理 SVG 图标
+常用命令：
 
-# 4. 运行示例
+```powershell
+xmake doctor
+xmake -b xrgui.hello
+xmake run xrgui.hello
+xmake -b xrgui.example
 xmake run xrgui.example
 ```
 
-### 模式切换
+`xrgui.hello` 是最小 GUI 接入示例，源码在 `src.hello/main.cpp`。`xrgui.example` 是完整 showcase，包含 compositor、后处理、markdown、CSV、复杂控件和演示页面，不建议作为第一次接入时的最小模板。
 
-```bash
-xmake switch_mode debug    # Debug模式
-xmake switch_mode release  # Release模式
-```
+## 2. 推荐入口：default_application
 
----
-
-## 3. 架构概览
-
-```
-应用层 ---- 创建窗口、注入输入、提交绘制命令
-  |
-  |- GUI线程 ---- scene -> 元素树 -> 布局 -> 绘制指令
-  |                  |
-  |                  |- react_flow (数据流)
-  |                  |- style_tree (样式)
-  |                  -- renderer_frontend (绘制接口)
-  |
-  |- 渲染后端 (Vulkan)
-  |   |- 图形管线 (basic draw, outline SDF, mask)
-  |   |- 计算管线 (blit, blend, inverse)
-  |   -- 指令解析 (compute resolve)
-  |
-  -- 合成器 (Compositor)
-      |- 高光提取
-      |- Bloom
-      |- 背景模糊
-      -- HDR->SDR 色调映射
-```
-
-核心分层：
-
-| 层 | 位置 | 职责 |
-|----|------|------|
-| GUI Core | src/gui/core/ | 元素、布局、绘制接口、事件、样式 |
-| Extension | src/gui/ext/, src/gui/compound/ | 文本编辑、富文本、拾色器等 |
-| Backend | src.backends/ | Vulkan渲染器、GLFW窗口、主循环 |
-| Default Config | gui.config/default/ | 默认样式、图标、字体配置 |
-
----
-
-## 4. 核心概念
-
-### Scene 与 Elem
-
-**Scene** 是UI的根容器，拥有所有元素、管理渲染和输入分发：
+最小独立应用继承 `mo_yanxi::gui::cfg::default_application`，只需要实现 `build_gui()`：
 
 ```cpp
-using namespace mo_yanxi::gui;
-
-// 获取全局 manager
-auto& ui_mgr = gui::global::manager;
-
-// 创建场景资源
-auto& res = ui_mgr.add_scene_resources("my_scene");
-
-// 创建场景
-auto result = ui_mgr.add_scene<example_scene, loose_group>(
-    "my_scene",
-    res,
-    true,                          // 是否异步创建根
-    std::move(renderer_frontend)   // 渲染器前端
-);
-
-auto& scene = result.scene;
-auto& root = result.root_group;   // 根元素组
-```
-
-**Elem** 是所有UI元素的基类。每个 elem 具备：
-- 布局能力（尺寸、位置）
-- 绘制能力（通过 renderer_frontend）
-- 事件响应（鼠标、键盘、滚动）
-- 样式引用
-- 异步任务投递
-
-```cpp
-// 从 scene 创建元素
-auto e = scene.create<some_element>(constructor_args...);
-
-// 获取元素引用
-some_element& elem_ref = *e;
-```
-
-### 元素生命周期
-
-元素通过 `elem_ptr` 引用计数智能指针管理，与所属 scene 绑定：
-
-```cpp
-{
-    auto ptr = scene.create<elem>();   // 引用计数 = 1
-    auto ptr2 = ptr;                  // 引用计数 = 2
-} // 元素被删除
-```
-
-### 线程模型
-
-主线程和GUI线程独立运行：
-
-```
-主线程                    GUI线程 (xrgui ui thread)
-  |                          |
-  |  push事件到全局队列      |
-  |  放行 (permit) ------>  | 消费事件、布局、绘制
-  |  等待完成 <-----------  | 设置完成信号
-  |  提交GPU                 |
-  |  重置状态               |
-```
-
-关键 API：
-
-```cpp
-// 主线程：推送帧时间戳和事件
-gui::global::event_queue.push_frame_split(delta_time);
-
-// 主线程：放行 GUI 线程执行一帧
-main_loop.permit_burst();
-
-// 主线程：等待 GUI 线程完成
-main_loop.wait_term();
-
-// GUI 线程：消费事件
-global::consume_current_input(scene, unhandled_handler);
-
-// GUI 线程：执行布局
-scene.layout();
-
-// GUI 线程：执行绘制
-scene.draw();
-```
-
-### GUI 与窗口线程的 native 通信
-
-GUI 元素不能直接访问 `GLFWwindow*`、剪贴板、IME 或系统光标等窗口线程对象。需要通过
-`native_communicator` 发起请求，由窗口线程的 `window_thread_dispatcher` 执行真正的 native
-调用；需要返回结果的请求再通过 owner-bound GUI 回调投回元素。
-
-GUI 侧 API 用法：
-
-```cpp
-// fire-and-forget：GUI 线程可直接调用，实际 GLFW/Win32 调用会投递到窗口线程
-scene.get_communicator()->set_clipboard(text);
-scene.get_communicator()->set_native_cursor_visibility(false);
-scene.get_communicator()->set_ime_cursor_rect(caret_rect);
-
-// 需要结果：提供 owner 元素和回调，不阻塞 GUI 线程
-scene.get_communicator()->request_clipboard(my_edit, [](my_text_edit& self, std::string text) {
-    self.apply_clipboard_text(std::move(text));
-});
-```
-
-回调以元素作为 owner 绑定。若元素在窗口线程完成请求前已被移除，回调会在 GUI 线程消费时被丢弃，不会访问已销毁控件。回调中不要捕获裸 `elem*` 或控件 `this`，需要访问控件时使用回调参数中的 owner 引用。
-
-窗口线程需要做三件事：
-
-```cpp
-// 1. 创建 communicator 时传入窗口句柄和窗口线程 dispatcher
-scene.resources().set_native_communicator<backend::glfw::communicator>(
-    ctx.window().get_handle(),
-    main_loop.get_window_dispatcher());
-
-// 2. 每帧在放行 GUI 前 drain dispatcher，处理上一帧 GUI 发出的 native 请求
-ctx.window().poll_events();
-main_loop.get_window_dispatcher().drain();
-
-// ...更新应用状态、准备渲染请求...
-
-main_loop.get_window_dispatcher().drain();
-main_loop.permit_burst();
-
-// 3. GUI 完成后再 drain 一次，降低 native 请求延迟
-main_loop.wait_term();
-main_loop.get_window_dispatcher().drain();
-```
-
-所有 GLFW/Win32 实际调用点都应断言运行在窗口线程。不要在 GUI 线程同步等待窗口线程结果；需要结果的 API 应使用 owner-bound 回调。
-
-**异步任务**：在GUI线程之外执行耗时操作：
-
-```cpp
-util::post_elem_async_task(my_elem, [](MyElem& e) {
-    // 在异步工作线程执行
-    auto data = heavy_computation();
-    return elem_async_yield_task{
-        e,
-        [data](MyElem& e, scene& s) {
-            return process(data);
-        },
-        [](MyElem& e, scene& s, auto&& r) {
-            // 回到 GUI 线程应用结果
-            e.apply(r);
-        }
-    };
-});
-```
-
-### 数据流 (React Flow)
-
-内置于 scene 中的响应式数据流图，用于在元素之间传递数据：
-
-```cpp
-// 生产者节点
-auto& provider = scene.request_independent_react_node(
-    react_flow::make_provider<float>(0.5f)
-);
-
-// 消费者节点
-auto& listener = scene.request_independent_react_node(
-    react_flow::make_listener([](float val) {
-        update_something(val);
-    })
-);
-
-// 连接
-listener.connect_predecessor(provider);
-
-// 变换节点
-auto& transformer = scene.request_independent_react_node(
-    react_flow::make_transformer([](float val) {
-        return std::lerp(0.0f, 100.0f, val);
-    })
-);
-
-// 链式连接
-react_flow::connect_chain(provider, transformer, listener);
-
-// 主动推送
-provider.push_value(0.75f);
-```
-
-常用节点类型：
-
-| 节点 | 用途 |
-|------|------|
-| `provider<T>` | 数据生产者，可推送值 |
-| `listener` | 数据消费者，接收回调 |
-| `transformer` | 值转换器 |
-| `terminal` | 终端节点，需重写 on_update |
-
----
-
-## 5. 构建界面
-
-### 创建元素
-
-所有元素通过 `scene.create<T>()` 创建：
-
-```cpp
-// 基础创建
-auto e = scene.create<elem>();
-
-// 带构造参数
-auto btn = scene.create<button<direct_label>>(callback);
-
-// 用 lambda 初始化
-auto label = scene.create<gui::label>([](gui::label& l) {
-    l.set_text("Hello World");
-    l.set_style();
-});
-```
-
-### 根布局
-
-使用 `scaling_stack` 填充整个窗口：
-
-```cpp
-auto stack = scene.create<scaling_stack>();
-stack->set_fill_parent({true, true});
-
-// 添加全屏子元素
-auto child = stack->emplace_back<my_element>();
-child.cell().region_scale = {0, 0, 1, 1};
-```
-
-分层叠加：
-
-```cpp
-// 背景层
-auto bg = stack->emplace_back<elem>();
-bg.cell().region_scale = {0, 0, 1, 1};
-
-// 侧边栏（左侧20%）
-auto sidebar = stack->emplace_back<sidebar>();
-sidebar.cell().region_scale = {0, 0, 0.2f, 1};
-
-// 主区域（右侧80%）
-auto main = stack->emplace_back<main_content>();
-main.cell().region_scale = {0.2f, 0, 0.8f, 1};
-```
-
----
-
-## 6. 布局系统
-
-### 6.1 核心概念
-
-**布局策略**：
-
-| 策略 | 含义 |
-|------|------|
-| `layout_policy::none` | 无布局关系，从父级继承 |
-| `layout_policy::hori_major` | 行优先；在 sequence 中逐行向下放置 |
-| `layout_policy::vert_major` | 列优先；在 sequence 中逐列向右放置 |
-
-**尺寸类别**：
-
-| 类别 | 含义 | 使用场景 |
-|------|------|----------|
-| `size_category::mastering` | 固定像素值 | 固定宽/高元素 |
-| `size_category::passive` | 按权重占剩余空间 | 弹性布局 |
-| `size_category::scaling` | 基于另一维度计算 | 保持宽高比 |
-| `size_category::pending` | 延迟查询子元素 | 自适应内容 |
-
-**扩展策略**：
-
-| 策略 | 含义 |
-|------|------|
-| `expand_policy::resize_to_fit` | 容器随子元素缩放 |
-| `expand_policy::passive` | 容器固定，子元素受约束 |
-| `expand_policy::prefer` | 类似 resize_to_fit，但有上限 |
-
-**对齐** (`align::pos`)：
-
-```cpp
-align::pos::top_left   align::pos::center   align::pos::left
-align::pos::right       align::pos::top       align::pos::bottom
-```
-
-### 6.2 sequence -- 线性布局
-
-一维线性布局。`layout_policy` 表示行/列优先，不直接等同于水平/垂直主轴：
-
-```cpp
-// 行优先：sequence 从上向下放置每一行
-auto& seq = scene.create<sequence>(layout_policy::hori_major);
-seq.set_expand_policy(layout::expand_policy::passive);
-seq.template_cell.set_pad({8, 8});
-
-// 固定宽度
-auto e1 = seq.emplace_back<elem>();
-e1.cell().set_size(100);   // mastering 100px
-
-// 自适应宽度
-auto e2 = seq.emplace_back<elem>();
-e2.cell().set_pending();
-
-// 弹性占用剩余空间
-auto e3 = seq.emplace_back<elem>();
-e3.cell().set_passive(1.0f);
-
-// 列优先：sequence 从左向右放置每一列
-auto& vseq = scene.create<sequence>(layout_policy::vert_major);
-vseq.template_cell.set_pad({4, 8});  // cell 前后间距
-```
-
-### 6.3 table -- 表格布局
-
-通过 `end_line()` 换行，自动计算行列：
-
-```cpp
-auto& t = scene.create<table>();
-t.set_expand_policy(layout::expand_policy::prefer);
-t.template_cell.pad.set(8);
-
-// 第一行：标签+输入框
-t.emplace_back<label>().cell().set_width(100);
-t.emplace_back<text_input>().cell().set_pending_weight({false, true});
-t.end_line();  // 换行！
-
-// 第二行：占满整行的分隔线
-auto sep = t.emplace_back<row_separator>();
-sep.cell().set_height(20).set_width_passive(.85f).saturate = true;
-sep.cell().set_end_line();
-
-// 第三行：两个等宽按钮
-t.emplace_back<button>().cell().set_width_passive(1);
-t.emplace_back<button>().cell().set_width_passive(1);
-t.end_line();
-```
-
-单元格 Builder API：
-
-```cpp
-cell.set_size({w, h})           // mastering 固定尺寸
-cell.set_width(100)             // 宽度 mastering
-cell.set_height(80)             // 高度 mastering
-cell.set_pending()              // pending
-cell.set_pending_weight({x,y})  // pending+权重
-cell.set_width_passive(1.0f)    // 被动宽度+权重
-cell.saturate = true            // 拉伸至整行
-cell.set_end_line()             // 换行
-```
-
-### 6.4 grid -- 网格布局
-
-类似 CSS Grid Template，预定义列/行模板：
-
-```cpp
-auto& g = scene.create<grid>(
-    math::vector2<grid_dim_spec>{
-        grid_uniformed_mastering{6, 300.f, {4, 4}},  // 6列固定300px
-        grid_uniformed_passive{8, {4, 4}}              // 8行等分
+import std;
+
+import mo_yanxi.gui.cfg.default_application;
+import mo_yanxi.gui.elem.button;
+import mo_yanxi.gui.elem.label;
+import mo_yanxi.gui.elem.sequence;
+import mo_yanxi.gui.elem.slider;
+import mo_yanxi.gui.elem.text_edit;
+
+struct hello_app : mo_yanxi::gui::cfg::default_application {
+    using default_application::default_application;
+
+private:
+    int click_count_{};
+    mo_yanxi::gui::label* counter_label_{};
+
+    void build_gui(mo_yanxi::gui::scene& scene,
+                   mo_yanxi::gui::loose_group& root) override {
+        namespace gui = mo_yanxi::gui;
+
+        auto content = scene.create<gui::sequence>();
+        auto& column = static_cast<gui::sequence&>(root.insert(0, std::move(content)));
+
+        column.set_fill_parent({true, true});
+        column.set_layout_spec(gui::layout::layout_policy::hori_major);
+        column.set_self_border(gui::border_t{}.set(24));
+        column.set_style();
+        column.template_cell.set_size(56);
+        column.template_cell.set_pad({8.f, 8.f});
+
+        column.create_back([](gui::label& label) {
+            label.set_style();
+            label.set_fit_type(gui::label_fit_type::scl);
+            label.text_entire_align = gui::align::pos::center_left;
+            label.set_text("XRGUI Hello");
+        }).cell().set_size(72);
+
+        column.create_back([this](gui::label& label) {
+            counter_label_ = &label;
+            label.set_style(gui::style::family_variant::base_only);
+            label.set_fit_type(gui::label_fit_type::scl);
+            label.text_entire_align = gui::align::pos::center_left;
+            label.set_text("Clicks: 0");
+        });
+
+        column.create_back([this](gui::button<gui::label>& button) {
+            button.set_style(gui::style::family_variant::accent);
+            button.set_fit_type(gui::label_fit_type::scl);
+            button.text_entire_align = gui::align::pos::center;
+            button.set_text("Click");
+            button.set_button_callback([this] {
+                ++click_count_;
+                if (counter_label_ != nullptr) {
+                    counter_label_->set_text(std::format("Clicks: {}", click_count_));
+                }
+            });
+        }).cell().set_size(60);
+
+        auto slider = column.emplace_back<gui::slider1d_with_output>();
+        slider->set_style();
+        slider->set_smooth_drag(true);
+        slider->bar_handle_extent = {40.f};
+        slider.cell().set_size(52);
+
+        auto input = column.emplace_back<gui::text_edit_prov>();
+        input->set_style(gui::style::family_variant::base_only);
+        input->set_hint_text(U"Type here");
+        input->set_on_changed_interval(30.f);
+        input.cell().set_size(96);
     }
-);
-
-// 占据列0起跨2列；行0起跨1行
-g.emplace_back<elem>().cell().extent = {
-    {.type = src_extent, .desc = {0, 2}},
-    {.type = src_extent, .desc = {0, 1}}
 };
 
-// 列margin[1..end-1]（左右各留1列空白）
-g.emplace_back<elem>().cell().extent = {
-    {.type = margin, .desc = {1, 1}},
-    {.type = src_extent, .desc = {5, 1}}
-};
-```
-
-grid 跨度类型：
-
-| 类型 | 含义 |
-|------|------|
-| `src_extent` | (起始, 跨度) |
-| `src_dst` | (起始, 结束) |
-| `margin` | 留白后填充 |
-| `dst_extent` | 从末尾倒推 |
-
-列/行模板：
-
-| 模板 | 描述 |
-|------|------|
-| `grid_uniformed_mastering` | 等宽固定列 |
-| `grid_uniformed_passive` | 等宽弹性列 |
-| `grid_uniformed_scaling` | 等比例列 |
-| `grid_mixed` | 混合类型列 |
-
-### 6.5 head_body / split_pane / collapser
-
-**head_body** -- 双面板布局：
-
-```cpp
-auto& hb = scene.create<head_body>(layout_policy::vert_major);
-hb.set_expand_policy(layout::expand_policy::passive);
-hb.set_head_size(48);    // 头部48px
-hb.set_pad(4);           // 头体间距
-
-hb.create_head([](sequence& toolbar) {
-    toolbar.set_layout_policy(layout_policy::hori_major);
-    toolbar.emplace_back<button>().cell().set_size({32, 32});
-});
-hb.create_body([](scroll_pane& content) { /* 内容 */ });
-```
-
-**split_pane** -- 可拖拽分隔面板：
-
-```cpp
-auto& sp = scene.create<split_pane>(layout_policy::hori_major);
-sp.set_split_pos(0.3f);  // 头部占30%
-sp.set_min_margin({50, 50});
-
-sp.create_head([](tree_view& tv) { /* ... */ });
-sp.create_body([](content& c)    { /* ... */ });
-```
-
-**collapser** -- 可折叠面板：
-
-```cpp
-auto& cp = scene.create<collapser>();
-cp.set_expand_cond(collapser_expand_cond::inbound); // 悬停展开
-cp.emplace_head<elem>();
-cp.set_head_size(50);
-cp.create_body([](sequence& body) { /* ... */ });
-```
-
-| 触发条件 | 含义 |
-|----------|------|
-| `click` | 点击head区域切换 |
-| `inbound` | 鼠标悬停时展开 |
-| `focus` | 获得焦点时展开 |
-| `pressed` | 鼠标按下时展开 |
-
-### 6.6 scaling_stack -- 比例堆叠
-
-子元素按 `region_scale` 比例占据空间：
-
-```cpp
-auto& stack = scene.create<scaling_stack>();
-auto child = stack.emplace_back<elem>();
-child.cell().region_scale = {0.1f, 0.1f, 0.9f, 0.9f}; // 10%->90%
-```
-
-### 6.7 scroll_pane -- 滚动面板
-
-```cpp
-auto& pane = scene.create<scroll_adaptor<sequence>>();
-pane.set_overlay_bar(true);  // 覆盖式滚动条
-auto& seq = pane.get_elem();
-seq.set_expand_policy(layout::expand_policy::prefer);
-
-for (int i = 0; i < 100; ++i) {
-    seq.emplace_back<elem>().cell().set_size(60);
+int main(int argc, char** argv) {
+    return mo_yanxi::gui::cfg::run_default_application<hello_app>(
+        argc, argv, {.app_name = "XRGUI Hello"});
 }
 ```
 
-### 6.8 overflow_sequence -- 流溢序列
+`default_application` 负责初始化 platform、FreeType、GLFW、Vulkan context、默认 renderer、image atlas、font manager、scene、main loop、native communicator 和默认资源。派生类构造函数中不要访问 `context()`、`renderer()`、`scene()` 等运行期对象；这些对象在 `run()` 期间才存在。
 
-超出空间时隐藏部分子元素，显示溢出指示器：
+可重写钩子：
+
+| 钩子 | 调用时机 |
+|------|----------|
+| `build_gui(scene, root)` | 场景建好后调用一次，用于创建元素树 |
+| `before_frame(delta)` | 每帧 layout/draw 前调用 |
+| `after_frame()` | 每帧 draw/record 后调用 |
+| `on_unhandled_input(event)` | 输入未被 UI 拦截时调用 |
+
+## 3. 创建元素与容器
+
+`scene.create<T>()` 返回 detached `elem_ptr`。它适合先创建再插入普通 group 或 root：
 
 ```cpp
-auto& seq = scene.create<overflow_sequence>();
-seq.set_layout_policy(layout_policy::hori_major);
-seq.set_split_index(5);  // 前5个始终可见
-seq.create_overflow_elem([](icon_frame& btn) {
-    btn.interactivity = interactivity_flag::enabled;
-}, assets::builtin::shape_id::more);
+auto ptr = scene.create<gui::sequence>();
+auto& seq = static_cast<gui::sequence&>(root.insert(0, std::move(ptr)));
 ```
 
-### 6.9 flipper -- 选项卡
+在带 Cell 的容器中，优先使用 `create_back()` 或 `emplace_back()`。它们返回 `create_handle<Elem, Cell>`，可以同时访问元素和 cell：
 
 ```cpp
-auto& flip = scene.create<flipper<3>>();
-flip.switch_to(0);  // 切换到第一个
-```
-
----
-
-## 7. 元素参考
-
-### 容器/布局元素
-
-| 元素 | 说明 |
-|------|------|
-| `scaling_stack` | 比例缩放堆叠，常用作根布局 |
-| `sequence` | 一维线性排列（类似Flexbox） |
-| `overflow_sequence` | 带溢出处理的sequence |
-| `table` | 换行标记的二维网格布局 |
-| `grid` | 模板化网格布局（类似CSS Grid） |
-| `head_body` | 头-体双面板 |
-| `split_pane` | 可拖拽分隔线头体面板 |
-| `collapser` | 可折叠/展开面板 |
-| `flipper<N>` | 选项卡切换 |
-| `scroll_pane` | 滚动面板 |
-| `loose_group` | 无布局约束组 |
-| `menu` | 菜单容器 |
-
-### 基础控件
-
-| 控件 | 说明 |
-|------|------|
-| `button<T>` | 通用按钮 |
-| `slider1d` / `slider2d` | 一维/二维拖动条 |
-| `progress_bar` | 进度条（支持环形） |
-| `check_box` | 复选框 |
-| `dispersed_value_selector` | 离散值选择按钮 |
-
-### 文本与输入
-
-| 控件 | 说明 |
-|------|------|
-| `label` | 多行文本标签，支持富文本 |
-| `direct_label` | 轻量文本标签（按钮内部） |
-| `text_edit` | 文本输入框 |
-
-### 展示类
-
-| 控件 | 说明 |
-|------|------|
-| `viewport` | 2D摄像机视口（可缩放/平移） |
-| `image_frame` | 图像框 |
-| `icon_frame` | 图标框 |
-
-### 复合控件 (compound)
-
-| 控件 | 说明 |
-|------|------|
-| `named_slider` | 带名称标签的滑块 |
-| `click_collapser` | 点击展开的折叠面板 |
-| `color_picker` | 拾色器 |
-| `precise_color_picker` | 精确拾色器 |
-| `file_selector` | 文件选择对话框 |
-| `data_table` | CSV数据表格 |
-| `numeric_input_area` | 数值输入区域 |
-
-### 使用示例
-
-**按钮**：
-
-```cpp
-auto& btn = scene.create<button<direct_label>>();
-btn.elem().set_tokenized_text({"Click Me"});
-btn.set_button_callback([](direct_label& e) {
-    // 点击回调
+auto title = seq.create_back([](gui::label& label) {
+    label.set_style();
+    label.set_text("Title");
 });
-```
+title.cell().set_size(72);
 
-**滑块**：
-
-```cpp
-auto& slider = scene.create<slider1d_with_output>();
+auto slider = seq.emplace_back<gui::slider1d_with_output>();
 slider->set_smooth_drag(true);
-slider->set_progress(0.5f);
-auto& provider = slider->get_slider_provider(); // react_flow节点
+slider.cell().set_size(52);
 ```
 
-**复选框**：
+核心规则：
+
+| API | 用途 |
+|-----|------|
+| `scene.create<T>()` | 创建 detached 元素，返回 `elem_ptr` |
+| `basic_group::insert()/push_back()` | 把 `elem_ptr` 接到普通 group |
+| `container.create_back(lambda)` | 创建、初始化并插入元素，返回 handle |
+| `container.emplace_back<T>(args...)` | 构造并插入元素，返回 handle |
+| `handle->...` 或 `handle.elem()` | 访问元素 |
+| `handle.cell()` | 访问容器 cell 元数据 |
+
+## 4. 布局基础
+
+`layout_policy` 选择 major/minor 轴：
+
+| Policy | 含义 |
+|--------|------|
+| `layout::layout_policy::hori_major` | major 是 X。`sequence` 中每个子元素获得可用宽度，沿 Y 方向向下排列 |
+| `layout::layout_policy::vert_major` | major 是 Y。`sequence` 中每个子元素获得可用高度，沿 X 方向向右排列 |
+| `layout::layout_policy::none` | 不声明方向，由容器或父级映射处理 |
+
+Cell 尺寸类别：
+
+| 类别 | Builder | 含义 |
+|------|---------|------|
+| `mastering` | `set_size()` / `set_width()` / `set_height()` | 固定像素尺寸 |
+| `passive` | `set_passive()` / `set_width_passive()` | 按权重分享剩余空间 |
+| `pending` | `set_pending()` | 询问子元素内容尺寸 |
+| `scaling` | `set_from_ratio()` / `set_width_from_scale()` | 按另一轴比例计算 |
+
+## 5. 常用布局
+
+### sequence
 
 ```cpp
-auto& cb = scene.create<check_box>();
-cb->icons[1].components.color = {graphic::colors::pale_green};
+auto column = scene.create<gui::sequence>();
+auto& seq = static_cast<gui::sequence&>(root.insert(0, std::move(column)));
 
-auto& listener = scene.request_embedded_react_node(
-    react_flow::make_listener([&](bool checked) { /* ... */ })
-);
-listener.connect_predecessor(cb->get_prov());
+seq.set_fill_parent({true, true});
+seq.set_layout_spec(gui::layout::layout_policy::hori_major);
+seq.set_expand_policy(gui::layout::expand_policy::passive);
+seq.template_cell.set_pad({8.f, 8.f});
+
+seq.emplace_back<gui::elem>().cell().set_size(48);
+seq.emplace_back<gui::elem>().cell().set_passive(1.f);
+seq.create_back([](gui::label& label) {
+    label.set_style();
+    label.set_text("content sized");
+}).cell().set_pending();
 ```
 
-**进度条（环形）**：
+### table
 
 ```cpp
-auto& prog = scene.create<progress_bar>();
-prog->set_style(style::make_ring_progress_style(32));
-prog->set_progress_state(progress_state::approach_smooth);
+auto table_ptr = scene.create<gui::table>();
+auto& table = static_cast<gui::table&>(root.insert(0, std::move(table_ptr)));
+
+table.set_expand_policy(gui::layout::expand_policy::prefer);
+table.template_cell.pad.set(8);
+
+table.create_back([](gui::label& label) {
+    label.set_style();
+    label.set_text("Name");
+}).cell().set_width(120);
+
+table.emplace_back<gui::text_edit_prov>().cell().set_pending_weight({false, true});
+table.end_line();
 ```
 
-**弹窗/对话框 (Overlay)**：
+### scaling_stack
+
+`scaling_stack` 常用于全屏分层。每个 child 的 `region_scale` 是父内容区域的归一化矩形。
 
 ```cpp
-scene.create_overlay({
-    .extent = {
-        {layout::size_category::passive, .4f},  // 宽度40%
-        {layout::size_category::scaling, 1.f}
-    },
-    .align = align::pos::center,
-}, [](table& overlay) {
-    overlay.emplace_back<elem>().cell().set_size({200, 100});
+auto stack_ptr = scene.create<gui::scaling_stack>();
+auto& stack = static_cast<gui::scaling_stack&>(root.insert(0, std::move(stack_ptr)));
+stack.set_fill_parent({true, true});
+
+stack.emplace_back<gui::elem>().cell().region_scale = {0.f, 0.f, 1.f, 1.f};
+
+auto panel = stack.emplace_back<gui::sequence>();
+panel.cell().region_scale = {0.f, 0.f, .35f, 1.f};
+panel.cell().region_align = gui::align::pos::left;
+```
+
+### head_body / split_pane / collapser
+
+```cpp
+auto page_ptr = scene.create<gui::head_body>(gui::layout::layout_policy::vert_major);
+auto& page = static_cast<gui::head_body&>(root.insert(0, std::move(page_ptr)));
+page.set_expand_policy(gui::layout::expand_policy::passive);
+page.set_head_size(48.f);
+page.set_pad(4.f);
+
+page.create_head([](gui::sequence& toolbar) {
+    toolbar.set_layout_spec(gui::layout::layout_policy::hori_major);
+    toolbar.template_cell.set_pad({4.f, 4.f});
 });
 
-scene.close_overlay(overlay_elem);  // 关闭弹窗
+page.create_body([](gui::scroll_pane& pane) {
+    pane.create([](gui::table& body) {
+        body.set_expand_policy(gui::layout::expand_policy::prefer);
+    });
+});
 ```
 
----
+`split_pane` 和 `collapser` 都基于 head/body 结构。完整演示见 `src.examples/gui.examples.cpp` 中的 `"collapsers"`、`"drag/label"` 页面。
 
-## 8. 输入处理
-
-### 事件流
-
-```
-主线程 push -> 全局队列 -> consume_current_input
--> scene事件方法 -> 命中测试 -> elem回调
-```
-
-### 元素事件回调
-
-重写 elem 虚函数：
+### scroll_pane / scroll_adaptor
 
 ```cpp
-struct my_elem : elem {
-    events::op_afterwards on_click(
-        const events::click event,
-        std::span<elem* const> aboves) override {
+auto pane = seq.emplace_back<gui::scroll_adaptor<gui::sequence>>();
+pane->set_overlay_bar(true);
+
+auto& content = pane->get_elem();
+content.set_layout_spec(gui::layout::layout_policy::hori_major);
+content.set_expand_policy(gui::layout::expand_policy::prefer);
+content.template_cell.set_pad({4.f, 4.f});
+```
+
+`scroll_pane` 是 `scroll_adaptor<elem_ptr>` 的别名；如果内容本身是一个具体布局容器，使用 `scroll_adaptor<sequence>`、`scroll_adaptor<table>` 等更方便。
+
+## 6. 常用控件
+
+### label
+
+```cpp
+auto label = seq.create_back([](gui::label& label) {
+    label.set_style();
+    label.set_fit_type(gui::label_fit_type::scl);
+    label.text_entire_align = gui::align::pos::center_left;
+    label.set_text("Hello");
+});
+```
+
+### button
+
+```cpp
+seq.create_back([](gui::button<gui::label>& button) {
+    button.set_style(gui::style::family_variant::accent);
+    button.set_text("Apply");
+    button.set_button_callback([] {
+        // release callback
+    });
+});
+```
+
+### slider
+
+```cpp
+auto slider = seq.emplace_back<gui::slider1d_with_output>();
+slider->set_style();
+slider->set_smooth_drag(true);
+slider->set_progress(.5f);
+
+auto& progress_provider = slider->get_provider();
+```
+
+`slider1d_with_output::get_provider()` 和 `slider2d_with_output::get_provider()` 暴露 react-flow provider。复合控件 `cpd::named_slider` 额外提供 `get_slider_provider()`。
+
+### text_edit
+
+```cpp
+auto input = seq.emplace_back<gui::text_edit_prov>();
+input->set_style(gui::style::family_variant::base_only);
+input->set_hint_text(U"Type here");
+input->set_on_changed_interval(30.f);
+
+auto& text_provider = input->get_provider();
+```
+
+## 7. 事件处理
+
+自定义元素继承 `elem` 或某个控件，重写当前实际事件钩子：
+
+```cpp
+struct my_elem : mo_yanxi::gui::elem {
+    using elem::elem;
+
+    mo_yanxi::gui::events::op_afterwards on_click(
+        mo_yanxi::gui::events::click event,
+        std::span<mo_yanxi::gui::elem* const> aboves) override {
         if (event.key.on_release()) {
-            return events::op_afterwards::intercepted; // 拦截
+            return mo_yanxi::gui::events::op_afterwards::intercepted;
         }
-        return events::op_afterwards::fall_through;    // 放行
+        return mo_yanxi::gui::events::op_afterwards::fall_through;
     }
 
-    void on_inbound_changed(bool is_inbound) override {
-        // 鼠标进入/离开
+    mo_yanxi::gui::events::op_afterwards on_key_input(
+        mo_yanxi::input_handle::key_set key) override {
+        return mo_yanxi::gui::events::op_afterwards::fall_through;
     }
 
-    events::op_afterwards on_key(
-        const input_handle::key_set key) override { /* ... */ }
-
-    events::op_afterwards on_unicode(char32_t c) override { /* ... */ }
-
-    events::op_afterwards on_scroll(math::vec2 scroll) override { /* ... */ }
-
-    bool update(float delta_in_ticks) override {
-        return false; // true=需要重绘
+    mo_yanxi::gui::events::op_afterwards on_unicode_input(char32_t codepoint) override {
+        return mo_yanxi::gui::events::op_afterwards::fall_through;
     }
 };
 ```
 
-### 交互控制
+常用返回值：
+
+| 返回值 | 含义 |
+|--------|------|
+| `events::op_afterwards::intercepted` | 事件已处理，停止传播 |
+| `events::op_afterwards::fall_through` | 放行给下一个候选元素或外部 handler |
+
+常用事件钩子：
+
+| Hook | 说明 |
+|------|------|
+| `on_click(event, aboves)` | 鼠标按下/释放 |
+| `on_drag(event)` | UI 捕获鼠标后的拖动 |
+| `on_scroll(event, aboves)` | 滚轮 |
+| `on_cursor_moved(event)` | 光标移动 |
+| `on_key_input(key)` | 按键 |
+| `on_unicode_input(codepoint)` | 文本输入 |
+| `on_esc()` | ESC 关闭链 |
+
+## 8. React Flow 与跨线程更新
+
+元素拥有的节点：
 
 ```cpp
-e.interactivity = interactivity_flag::enabled;  // 启用
-e.interactivity = interactivity_flag::none;      // 禁用
+auto& listener = label->request_embedded_react_node(
+    mo_yanxi::react_flow::make_listener([&](float value) {
+        label->set_text(std::format("{:.2f}", value));
+    }));
+
+listener.connect_predecessor(slider->get_provider());
 ```
 
-### Tooltip
+场景独立节点：
 
 ```cpp
-elem.set_tooltip_state({
-    .layout_info = tooltip::align_meta{
-        .follow = tooltip::anchor_type::owner,
-        .attach_point_spawner = align::pos::top_left,
-        .attach_point_tooltip = align::pos::top_right,
-    },
-}, [](table& tooltip) {
-    tooltip.emplace_back<label>().cell().set_size({200, 60});
+auto& provider = scene.request_independent_react_node(
+    mo_yanxi::react_flow::make_provider<float>(0.5f));
+```
+
+从非 GUI 线程修改元素时使用 `elem::sync_run()` 或 `post_task()`，不要直接访问控件状态：
+
+```cpp
+my_label.sync_run([](gui::label& label) {
+    label.set_text("Updated on GUI thread");
 });
 ```
 
----
+## 9. Native 通信
 
-## 9. 样式系统
-
-通过 `style::family_variant` 选择预设样式：
+GUI 线程不要直接访问窗口对象、剪贴板、IME 或系统光标。通过 `scene.get_communicator()` 发起 native 请求：
 
 ```cpp
-elem.set_style();                              // 默认
-elem.set_style(style::family_variant::general); // 通用
-elem.set_style(style::family_variant::solid);   // 实心
-elem.set_style(style::family_variant::base_only); // 仅基础
-elem.set_style(style::family_variant::edge_only); // 仅边框
-elem.set_style(style::family_variant::accent);    // 强调色
-elem.set_style(style::family_variant::accepted);  // 接受色(绿)
-elem.set_style(style::family_variant::warning);   // 警告色(黄)
-elem.set_style(style::family_variant::invalid);   // 错误色(红)
+scene.get_communicator()->set_clipboard("text");
+scene.get_communicator()->set_native_cursor_visibility(false);
+
+scene.get_communicator()->request_clipboard(my_edit, [](gui::text_edit& edit, std::string text) {
+    // owner-bound callback; edit is still live here
+});
 ```
 
-边框和toggle：
+默认 GLFW 后端在场景资源上安装 communicator，并通过 `window_thread_dispatcher` 把真正的 native 调用放到窗口线程执行。
 
-```cpp
-elem.set_self_border(gui::border{}.set(8));  // 四边8px
-elem.set_toggled(true);   // active样式
-elem.set_toggled(false);  // 正常样式
-```
+## 10. 参考入口
 
----
-
-## 10. 富文本
-
-在字符串中嵌入指令控制格式，指令使用花括号包裹：
-
-| 指令 | 示例 | 说明 |
-|------|------|------|
-| 颜色 | `{#:#FF0000}红色{/}` | 设置文本颜色 |
-| 字号 | `{s:24}` 或 `{s:*1.5}` | 绝对/相对 |
-| 粗体 | `{b}加粗{/b}` | 开关 |
-| 斜体 | `{i}斜体{/i}` | 开关 |
-| 下划线 | `{u}下划线{/u}` | 开关 |
-| 字体 | `{f:Arial}` | 切换字体 |
-| 上标 | `{^}上标{-}` | 上标 |
-| 下标 | `{_}下标{-}` | 下标 |
-| 偏移 | `{off:+0,-10}` | 位置微调 |
-| 外框 | `{w:b}` 或 `{w:r}` | 矩形/圆角框 |
-| OpenType | `{ftr:+liga}` | 字体特性 |
-
-属性修改器：`=`(绝对) / `+`(相对增加) / `*`(相对乘算)
-
-批量还原：`{/2}` 撤销最近2个指令，`{///}` 撤销所有指令
-
-```cpp
-auto& label = scene.create<gui::label>();
-label->set_text(R"(
-    {s:*1.5}{b}标题{//}
-    {#color1}主要文本{/}
-    H{_}2{-}O 是水
-    {#:#FF0000}红色{/color}
-)");
-
-// 原始模式（不解析指令）
-label->set_tokenizer_tag(typesetting::tokenize_tag::raw);
-```
-
-转义：`{{` 输出 `{`，`}}` 输出 `}`
-
-> 完整富文本文档：[rich_text_doc.md](rich_text_doc.md)
-
----
-
-## 11. 渲染与合成
-
-### 绘制接口 (renderer_frontend)
-
-采用 push/pop 状态机管理渲染状态：
-
-```cpp
-auto& r = scene.renderer();
-
-// 设置渲染状态
-r.update_state(fx::pipeline_config{.pipeline_index = gpip::idx::def});
-r.update_state(fx::push_constant{gpip::default_draw_constants{...}});
-r.update_state(fx::blend::pma::standard);
-
-// 设置裁剪/视口
-r.update_state(r.get_full_screen_scissor());
-r.update_state(r.get_full_screen_viewport());
-
-// 提交绘制指令
-r << fx::rect_aabb{
-    .v00 = {x, y},
-    .v11 = {x + w, y + h},
-    .vert_color = {graphic::colors::white}
-};
-
-// 临时状态切换（RAII）
-{
-    state_guard g{r, fx::blend::pma::additive};
-    r << fx::circle{...};
-} // 自动恢复
-```
-
-常用绘制原语：
-
-| 原语 | 用途 |
+| 文件 | 内容 |
 |------|------|
-| `rect_aabb` | 矩形 |
-| `poly` | 多边形/圆 |
-| `poly_partial` | 弧形/环形 |
-| `parametric_curve` | B-样条曲线 |
-| `triangle` | 三角形 |
-| `nine_patch_draw_vert_color` | 九宫格绘制 |
-| `line_segments` | 折线 |
-
-抗锯齿 (Fringe)：
-
-```cpp
-rx << graphic::g2d::fringe::poly(my_circle, fringe_size);
-rx << graphic::g2d::fringe::poly_partial_with_cap(my_arc, cap_s, edge_s, edge_s);
-rx << graphic::g2d::fringe::curve(curve);
-```
-
-### 合成器 (Compositor)
-
-后处理管线：
-
-```cpp
-compositor::manager manager{};
-
-auto& input = manager.add_external_resource(...);
-auto& highlight = manager.add_pass<...>(meta);
-auto& bloom = manager.add_pass<compositor::bloom_pass>(bloom_meta);
-auto& tonemap = manager.add_pass<compositor::post_process_pass_with_ubo<tonemap_args>>(h2s_meta);
-
-// 连接依赖
-highlight.id()->add_input({{input, 0}});
-bloom.pass.add_dep({highlight.id(), 0, 0});
-tonemap.id()->add_dep({merge.id(), 0, 0});
-
-manager.sort();
-```
-
----
-
-## 12. 完整示例
-
-以下是一个最小完整应用的骨架：
-
-```cpp
-// 1. 初始化
-platform::initialize();
-font::initialize();
-backend::glfw::initialize();
-
-// 2. Vulkan上下文
-backend::vulkan::context ctx{appInfo};
-
-// 3. 创建渲染器
-auto renderer = backend::vulkan::renderer{renderer_create_info{ ... }};
-
-// 4. 初始化GUI
-gui::global::initialize();
-gui::global::initialize_assets_manager();
-
-// 5. 创建场景
-auto& res = gui::global::manager.add_scene_resources("main");
-auto result = gui::global::manager.add_scene<...>(
-    "main", res, true, renderer.create_frontend());
-auto& scene = result.scene;
-
-// 6. 构建UI
-auto stack = scene.create<scaling_stack>();
-stack->set_fill_parent({true, true});
-
-auto& body = scene.create<head_body>(layout_policy::vert_major);
-body.set_head_size(48);
-body.create_head([](sequence& toolbar) { /* ... */ });
-body.create_body([](scroll_pane& pane) { /* ... */ });
-
-// 7. 主循环
-backend::application_timer timer{};
-while (!ctx.window().should_close()) {
-    ctx.window().poll_events();
-    timer.fetch_time();
-
-    gui::global::event_queue.push_frame_split(timer.global_delta());
-    main_loop.permit_burst();
-    main_loop.wait_term();
-
-    vk::cmd::submit_command(ctx.graphic_queue(), cmd_bufs, fence);
-    ctx.flush();
-    main_loop.reset_term();
-}
-
-// 8. 清理
-main_loop.join();
-gui::global::terminate();
-backend::glfw::terminate();
-font::terminate();
-platform::terminate();
-```
-
----
-
-## 13. 扩展阅读
-
-| 文档 | 内容 |
-|------|------|
-| [runtime_showcase.md](runtime_showcase.md) | 运行时界面截图 |
-| [layout_doc.md](layout_doc.md) | 布局系统详细文档 |
-| [render_spec.md](render_spec.md) | 渲染流程说明 |
-| [rich_text_doc.md](rich_text_doc.md) | 富文本完整指南 |
-| [layout_spec.drawio.svg](layout_spec.drawio.svg) | 布局架构图 |
-| [structure.drawio.svg](structure.drawio.svg) | 整体架构图 |
-| [draw_procedure.drawio.svg](draw_procedure.drawio.svg) | 绘制流程图 |
-| [draw_structure.drawio.svg](draw_structure.drawio.svg) | 绘制结构图 |
-
----
-
-> 库目前处于实验阶段，API可能会变化。有问题请提交Issue。
+| `src.hello/main.cpp` | 最小 `default_application` 示例 |
+| `gui.config/default/default_application.ixx` | 默认应用公开 API 与 Doxygen 注释 |
+| `src/gui/core/layout/policy.ixx` | layout policy、size category、runtime restriction |
+| `src/gui/core/layout/cell.ixx` | Cell builder API |
+| `src/gui/core/infrastructure/element.ixx` | 元素事件、布局通知、线程调度 API |
+| `src/gui/core/infrastructure/scene.ixx` | scene、native communicator、overlay、task queue API |
+| `src.examples/gui.examples.cpp` | 完整 showcase 的实际页面构建代码 |
+| `properties/showcase/rich_text_doc.md` | 富文本语法 |
+| `properties/showcase/runtime_showcase.md` | 运行效果截图 |

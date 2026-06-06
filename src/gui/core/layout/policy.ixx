@@ -26,7 +26,19 @@ export bool is_size_pending(float size) noexcept{
 }
 
 //TODO make it hori/vert/nullopt?
+/**
+ * @brief Direction used by layout containers to map major/minor axes.
+ *
+ * `hori_major` means the major axis is X and the minor axis is Y. A
+ * `sequence` therefore gives each child the available width and stacks children
+ * downward. `vert_major` swaps that mapping: the major axis is Y and children
+ * advance left-to-right in `sequence`.
+ */
 export enum class layout_policy : std::uint8_t{
+	/**
+	 * @brief No local layout direction. Containers may inherit or map the parent
+	 * policy through a `layout_specifier`.
+	 */
 	none,
 
 	/**
@@ -49,6 +61,15 @@ export enum class layout_policy : std::uint8_t{
 };
 
 export
+/**
+ * @brief Packed mapping from a parent layout policy to a local policy.
+ *
+ * The packed byte stores a local `self` policy plus mappings for parent
+ * `none`, `hori_major`, and `vert_major`. If `self()` is `none`, callers use
+ * `resolve(parent_policy)` to obtain the effective direction. This lets a
+ * container inherit, fix, or transpose layout direction without storing a larger
+ * strategy object.
+ */
 struct layout_specifier{
 private:
 	std::uint8_t value_{};
@@ -150,6 +171,14 @@ public:
 	};
 
 export
+/**
+ * @brief `layout_specifier` variant that always resolves to a directional policy.
+ *
+ * This is used by containers such as `sequence`, `table`, and `head_body` that
+ * cannot lay out children with `layout_policy::none`. The local `self` may be
+ * `none` to defer to a mapping, but every mapping must resolve to
+ * `hori_major` or `vert_major`.
+ */
 struct directional_layout_specifier{
 private:
 	std::uint8_t value_{static_cast<std::uint8_t>(layout_specifier::fixed(layout_policy::hori_major))};
@@ -271,6 +300,14 @@ public:
 };
 
 export
+/**
+ * @brief Small tag-union accepted by `elem::set_layout_spec()`.
+ *
+ * It stores either a raw `layout_policy` or a packed `layout_specifier` /
+ * `directional_layout_specifier`. Element implementations inspect the tag in
+ * `set_layout_policy_impl()` to decide whether to use a fixed policy or cache a
+ * resolved mapping from the current parent policy.
+ */
 class layout_policy_setting{
 private:
 	std::uint8_t value_{};
@@ -337,19 +374,57 @@ constexpr directional_layout_specifier transpose_layout(directional_layout_speci
 	};
 }
 
+/**
+ * @brief How a container reports or constrains its own size from child layout.
+ */
 export enum class expand_policy{
+	/**
+	 * @brief Resolve the container from children when possible.
+	 */
 	resize_to_fit,
+
+	/**
+	 * @brief Keep the container bounded by its current/restricted size.
+	 */
 	passive,
+
+	/**
+	 * @brief Like `resize_to_fit`, but never smaller than the element's preferred extent.
+	 */
 	prefer,
 };
 
+/**
+ * @brief Size declaration category used by cells and split containers.
+ */
 export enum class size_category{
+	/**
+	 * @brief Share remaining space by weight.
+	 */
 	passive,
+
+	/**
+	 * @brief Compute this axis from the other axis by ratio.
+	 */
 	scaling,
+
+	/**
+	 * @brief Fixed pixel value before element scaling/clamping.
+	 */
 	mastering,
+
+	/**
+	 * @brief Ask the child for its content size through `pre_acquire_size()`.
+	 */
 	pending,
 };
 
+/**
+ * @brief One-axis declared size.
+ *
+ * `value` is interpreted as a pixel size for `mastering`, a weight for
+ * `passive` and `pending`, and a ratio for `scaling`.
+ */
 export struct stated_size{
 	size_category type{size_category::passive};
 	float value{1.};
@@ -419,6 +494,9 @@ export struct stated_size{
 	}
 };
 
+/**
+ * @brief Two-axis size declaration used by table cells and head/body slots.
+ */
 export struct stated_extent{
 	stated_size width{size_category::passive, 1};
 	stated_size height{size_category::passive, 1};
@@ -492,6 +570,14 @@ export struct stated_extent{
 
 export constexpr stated_extent extent_by_external{{size_category::pending}, {size_category::pending}};
 
+/**
+ * @brief Runtime size constraint where each axis is finite or pending.
+ *
+ * A finite axis means the parent has granted a concrete maximum/content extent.
+ * `pending_size` means the axis is unresolved and the element may determine it
+ * from content. Layout code passes this to `pre_acquire_size()` and stores it on
+ * `elem::restriction_extent`.
+ */
 export struct optional_mastering_extent{
 private:
 	float width_{};

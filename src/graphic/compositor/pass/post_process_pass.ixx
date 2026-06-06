@@ -388,9 +388,9 @@ protected:
 		uniform_subranges_.clear();
 		for(const auto& desc : meta_.get_local_uniform_buffer()){
 			ubo_size = vk::align_up<std::uint32_t>(ubo_size,
-				vk::get_device_requirement(ctx.get_device())->min_uniform_buffer_offset_alignment);
+				static_cast<std::uint32_t>(vk::get_device_requirement(ctx.get_device())->min_uniform_buffer_offset_alignment));
 			uniform_subranges_.push_back(ubo_subrange{desc.binding, ubo_size, static_cast<std::uint32_t>(desc.size)});
-			ubo_size += desc.size;
+			ubo_size += static_cast<std::uint32_t>(desc.size);
 		}
 
 		if(ubo_size == 0) return;
@@ -555,9 +555,9 @@ protected:
 				offsets[setIdx] = itr->offset;
 			}
 
-			vk::cmd::bindDescriptorBuffersEXT(buffer, infos.size(), infos.data());
+			vk::cmd::bindDescriptorBuffersEXT(buffer, (std::uint32_t)infos.size(), infos.data());
 			vk::cmd::setDescriptorBufferOffsetsEXT(buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0,
-				infos.size(), indices.data(), offsets.data());
+				(std::uint32_t)infos.size(), indices.data(), offsets.data());
 		}
 	}
 

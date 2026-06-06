@@ -50,7 +50,7 @@ public:
 
 	constexpr scene_render_pass_config(std::initializer_list<value_type> masks,
 	                                   std::optional<blit_pipeline_config> tail_blit) : tail_blit(tail_blit),
-		pass_count(masks.size()){
+		pass_count((unsigned)masks.size()){
 		std::ranges::copy(masks, this->masks.begin());
 	}
 

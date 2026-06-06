@@ -10,10 +10,52 @@ restrict Texture2D input_base;
 restrict Texture2D input_back;
 
 [[vk::binding(2, 0)]]
-restrict RWTexture2D output_base;
+restrict RWTexture2D inout_base;
 
 [[vk::binding(3, 0)]]
-restrict RWTexture2D output_back;
+restrict RWTexture2D inout_back;
+
+static const float BACK_BASE_TINT_RATIO = 0.75;
+
+[ForceInline]
+float4 sanitize_lane_color(const in float4 color)
+{
+    let alpha = saturate(color.a);
+    if (alpha <= 0.0) {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+
+    return float4(color.rgb, alpha);
+}
+
+[ForceInline]
+float4 alpha_over(const in float4 src, const in float4 dst)
+{
+    let inv_src_alpha = 1.0 - src.a;
+    return float4(
+        fma(dst.rgb, inv_src_alpha, src.rgb),
+        saturate(fma(dst.a, inv_src_alpha, src.a))
+    );
+}
+
+[ForceInline]
+float4 darken_base_for_back_cover(const in float4 dst_base, const in float4 src_back)
+{
+    let darken_factor = 1.0 - src_back.a * .6f;
+    return float4(dst_base.rgb * darken_factor, dst_base.a);
+}
+
+[ForceInline]
+float4 tint_darkened_base_with_back(const in float4 darkened_base, const in float4 src_back)
+{
+    let base_alpha = saturate(darkened_base.a);
+    let tint_src = float4(src_back.rgb * base_alpha, src_back.a * base_alpha);
+    let tinted_base = alpha_over(tint_src, darkened_base);
+    return float4(
+        lerp(darkened_base.rgb, tinted_base.rgb, BACK_BASE_TINT_RATIO),
+        darkened_base.a
+    );
+}
 
 [shader("compute")]
 [numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
@@ -22,66 +64,24 @@ void main(
 ) {
     let pos = dispatchThreadID.xy + offset;
 
+    let src_base = sanitize_lane_color(input_base.Load(int3(pos, 0)));
+    let src_back = sanitize_lane_color(input_back.Load(int3(pos, 0)));
 
-    let color_base_src = input_base.Load(int3(pos, 0));
-    let color_back_src = input_back.Load(int3(pos, 0));
+    if (src_base.a <= 0.0 && src_back.a <= 0.0) {
+        return;
+    }
 
-    let color_base_dst = output_base.Load(pos);
-    let color_back_dst = output_back.Load(pos);
+    let dst_base = sanitize_lane_color(inout_base.Load(pos));
 
+    let darkened_base = darken_base_for_back_cover(dst_base, src_back);
+    let m1_base = tint_darkened_base_with_back(darkened_base, src_back);
+    let m2_base = alpha_over(src_base, m1_base);
 
+    inout_base.Store(pos, m2_base);
 
-
-    const float FADE_ALPHA_INTENSITY = 0.8;
-    const float FADE_LUMA_INTENSITY = 0.1;
-
-
-    float alpha_fade_factor = 1.0 - (color_back_src.a * FADE_ALPHA_INTENSITY);
-    float luma_fade_factor = 1.0 - (color_back_src.a * FADE_LUMA_INTENSITY);
-
-    float4 faded_base_dst = color_base_dst;
-    faded_base_dst.a *= alpha_fade_factor;
-
-    faded_base_dst.rgb *= (alpha_fade_factor * luma_fade_factor);
-
-
-
-
-
-    static const float BACK_BLEED_RATIO = 0.35;
-
-
-    float4 bleed_src = color_back_src;
-
-
-    bleed_src.a *= BACK_BLEED_RATIO;
-    bleed_src.rgb *= BACK_BLEED_RATIO;
-
-
-
-    bleed_src *= faded_base_dst.a;
-
-
-    float4 temp_base_dst = pp::blend::pre_scaled_alpha_blend(bleed_src, faded_base_dst);
-
-
-    temp_base_dst *= faded_base_dst.a;
-
-
-
-
-
-    float4 faded_back_dst = float4(
-        color_back_dst.rgb * alpha_fade_factor * luma_fade_factor,
-        color_back_dst.a
-    );
-
-    float4 final_back_dst = pp::blend::pre_scaled_alpha_blend(color_back_src, faded_back_dst);
-
-
-    float4 final_base_dst = pp::blend::pre_scaled_alpha_blend(color_base_src, temp_base_dst);
-
-
-    output_base.Store(pos, final_base_dst);
-    output_back.Store(pos, final_back_dst);
+    if (src_back.a > 0.0) {
+        let dst_back = sanitize_lane_color(inout_back.Load(pos));
+        let m3_back = alpha_over(src_back, dst_back);
+        inout_back.Store(pos, m3_back);
+    }
 }
