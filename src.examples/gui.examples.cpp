@@ -76,6 +76,7 @@ import mo_yanxi.math.rand;
 
 import mo_yanxi.gui.cfg.builtin.constants;
 import mo_yanxi.gui.cfg.builtin.scene;
+import mo_yanxi.gui.i18n_loader;
 import mo_yanxi.platform;
 
 
@@ -112,6 +113,33 @@ std::optional<std::size_t> requested_profile_page_index(const std::size_t page_c
 		return value;
 	}
 	return std::nullopt;
+}
+
+std::string example_menu_i18n_path(std::string_view name){
+	std::string key;
+	key.reserve(name.size());
+
+	auto append_separator = [&]{
+		if(!key.empty() && key.back() != '-'){
+			key.push_back('-');
+		}
+	};
+
+	for(const unsigned char c : name){
+		if(c >= 'A' && c <= 'Z'){
+			key.push_back(static_cast<char>(c - 'A' + 'a'));
+		} else if((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'){
+			key.push_back(static_cast<char>(c));
+		} else{
+			append_separator();
+		}
+	}
+
+	while(!key.empty() && key.back() == '-'){
+		key.pop_back();
+	}
+
+	return std::format("xrgui-example.menu.{}", key);
 }
 
 #pragma region ExampleUIStructs
@@ -635,6 +663,11 @@ ui_outputs build_main_ui(
 
 	scene.enable_elem_async_task_post(true);
 	scene.drop_and_reset_communicate_async_task_queue_size(1);
+	(void)load_scene_i18n_for_system_locale(
+		scene,
+		i18n_load_options{
+			.bundle_dir = std::filesystem::current_path() / "assets/i18n/bundle",
+		});
 
 	set_cursors(scene);
 
@@ -1499,17 +1532,31 @@ Edge Cases:
 
 	auto profile_test_entries = make_create_table();
 	for(const auto& [idx, creator] : profile_test_entries | std::views::enumerate){
+		const auto index = static_cast<std::size_t>(idx);
+		const auto creator_name = creator.name;
+		const auto i18n_path = example_menu_i18n_path(creator_name);
 		menu_hdl->push_back(
 			elem_ptr{
-				menu_hdl->get_scene(), &menu_hdl.elem(), [&](label& label){
-					label.set_self_border(border_t{}.set_vert(6));
-					label.set_style(style::family_variant::base_only);
-					label.set_fit_type(label_fit_type::scl);
-					label.set_text(std::format("[{}]-{}", idx, creator.name));
-					label.text_entire_align = align::pos::center;
-					label.interactivity = interactivity_flag::enabled;
-					label.set_transform_config({
+				menu_hdl->get_scene(), &menu_hdl.elem(), [index, creator_name, i18n_path](label& menu_label){
+					menu_label.set_self_border(border_t{}.set_vert(6));
+					menu_label.set_style(style::family_variant::base_only);
+					menu_label.set_fit_type(label_fit_type::scl);
+					menu_label.set_text(std::format("[{}]-{}", index, creator_name));
+					menu_label.text_entire_align = align::pos::center;
+					menu_label.interactivity = interactivity_flag::enabled;
+					menu_label.set_transform_config({
 							.rotation = text_rotation::deg_270
+						});
+					i18n::bind_i18n_text(
+						menu_label.get_scene().resources().i18n_prov.node,
+						menu_label,
+						i18n::text_subscription{
+							.path = i18n_path,
+							.fallback = creator_name,
+							.missing = i18n::missing_text_policy::fallback,
+						},
+						[index](label& target, std::string_view text){
+							target.set_text(std::format("[{}]-{}", index, text));
 						});
 				}
 			}, creator.creator(menu_hdl->get_scene(), &menu_hdl.elem()));

@@ -40,6 +40,7 @@ add_requires("harfbuzz", { configs = { cxflags = "-DHB_NO_MT" } })
 add_requires("nanosvg", "spirv-reflect", "gtl", "glfw")
 add_requires("mimalloc v3.2.8")
 add_requires("simdutf", { optional = true })
+add_requires("toml++")
 
 rule("media.svg_to_bin")
     set_extensions(".svg")
@@ -71,6 +72,7 @@ function set_xrgui_deps()
     add_packages("gtl", {public = true})
     add_packages("spirv-reflect", {public = true})
     add_packages("simdutf")
+    add_packages("toml++", {public = true})
 
     add_includedirs("./external/VulkanMemoryAllocator/include", {public = true})
     add_includedirs("./external/stb")
@@ -226,13 +228,17 @@ target("xrgui.text_tree_test")
 
     set_warnings("all", "pedantic")
 
-    add_deps("mo_yanxi.utility")
+    add_deps("mo_yanxi.utility", "mo_yanxi.react_flow")
+    add_packages("toml++", {public = true})
     add_includedirs(path.join(magic_enum_dir, "include"), {public = true})
     add_files(path.join(magic_enum_dir, "module/magic_enum.cppm"), {
         public = true,
         defines = "MAGIC_ENUM_USE_STD_MODULE"
     })
     add_files("src/i18n/text_tree.ixx", {public = true})
+    add_files("src/i18n/text_tree.react_flow.ixx", {public = true})
+    add_files("src/i18n/text_tree.toml.ixx", {public = true})
+    add_files("src/i18n/text_tree.toml.cpp")
     add_files("src.tests/text_tree_tests.cpp")
 target_end()
 

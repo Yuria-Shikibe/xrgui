@@ -42,6 +42,7 @@ export import mo_yanxi.gui.alloc;
 export import mo_yanxi.gui.fx.config;
 
 export import mo_yanxi.react_flow;
+export import mo_yanxi.i18n.text_tree.react_flow;
 
 import mo_yanxi.allocator_aware_unique_ptr;
 import mo_yanxi.flat_set;
@@ -56,6 +57,7 @@ BITMASK_OPS(export, elem_tree_channel);
 export struct ui_manager;
 export struct elem;
 
+export using i18n_text_root_node = mo_yanxi::i18n::i18n_text_root_node;
 
 /**
  * @brief Tracks element count per altitude level with O(1) max query.
@@ -330,6 +332,7 @@ public:
 
 	UI_MAIN_THREAD_ACCESS_ONLY style::style_tree_manager style_tree_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
+	UI_MAIN_THREAD_ACCESS_ONLY react_flow::node_holder_pinned<i18n_text_root_node> i18n_prov{};
 
 	/**
 	 * @brief Install the backend communicator used by GUI elements.

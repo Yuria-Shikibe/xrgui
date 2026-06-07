@@ -1,10 +1,10 @@
-export module mo_yanxi.text_tree;
+export module mo_yanxi.i18n.text_tree;
 
 import std;
 import magic_enum;
 export import mo_yanxi.referenced_ptr;
 
-namespace mo_yanxi::text {
+namespace mo_yanxi::i18n {
 
 export using node_id = std::uint32_t;
 export using namespace_id = node_id;
@@ -114,15 +114,6 @@ struct parsed_segment {
 	return true;
 }
 
-[[nodiscard]] constexpr std::uint64_t ascii_hash64(std::string_view text) noexcept {
-	std::uint64_t value = 14695981039346656037ull;
-	for(const char c : text) {
-		value ^= static_cast<unsigned char>(c);
-		value *= 1099511628211ull;
-	}
-	return value;
-}
-
 [[nodiscard]] constexpr bool is_local_namespace(node_kind kind) noexcept {
 	return kind == node_kind::directory;
 }
@@ -133,7 +124,6 @@ struct parsed_segment {
 }
 
 struct edge_record {
-	std::uint64_t hash{};
 	std::uint32_t name_offset{};
 	std::uint32_t name_size{};
 	edge_kind kind{edge_kind::direct};
@@ -363,14 +353,11 @@ private:
 			return found == last ? nullptr : std::addressof(*found);
 		}
 
-		const auto hash = detail::ascii_hash64(segment);
-		auto found = std::ranges::lower_bound(first, last, hash, {}, &detail::edge_record::hash);
-		for(; found != last && found->hash == hash; ++found) {
-			if(name_of(*found) == segment) {
-				return std::addressof(*found);
-			}
-		}
-		return nullptr;
+		const auto found = std::ranges::lower_bound(first, last, segment, std::ranges::less{}, [this](
+			const detail::edge_record& edge) noexcept {
+			return name_of(edge);
+		});
+		return found != last && name_of(*found) == segment ? std::addressof(*found) : nullptr;
 	}
 
 	[[nodiscard]] lookup_result result_for(const frozen_text_tree* tree, node_id id) const noexcept {
@@ -695,19 +682,36 @@ public:
 	}
 
 	void make_dir(std::string_view path) {
-		(void)ensure_namespace_path(root_namespace(), path_scratch_, path);
+		make_dir(root_namespace(), path);
+	}
+
+	void make_dir(std::span<const std::string_view> path) {
+		make_dir(root_namespace(), path);
 	}
 
 	void make_dir(namespace_id root, std::string_view path) {
-		(void)ensure_namespace_path(root, path_scratch_, path);
+		const auto parsed = parse_path(path_scratch_, path);
+		(void)ensure_namespace_path(root, parsed);
+	}
+
+	void make_dir(namespace_id root, std::span<const std::string_view> path) {
+		(void)ensure_namespace_path(root, path);
 	}
 
 	void set_text(std::string_view path, std::string_view text) {
 		set_text(root_namespace(), path, text);
 	}
 
+	void set_text(std::span<const std::string_view> path, std::string_view text) {
+		set_text(root_namespace(), path, text);
+	}
+
 	void set_text(namespace_id root, std::string_view path, std::string_view text) {
 		const auto parsed = parse_path(path_scratch_, path);
+		set_text(root, parsed, text);
+	}
+
+	void set_text(namespace_id root, std::span<const std::string_view> parsed, std::string_view text) {
 		const auto parent = ensure_parent_path(root, parsed);
 		const auto leaf = parsed.back();
 		if(auto itr = nodes_[parent].children.find(leaf); itr != nodes_[parent].children.end()) {
@@ -745,11 +749,19 @@ public:
 		mount_tree(root_namespace(), path, std::move(tree));
 	}
 
+	void mount_tree(std::span<const std::string_view> path, frozen_text_tree_ptr tree) {
+		mount_tree(root_namespace(), path, std::move(tree));
+	}
+
 	void mount_tree(namespace_id root, std::string_view path, frozen_text_tree_ptr tree) {
+		const auto parsed = parse_path(path_scratch_, path);
+		mount_tree(root, parsed, std::move(tree));
+	}
+
+	void mount_tree(namespace_id root, std::span<const std::string_view> parsed, frozen_text_tree_ptr tree) {
 		if(!tree) {
 			throw std::invalid_argument{"mounted frozen_text_tree_ptr cannot be null"};
 		}
-		const auto parsed = parse_path(path_scratch_, path);
 		const auto parent = ensure_parent_path(root, parsed);
 		const auto leaf = parsed.back();
 		const auto id = new_node(node_kind::tree_pointer, parent, leaf);
@@ -775,9 +787,17 @@ public:
 		add_symbolic_link(root_namespace(), path, target);
 	}
 
+	void add_symbolic_link(std::span<const std::string_view> path, std::string_view target) {
+		add_symbolic_link(root_namespace(), path, target);
+	}
+
 	void add_symbolic_link(namespace_id root, std::string_view path, std::string_view target) {
-		validate_link_target(target);
 		const auto parsed = parse_path(path_scratch_, path);
+		add_symbolic_link(root, parsed, target);
+	}
+
+	void add_symbolic_link(namespace_id root, std::span<const std::string_view> parsed, std::string_view target) {
+		validate_link_target(target);
 		const auto parent = ensure_parent_path(root, parsed);
 		const auto leaf = parsed.back();
 		if(nodes_[parent].children.contains(leaf)) {
@@ -816,7 +836,6 @@ public:
 
 			for(const auto& [name, edge] : src.children) {
 				detail::edge_record out{};
-				out.hash = detail::ascii_hash64(name);
 				out.name_offset = append_string(frozen_strings, name);
 				out.name_size = checked_u32(name.size(), "edge name too large");
 				out.kind = edge.kind;
@@ -831,13 +850,8 @@ public:
 			auto range = std::ranges::subrange{
 				frozen_edges.begin() + dst.edge_begin,
 				frozen_edges.begin() + dst.edge_begin + dst.edge_count};
-			std::ranges::sort(range, [&frozen_strings](const detail::edge_record& lhs, const detail::edge_record& rhs) {
-				if(lhs.hash != rhs.hash) {
-					return lhs.hash < rhs.hash;
-				}
-				const auto lhs_name = std::string_view{frozen_strings.data() + lhs.name_offset, lhs.name_size};
-				const auto rhs_name = std::string_view{frozen_strings.data() + rhs.name_offset, rhs.name_size};
-				return lhs_name < rhs_name;
+			std::ranges::sort(range, std::ranges::less{}, [&frozen_strings](const detail::edge_record& edge) noexcept {
+				return std::string_view{frozen_strings.data() + edge.name_offset, edge.name_size};
 			});
 		}
 
@@ -860,7 +874,7 @@ private:
 	mutable std::uint32_t reach_epoch_{1};
 
 	[[nodiscard]] static std::uint32_t checked_u32(std::size_t value, const char* message) {
-		if(value > std::numeric_limits<std::uint32_t>::max()) {
+		if(!std::in_range<std::uint32_t>(value)) {
 			throw std::length_error{message};
 		}
 		return static_cast<std::uint32_t>(value);
@@ -914,10 +928,17 @@ private:
 		return scratch;
 	}
 
-	[[nodiscard]] node_id ensure_parent_path(namespace_id root, std::span<const std::string_view> parsed) {
+	static void validate_path_segments(std::span<const std::string_view> parsed) {
 		if(parsed.empty()) {
 			throw std::invalid_argument{"text tree path cannot be empty"};
 		}
+		if(!std::ranges::all_of(parsed, detail::valid_segment)) {
+			throw std::invalid_argument{"invalid text tree path"};
+		}
+	}
+
+	[[nodiscard]] node_id ensure_parent_path(namespace_id root, std::span<const std::string_view> parsed) {
+		validate_path_segments(parsed);
 		check_namespace(root);
 		node_id current = root;
 		for(const auto segment : parsed.first(parsed.size() - 1)) {
@@ -931,6 +952,11 @@ private:
 		std::vector<std::string_view>& scratch,
 		std::string_view path) {
 		const auto parsed = parse_path(scratch, path);
+		return ensure_namespace_path(root, parsed);
+	}
+
+	[[nodiscard]] node_id ensure_namespace_path(namespace_id root, std::span<const std::string_view> parsed) {
+		validate_path_segments(parsed);
 		check_namespace(root);
 		node_id current = root;
 		for(const auto segment : parsed) {

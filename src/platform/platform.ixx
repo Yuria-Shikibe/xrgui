@@ -43,6 +43,37 @@ thread_local bool com_initialized_by_platform = false;
 }
 #ifdef _WIN32
 
+[[nodiscard]] std::string wide_to_utf8(std::wstring_view value) {
+	if(value.empty()) {
+		return {};
+	}
+
+	const int utf8_size = WideCharToMultiByte(
+		CP_UTF8,
+		WC_ERR_INVALID_CHARS,
+		value.data(),
+		static_cast<int>(value.size()),
+		nullptr,
+		0,
+		nullptr,
+		nullptr);
+	if(utf8_size <= 0) {
+		return std::string(value.begin(), value.end());
+	}
+
+	std::string result(static_cast<std::size_t>(utf8_size), '\0');
+	WideCharToMultiByte(
+		CP_UTF8,
+		WC_ERR_INVALID_CHARS,
+		value.data(),
+		static_cast<int>(value.size()),
+		result.data(),
+		utf8_size,
+		nullptr,
+		nullptr);
+	return result;
+}
+
 template <typename T>
 void release_com_object(T* object) noexcept {
 	if(object != nullptr) {
@@ -50,6 +81,39 @@ void release_com_object(T* object) noexcept {
 	}
 }
 #endif
+
+[[nodiscard]] std::string normalize_locale_name_impl(std::string_view locale) {
+	if(locale.empty()) {
+		return {};
+	}
+
+	const auto encoding_pos = locale.find_first_of(".@");
+	if(encoding_pos != std::string_view::npos) {
+		locale = locale.substr(0, encoding_pos);
+	}
+	if(locale == "C" || locale == "POSIX") {
+		return {};
+	}
+
+	std::string result;
+	result.reserve(locale.size());
+	bool previous_separator = false;
+	for(char c : locale) {
+		if(c == '_' || c == '-') {
+			if(!result.empty() && !previous_separator) {
+				result.push_back('-');
+				previous_separator = true;
+			}
+			continue;
+		}
+		result.push_back(c);
+		previous_separator = false;
+	}
+	if(!result.empty() && result.back() == '-') {
+		result.pop_back();
+	}
+	return result;
+}
 }
 
 export void initialize() {
@@ -99,6 +163,32 @@ export [[nodiscard]] std::optional<std::string> get_environment_variable(const c
 
 export [[nodiscard]] bool environment_flag_enabled(const char* name) {
 	return get_environment_variable(name).value_or(std::string{}) == "1";
+}
+
+export [[nodiscard]] std::string get_system_locale_name() {
+#ifdef _WIN32
+	std::array<wchar_t, LOCALE_NAME_MAX_LENGTH> buffer{};
+	const int length = GetUserDefaultLocaleName(buffer.data(), static_cast<int>(buffer.size()));
+	if(length > 0) {
+		return normalize_locale_name_impl(wide_to_utf8(std::wstring_view{buffer.data(), static_cast<std::size_t>(length - 1)}));
+	}
+#else
+	try {
+		if(auto locale = normalize_locale_name_impl(std::locale("").name()); !locale.empty()) {
+			return locale;
+		}
+	} catch(const std::runtime_error&) {
+	}
+
+	for(const char* name : {"LC_ALL", "LC_MESSAGES", "LANG"}) {
+		if(auto value = get_environment_variable(name)) {
+			if(auto locale = normalize_locale_name_impl(*value); !locale.empty()) {
+				return locale;
+			}
+		}
+	}
+#endif
+	return {};
 }
 
 export [[nodiscard]] constexpr std::string_view get_invalid_filename_chars() noexcept {
