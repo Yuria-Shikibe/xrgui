@@ -316,21 +316,16 @@ std::optional<prepared_image_upload> async_image_loader::prepare(allocated_image
 	}
 
 	async_image_loader::async_image_loader(
-		const vk::context_info& context,
+		vk::context_info context,
 		std::uint32_t graphic_family_index,
 		VkQueue working_queue,
-		image_view_registry& image_view_registry,
-		sampler_descriptor_index default_sampler_index):
+		image_view_registry& image_view_registry):
 		working_queue_{working_queue},
 		async_allocator_(vk::allocator(context, VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT)),
 		command_pool_(context.device, graphic_family_index, VK_COMMAND_POOL_CREATE_TRANSIENT_BIT),
 		region_fence_(context.device, true),
 		allocation_fence_(context.device, false),
-		image_view_registry_(&image_view_registry),
-		default_sampler_index_(default_sampler_index){
-		if(default_sampler_index_ == auto_sampler_index || !image_view_registry_->contains_sampler(default_sampler_index_)){
-			throw std::invalid_argument("image atlas default sampler must be registered");
-		}
+		image_view_registry_(&image_view_registry){
 		const auto cpu_worker_count = calculate_cpu_worker_count();
 		cpu_workers_.reserve(cpu_worker_count);
 		for(unsigned i = 0; i < cpu_worker_count; ++i){

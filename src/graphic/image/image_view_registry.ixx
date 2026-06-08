@@ -13,7 +13,7 @@ export using sampler_descriptor_index = std::uint32_t;
 export using texture_descriptor_index = std::uint32_t;
 
 export constexpr image_descriptor_index invalid_image_descriptor_index = 0U;
-export constexpr sampler_descriptor_index auto_sampler_index = 0U;
+export constexpr sampler_descriptor_index auto_sampler_index = ~sampler_descriptor_index{};
 
 export
 struct texture_binding{
@@ -109,11 +109,11 @@ export
  *
  * Draw instructions store compact image/sampler indices instead of raw Vulkan
  * handles. The registry deduplicates image view + layout pairs and samplers,
- * reserves index 0 for invalid/automatic bindings, and tracks dirty slots so
- * descriptor buffers can be updated incrementally before command recording.
+ * uses ~0U for automatic sampler lookup, and tracks dirty slots so descriptor
+ * buffers can be updated incrementally before command recording.
  */
 class image_view_registry{
-	std::vector<image_view_sampler_record> sampler_records_{image_view_sampler_record{}};
+	std::vector<image_view_sampler_record> sampler_records_{};
 	std::vector<image_view_record> image_records_{};
 	std::vector<image_view_texture_dirty_slot> dirty_texture_slots_{};
 	std::vector<image_view_sampler_dirty_slot> dirty_sampler_slots_{};
@@ -151,7 +151,7 @@ public:
 		if(registration.layout == VK_IMAGE_LAYOUT_UNDEFINED){
 			throw std::invalid_argument("cannot register an image view with VK_IMAGE_LAYOUT_UNDEFINED");
 		}
-		this->validate_sampler_index_(registration.default_sampler_index);
+		this->validate_default_sampler_index_(registration.default_sampler_index);
 
 		const image_view_key key{registration.view, registration.layout};
 		if(const auto itr = image_indices_.find(key); itr != image_indices_.end()){
@@ -189,7 +189,7 @@ public:
 
 	void set_default_sampler(image_descriptor_index image_index, sampler_descriptor_index sampler_index){
 		const auto texture_slot = this->texture_slot_for_image(image_index);
-		this->validate_sampler_index_(sampler_index);
+		this->validate_default_sampler_index_(sampler_index);
 		image_records_[texture_slot].default_sampler_index = sampler_index;
 	}
 
@@ -199,6 +199,9 @@ public:
 		const auto texture_slot = this->texture_slot_for_image(image_index);
 		if(sampler_index == auto_sampler_index){
 			sampler_index = image_records_[texture_slot].default_sampler_index;
+		}
+		if(sampler_index == auto_sampler_index){
+			return sampler_index;
 		}
 		this->validate_sampler_index_(sampler_index);
 		return sampler_index;
@@ -279,6 +282,12 @@ private:
 	void validate_sampler_index_(sampler_descriptor_index sampler_index) const{
 		if(!this->contains_sampler(sampler_index)){
 			throw std::out_of_range("sampler descriptor index is not registered");
+		}
+	}
+
+	void validate_default_sampler_index_(sampler_descriptor_index sampler_index) const{
+		if(sampler_index != auto_sampler_index){
+			this->validate_sampler_index_(sampler_index);
 		}
 	}
 

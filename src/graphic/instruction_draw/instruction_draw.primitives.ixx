@@ -469,6 +469,12 @@ export enum struct row_patch_flags : std::uint32_t{
 
 BITMASK_OPS(export,row_patch_flags);
 
+export enum struct nine_patch_flags : std::uint32_t{
+	none,
+	hollow = 1 << 0,
+};
+
+BITMASK_OPS(export,nine_patch_flags);
 
 //TODO support transpose?
 export struct row_patch{
@@ -509,6 +515,26 @@ export struct row_patch{
 	}
 };
 
+export struct nine_patch{
+	primitive_generic generic;
+	quad_group<float> x;
+	quad_group<float> y;
+	quad_group<float> uvx;
+	quad_group<float> uvy;
+	quad_vert_color vert_color;
+	nine_patch_flags flags;
+	std::uint32_t _cap[3];
+
+	[[nodiscard]] FORCE_INLINE CONST_FN static constexpr std::uint32_t get_vertex_count() noexcept{
+		return 16;
+	}
+
+	[[nodiscard]] FORCE_INLINE CONST_FN constexpr std::uint32_t get_primitive_count(
+		this const nine_patch& instruction) noexcept{
+		return (instruction.flags & nine_patch_flags::hollow) != nine_patch_flags{} ? 16U : 18U;
+	}
+};
+
 static_assert(sizeof(quad_group<float>) == sizeof(float) * 4);
 static_assert(alignof(quad_group<float>) == instr_required_align);
 static_assert(alignof(quad_vert_color) == instr_required_align);
@@ -534,6 +560,7 @@ static_assert(fixed_instruction_payload_aligned<poly>());
 static_assert(fixed_instruction_payload_aligned<poly_partial>());
 static_assert(fixed_instruction_payload_aligned<parametric_curve>());
 static_assert(fixed_instruction_payload_aligned<row_patch>());
+static_assert(fixed_instruction_payload_aligned<nine_patch>());
 
 
 template <std::derived_from<line_segments> T>
@@ -577,6 +604,9 @@ constexpr inline instr_type instruction_type_of<rect_aabb_outline> = instr_type:
 
 template <>
 constexpr inline instr_type instruction_type_of<row_patch> = instr_type::row_patch;
+
+template <>
+constexpr inline instr_type instruction_type_of<nine_patch> = instr_type::nine_patch;
 
 
 

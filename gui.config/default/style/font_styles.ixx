@@ -13,7 +13,7 @@ import mo_yanxi.graphic.image_atlas;
 namespace mo_yanxi::gui::cfg::builtin{
 export
 void init_font_manager(font::font_manager& font_manager, graphic::image_atlas& image_atlas){
-	font_manager.set_page(image_atlas.create_image_page("font"));
+	font_manager.set_page(image_atlas.create_image_page("font", {.usage = graphic::image_page_usage::msdf}));
 
 	{
 		auto sys_font_path = font::get_system_fonts();

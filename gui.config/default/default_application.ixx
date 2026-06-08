@@ -8,6 +8,7 @@ export import mo_yanxi.backend.vulkan.context;
 export import mo_yanxi.backend.vulkan.renderer;
 export import mo_yanxi.graphic.image_atlas;
 export import mo_yanxi.input_handle.input_event_queue;
+export import mo_yanxi.gui.cfg.render_context;
 
 namespace mo_yanxi::gui::cfg{
 

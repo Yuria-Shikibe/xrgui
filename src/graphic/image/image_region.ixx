@@ -215,8 +215,12 @@ struct sized_image{
 	sampler_descriptor_index preferred_sampler_index{auto_sampler_index};
 	VkImageView view{};
 
+	[[nodiscard]] constexpr auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
+		return texture_binding(preferred_sampler_index);
+	}
+
 	[[nodiscard]] constexpr auto texture_binding(
-		const sampler_descriptor_index sampler_index = auto_sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
+		const sampler_descriptor_index sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
 		return {
 			.image_index = index,
 			.sampler_index = sampler_index
@@ -258,11 +262,15 @@ struct combined_image_region{
 	}
 
 	[[nodiscard]] constexpr auto texture_binding(
-		const sampler_descriptor_index sampler_index = auto_sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
+		const sampler_descriptor_index sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
 		return {
 			.image_index = index,
 			.sampler_index = sampler_index
 		};
+	}
+
+	[[nodiscard]] constexpr auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
+		return texture_binding(preferred_sampler_index);
 	}
 
 	constexpr explicit operator bool() const noexcept{

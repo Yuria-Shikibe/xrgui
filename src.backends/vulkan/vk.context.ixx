@@ -30,7 +30,7 @@ struct InFlightData{
 struct SwapChainFrameData{
 	VkImage image{};
 	vk::image_view image_view{};
-	command_buffer post_command{};
+	VkCommandBuffer post_command{};
 	semaphore flush_semaphore{};
 };
 
@@ -75,11 +75,6 @@ private:
 	validation_entry validationEntry{};
 
 
-	command_pool main_graphic_command_pool{};
-	command_pool main_graphic_command_pool_transient{};
-	command_pool main_compute_command_pool{};
-	command_pool main_compute_command_pool_transient{};
-
 	//Swap Chains
 	exclusive_handle_member<VkSwapchainKHR> last_swap_chain{nullptr};
 	exclusive_handle_member<VkSwapchainKHR> swap_chain{};
@@ -105,9 +100,8 @@ public:
 		return {instance, physical_device, device};
 	}
 
-	void set_staging_image(const swap_chain_staging_image_data& image_data, bool instantly_create_command = true){
+	void set_staging_image(const swap_chain_staging_image_data& image_data) noexcept{
 		this->final_staging_image = image_data;
-		if(instantly_create_command) record_post_command(true);
 	}
 
 	[[nodiscard]] std::uint32_t output_image_count() const noexcept{
@@ -160,30 +154,6 @@ public:
 		return device.primary_compute_queue();
 	}
 
-
-	[[nodiscard]] const command_pool& get_graphic_command_pool() const noexcept{
-		return main_graphic_command_pool;
-	}
-
-	[[nodiscard]] const command_pool& get_compute_command_pool() const noexcept{
-		return main_compute_command_pool;
-	}
-
-	[[nodiscard]] const command_pool& get_compute_command_pool_transient() const noexcept{
-		return main_compute_command_pool_transient;
-	}
-
-	[[nodiscard]] const command_pool& get_graphic_command_pool_transient() const noexcept{
-		return main_graphic_command_pool_transient;
-	}
-
-	[[nodiscard]] transient_command get_transient_graphic_command_buffer() const noexcept{
-		return main_graphic_command_pool_transient.get_transient(graphic_queue());
-	}
-
-	[[nodiscard]] transient_command get_transient_compute_command_buffer() const noexcept{
-		return main_compute_command_pool_transient.get_transient(compute_queue());
-	}
 
 	[[nodiscard]] std::uint32_t graphic_family() const noexcept{
 		return physical_device.queues.graphic.index;
@@ -277,8 +247,8 @@ public:
 			};
 	}
 
-
-	void record_post_command(bool no_fence_wait);
+	void record_post_command(std::span<const VkCommandBuffer> post_commands, bool no_fence_wait = false);
+	void record_post_command(std::span<const vk::command_buffer> post_commands, bool no_fence_wait = false);
 
 private:
 	static void waitOnQueue(VkQueue queue){
@@ -296,11 +266,6 @@ private:
 		surface = window_.create_surface(instance);
 
 		create_device();
-
-		main_compute_command_pool = {get_device(), compute_family(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT};
-		main_graphic_command_pool = {get_device(), graphic_family(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT};
-		main_compute_command_pool_transient = {get_device(), compute_family(), VK_COMMAND_POOL_CREATE_TRANSIENT_BIT};
-		main_graphic_command_pool_transient = {get_device(), graphic_family(), VK_COMMAND_POOL_CREATE_TRANSIENT_BIT};
 
 		for(auto& frame_data : sync_arr){
 			frame_data.fence = fence{device, true};
@@ -414,7 +379,7 @@ private:
 
 	void create_device();
 
-	void recreate(bool no_fence_wait);
+	void recreate();
 };
 
 export

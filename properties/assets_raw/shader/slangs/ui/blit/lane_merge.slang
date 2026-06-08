@@ -15,7 +15,13 @@ restrict RWTexture2D inout_base;
 [[vk::binding(3, 0)]]
 restrict RWTexture2D inout_back;
 
+[[format("r16ui")]]
+[[vk::binding(4, 0)]]
+restrict RWTexture2D<uint> inout_back_coverage;
+
 static const float BACK_BASE_TINT_RATIO = 0.75;
+static const float BACK_COVERAGE_UNIT = 255.0;
+static const uint BACK_COVERAGE_MAX = 65535u;
 
 [ForceInline]
 float4 sanitize_lane_color(const in float4 color)
@@ -57,6 +63,12 @@ float4 tint_darkened_base_with_back(const in float4 darkened_base, const in floa
     );
 }
 
+[ForceInline]
+uint back_coverage_units_from_alpha(const in float alpha)
+{
+    return uint(round(saturate(alpha) * BACK_COVERAGE_UNIT));
+}
+
 [shader("compute")]
 [numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
 void main(
@@ -83,5 +95,11 @@ void main(
         let dst_back = sanitize_lane_color(inout_back.Load(pos));
         let m3_back = alpha_over(src_back, dst_back);
         inout_back.Store(pos, m3_back);
+
+        let coverage_add = back_coverage_units_from_alpha(src_back.a);
+        if (coverage_add > 0u) {
+            let coverage_dst = inout_back_coverage.Load(pos);
+            inout_back_coverage.Store(pos, min(BACK_COVERAGE_MAX, coverage_dst + coverage_add));
+        }
     }
 }

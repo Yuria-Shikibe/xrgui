@@ -160,12 +160,11 @@ struct render_target_mask{
     constexpr render_target_mask operator>>(unsigned shift) const noexcept {
        return {mask >> shift};
     }
+
     constexpr render_target_mask& operator>>=(unsigned shift) noexcept {
        mask >>= shift;
        return *this;
     }
-
-
 
     template <std::invocable<unsigned> Fn>
     constexpr void for_each_popbit(this render_target_mask self, Fn&& fn) noexcept(std::is_nothrow_invocable_v<Fn, unsigned>){

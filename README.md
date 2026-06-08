@@ -91,6 +91,13 @@ xmake -b xrgui.example
 xmake run xrgui.example
 ```
 
+运行单元测试：
+
+```powershell
+xmake -b xrgui.tests
+xmake run xrgui.tests
+```
+
 ## 能力速览
 
 <table>

@@ -212,45 +212,43 @@ struct pie_menu_demo_area : label{
 		label::on_click(event, aboves);
 		if(event.key.action == input_handle::act::press && event.key.as_mouse() == input_handle::mouse::RMB){
 			auto owner = ref<pie_menu_demo_area>();
-			std::vector<cpd::pie_menu_item> items;
-			items.reserve(8);
-
-			auto push_item = [&](std::string text, bool disabled = false){
-				items.push_back(cpd::pie_menu_item{
-					.element = elem_ptr{
-						get_scene(), nullptr,
-						[text, disabled](label& label){
-							label.interactivity = interactivity_flag::enabled;
-							// label.set_style(style::family_variant::base_only);
-							label.set_fit_type(label_fit_type::scl);
-							label.text_entire_align = align::pos::center;
-							label.text_color_scl = graphic::colors::white.copy_set_a(disabled ? .45f : .95f);
-							label.set_text(text);
-							label.set_disabled(disabled);
-						}
-					},
-					.action = [owner, text]{
-						if(auto* live = owner.get_live()){
-							live->set_text(std::format("Pie menu: {}", text));
-						}
-					},
-					.disabled = disabled
-				});
-			};
-
-			push_item("Select");
-			push_item("Move");
-			push_item("Rotate");
-			push_item("Scale");
-			push_item("Duplicate");
-			push_item("Disabled", true);
-			push_item("Delete");
-			push_item("Apply");
 
 			cpd::show_pie_menu(
 				get_scene(),
 				util::transform_local2scene(*this, event.pos),
-				std::move(items),
+				[&](cpd::pie_menu_item_builder& items){
+					items.reserve(8);
+					auto push_item = [&](std::string text, bool disabled = false){
+						items.create_back(
+							cpd::pie_menu_item_config{
+								.action = [owner, text]{
+									if(auto* live = owner.get_live()){
+										live->set_text(std::format("Pie menu: {}", text));
+									}
+								},
+								.disabled = disabled
+							},
+							[text, disabled](label& label){
+								label.interactivity = interactivity_flag::enabled;
+								// label.set_style(style::family_variant::base_only);
+								label.set_fit_type(label_fit_type::scl);
+								label.text_entire_align = align::pos::center;
+								label.text_color_scl = graphic::colors::white.copy_set_a(disabled ? .45f : .95f);
+								label.set_text(text);
+								label.set_disabled(disabled);
+							}
+						);
+					};
+
+					push_item("Select");
+					push_item("Move");
+					push_item("Rotate");
+					push_item("Scale");
+					push_item("Duplicate");
+					push_item("Disabled", true);
+					push_item("Delete");
+					push_item("Apply");
+				},
 				cpd::pie_menu_config{
 					.on_cancel = [owner]{
 						if(auto* live = owner.get_live()){
@@ -715,7 +713,9 @@ ui_outputs build_main_ui(
 					seq.template_cell.set_pad({8.f, 8.f});
 
 					const auto path = std::filesystem::current_path().append("assets/markdown/preview.md").make_preferred();
-						auto& image_page = image_atlas.create_image_page("markdown.images");
+						auto& image_page = image_atlas.create_image_page("markdown.images", {
+							.usage = graphic::image_page_usage::regular
+						});
 						md::markdown_config config{};
 						config.image = md::markdown_image_config{
 							.page = &image_page,
@@ -1547,14 +1547,13 @@ Edge Cases:
 					menu_label.set_transform_config({
 							.rotation = text_rotation::deg_270
 						});
-					i18n::bind_i18n_text(
-						menu_label.get_scene().resources().i18n_prov.node,
-						menu_label,
+					menu_label.get_scene().resources().bind_i18n(
 						i18n::text_subscription{
 							.path = i18n_path,
 							.fallback = creator_name,
 							.missing = i18n::missing_text_policy::fallback,
 						},
+						menu_label,
 						[index](label& target, std::string_view text){
 							target.set_text(std::format("[{}]-{}", index, text));
 						});

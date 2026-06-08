@@ -48,6 +48,7 @@ import mo_yanxi.gui.examples.loop_exec;
 import mo_yanxi.gui.cfg.builtin.colored_cerr;
 import mo_yanxi.gui.cfg.builtin.font_styles;
 import mo_yanxi.gui.cfg.builtin.log_channels;
+import mo_yanxi.gui.cfg.render_context;
 import mo_yanxi.log;
 
 
@@ -123,235 +124,15 @@ void app_run(
 	main_loop.get_window_dispatcher().drain();
 }
 
-void prepare(mo_yanxi::backend::vulkan::context& ctx){
+void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
+	auto& ctx = gui_context.context();
 	const auto shader_spv_path = std::filesystem::current_path().append("assets/shader/spv").make_preferred();
-
-	log::info({"GUI"}, "core initialize");
-	gui::global::initialize();
-	gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
-	log::info({"GUI"}, "core initialize done");
-
-#pragma region InitRenderer
-	log::info({"GUI"}, "renderer initialize");
-	vk::sampler sampler_ui{ctx.get_device(), vk::preset::ui_texture_sampler};
-	//renderer should belong to main loop actually
-	auto renderer = [&]() -> backend::vulkan::renderer{
-		vk::shader_module draw_shader_vert{ctx.get_device(), shader_spv_path / "ui.draw.vert.spv"};
-		vk::shader_module draw_shader_frag_basic{ctx.get_device(), shader_spv_path / "ui.draw.frag_basic.spv"};
-		vk::shader_module draw_shader_frag_outlined{ctx.get_device(), shader_spv_path / "ui.draw.frag_outlined.spv"};
-		vk::shader_module draw_shader_coord{ctx.get_device(), shader_spv_path / "ui.draw.coord_draw.spv"};
-		vk::shader_module draw_shader_mask{ctx.get_device(), shader_spv_path / "ui.draw.frag_mask.spv"};
-		vk::shader_module draw_shader_mask_apply{ctx.get_device(), shader_spv_path / "ui.draw.frag_mask_apply.spv"};
-
-		vk::shader_module blit_shader_merge{ctx.get_device(), shader_spv_path / "ui.blit.basic.spv"};
-		vk::shader_module blit_shader_blend{ctx.get_device(), shader_spv_path / "ui.blit.alpha_blend.spv"};
-		vk::shader_module blit_shader_inverse{ctx.get_device(), shader_spv_path / "ui.blit.inverse.spv"};
-
-		vk::shader_module shader_instr_resolve{ctx.get_device(), shader_spv_path / "ui.instruction_resolve_comp.spv"};
-
-		using namespace backend::vulkan;
-		return {
-				renderer_create_info{
-					.allocator_usage = ctx.get_allocator(),
-					.command_pool = ctx.get_graphic_command_pool(),
-					.sampler = sampler_ui,
-					.attachment_draw_config = {
-						{
-							draw_attachment_config{
-								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT}
-							},
-							draw_attachment_config{
-								.attachment = {VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT}
-							},
-						},
-						// VK_SAMPLE_COUNT_4_BIT
-					},
-					.attachment_blit_config = {
-						{
-							attachment_config{VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
-							attachment_config{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
-							attachment_config{VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL},
-						}
-					},
-					.draw_pipe_config = graphic_pipeline_create_config{
-						{
-							//basic draw
-							graphic_pipeline_create_config::config{
-								{
-									draw_shader_vert.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_frag_basic.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
-								},
-								graphic_pipeline_option{
-									false, mask_usage::ignore, {0b1}, {},
-									{
-										{vk::blending::premultiplied_alpha_blend}, blend_dynamic_flags::equation | blend_dynamic_flags::write_flag
-									}
-								}
-							},
-							//outline sdf
-							graphic_pipeline_create_config::config{
-								{
-									draw_shader_vert.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_frag_outlined.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
-								},
-								graphic_pipeline_option{
-									false, mask_usage::ignore, {0b1}, {},
-									{
-										{vk::blending::premultiplied_alpha_blend}
-									}
-								}
-							},
-							//coordinate draw
-							graphic_pipeline_create_config::config{
-								{
-									draw_shader_coord.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_coord.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
-								},
-								graphic_pipeline_option{
-									false, mask_usage::ignore, {0b1}, {},
-									{
-										{vk::blending::premultiplied_alpha_blend}
-									}
-								}
-							},
-							//mask draw
-							graphic_pipeline_create_config::config{
-								{
-									draw_shader_vert.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_mask.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
-								},
-								graphic_pipeline_option{
-									false, mask_usage::write, {}, {},
-									{
-										{vk::blending::mask_draw}, blend_dynamic_flags::equation
-									}
-								}
-							},
-							//pipeline apply
-							graphic_pipeline_create_config::config{
-								{
-									draw_shader_vert.get_stage_bundle(VK_SHADER_STAGE_VERTEX_BIT, "main_vert"),
-									draw_shader_mask_apply.get_stage_bundle(VK_SHADER_STAGE_FRAGMENT_BIT, "main_frag")
-								},
-								graphic_pipeline_option{
-									false, mask_usage::read, {0b1}, {},
-									{
-										{vk::blending::max_alpha_blend}
-									}
-								}
-							},
-						},
-						{}
-					},
-					.blit_pipe_config = compute_pipeline_create_config{
-						{
-							compute_pipeline_create_config::config{
-								.shader_bundle = blit_shader_merge.get_stage_bundle(VK_SHADER_STAGE_COMPUTE_BIT),
-								.option = {
-									.inout = compute_pipeline_blit_inout_config{
-										{
-											{0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
-											{1, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
-										},
-										{
-											{2, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
-											{3, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
-										}
-									},
-								}
-							},
-							compute_pipeline_create_config::config{
-								.shader_bundle = blit_shader_blend.get_stage_bundle(VK_SHADER_STAGE_COMPUTE_BIT),
-								.option = {
-									.inout = compute_pipeline_blit_inout_config{
-										{
-											{0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
-										},
-										{
-											{1, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
-										}
-									},
-								}
-							},
-							compute_pipeline_create_config::config{
-								.shader_bundle = blit_shader_inverse.get_stage_bundle(VK_SHADER_STAGE_COMPUTE_BIT),
-								.option = {
-									.inout = compute_pipeline_blit_inout_config{
-										{
-											{0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
-										},
-										{
-											{1, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
-										}
-									},
-								}
-							},
-						},
-						{
-							compute_pipeline_blit_inout_config{
-								{
-									{0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE},
-								},
-								{
-									{1, 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE},
-								}
-							}
-						}
-					},
-					.resolver_shader_stage = shader_instr_resolve.get_create_info(VK_SHADER_STAGE_COMPUTE_BIT),
-					.stride_config = {
-						.vertex_stride = sizeof(gui_vertex_mock),
-						.primitive_stride = sizeof(gui_primitive_mock),
-					}
-				}
-			};
-	}();
-	log::info({"GUI"}, "renderer initialize done");
-
-#pragma endregion
-
-#pragma region LoadResource
-	log::info({"GUI"}, "image atlas initialize");
-	image_atlas image_atlas{
-			ctx,
-			ctx.graphic_family(),
-			ctx.get_device().graphic_queue(1),
-			renderer.get_image_view_registry(),
-			renderer.get_default_sampler_index()
-		};
-	log::info({"GUI"}, "image atlas initialize done");
-
-	log::info({"GUI"}, "font manager initialize");
-	font::font_manager font_manager{};
-	gui::cfg::builtin::init_font_manager(font_manager, image_atlas);
-	log::info({"GUI"}, "font manager initialize done");
-
-	{
-		log::info({"GUI"}, "load logo image");
-		auto& icon_p = image_atlas.create_image_page("tex.logo", {
-			.extent = {1920, 1080},
-			.format = VK_FORMAT_R8G8B8A8_SRGB,
-			.margin = 0
-		});
-		const auto image_path = std::filesystem::current_path().append("assets/images").make_preferred();
-
-		auto rst = icon_p.register_named_region("logo", image_load_description{
-			bitmap_path_load{(image_path / "logo.png").string()}
-		}, true);
-
-		gui::assets::builtin::get_page().insert(gui::assets::builtin::shape_id::logo, gui::constant_image_region_borrow{rst.region});
-	}
-
-	{
-		log::info({"GUI"}, "generate icons and shapes");
-
-		gui::cfg::builtin::generate_default_shapes(image_atlas);
-		gui::cfg::builtin::load_default_icons(image_atlas);
-	}
-#pragma endregion
+	auto renderer_create_bundle = gui_context.make_renderer_create_info();
+	backend::vulkan::renderer renderer{std::move(renderer_create_bundle.create_info)};
+	auto& image_atlas = gui_context.image_atlas();
 
 #pragma region SetupRenderGraph
 	log::info({"Compositor"}, "initialize");
@@ -386,6 +167,13 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 		});
 
 	auto& ui_input_back = manager.add_external_resource(compositor::resource_entity_external{
+			compositor::image_entity{}, compositor::resource_dependency{
+				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+			}
+		});
+
+	auto& ui_input_back_coverage = manager.add_external_resource(compositor::resource_entity_external{
 			compositor::image_entity{}, compositor::resource_dependency{
 				.src_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
 				.dst_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
@@ -457,15 +245,17 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 				{{3}, 2, compositor::no_slot},
 				{{4}, 3, compositor::no_slot},
 				{{5}, 4, compositor::no_slot},
+				{{6}, 5, compositor::no_slot},
 			}
 		});
-	pass_merge.data.set_sampler_at_binding(5, sampler_blit);
+	pass_merge.data.set_sampler_at_binding(6, sampler_blit);
 
 	pass_merge.id()->add_input({{ui_input_base, 0}});
 	pass_merge.id()->add_input({{ui_input_back, 1}});
-	pass_merge.id()->add_dep({pass_bloom.id(), 0, 2});
-	pass_merge.id()->add_input({{input_background, 3}});
-	pass_merge.id()->add_dep({pass_blur.id(), 0, 4});
+	pass_merge.id()->add_input({{ui_input_back_coverage, 2}});
+	pass_merge.id()->add_dep({pass_bloom.id(), 0, 3});
+	pass_merge.id()->add_input({{input_background, 4}});
+	pass_merge.id()->add_dep({pass_blur.id(), 0, 5});
 
 
 	auto pass_present = manager.add_pass<compositor::fullscreen_present_stage>(
@@ -482,6 +272,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	renderer.resize({64, 64});
 	ui_input_base.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[0]};
 	ui_input_back.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[1]};
+	ui_input_back_coverage.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[3]};
 	input_background.resource = compositor::image_entity{.handle = renderer.get_blit_attachments()[2]};
 	manager.set_frame_count(ctx.output_image_count());
 	pass_present.data.set_output_format(ctx.output_image(0).format);
@@ -609,6 +400,11 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 	log::info({"GUI"}, "async scene setup done");
 
+	vk::command_pool post_process_command_pool{
+		ctx.get_device(),
+		ctx.graphic_family(),
+		VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+	};
 	std::vector<vk::command_buffer> post_process_cmds{};
 	auto rebuild_post_process_commands = [&](
 		backend::vulkan::context& context,
@@ -628,11 +424,12 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 			post_process_cmds.clear();
 			post_process_cmds.reserve(frame_count);
 			for(std::uint32_t frame_slot = 0; frame_slot < frame_count; ++frame_slot){
-				post_process_cmds.push_back(context.get_graphic_command_pool().obtain());
+				post_process_cmds.push_back(post_process_command_pool.obtain());
 			}
 		}
 
 		for(std::uint32_t frame_slot = 0; frame_slot < frame_count; ++frame_slot){
+			post_process_cmds[frame_slot].reset();
 			vk::scoped_recorder recorder{
 				post_process_cmds[frame_slot],
 				VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
@@ -649,6 +446,7 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 
 			ui_input_base.resource = compositor::image_entity{.handle = r.get_blit_attachments()[0]};
 			ui_input_back.resource = compositor::image_entity{.handle = r.get_blit_attachments()[1]};
+			ui_input_back_coverage.resource = compositor::image_entity{.handle = r.get_blit_attachments()[3]};
 			input_background.resource = compositor::image_entity{.handle = r.get_blit_attachments()[2]};
 		}
 
@@ -660,13 +458,6 @@ void prepare(mo_yanxi::backend::vulkan::context& ctx){
 	log::info({"GUI"}, "exiting");
 
 	main_loop.join();
-
-	gui::cfg::builtin::dispose_generated_shapes();
-	gui::global::terminate_assets_manager();
-	gui::global::terminate();
-
-	image_atlas.request_stop();
-	image_atlas.wait_load();
 	ctx.wait_on_device();
 }
 
@@ -674,7 +465,6 @@ int main(int argc, char** argv){
 	using namespace mo_yanxi;
 	using namespace graphic;
 
-	//auto _cerr = make_colored_errc();
 	gui::cfg::builtin::configure_gui_log_channels();
 	configure_example_runtime_working_directory(argc > 0 ? argv[0] : nullptr);
 	log::info({"Assets"}, "using runtime working directory {}", std::filesystem::current_path().string());
@@ -690,9 +480,6 @@ int main(int argc, char** argv){
 	platform::initialize();
 	font::initialize();
 	backend::glfw::initialize();
-
-	typesetting::rich_text_look_up_table table;
-	typesetting::look_up_table = &table;
 
 	VkApplicationInfo appInfo{
 		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -716,11 +503,10 @@ int main(int argc, char** argv){
 
 	log::info({"Vulkan"}, "API version: {}.{}.{}.{}", VK_API_VERSION_VARIANT(appInfo.apiVersion), VK_API_VERSION_MAJOR(appInfo.apiVersion), VK_API_VERSION_MINOR(appInfo.apiVersion), VK_API_VERSION_PATCH(appInfo.apiVersion));
 	{
-		backend::vulkan::context ctx{appInfo};
-		vk::load_ext(ctx.get_instance());
-		vk::register_default_requirements(ctx.get_device(), ctx.get_physical_device());
-
-		prepare(ctx);
+		gui::cfg::render_context gui_context{gui::cfg::render_context_config{
+			.app_info = appInfo
+		}};
+		prepare(gui_context);
 	}
 
 	backend::glfw::terminate();

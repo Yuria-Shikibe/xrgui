@@ -346,6 +346,11 @@ public:
 			mr::heap_allocator<native_communicator>{heap.get()}, std::forward<Args>(args)...);
 	}
 
+	template <typename Target, std::invocable<Target&, std::string_view> ApplyFn>
+	decltype(auto) bind_i18n(i18n::text_subscription&& subscription, Target& tgt, ApplyFn&& fn) noexcept{
+		return i18n::bind_i18n_text(i18n_prov.node, tgt, std::move(subscription), std::forward<ApplyFn>(fn));
+	}
+
 	[[nodiscard]] scene_resources() = default;
 
 	[[nodiscard]] explicit scene_resources(mr::heap&& heap)

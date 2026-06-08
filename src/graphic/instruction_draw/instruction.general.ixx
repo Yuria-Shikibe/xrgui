@@ -237,9 +237,9 @@ export struct draw_mode{
 };
 
 export struct alignas(instr_required_align) primitive_generic{
-	texture_binding image{};
-	draw_mode mode{};
-	float depth{};
+	texture_binding image;
+	draw_mode mode;
+	float depth;
 };
 
 static_assert(sizeof(primitive_generic) == 16);
@@ -259,6 +259,7 @@ export enum struct instr_type : std::uint32_t{
 	rect_ortho,
 	rect_ortho_outline,
 	row_patch,
+	nine_patch,
 	SIZE,
 };
 
@@ -611,9 +612,23 @@ export
 template <typename T>
 struct alignas(instr_required_align) quad_group{
 	using value_type = T;
-	T values[4]{};
+	std::array<T, 4> values{};
 
 	[[nodiscard]] FORCE_INLINE constexpr quad_group() = default;
+
+	template <typename Ty>
+		requires std::constructible_from<T, const Ty&>
+	[[nodiscard]] FORCE_INLINE explicit(!std::convertible_to<const Ty&, T>) constexpr quad_group(
+		const std::array<Ty, 4>& v) noexcept
+		: values{T(v[0]), T(v[1]), T(v[2]), T(v[3])}{
+	}
+
+	template <typename Ty>
+		requires std::constructible_from<T, const Ty&>
+	FORCE_INLINE constexpr quad_group& operator=(const std::array<Ty, 4>& v) noexcept{
+		values = {T(v[0]), T(v[1]), T(v[2]), T(v[3])};
+		return *this;
+	}
 
 
 
@@ -666,11 +681,11 @@ private:
 public:
 #if defined(XRGUI_G2D_QUAD_GROUP_HAS_SSE)
 	[[nodiscard]] FORCE_INLINE __m128 load_m128() const noexcept requires std::same_as<T, float>{
-		return _mm_load_ps(values);
+		return _mm_load_ps(values.data());
 	}
 
 	FORCE_INLINE void store_m128(const __m128 v) noexcept requires std::same_as<T, float>{
-		_mm_store_ps(values, v);
+		_mm_store_ps(values.data(), v);
 	}
 
 	[[nodiscard]] FORCE_INLINE static quad_group from_m128(const __m128 v) noexcept requires std::same_as<T, float>{
@@ -1028,6 +1043,9 @@ public:
 };
 
 template <typename T>
+quad_group(const std::array<T, 4>&) -> quad_group<T>;
+
+template <typename T>
 quad_group(const T&) -> quad_group<T>;
 
 static_assert(std::is_standard_layout_v<quad_group<float>>);
@@ -1040,13 +1058,17 @@ consteval bool quad_group_float_constexpr_ops_test(){
 	const quad_group<float> a{1.0f, 2.0f, 3.0f, 4.0f};
 	const quad_group<float> b{5.0f, 6.0f, 7.0f, 8.0f};
 	const quad_group<float> c{2.0f, 4.0f, 5.0f, 10.0f};
+	const std::array array_values{1.0f, 2.0f, 3.0f, 4.0f};
+	const quad_group<float> from_array{array_values};
 	quad_group<float> mut = a;
+	mut = array_values;
 	mut += b;
 	mut -= 1.0f;
 	mut *= 2.0f;
 	mut /= 2.0f;
 
 	return
+		from_array == a &&
 		(a + b) == quad_group<float>{6.0f, 8.0f, 10.0f, 12.0f} &&
 		(b - a) == quad_group<float>{4.0f, 4.0f, 4.0f, 4.0f} &&
 		(a * b) == quad_group<float>{5.0f, 12.0f, 21.0f, 32.0f} &&

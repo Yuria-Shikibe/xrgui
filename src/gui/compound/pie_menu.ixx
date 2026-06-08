@@ -45,6 +45,110 @@ struct pie_menu_item{
 };
 
 export
+struct pie_menu_item_config{
+	std::move_only_function<void()> action{};
+	bool disabled{};
+};
+
+export
+template <std::derived_from<elem> E, typename... Args>
+	requires (std::constructible_from<E, scene&, elem*, Args&&...>)
+[[nodiscard]] pie_menu_item emplace_pie_menu_item(
+	scene& scene,
+	elem* parent,
+	pie_menu_item_config config = {},
+	Args&&... args){
+	return pie_menu_item{
+		.element = elem_ptr{scene, parent, std::in_place_type<E>, std::forward<Args>(args)...},
+		.action = std::move(config.action),
+		.disabled = config.disabled
+	};
+}
+
+export
+template <typename Fn, typename... Args>
+	requires (!std::same_as<std::remove_cvref_t<Fn>, pie_menu_item_config> && invocable_elem_init_func<Fn>)
+[[nodiscard]] pie_menu_item create_pie_menu_item(
+	scene& scene,
+	elem* parent,
+	pie_menu_item_config config,
+	Fn&& init,
+	Args&&... args){
+	return pie_menu_item{
+		.element = elem_ptr{scene, parent, std::forward<Fn>(init), std::forward<Args>(args)...},
+		.action = std::move(config.action),
+		.disabled = config.disabled
+	};
+}
+
+export
+struct pie_menu_item_builder{
+private:
+	scene& scene_;
+	std::vector<pie_menu_item> items_{};
+
+public:
+	[[nodiscard]] explicit pie_menu_item_builder(scene& scene)
+		: scene_(scene){
+	}
+
+	void reserve(const std::size_t count){
+		items_.reserve(count);
+	}
+
+	elem& push_back(pie_menu_item&& item){
+		if(!item.element){
+			item.element = elem_ptr{scene_, nullptr, std::in_place_type<elem>};
+		}
+		auto& result = *item.element;
+		items_.push_back(std::move(item));
+		return result;
+	}
+
+	template <std::derived_from<elem> E, typename... Args>
+		requires (std::constructible_from<E, scene&, elem*, Args&&...>)
+	E& emplace_back(pie_menu_item_config config, Args&&... args){
+		auto item = emplace_pie_menu_item<E>(
+			scene_,
+			nullptr,
+			std::move(config),
+			std::forward<Args>(args)...);
+		auto& result = static_cast<E&>(*item.element);
+		items_.push_back(std::move(item));
+		return result;
+	}
+
+	template <std::derived_from<elem> E, typename... Args>
+		requires (std::constructible_from<E, scene&, elem*, Args&&...>)
+	E& emplace_back(Args&&... args){
+		return emplace_back<E>(pie_menu_item_config{}, std::forward<Args>(args)...);
+	}
+
+	template <invocable_elem_init_func Fn, typename... Args>
+	elem_init_func_create_t<Fn>& create_back(pie_menu_item_config config, Fn&& init, Args&&... args){
+		auto item = create_pie_menu_item(
+			scene_,
+			nullptr,
+			std::move(config),
+			std::forward<Fn>(init),
+			std::forward<Args>(args)...);
+		auto& result = static_cast<elem_init_func_create_t<Fn>&>(*item.element);
+		items_.push_back(std::move(item));
+		return result;
+	}
+
+	template <typename Fn, typename... Args>
+		requires (!std::same_as<std::remove_cvref_t<Fn>, pie_menu_item_config> && invocable_elem_init_func<Fn>)
+	auto& create_back(Fn&& init, Args&&... args){
+		return create_back(pie_menu_item_config{}, std::forward<Fn>(init), std::forward<Args>(args)...);
+	}
+
+	[[nodiscard]] std::vector<pie_menu_item> take_items() &&{
+		return std::move(items_);
+	}
+};
+
+export
 struct pie_menu_config{
 	float item_radius{132.f};
 	float dead_zone{34.f};
@@ -92,18 +196,22 @@ struct pie_menu_config{
 	}
 };
 
+struct pie_menu_item_layout{
+	math::vec2 extent{};
+	math::vec2 center_offset{};
+};
+
 struct pie_menu_item_state{
 	std::move_only_function<void()> action{};
 	bool disabled{};
-	math::vec2 extent{};
-	math::vec2 offset{};
+	pie_menu_item_layout layout{};
+	math::vec2 observed_scaling{1.f, 1.f};
 };
 
 struct pie_menu_layout_metrics{
 	math::vec2 extent{};
 	math::vec2 center{};
-	std::vector<math::vec2> item_extents{};
-	std::vector<math::vec2> item_offsets{};
+	std::vector<pie_menu_item_layout> item_layouts{};
 };
 
 [[nodiscard]] inline math::vec2 sanitize_pie_menu_extent(math::vec2 extent, math::vec2 fallback) noexcept{
@@ -123,18 +231,24 @@ struct pie_menu_layout_metrics{
 }
 
 [[nodiscard]] inline math::vec2 resolve_pie_menu_item_extent(
-	pie_menu_item& item,
+	elem* item,
 	const pie_menu_config& config){
 	const math::vec2 fallback = sanitize_pie_menu_extent(config.item_extent, {});
-	if(item.element){
-		if(auto extent = item.element->get_prefer_extent()){
+	if(item != nullptr){
+		if(auto extent = item->get_prefer_extent()){
 			return sanitize_pie_menu_extent(*extent, fallback);
 		}
-		if(auto extent = item.element->pre_acquire_size({layout::pending_size, layout::pending_size})){
+		if(auto extent = item->pre_acquire_size({layout::pending_size, layout::pending_size})){
 			return sanitize_pie_menu_extent(*extent, fallback);
 		}
 	}
 	return fallback;
+}
+
+[[nodiscard]] inline math::vec2 resolve_pie_menu_item_extent(
+	pie_menu_item& item,
+	const pie_menu_config& config){
+	return resolve_pie_menu_item_extent(item.element.get(), config);
 }
 
 [[nodiscard]] inline bool pie_menu_item_rects_overlap(
@@ -152,20 +266,20 @@ struct pie_menu_layout_metrics{
 	const pie_menu_config& config,
 	const pie_menu_layout_metrics& metrics,
 	const float radius) noexcept{
-	if(metrics.item_extents.size() < 2){
+	if(metrics.item_layouts.size() < 2){
 		return false;
 	}
 
 	const float spacing = std::max(config.item_spacing, 0.f);
-	for(std::size_t i = 0; i < metrics.item_extents.size(); ++i){
-		const math::vec2 lhs_offset = config.item_direction(i, metrics.item_extents.size()) * radius;
+	for(std::size_t i = 0; i < metrics.item_layouts.size(); ++i){
+		const math::vec2 lhs_offset = config.item_direction(i, metrics.item_layouts.size()) * radius;
 		for(std::size_t j = 0; j < i; ++j){
-			const math::vec2 rhs_offset = config.item_direction(j, metrics.item_extents.size()) * radius;
+			const math::vec2 rhs_offset = config.item_direction(j, metrics.item_layouts.size()) * radius;
 			if(pie_menu_item_rects_overlap(
 				lhs_offset,
-				metrics.item_extents[i],
+				metrics.item_layouts[i].extent,
 				rhs_offset,
-				metrics.item_extents[j],
+				metrics.item_layouts[j].extent,
 				spacing)){
 				return true;
 			}
@@ -201,12 +315,13 @@ struct pie_menu_layout_metrics{
 	return high;
 }
 
-[[nodiscard]] inline pie_menu_layout_metrics compute_pie_menu_layout_metrics(
-	std::vector<pie_menu_item>& items,
-	const pie_menu_config& config){
+template <typename GetExtent>
+[[nodiscard]] inline pie_menu_layout_metrics compute_pie_menu_layout_metrics_from_extents(
+	const std::size_t item_count,
+	const pie_menu_config& config,
+	GetExtent&& get_extent){
 	pie_menu_layout_metrics metrics{};
-	metrics.item_extents.reserve(items.size());
-	metrics.item_offsets.resize(items.size());
+	metrics.item_layouts.reserve(item_count);
 
 	const float ring_radius = std::max({
 		0.f,
@@ -216,17 +331,20 @@ struct pie_menu_layout_metrics{
 	math::vec2 min_bound{-ring_radius, -ring_radius};
 	math::vec2 max_bound{ring_radius, ring_radius};
 
-	for(std::size_t i = 0; i < items.size(); ++i){
-		const math::vec2 item_extent = resolve_pie_menu_item_extent(items[i], config);
-		metrics.item_extents.push_back(item_extent);
+	for(std::size_t i = 0; i < item_count; ++i){
+		const math::vec2 item_extent = std::invoke(get_extent, i);
+		metrics.item_layouts.push_back(pie_menu_item_layout{
+			.extent = item_extent
+		});
 	}
 
 	const float layout_radius = resolve_pie_menu_layout_radius(config, metrics);
-	for(std::size_t i = 0; i < metrics.item_extents.size(); ++i){
-		const math::vec2 item_center = config.item_direction(i, metrics.item_extents.size()) * layout_radius;
-		metrics.item_offsets[i] = item_center;
+	for(std::size_t i = 0; i < metrics.item_layouts.size(); ++i){
+		auto& item_layout = metrics.item_layouts[i];
+		const math::vec2 item_center = config.item_direction(i, metrics.item_layouts.size()) * layout_radius;
+		item_layout.center_offset = item_center;
 
-		const math::vec2 half_item = metrics.item_extents[i] * .5f;
+		const math::vec2 half_item = item_layout.extent * .5f;
 
 		min_bound.x = std::min(min_bound.x, item_center.x - half_item.x);
 		min_bound.y = std::min(min_bound.y, item_center.y - half_item.y);
@@ -243,6 +361,28 @@ struct pie_menu_layout_metrics{
 	metrics.extent = sanitize_pie_menu_extent(max_bound - min_bound, {});
 	metrics.center = min_bound * -1.f;
 	return metrics;
+}
+
+[[nodiscard]] inline pie_menu_layout_metrics compute_pie_menu_layout_metrics(
+	std::vector<pie_menu_item>& items,
+	const pie_menu_config& config){
+	return compute_pie_menu_layout_metrics_from_extents(
+		items.size(),
+		config,
+		[&](const std::size_t index){
+			return resolve_pie_menu_item_extent(items[index], config);
+		});
+}
+
+[[nodiscard]] inline pie_menu_layout_metrics compute_pie_menu_layout_metrics(
+	elem_span items,
+	const pie_menu_config& config){
+	return compute_pie_menu_layout_metrics_from_extents(
+		items.size(),
+		config,
+		[&](const std::size_t index){
+			return resolve_pie_menu_item_extent(items[index], config);
+		});
 }
 
 export
@@ -347,6 +487,54 @@ private:
 		get_scene().close_overlay(this);
 	}
 
+	void apply_layout_metrics(pie_menu_layout_metrics&& metrics){
+		layout_metrics_ = std::move(metrics);
+		for(std::size_t i = 0; i < items_.size() && i < layout_metrics_.item_layouts.size(); ++i){
+			items_[i].layout = layout_metrics_.item_layouts[i];
+		}
+	}
+
+	void sync_observed_child_transforms(){
+		for(std::size_t i = 0; i < items_.size() && i < exposed_children().size(); ++i){
+			items_[i].observed_scaling = exposed_children()[i]->get_scaling();
+		}
+	}
+
+	void recompute_layout_metrics_from_children(){
+		apply_layout_metrics(compute_pie_menu_layout_metrics(exposed_children(), config_));
+		sync_observed_child_transforms();
+	}
+
+	[[nodiscard]] bool item_extents_match_layout(){
+		if(items_.size() != exposed_children().size()){
+			return false;
+		}
+
+		constexpr float epsilon = .01f;
+		for(std::size_t i = 0; i < items_.size(); ++i){
+			auto* child = exposed_children()[i];
+			const math::vec2 extent = resolve_pie_menu_item_extent(child, config_);
+			if(!(extent - items_[i].layout.extent).is_zero(epsilon)){
+				return false;
+			}
+			if(!(child->get_scaling() - items_[i].observed_scaling).is_zero(epsilon)){
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool refresh_layout_metrics_if_needed(const bool notify_layout = true){
+		if(layout_state.is_children_changed() || !item_extents_match_layout()){
+			recompute_layout_metrics_from_children();
+			if(notify_layout){
+				notify_isolated_layout_changed();
+			}
+			return true;
+		}
+		return false;
+	}
+
 	[[nodiscard]] bool selected_item_is_usable() const noexcept{
 		return selected_
 			&& *selected_ < items_.size()
@@ -375,7 +563,7 @@ private:
 		});
 	}
 
-	void append_item(pie_menu_item&& item){
+	elem& append_item(pie_menu_item&& item){
 		if(!item.element){
 			item.element = elem_ptr{get_scene(), this, std::in_place_type<elem>};
 		}
@@ -383,19 +571,19 @@ private:
 		auto& child = *item.element;
 		child.set_disabled(item.disabled);
 		const std::size_t index = items_.size();
-		const math::vec2 item_extent = index < layout_metrics_.item_extents.size()
-			? layout_metrics_.item_extents[index]
-			: sanitize_pie_menu_extent(config_.item_extent, {});
-		const math::vec2 item_offset = index < layout_metrics_.item_offsets.size()
-			? layout_metrics_.item_offsets[index]
-			: item_direction_(index) * std::max(config_.item_radius, 0.f);
+		const pie_menu_item_layout item_layout = index < layout_metrics_.item_layouts.size()
+			? layout_metrics_.item_layouts[index]
+			: pie_menu_item_layout{
+				.extent = sanitize_pie_menu_extent(config_.item_extent, {}),
+				.center_offset = item_direction_(index) * std::max(config_.item_radius, 0.f)
+			};
 		items_.push_back(pie_menu_item_state{
 			.action = std::move(item.action),
 			.disabled = item.disabled,
-			.extent = item_extent,
-			.offset = item_offset
+			.layout = item_layout,
+			.observed_scaling = child.get_scaling()
 		});
-		basic_group::push_back(std::move(item.element));
+		return basic_group::push_back(std::move(item.element));
 	}
 
 	void position_items(){
@@ -404,11 +592,15 @@ private:
 		const math::vec2 center = content_center_();
 		for(std::size_t i = 0; i < exposed_children().size(); ++i){
 			auto& child = *exposed_children()[i];
-			const math::vec2 item_extent = i < items_.size() ? items_[i].extent : sanitize_pie_menu_extent(config_.item_extent, {});
-			const math::vec2 item_offset = i < items_.size() ? items_[i].offset : item_direction_(i) * std::max(config_.item_radius, 0.f);
-			const math::vec2 item_center = center + item_offset;
-			child.resize(item_extent, propagate_mask::none);
-			child.set_rel_pos(item_center - item_extent * .5f);
+			const pie_menu_item_layout item_layout = i < items_.size()
+				? items_[i].layout
+				: pie_menu_item_layout{
+					.extent = sanitize_pie_menu_extent(config_.item_extent, {}),
+					.center_offset = item_direction_(i) * std::max(config_.item_radius, 0.f)
+				};
+			const math::vec2 item_center = center + item_layout.center_offset;
+			child.resize(item_layout.extent, propagate_mask::none);
+			child.set_rel_pos(item_center - item_layout.extent * .5f);
 			child.update_abs_src(content_src_pos_abs());
 			child.try_layout();
 		}
@@ -485,7 +677,7 @@ public:
 		set_overflow_ignored(true);
 		set_style();
 
-		layout_metrics_ = compute_pie_menu_layout_metrics(items, config_);
+		apply_layout_metrics(compute_pie_menu_layout_metrics(items, config_));
 
 		for(auto& item : items){
 			append_item(std::move(item));
@@ -505,6 +697,9 @@ public:
 	bool update(float delta_in_ticks) override{
 		if(!basic_group::update(delta_in_ticks)) return false;
 
+		if(refresh_layout_metrics_if_needed()){
+			position_items();
+		}
 		update_selection_from_scene_cursor();
 		if(get_scene().is_mouse_pressed(activation_button_)){
 			activation_press_seen_ = true;
@@ -533,6 +728,7 @@ public:
 	}
 
 	void layout_elem() override{
+		refresh_layout_metrics_if_needed(false);
 		elem::layout_elem();
 		position_items();
 		refresh_overflowed_state_from_children();
@@ -552,6 +748,51 @@ protected:
 	}
 
 public:
+	elem& push_item(pie_menu_item&& item){
+		auto& result = append_item(std::move(item));
+		recompute_layout_metrics_from_children();
+		notify_isolated_layout_changed();
+		return result;
+	}
+
+	template <std::derived_from<elem> E, typename... Args>
+		requires (std::constructible_from<E, scene&, elem*, Args&&...>)
+	E& emplace_back(pie_menu_item_config config, Args&&... args){
+		auto item = emplace_pie_menu_item<E>(
+			get_scene(),
+			this,
+			std::move(config),
+			std::forward<Args>(args)...);
+		auto& result = static_cast<E&>(*item.element);
+		push_item(std::move(item));
+		return result;
+	}
+
+	template <std::derived_from<elem> E, typename... Args>
+		requires (std::constructible_from<E, scene&, elem*, Args&&...>)
+	E& emplace_back(Args&&... args){
+		return emplace_back<E>(pie_menu_item_config{}, std::forward<Args>(args)...);
+	}
+
+	template <invocable_elem_init_func Fn, typename... Args>
+	elem_init_func_create_t<Fn>& create_back(pie_menu_item_config config, Fn&& init, Args&&... args){
+		auto item = create_pie_menu_item(
+			get_scene(),
+			this,
+			std::move(config),
+			std::forward<Fn>(init),
+			std::forward<Args>(args)...);
+		auto& result = static_cast<elem_init_func_create_t<Fn>&>(*item.element);
+		push_item(std::move(item));
+		return result;
+	}
+
+	template <typename Fn, typename... Args>
+		requires (!std::same_as<std::remove_cvref_t<Fn>, pie_menu_item_config> && invocable_elem_init_func<Fn>)
+	auto& create_back(Fn&& init, Args&&... args){
+		return create_back(pie_menu_item_config{}, std::forward<Fn>(init), std::forward<Args>(args)...);
+	}
+
 	void handle_overlay_dismissed(){
 		if(!accepted_ && !std::exchange(dismissed_, true) && config_.on_cancel){
 			std::invoke(config_.on_cancel);
@@ -630,6 +871,24 @@ inline auto show_pie_menu(
 	})};
 	result.dialog.get_operation_provider().connect_successor(*on_dismiss);
 	return result;
+}
+
+export
+template <std::invocable<pie_menu_item_builder&> Init>
+inline auto show_pie_menu(
+	scene& scene,
+	math::vec2 center,
+	Init&& init,
+	pie_menu_config config = {},
+	input_handle::mouse activation_button = input_handle::mouse::RMB){
+	pie_menu_item_builder builder{scene};
+	std::invoke(std::forward<Init>(init), builder);
+	return show_pie_menu(
+		scene,
+		center,
+		std::move(builder).take_items(),
+		std::move(config),
+		activation_button);
 }
 
 }

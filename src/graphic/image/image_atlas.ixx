@@ -241,6 +241,19 @@ export struct image_atlas;
 export
 struct image_page;
 
+export
+enum class image_page_usage : std::uint32_t{
+	regular,
+	normal,
+	sdf,
+	msdf,
+
+	sharp_regular
+};
+
+export
+using image_page_sampler_indices = std::flat_map<image_page_usage, sampler_descriptor_index>;
+
 struct async_image_loader_cpu_worker{
 	lru_cache<const font::font_face_meta*, font::msdf_handle_wrapper, 4> font_cache_;
 	std::jthread work_thread{};
@@ -280,7 +293,6 @@ private:
 	std::atomic_bool stop_requested_{false};
 
 	image_view_registry* image_view_registry_{};
-	sampler_descriptor_index default_sampler_index_{auto_sampler_index};
 
 	std::jthread gpu_thread_{};
 	std::vector<async_image_loader_cpu_worker> cpu_workers_{};
@@ -378,15 +390,15 @@ public:
 	[[nodiscard]] async_image_loader() = default;
 
 	[[nodiscard]] explicit async_image_loader(
-		const vk::context_info& context,
+		vk::context_info context,
 		std::uint32_t graphic_family_index,
 		VkQueue working_queue,
-		image_view_registry& image_view_registry,
-		sampler_descriptor_index default_sampler_index
+		image_view_registry& image_view_registry
 	);
 
 	[[nodiscard]] registered_image_view register_image_view(
 		VkImageView view,
+		sampler_descriptor_index default_sampler_index,
 		VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) const{
 		if(image_view_registry_ == nullptr){
 			throw std::runtime_error("image atlas loader has no image view registry");
@@ -394,7 +406,7 @@ public:
 		return image_view_registry_->register_image_view({
 			.view = view,
 			.layout = image_layout,
-			.default_sampler_index = default_sampler_index_
+			.default_sampler_index = default_sampler_index
 		});
 	}
 
@@ -492,6 +504,7 @@ struct image_page_config{
 	VkClearColorValue clear_color{};
 	VkFormat format{};
 	std::uint32_t margin{4};
+	image_page_usage usage{image_page_usage::regular};
 };
 
 struct image_page{
@@ -505,11 +518,13 @@ private:
 	std::atomic<sub_page*> task_post_lock_{};
 
 	image_page_config config_{};
+	image_page_usage usage_{image_page_usage::regular};
+	sampler_descriptor_index default_sampler_index_{auto_sampler_index};
 
 	concurrent_node_string_map<allocated_image_region> named_image_regions{};
 
 	void register_sub_page_(sub_page& sub_page) const{
-		const auto registered = loader_->register_image_view(sub_page.texture.get_image_view());
+		const auto registered = loader_->register_image_view(sub_page.texture.get_image_view(), default_sampler_index_);
 		sub_page.heap_target_index = registered.image_index;
 		sub_page.preferred_sampler_index = registered.preferred_sampler_index;
 	}
@@ -521,10 +536,13 @@ public:
 
 	[[nodiscard]] explicit image_page(
 		async_image_loader& loader,
+		sampler_descriptor_index default_sampler_index,
 		const image_page_config& config = {})
 	:
 		loader_(&loader),
-		config_(config){
+		config_(config),
+		usage_(config.usage),
+		default_sampler_index_(default_sampler_index){
 		if(!loader_->push(texture_allocation_request{
 					.extent = {config_.extent.x, config_.extent.y},
 					.clear_color_value = config_.clear_color,
@@ -566,6 +584,14 @@ private:
 	}
 
 public:
+	[[nodiscard]] image_page_usage usage() const noexcept{
+		return usage_;
+	}
+
+	[[nodiscard]] sampler_descriptor_index default_sampler_index() const noexcept{
+		return default_sampler_index_;
+	}
+
 	/**
 	 * @warning Dont use this interface directly!
 	 * You must save the allocated_image_region to a stable address, other wise use `register_named_region` instead!
@@ -784,43 +810,71 @@ protected:
 	}
 };
 
+export
+struct image_atlas_config{
+	vk::context_info ctx_info{};
+	std::uint32_t graphic_family_index{};
+	VkQueue loader_working_queue{};
+	image_view_registry* image_view_registry{};
+	image_page_sampler_indices page_sampler_indices{};
+};
+
 
 struct image_atlas{
 private:
 	std::unique_ptr<async_image_loader> async_image_loader_{};
+	image_page_sampler_indices page_sampler_indices_{};
 	string_hash_map<image_page> pages{};
+
+	[[nodiscard]] static image_view_registry& checked_image_view_registry_(image_view_registry* registry){
+		if(registry == nullptr){
+			throw std::invalid_argument("image atlas config requires an image view registry");
+		}
+		return *registry;
+	}
+
+	[[nodiscard]] sampler_descriptor_index sampler_index_for_usage_(image_page_usage usage) const{
+		const auto itr = page_sampler_indices_.find(usage);
+		if(itr == page_sampler_indices_.end()){
+			return auto_sampler_index;
+		}
+		return itr->second;
+	}
 
 public:
 	[[nodiscard]] image_atlas() = default;
 
-	[[nodiscard]] image_atlas(
-	const vk::context_info& ctx_info,
-	std::uint32_t graphic_family_index,
-	VkQueue loader_working_queue,
-	image_view_registry& image_view_registry,
-	sampler_descriptor_index default_sampler_index
-	) :
+	[[nodiscard]] explicit image_atlas(image_atlas_config config) :
 	async_image_loader_{std::make_unique<async_image_loader>(
-		ctx_info,
-		graphic_family_index,
-		loader_working_queue,
-		image_view_registry,
-		default_sampler_index)}{
+		config.ctx_info,
+		config.graphic_family_index,
+		config.loader_working_queue,
+		checked_image_view_registry_(config.image_view_registry))},
+	page_sampler_indices_{std::move(config.page_sampler_indices)}{
+		auto& image_view_registry = checked_image_view_registry_(config.image_view_registry);
+		for(const auto sampler_index : page_sampler_indices_ | std::views::values){
+			if(sampler_index != auto_sampler_index && !image_view_registry.contains_sampler(sampler_index)){
+				throw std::invalid_argument("image atlas page sampler mapping contains an unregistered sampler");
+			}
+		}
 	}
 
 	image_page& create_image_page(
 		const std::string_view name,
 		const image_page_config& config = {}){
-		return pages.try_emplace(name, *async_image_loader_, config).first->second;
+		const auto default_sampler_index = sampler_index_for_usage_(config.usage);
+		auto [itr, inserted] = pages.try_emplace(name, *async_image_loader_, default_sampler_index, config);
+		if(!inserted && itr->second.usage() != config.usage){
+			throw std::invalid_argument("image page already exists with a different usage");
+		}
+		return itr->second;
 	}
 
 	image_page& operator[](const std::string_view name){
 		if(auto itr = pages.find(name); itr != pages.end()){
 			return itr->second;
-		}else{
-			return create_image_page(name);
 		}
-
+		throw std::out_of_range("image page not found; use create_image_page with an explicit image_page_config::usage");
 	}
 
 	void request_stop() noexcept{

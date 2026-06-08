@@ -60,6 +60,33 @@ export [[nodiscard]] inline std::string_view resolve_i18n_text(
 	return snapshot == nullptr ? missing_i18n_text(subscription) : resolve_i18n_text(*snapshot, subscription);
 }
 
+export struct i18n_text_subscription_state{
+	[[nodiscard]] i18n_text_subscription_state() = default;
+
+	[[nodiscard]] explicit i18n_text_subscription_state(text_subscription subscription)
+		: subscription_(std::move(subscription)){
+	}
+
+	[[nodiscard]] const text_subscription& subscription() const noexcept{
+		return subscription_;
+	}
+
+	[[nodiscard]] std::string_view resolve(const text_snapshot* snapshot) const{
+		return resolve_i18n_text(snapshot, subscription_);
+	}
+
+	bool assign_subscription(text_subscription subscription){
+		const bool changed = subscription_ != subscription;
+		if(changed){
+			subscription_ = std::move(subscription);
+		}
+		return changed;
+	}
+
+private:
+	text_subscription subscription_{};
+};
+
 struct i18n_text_snapshot_pointer{
 	[[nodiscard]] const text_snapshot* operator()(const text_snapshot& snapshot) const noexcept{
 		return std::addressof(snapshot);
@@ -101,7 +128,7 @@ export struct i18n_text_subscriber_node : react_flow::modifier<
 		text_subscription subscription,
 		react_flow::propagate_type propagate_type = react_flow::propagate_type::eager)
 		: modifier(propagate_type),
-		  subscription_(std::move(subscription)){
+		  subscription_state_(std::move(subscription)){
 	}
 
 	[[nodiscard]] explicit i18n_text_subscriber_node(
@@ -119,16 +146,12 @@ export struct i18n_text_subscriber_node : react_flow::modifier<
 	}
 
 	[[nodiscard]] const text_subscription& subscription() const noexcept{
-		return subscription_;
+		return subscription_state_.subscription();
 	}
 
 	void set_subscription(text_subscription subscription, bool pull_now = true){
-		const bool not_equal = subscription_ != subscription;
-		if(not_equal){
-			subscription_ = std::move(subscription);
-		}
-
-		if(pull_now && not_equal){
+		const bool changed = subscription_state_.assign_subscription(std::move(subscription));
+		if(pull_now && changed){
 			(void)pull_and_push(true);
 		}
 	}
@@ -136,11 +159,11 @@ export struct i18n_text_subscriber_node : react_flow::modifier<
 protected:
 	react_flow::data_carrier<std::string_view> operator()(
 		const text_snapshot* snapshot) override{
-		return resolve_i18n_text(snapshot, subscription_);
+		return subscription_state_.resolve(snapshot);
 	}
 
 private:
-	text_subscription subscription_{};
+	i18n_text_subscription_state subscription_state_{};
 };
 
 export [[nodiscard]] inline i18n_text_subscriber_node make_i18n_text_subscriber(
@@ -151,18 +174,37 @@ export [[nodiscard]] inline i18n_text_subscriber_node make_i18n_text_subscriber(
 
 export template <typename Fn>
 struct i18n_text_listener_callback{
-	text_subscription subscription;
+	i18n_text_subscription_state subscription_state;
 	Fn fn;
 
 	void operator()(react_flow::data_carrier<const text_snapshot*>& snapshot){
-		std::invoke(fn, resolve_i18n_text(snapshot.get(), subscription));
+		std::invoke(fn, subscription_state.resolve(snapshot.get()));
 	}
 };
 
 export template <typename Fn>
-using i18n_text_listener = react_flow::listener<
-	i18n_text_listener_callback<std::decay_t<Fn>>,
-	const text_snapshot*>;
+struct i18n_text_listener
+	: react_flow::listener<i18n_text_listener_callback<std::decay_t<Fn>>, const text_snapshot*>{
+	using callback_type = i18n_text_listener_callback<std::decay_t<Fn>>;
+	using base = react_flow::listener<callback_type, const text_snapshot*>;
+
+	[[nodiscard]] i18n_text_listener(
+		react_flow::propagate_type propagate_type,
+		callback_type callback)
+		: base(propagate_type, std::move(callback)){
+	}
+
+	[[nodiscard]] const text_subscription& subscription() const noexcept{
+		return this->fn.subscription_state.subscription();
+	}
+
+	void set_subscription(text_subscription subscription, bool pull_now = true){
+		const bool changed = this->fn.subscription_state.assign_subscription(std::move(subscription));
+		if(pull_now && changed){
+			(void)this->pull_and_push(true);
+		}
+	}
+};
 
 export template <typename Fn>
 	requires std::invocable<std::decay_t<Fn>&, std::string_view>
@@ -172,13 +214,22 @@ export template <typename Fn>
 	react_flow::propagate_type propagate_type = react_flow::propagate_type::eager){
 	using callback_type = std::decay_t<Fn>;
 	using adapter_type = i18n_text_listener_callback<callback_type>;
-	return react_flow::listener<adapter_type, const text_snapshot*>{
+	return i18n_text_listener<callback_type>{
 			propagate_type,
 			adapter_type{
-				.subscription = std::move(subscription),
+				.subscription_state = i18n_text_subscription_state{std::move(subscription)},
 				.fn = callback_type{std::forward<Fn>(fn)},
 			},
 		};
+}
+
+template <typename Listener>
+Listener& connect_i18n_text_listener(
+	i18n_text_root_node& root,
+	Listener& listener){
+	root.connect_successor(listener);
+	(void)listener.pull_and_push(true);
+	return listener;
 }
 
 export template <typename Fn>
@@ -193,9 +244,7 @@ auto& bind_i18n_text_listener(
 		std::move(subscription),
 		std::forward<Fn>(fn),
 		propagate_type));
-	root.connect_successor(listener);
-	(void)listener.pull_and_push(true);
-	return listener;
+	return connect_i18n_text_listener(root, listener);
 }
 
 export inline i18n_text_subscriber_node& bind_i18n_text(
@@ -221,27 +270,24 @@ export inline i18n_text_subscriber_node& bind_i18n_text(
 		text_subscription{.path = std::string{path}});
 }
 
-export template <typename Target, typename ApplyFn>
-i18n_text_subscriber_node& bind_i18n_text(
+export
+template <typename Target, std::invocable<Target&, std::string_view> ApplyFn>
+auto& bind_i18n_text(
 	i18n_text_root_node& root,
 	Target& target,
 	text_subscription subscription,
 	ApplyFn&& apply){
-	auto& subscriber = target.request_embedded_react_node(
-		i18n_text_subscriber_node{std::move(subscription)});
-	auto& receiver = target.request_embedded_react_node(
-		react_flow::make_listener(
-			[&target, apply = std::forward<ApplyFn>(apply)](std::string_view value){
+	auto& listener = target.request_embedded_react_node(
+		make_i18n_text_listener(
+			std::move(subscription),
+			[&target, apply = std::forward<ApplyFn>(apply)](std::string_view value) mutable{
 				std::invoke(apply, target, value);
 			}));
-
-	react_flow::connect_chain(root, subscriber, receiver);
-	(void)subscriber.pull_and_push(true);
-	return subscriber;
+	return connect_i18n_text_listener(root, listener);
 }
 
 export template <typename Target>
-i18n_text_subscriber_node& bind_i18n_text(
+auto& bind_i18n_text(
 	i18n_text_root_node& root,
 	Target& target,
 	text_subscription subscription){
@@ -255,11 +301,11 @@ i18n_text_subscriber_node& bind_i18n_text(
 }
 
 export template <typename Target>
-i18n_text_subscriber_node& bind_i18n_text(
+auto& bind_i18n_text(
 	i18n_text_root_node& root,
 	Target& target,
 	std::string_view path){
-	return bind_i18n_text(
+	return i18n::bind_i18n_text(
 		root,
 		target,
 		text_subscription{.path = std::string{path}});

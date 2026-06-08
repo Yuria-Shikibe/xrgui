@@ -43,7 +43,7 @@ namespace mo_yanxi::gui::cfg::builtin{
 
 void generate_default_shapes(graphic::image_atlas& image_atlas){
 	auto& atlas = image_atlas;
-	auto& page = atlas.create_image_page("ui");
+	auto& page = atlas.create_image_page("ui", {.usage = graphic::image_page_usage::msdf});
 
 	constexpr static math::usize2 extent{96, 96};
 
@@ -94,7 +94,7 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 
 void load_default_icons(graphic::image_atlas& image_atlas){
 	auto& atlas = image_atlas;
-	auto& page = atlas.create_image_page("ui");
+	auto& page = atlas.create_image_page("ui", {.usage = graphic::image_page_usage::msdf});
 	auto& builtin_page = assets::builtin::get_page();
 
 #define COMBINE(name) "i-"#name

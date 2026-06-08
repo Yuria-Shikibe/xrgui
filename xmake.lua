@@ -1,20 +1,17 @@
-set_project("xrgui")
-set_version("0.1.0")
-
-set_policy("build.c++.modules", true)
-add_rules("mode.debug", "mode.release")
-
 local current_dir = os.scriptdir()
 local root_dir = os.projectdir()
+local is_host_project = path.absolute(current_dir) == path.absolute(root_dir)
 local magic_enum_dir = path.join(current_dir, "external/magic_enum")
 
-if current_dir == root_dir then
+if is_host_project then
+    set_project("xrgui")
+    set_version("0.1.0")
+
+    add_rules("mode.debug", "mode.release")
     set_arch("x64")
     set_encodings("utf-8")
 
-    if os.getenv("GITHUB_ACTIONS") == "true" then
-
-    else
+    if os.getenv("GITHUB_ACTIONS") ~= "true" then
         set_symbols("debug", "embed")
         set_strip("debug")
     end
@@ -34,6 +31,13 @@ set_config("spec_mo_yanxi_utility_path", path.join(current_dir, "external/mo_yan
 
 includes("external/**/xmake.lua")
 
+if not is_host_project then
+    target("mo_yanxi.vulkan_wrapper.test")
+        set_enabled(false)
+        set_default(false)
+    target_end()
+end
+
 add_requires("msdfgen", { configs = { openmp = true, extensions = true } })
 add_requires("freetype")
 add_requires("harfbuzz", { configs = { cxflags = "-DHB_NO_MT" } })
@@ -41,6 +45,10 @@ add_requires("nanosvg", "spirv-reflect", "gtl", "glfw")
 add_requires("mimalloc v3.2.8")
 add_requires("simdutf", { optional = true })
 add_requires("toml++")
+
+if is_host_project then
+    add_requires("gtest")
+end
 
 rule("media.svg_to_bin")
     set_extensions(".svg")
@@ -61,7 +69,13 @@ rule("media.svg_to_bin")
     end)
 rule_end()
 
-function set_xrgui_deps()
+local function add_xrgui_target_options()
+    set_policy("build.c++.modules", true)
+    set_languages("c++latest")
+    set_warnings("all", "pedantic")
+end
+
+local function add_xrgui_core_deps()
     add_deps("mo_yanxi.utility", "mo_yanxi.vulkan_wrapper", "mo_yanxi.react_flow", {public = true})
 
     add_packages("msdfgen", {public = true})
@@ -97,8 +111,8 @@ function set_xrgui_deps()
     --add_cxflags("/wd4267", "/wd4244", "/wd4305", {tools = {"cl", "clang_cl"}})
 end
 
-function add_defaults()
-    set_xrgui_deps()
+local function add_xrgui_default_stack()
+    add_xrgui_core_deps()
 
     add_packages("glfw", {public = true})
     add_files("src.backends/universal/**.ixx", {public = true})
@@ -190,59 +204,61 @@ end
 
 target("xrgui.default")
     set_kind("object")
-    set_languages("c++latest")
-    set_warnings("all", "pedantic")
+    add_xrgui_target_options()
 
-    add_defaults()
+    add_xrgui_default_stack()
 target_end()
 
-target("xrgui.example")
-    set_kind("binary")
-    set_extension(".exe")
-    set_languages("c++latest")
+if is_host_project then
+    target("xrgui.example")
+        set_kind("binary")
+        set_extension(".exe")
+        add_xrgui_target_options()
 
-    set_warnings("all", "pedantic")
+        add_xrgui_default_stack()
 
-    add_defaults()
+        add_files("src.examples/**.ixx", {public = true})
+        add_files("src.examples/**.cpp")
+    target_end()
 
-    add_files("src.examples/**.ixx", {public = true})
-    add_files("src.examples/**.cpp")
-target_end()
+    target("xrgui.hello")
+        set_kind("binary")
+        set_extension(".exe")
+        add_xrgui_target_options()
 
-target("xrgui.hello")
-    set_kind("binary")
-    set_extension(".exe")
-    set_languages("c++latest")
+        add_xrgui_default_stack()
 
-    set_warnings("all", "pedantic")
+        add_files("src.hello/**.cpp")
+    target_end()
 
-    add_defaults()
+    target("xrgui.tests")
+        set_kind("binary")
+        set_extension(".exe")
+        add_xrgui_target_options()
 
-    add_files("src.hello/**.cpp")
-target_end()
+        add_deps("mo_yanxi.utility", "mo_yanxi.react_flow")
+        add_packages("gtest")
+        add_packages("toml++", {public = true})
+        add_includedirs(path.join(magic_enum_dir, "include"), {public = true})
+        add_files(path.join(magic_enum_dir, "module/magic_enum.cppm"), {
+            public = true,
+            defines = "MAGIC_ENUM_USE_STD_MODULE"
+        })
+        add_files("src/util/csv.ixx", {public = true})
+        add_files("src/util/fixed_vector.ixx", {public = true})
+        add_files("src/util/unicode.ixx", {public = true})
+        add_files("src/gui/core/misc/inout_animator.ixx", {public = true})
+        add_files("src/gui/core/misc/gui.slider_logic.ixx", {public = true})
+        add_files("src/i18n/text_tree.ixx", {public = true})
+        add_files("src/i18n/text_tree.react_flow.ixx", {public = true})
+        add_files("src/i18n/text_tree.toml.ixx", {public = true})
+        add_files("src/i18n/text_tree.toml.cpp")
+        add_files("src.tests/**.cpp")
+    target_end()
+end
 
-target("xrgui.text_tree_test")
-    set_kind("binary")
-    set_extension(".exe")
-    set_languages("c++latest")
-
-    set_warnings("all", "pedantic")
-
-    add_deps("mo_yanxi.utility", "mo_yanxi.react_flow")
-    add_packages("toml++", {public = true})
-    add_includedirs(path.join(magic_enum_dir, "include"), {public = true})
-    add_files(path.join(magic_enum_dir, "module/magic_enum.cppm"), {
-        public = true,
-        defines = "MAGIC_ENUM_USE_STD_MODULE"
-    })
-    add_files("src/i18n/text_tree.ixx", {public = true})
-    add_files("src/i18n/text_tree.react_flow.ixx", {public = true})
-    add_files("src/i18n/text_tree.toml.ixx", {public = true})
-    add_files("src/i18n/text_tree.toml.cpp")
-    add_files("src.tests/text_tree_tests.cpp")
-target_end()
-
-local function run_xrgui_doctor()
+if is_host_project then
+    local function run_xrgui_doctor()
         import("lib.detect.find_tool")
 
         local ok = true
@@ -272,7 +288,7 @@ local function run_xrgui_doctor()
         if #shader_files > 0 and slangc == nil then
             info("slangc", "not on PATH; existing generated shaders are available")
         else
-            status("slangc", slangc ~= nil, slangc and slangc.program or "add slangc to PATH or pass xmake gen_slang --complier=...")
+            status("slangc", slangc ~= nil, slangc and slangc.program or "add slangc to PATH or pass xmake xrgui.gen_slang --compiler=...")
         end
 
         local py = find_tool("py") or find_tool("python")
@@ -294,151 +310,167 @@ local function run_xrgui_doctor()
         local has_vk_wrapper = os.isfile(path.join(current_dir, "external/mo_yanxi_vulkan_wrapper/xmake.lua"))
         status("mo_yanxi_vulkan_wrapper submodule", has_vk_wrapper, has_vk_wrapper and "available" or "run git submodule update --init --recursive")
 
-        status("generated shaders", #shader_files > 0, #shader_files > 0 and (#shader_files .. " spv files") or "run xmake gen_slang")
+        status("generated shaders", #shader_files > 0, #shader_files > 0 and (#shader_files .. " spv files") or "run xmake xrgui.gen_slang")
 
-        status("generated icons", #icon_files > 0, #icon_files > 0 and (#icon_files .. " svg files") or "run xmake gen_icon")
+        status("generated icons", #icon_files > 0, #icon_files > 0 and (#icon_files .. " svg files") or "run xmake xrgui.gen_icon")
 
         if not ok then
             raise("XRGUI doctor found missing requirements")
         end
-end
+    end
 
-task("doctor")
-    on_run(run_xrgui_doctor)
+    task("xrgui.doctor")
+        on_run(run_xrgui_doctor)
 
-    set_menu({
-        usage = "check toolchain and generated assets for XRGUI quickstart"
-    })
-task_end()
+        set_menu({
+            usage = "check toolchain and generated assets for xrgui.quickstart"
+        })
+    task_end()
 
-task("quickstart")
-    on_run(function ()
-        import("core.base.option")
-        import("core.base.task")
+    task("xrgui.quickstart")
+        on_run(function ()
+            import("core.base.option")
+            import("core.base.task")
 
-        cprint("${bright}[quickstart]${clear} configure MSVC debug build")
-        task.run("config", {toolchain = "msvc", mode = "debug"})
+            cprint("${bright}[xrgui.quickstart]${clear} configure MSVC debug build")
+            task.run("config", {toolchain = "msvc", mode = "debug"})
 
-        local shader_files = os.files(path.join(current_dir, "properties/assets/shader/spv/*.spv"))
-        if #shader_files == 0 then
-            cprint("${bright}[quickstart]${clear} generate shaders")
-            task.run("gen_slang")
-        end
+            local shader_files = os.files(path.join(current_dir, "properties/assets/shader/spv/*.spv"))
+            if #shader_files == 0 then
+                cprint("${bright}[xrgui.quickstart]${clear} generate shaders")
+                task.run("xrgui.gen_slang")
+            end
 
-        local icon_files = os.files(path.join(current_dir, "properties/assets_raw/gen/icons/**.svg"))
-        if #icon_files == 0 then
-            cprint("${bright}[quickstart]${clear} generate icons")
-            task.run("gen_icon")
-        end
+            local icon_files = os.files(path.join(current_dir, "properties/assets_raw/gen/icons/**.svg"))
+            if #icon_files == 0 then
+                cprint("${bright}[xrgui.quickstart]${clear} generate icons")
+                task.run("xrgui.gen_icon")
+            end
 
-        cprint("${bright}[quickstart]${clear} run doctor")
-        run_xrgui_doctor()
-        cprint("${bright}[quickstart]${clear} build xrgui.hello")
-        task.run("build", {target = "xrgui.hello"})
-        if option.get("no-run") then
-            return
-        end
-        cprint("${bright}[quickstart]${clear} run xrgui.hello")
-        os.execv("xmake", {"run", "xrgui.hello"})
-    end)
+            cprint("${bright}[xrgui.quickstart]${clear} run doctor")
+            run_xrgui_doctor()
+            cprint("${bright}[xrgui.quickstart]${clear} build xrgui.hello")
+            task.run("build", {target = "xrgui.hello"})
+            if option.get("no-run") then
+                return
+            end
+            cprint("${bright}[xrgui.quickstart]${clear} run xrgui.hello")
+            os.execv("xmake", {"run", "xrgui.hello"})
+        end)
 
-    set_menu({
-        usage = "configure, prepare assets, build, and run xrgui.hello",
-        options = {
-            {nil, "no-run", "k", nil, "Only prepare and build; do not launch the GUI"}
-        }
-    })
-task_end()
+        set_menu({
+            usage = "configure, prepare assets, build, and run xrgui.hello",
+            options = {
+                {nil, "no-run", "k", nil, "Only prepare and build; do not launch the GUI"}
+            }
+        })
+    task_end()
 
-task("gen_slang")
-    on_run(function ()
-        import("core.base.option")
+    task("xrgui.gen_slang")
+        on_run(function ()
+            import("core.base.option")
 
-        local path_builder = path.join(current_dir, "./properties/build_util/slang_builder.py")
+            local builder = path.join(current_dir, "properties/build_util/slang_builder.py")
+            local user_config = option.get("config")
+            local user_output = option.get("output")
 
-        local user_config = option.get("config")
-        local user_output = option.get("output")
+            local config_path
+            if user_config == "" then
+                config_path = path.join(current_dir, "properties/assets_raw/shader/config.toml")
+            else
+                config_path = path.join(os.curdir(), user_config)
+            end
 
-        local path_config
-        local output
+            local output_dir
+            if user_output == "" then
+                output_dir = path.join(current_dir, "properties/assets/shader/spv")
+            else
+                output_dir = path.join(os.curdir(), user_output)
+            end
 
-        if user_config == "" then
-            path_config = path.join(current_dir, "./properties/assets_raw/shader/config.toml")
-        else
-            path_config = path.join(os.curdir(), user_config)
-        end
+            local compiler = option.get("compiler")
+            if not compiler or compiler == "" then
+                compiler = option.get("complier")
+            end
 
-        if user_output == "" then
-            output = path.join(current_dir, "./properties/assets/shader/spv")
-        else
-            output = path.join(os.curdir(), user_output)
-        end
+            local args = {
+                builder,
+                compiler,
+                output_dir,
+                config_path,
+                "-j",
+                "30"
+            }
+            local pass = option.get("pass")
+            if pass and pass ~= "" then
+                table.join2(args, os.argv(pass))
+            end
 
-        local path_slangc = option.get("complier")
-        local pass = option.get("pass")
+            os.execv("py", args)
+        end)
 
-        os.exec("py " .. path_builder .. " " .. path_slangc .. " " .. output .. " " .. path_config .. " -j 30 " .. pass)
-    end)
+        set_menu({
+            usage = "compile Slang shaders to SPIR-V",
+            options = {
+                {'c', "compiler", "kv", "", "Path to slangc.exe"},
+                {nil, "complier", "kv", "./slang/bin/slangc.exe", "Deprecated alias for --compiler"},
+                {'o', "output", "kv", "", "SPIR-V output dir relative to project root"},
+                {'f', "config", "kv", "", "Shader build config"},
+                {'p', "pass", "kv", "", "Pass through args to the Slang builder"},
+            }
+        })
+    task_end()
 
-    set_menu({
-        usage = "compile slang to spirv",
-        options = {
-            {'c', "complier", "kv", "./slang/bin/slangc.exe", "Path to slangc.exe"},
-            {'o', "output", "kv", "", "Spirv Output Dir Relative To Directory Root"},
-            {'f', "config", "kv", "", "Shader Build Config"},
-            {'p', "pass", "kv", "", "Pass through args to py"},
-        }
-    })
-task_end()
+    task("xrgui.gen_icon")
+        on_run(function ()
+            local builder = path.join(current_dir, "properties/assets_raw/svg_normalize.py")
+            local input_dir = path.join(current_dir, "properties/assets_raw/icons")
+            local output_dir = path.join(current_dir, "properties/assets_raw/gen/icons")
 
-task("gen_icon")
-    on_run(function ()
-        local path_builder = path.join(current_dir, "./properties/assets_raw/svg_normalize.py");
-        local path_i = path.join(current_dir, "./properties/assets_raw/icons");
-        local path_o = path.join(current_dir, "./properties/assets_raw/gen/icons");
+            os.execv("py", {builder, "-i", input_dir, "-o", output_dir})
+        end)
 
-        os.exec("py " .. path_builder .. " -i " .. path_i .. " -o " .. path_o)
-    end)
-
-    set_menu({
+        set_menu({
             usage = "generate path normalized icons for msdfgen"
-    })
-task_end()
+        })
+    task_end()
 
-task("switch_mode")
-    set_menu({
-        usage = "xmake switch_mode [mode]",
-        description = "切换编译模式。若模式改变，则执行 clean 并重新生成 compile_commands",
-        options = {
-            {nil, "mode", "v", nil, "目标编译模式 (例如: debug, release)"}
-        }
-    })
+    task("xrgui.switch_mode")
+        set_menu({
+            usage = "xmake xrgui.switch_mode [mode]",
+            description = "切换编译模式。若模式改变，则执行 clean 并重新生成 compile_commands",
+            options = {
+                {nil, "mode", "v", nil, "目标编译模式 (例如: debug, release)"}
+            }
+        })
 
-    on_run(function ()
-        import("core.project.config")
-        import("core.base.option")
-        import("core.base.task")
+        on_run(function ()
+            import("core.project.config")
+            import("core.base.option")
+            import("core.base.task")
 
-        local target_mode = option.get("mode")
-        if not target_mode then
-            cprint("${red}错误: 请指定目标模式！例如: xmake switch_mode debug${clear}")
-            return
-        end
+            local target_mode = option.get("mode")
+            if not target_mode then
+                cprint("${red}错误: 请指定目标模式！例如: xmake xrgui.switch_mode debug${clear}")
+                return
+            end
 
-        config.load()
-        local current_mode = config.get("mode")
+            config.load()
+            local current_mode = config.get("mode")
 
-        if current_mode == target_mode then
-            cprint("${color.success}当前已经是 %s 模式，无需进行任何操作。${clear}", target_mode)
-            return
-        end
+            if current_mode == target_mode then
+                cprint("${color.success}当前已经是 %s 模式，无需进行任何操作。${clear}", target_mode)
+                return
+            end
 
-        cprint("${yellow}正在将模式从 '%s' 切换至 '%s'...${clear}", tostring(current_mode), target_mode)
+            cprint("${yellow}正在将模式从 '%s' 切换至 '%s'...${clear}", tostring(current_mode), target_mode)
 
-        task.run("config", {mode = target_mode})
-        task.run("clean")
-        task.run("project", {kind = "compile_commands"})
+            task.run("config", {mode = target_mode})
+            task.run("clean")
+            task.run("project", {kind = "compile_commands"})
 
-        cprint("${color.success}模式切换与清理配置完成！${clear}")
-    end)
+            cprint("${color.success}模式切换与清理配置完成！${clear}")
+        end)
+    task_end()
+end
 

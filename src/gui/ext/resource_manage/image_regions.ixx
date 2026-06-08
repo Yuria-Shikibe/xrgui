@@ -116,8 +116,12 @@ public:
 		return image_region_->view;
 	}
 
+	[[nodiscard]] auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
+		return image_region_->texture_binding();
+	}
+
 	[[nodiscard]] auto texture_binding(
-		const graphic::sampler_descriptor_index sampler_index = graphic::auto_sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
+		const graphic::sampler_descriptor_index sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_region_->texture_binding(sampler_index);
 	}
 
@@ -338,6 +342,20 @@ public:
 };
 
 export
+struct nine_patch_coord_axes{
+	std::array<float, 4> x{};
+	std::array<float, 4> y{};
+};
+
+export
+struct nine_patch_draw_axes{
+	std::array<float, 4> x{};
+	std::array<float, 4> y{};
+	std::array<float, 4> uvx{};
+	std::array<float, 4> uvy{};
+};
+
+export
 struct nine_patch_layout{
 	align::spacing edge{};
 	math::vec2 inner_size{};
@@ -388,46 +406,24 @@ struct nine_patch_layout{
 		return rst;
 	}
 
-	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_coords(
+	[[nodiscard]] constexpr nine_patch_coord_axes get_coords(
 		const math::raw_frect bound) const noexcept{
-		const std::array xs = {
+		return {
+			.x = {
 				(bound.get_src_x()),
 				(bound.get_src_x() + edge.left),
 				(bound.get_end_x() - edge.right),
 				(bound.get_end_x())
-			};
-		const std::array ys = {
+			},
+			.y = {
 				(bound.get_src_y()),
 				(bound.get_src_y() + edge.bottom),
 				(bound.get_end_y() - edge.top),
 				(bound.get_end_y())
-			};
-
-		return {
-				std::array{xs[0], xs[1], xs[2], xs[3], ys[0], ys[1]},
-				std::array{xs[0], xs[1], xs[2], xs[3], ys[1], ys[2]},
-				std::array{xs[0], xs[1], xs[2], xs[3], ys[2], ys[3]}
-			};
+			}
+		};
 	}
 
-	template <typename T>
-	[[nodiscard]] constexpr math::section<T> interpolate_middle_row_values(
-		const T& val_bottom,
-		const T& val_top,
-		const float total_height
-	) const noexcept{
-		if(total_height <= 0.0f){
-			return {val_bottom, val_top};
-		}
-
-		const float t_bottom = edge.bottom / total_height;
-		const float t_top = 1.0f - (edge.top / total_height);
-
-		const T mid_bottom = val_bottom + (val_top - val_bottom) * t_bottom;
-		const T mid_top = val_bottom + (val_top - val_bottom) * t_top;
-
-		return {mid_bottom, mid_top};
-	}
 };
 
 export
@@ -478,8 +474,12 @@ struct image_nine_region : nine_patch_layout{
 		return image_view != nullptr;
 	}
 
+	[[nodiscard]] auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
+		return image_view->texture_binding();
+	}
+
 	[[nodiscard]] auto texture_binding(
-		const graphic::sampler_descriptor_index sampler_index = graphic::auto_sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
+		const graphic::sampler_descriptor_index sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_view->texture_binding(sampler_index);
 	}
 
@@ -499,29 +499,35 @@ struct image_nine_region : nine_patch_layout{
 		return rst;
 	}
 
-	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_uvs() const noexcept{
-		const std::array us = {
+	[[nodiscard]] constexpr nine_patch_coord_axes get_uv_axes() const noexcept{
+		return {
+			.x = {
 				outer_uv.v00().x,
 				inner_uv.v00().x,
 				inner_uv.v11().x,
 				outer_uv.v11().x
-			};
-		const std::array vs = {
+			},
+			.y = {
 				outer_uv.v00().y,
 				inner_uv.v00().y,
 				inner_uv.v11().y,
 				outer_uv.v11().y
-			};
-
-		return {
-				std::array{vs[0], vs[1], us[0], us[1], us[2], us[3]},
-				std::array{vs[1], vs[2], us[0], us[1], us[2], us[3]},
-				std::array{vs[2], vs[3], us[0], us[1], us[2], us[3]}
-			};
+			}
+		};
 	}
 
 private:
-	FORCE_INLINE [[nodiscard]] constexpr std::array<std::array<float, 6>, 3> compute_coords_by_scale(
+	[[nodiscard]] constexpr nine_patch_draw_axes make_draw_axes(const nine_patch_coord_axes coords) const noexcept{
+		const auto uv = get_uv_axes();
+		return {
+			.x = coords.x,
+			.y = coords.y,
+			.uvx = uv.x,
+			.uvy = uv.y
+		};
+	}
+
+	FORCE_INLINE [[nodiscard]] constexpr nine_patch_coord_axes compute_coords_by_scale(
 		const math::raw_frect bound,
 		const float scale_x,
 		const float scale_y
@@ -532,24 +538,19 @@ private:
 			const float scaled_margin_x = margin * scale_x;
 			const float scaled_margin_y = margin * scale_y;
 
-			const std::array xs = {
-				bound.get_src_x() - scaled_margin_x,
-				bound.get_src_x() + (edge.left * scale_x),
-				bound.get_end_x() - (edge.right * scale_x),
-				bound.get_end_x() + scaled_margin_x
-			};
-
-			const std::array ys = {
-				bound.get_src_y() - scaled_margin_y,
-				bound.get_src_y() + (edge.bottom * scale_y),
-				bound.get_end_y() - (edge.top * scale_y),
-				bound.get_end_y() + scaled_margin_y
-			};
-
 			return {
-				std::array{xs[0], xs[1], xs[2], xs[3], ys[0], ys[1]},
-				std::array{xs[0], xs[1], xs[2], xs[3], ys[1], ys[2]},
-				std::array{xs[0], xs[1], xs[2], xs[3], ys[2], ys[3]}
+				.x = {
+					bound.get_src_x() - scaled_margin_x,
+					bound.get_src_x() + (edge.left * scale_x),
+					bound.get_end_x() - (edge.right * scale_x),
+					bound.get_end_x() + scaled_margin_x
+				},
+				.y = {
+					bound.get_src_y() - scaled_margin_y,
+					bound.get_src_y() + (edge.bottom * scale_y),
+					bound.get_end_y() - (edge.top * scale_y),
+					bound.get_end_y() + scaled_margin_y
+				}
 			};
 #ifdef __AVX2__
 		} else{
@@ -575,17 +576,16 @@ private:
 			_mm256_store_ps(xy, result_xy);
 
 			return {
-					std::array{xy[0], xy[1], xy[2], xy[3], xy[4], xy[5]},
-					std::array{xy[0], xy[1], xy[2], xy[3], xy[5], xy[6]},
-					std::array{xy[0], xy[1], xy[2], xy[3], xy[6], xy[7]}
-				};
+				.x = {xy[0], xy[1], xy[2], xy[3]},
+				.y = {xy[4], xy[5], xy[6], xy[7]}
+			};
 		}
 #endif
 
 	}
 
 public:
-	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_coords_axis_scaled(
+	[[nodiscard]] constexpr nine_patch_draw_axes get_axes_axis_scaled(
 		const math::raw_frect bound) const noexcept{
 		const auto bound_ext = bound.extent;
 		const auto edge_ext = edge.extent();
@@ -594,10 +594,10 @@ public:
 		const float scale_x = (edge_ext.x > 0.f && edge_ext.x > bound_ext.x) ? (bound_ext.x / edge_ext.x) : 1.0f;
 		const float scale_y = (edge_ext.y > 0.f && edge_ext.y > bound_ext.y) ? (bound_ext.y / edge_ext.y) : 1.0f;
 
-		return compute_coords_by_scale(bound, scale_x, scale_y);
+		return make_draw_axes(compute_coords_by_scale(bound, scale_x, scale_y));
 	}
 
-	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_coords_scaled(
+	[[nodiscard]] constexpr nine_patch_draw_axes get_axes_scaled(
 		const math::raw_frect bound) const noexcept{
 		const auto bound_ext = bound.extent;
 		const auto edge_ext = edge.extent();
@@ -607,12 +607,12 @@ public:
 			scale = std::min(1.0f, align::get_fit_embed_scale(edge_ext, bound_ext));
 		}
 
-		return compute_coords_by_scale(bound, scale, scale);
+		return make_draw_axes(compute_coords_by_scale(bound, scale, scale));
 	}
 
-	[[nodiscard]] constexpr std::array<std::array<float, 6>, 3> get_row_coords(
+	[[nodiscard]] constexpr nine_patch_draw_axes get_axes(
 		const math::raw_frect bound) const noexcept{
-		return compute_coords_by_scale(bound, 1.0f, 1.0f);
+		return make_draw_axes(compute_coords_by_scale(bound, 1.0f, 1.0f));
 	}
 };
 

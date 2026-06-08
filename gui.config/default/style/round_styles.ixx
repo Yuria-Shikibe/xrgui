@@ -127,20 +127,20 @@ struct draw_round_slider{
 		auto bar_color = entry.bar_palette.on_instance(element).mul_a(opacity_scl);
 
 		if(filled_rect.extent.x > 0 && filled_rect.extent.y > 0){
-			element.renderer() << fx::nine_patch_draw<&image_nine_region::get_row_coords_axis_scaled>{
+			element.renderer() << fx::nine_patch_draw<&image_nine_region::get_axes_axis_scaled>{
 				.patch = &entry.bar_shape,
 				.region = filled_rect,
 				.color = bar_color,
 			};
 		}
 
-		element.renderer() << fx::nine_patch_draw<&image_nine_region::get_row_coords_scaled>{
+		element.renderer() << fx::nine_patch_draw<&image_nine_region::get_axes_scaled>{
 			.patch = &entry.handle_shape,
 			.region = {pos1, extent},
 			.color = color,
 		};
 
-		element.renderer() << fx::nine_patch_draw<&image_nine_region::get_row_coords_scaled>{
+		element.renderer() << fx::nine_patch_draw<&image_nine_region::get_axes_scaled>{
 			.patch = &entry.handle_shape,
 			.region = {pos2, extent},
 			.color = color.mul(1.05f).mul_a(.5f),

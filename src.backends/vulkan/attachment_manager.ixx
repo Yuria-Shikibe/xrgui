@@ -81,6 +81,42 @@ public:
 	}
 
 private:
+	static VkFormatFeatureFlags required_optimal_features_for_usage(VkImageUsageFlags usage) noexcept{
+		VkFormatFeatureFlags required{};
+		if(usage & VK_IMAGE_USAGE_SAMPLED_BIT){
+			required |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+		}
+		if(usage & VK_IMAGE_USAGE_STORAGE_BIT){
+			required |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
+		}
+		if(usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT){
+			required |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+		}
+		if(usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT){
+			required |= VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+		}
+		if(usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT){
+			required |= VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+		}
+		return required;
+	}
+
+	static void validate_format_usage(
+		VkPhysicalDevice physical_device,
+		VkFormat format,
+		VkImageUsageFlags usage){
+		const auto required = required_optimal_features_for_usage(usage);
+		if(required == 0){
+			return;
+		}
+
+		VkFormatProperties properties{};
+		vkGetPhysicalDeviceFormatProperties(physical_device, format, &properties);
+		if((properties.optimalTilingFeatures & required) != required){
+			throw std::runtime_error{"attachment format does not support required optimal-tiling image usage"};
+		}
+	}
+
 	void make_mask_(){
 		auto [w, h] = get_extent();
 
@@ -185,12 +221,14 @@ public:
 
 		// 1. 重建 Draw Attachments
 		for(const auto& [idx, cfg] : draw_config_.attachments | std::views::enumerate){
+			const auto usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | cfg.attachment.usage;
+			validate_format_usage(allocator_.get_physical_device(), cfg.attachment.format, usage);
 			attachments_[idx] = vk::combined_image{
 					vk::image{
 						allocator_,
 						{extent.width, extent.height, 1},
 
-						VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | cfg.attachment.usage,
+						usage,
 						cfg.attachment.format
 					},
 					get_view_create_info(cfg.attachment.format)
@@ -200,11 +238,13 @@ public:
 		// 2. 重建 Blit Attachments
 		for(const auto& [idx, cfg] : blit_config_.attachments | std::views::enumerate){
 			const auto global_idx = idx + draw_count;
+			const auto usage = VK_IMAGE_USAGE_STORAGE_BIT | cfg.usage;
+			validate_format_usage(allocator_.get_physical_device(), cfg.format, usage);
 			attachments_[global_idx] = vk::combined_image{
 					vk::image{
 						allocator_,
 						{extent.width, extent.height, 1},
-						VK_IMAGE_USAGE_STORAGE_BIT | cfg.usage,
+						usage,
 						cfg.format
 					},
 					get_view_create_info(cfg.format)
@@ -214,6 +254,7 @@ public:
 		// 3. 重建 MSAA Attachments (如果启用)
 		if(draw_config_.enables_multisample()){
 			for(const auto& [idx, cfg] : draw_config_.attachments | std::views::enumerate){
+				validate_format_usage(allocator_.get_physical_device(), cfg.attachment.format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
 				attachments_[idx + draw_count + blit_count] = vk::combined_image{
 						vk::image{
 							allocator_,

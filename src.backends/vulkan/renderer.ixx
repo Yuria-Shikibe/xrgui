@@ -66,8 +66,8 @@ const graphic::g2d::data_layout_table table_non_vertex{
  */
 export struct renderer_create_info{
 	vk::allocator_usage allocator_usage;
-	VkCommandPool command_pool;
-	VkSampler sampler;
+	std::uint32_t command_queue_family;
+	graphic::image_view_registry* image_view_registry{};
 	draw_attachment_create_info attachment_draw_config;
 	blit_attachment_create_info attachment_blit_config;
 	graphic_pipeline_create_config draw_pipe_config;
@@ -183,7 +183,8 @@ export struct renderer{
 
 private:
 	vk::allocator_usage allocator_usage_{};
-	std::unique_ptr<graphic::image_view_registry> image_view_registry_{std::make_unique<graphic::image_view_registry>()};
+	vk::command_pool command_pool_{};
+	std::reference_wrapper<graphic::image_view_registry> image_view_registry_;
 	graphic::sampler_descriptor_index default_sampler_index_{graphic::auto_sampler_index};
 
 public:
@@ -211,11 +212,11 @@ public:
 	}
 
 	[[nodiscard]] graphic::image_view_registry& get_image_view_registry() noexcept{
-		return *image_view_registry_;
+		return image_view_registry_.get();
 	}
 
 	[[nodiscard]] const graphic::image_view_registry& get_image_view_registry() const noexcept{
-		return *image_view_registry_;
+		return image_view_registry_.get();
 	}
 
 	[[nodiscard]] graphic::sampler_descriptor_index get_default_sampler_index() const noexcept{
@@ -230,12 +231,25 @@ private:
 
 	command_recording_context record_ctx_{};
 
+	[[nodiscard]] static graphic::image_view_registry& checked_image_view_registry_(
+		graphic::image_view_registry* registry){
+		if(registry == nullptr){
+			throw std::invalid_argument{"renderer_create_info requires a non-null image view registry"};
+		}
+		return *registry;
+	}
+
 public:
 	[[nodiscard]] explicit(false) renderer(
 		renderer_create_info&& create_info
 	)
 		: allocator_usage_(create_info.allocator_usage)
-		  , default_sampler_index_{image_view_registry_->register_sampler(create_info.sampler)}
+		  , command_pool_{
+			  create_info.allocator_usage.get_device(),
+			  create_info.command_queue_family,
+			  VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+		  }
+		  , image_view_registry_{checked_image_view_registry_(create_info.image_view_registry)}
 		  , batch_host([&]{
 			  VkPhysicalDeviceMeshShaderPropertiesEXT meshProperties{
 					  VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT
@@ -243,7 +257,7 @@ public:
 			  VkPhysicalDeviceProperties2 prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &meshProperties};
 			  vkGetPhysicalDeviceProperties2(allocator_usage_.get_physical_device(), &prop);
 			  return graphic::g2d::hardware_limit_config{};
-		  }(), table, table_non_vertex, *image_view_registry_)
+		  }(), table, table_non_vertex, image_view_registry_.get())
 		  , batch_device(allocator_usage_, batch_host, create_info.stride_config, frames_in_flight)
 		  , attachment_manager_{
 			  allocator_usage_, std::move(create_info.attachment_draw_config),
@@ -262,7 +276,7 @@ public:
 		                   attachment_manager_.get_blit_attachments().size());
 		record_ctx_.rebuild_sync_resources_(*this);
 
-		initialize_frames(create_info.command_pool);
+		initialize_frames();
 
 		// sampler_descriptor_heap_ = {
 		// 		allocator_usage_, {
@@ -312,7 +326,7 @@ public:
 			} else{
 				frame.fence.wait_and_reset();
 			}
-			batch_device.upload(batch_host, *image_view_registry_, frames_.current_index());
+			batch_device.upload(batch_host, image_view_registry_.get(), frames_.current_index());
 		} catch(...){
 			if(!frame.external_submit_fence){
 				frame.fence.reset();
@@ -387,10 +401,10 @@ private:
 		}
 	}
 
-	void initialize_frames(VkCommandPool pool){
-		frames_.initialize(allocator_usage_.get_device(), pool);
+	void initialize_frames(){
+		frames_.initialize(allocator_usage_.get_device(), command_pool_);
 		blit_attachment_clear_and_init_command_buffer = vk::command_buffer{
-				allocator_usage_.get_device(), pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY
+				allocator_usage_.get_device(), command_pool_, VK_COMMAND_BUFFER_LEVEL_SECONDARY
 			};
 	}
 

@@ -48,7 +48,7 @@ void record_glyph_draw_instructions(
 				break;
 			case typesetting::rich_text_token::wrap_frame_type::round :
 				if(hasRound){
-					gui::fx::nine_patch_draw<&image_nine_region::get_row_coords_axis_scaled>{
+					gui::fx::nine_patch_draw<&image_nine_region::get_axes_axis_scaled>{
 						.patch = &roundRegion,
 						.region = {start, end - start},
 						.color = {val.color.copy_set_a(.6f).mul_rgb(.7f)}

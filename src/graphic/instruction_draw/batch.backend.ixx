@@ -563,6 +563,32 @@ private:
        }
     }
 
+    void write_nine_patch_primitives(
+       const std::uint32_t global_vertex_begin,
+       const std::uint32_t global_primitive_begin,
+       const resolved_primitive& primitive,
+       const bool hollow) noexcept{
+       auto* indices = output_.indices.data() + global_primitive_begin;
+       auto* primitive_data = output_.primitive_data.data() + global_primitive_begin;
+       std::uint32_t primitive_idx = 0;
+       for(std::uint32_t cell_y = 0; cell_y < 3U; ++cell_y){
+          for(std::uint32_t cell_x = 0; cell_x < 3U; ++cell_x){
+             if(hollow && cell_x == 1U && cell_y == 1U){
+                continue;
+             }
+             const std::uint32_t v00 = global_vertex_begin + cell_y * 4U + cell_x;
+             const std::uint32_t v10 = v00 + 1U;
+             const std::uint32_t v01 = v00 + 4U;
+             const std::uint32_t v11 = v01 + 1U;
+             indices[primitive_idx] = {v00, v10, v01};
+             indices[primitive_idx + 1U] = {v10, v01, v11};
+             primitive_data[primitive_idx] = primitive;
+             primitive_data[primitive_idx + 1U] = primitive;
+             primitive_idx += 2U;
+          }
+       }
+    }
+
     void write_vertex(
        const std::uint32_t global_vertex_index,
        const math::vec2 position,
@@ -756,6 +782,32 @@ private:
           }
           write_trivial_primitives(global_vertex_begin, global_primitive_begin, head.payload.draw.primitive_count,
                                    make_resolved_primitive(instr.generic));
+          break;
+       }
+       case instr_type::nine_patch :{
+          const auto& instr = *std::launder(reinterpret_cast<const nine_patch*>(payload));
+          const float x_span = instr.x[3] - instr.x[0];
+          const float y_span = instr.y[3] - instr.y[0];
+          const float inv_x_span = x_span != 0.0f ? 1.0f / x_span : 0.0f;
+          const float inv_y_span = y_span != 0.0f ? 1.0f / y_span : 0.0f;
+          for(std::uint32_t local_y = 0; local_y < 4U; ++local_y){
+             const float mix_y = (instr.y[local_y] - instr.y[0]) * inv_y_span;
+             for(std::uint32_t local_x = 0; local_x < 4U; ++local_x){
+                const float mix_x = (instr.x[local_x] - instr.x[0]) * inv_x_span;
+                const float4 bottom = math::lerp(instr.vert_color[0], instr.vert_color[1], mix_x);
+                const float4 top = math::lerp(instr.vert_color[2], instr.vert_color[3], mix_x);
+                write_vertex(
+                   global_vertex_begin + local_y * 4U + local_x,
+                   {instr.x[local_x], instr.y[local_y]},
+                   instr.generic.depth,
+                   math::lerp(bottom, top, mix_y),
+                   {instr.uvx[local_x], instr.uvy[local_y]},
+                   timeline_index);
+             }
+          }
+          const bool hollow = (instr.flags & nine_patch_flags::hollow) != nine_patch_flags{};
+          write_nine_patch_primitives(global_vertex_begin, global_primitive_begin,
+                                      make_resolved_primitive(instr.generic), hollow);
           break;
        }
        default :

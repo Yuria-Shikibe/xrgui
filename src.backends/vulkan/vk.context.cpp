@@ -181,7 +181,9 @@ void context::flush(){
 	if(!final_staging_image.image){
 		return;
 	}
-	if(!std::ranges::all_of(swap_chain_frames, &SwapChainFrameData::post_command)){
+	if(!std::ranges::all_of(swap_chain_frames, [](const SwapChainFrameData& frame){
+		return frame.post_command != VK_NULL_HANDLE;
+	})){
 		return;
 	}
 
@@ -204,7 +206,7 @@ void context::flush(){
 	const auto result = vkAcquireNextImage2KHR(device, &acquire_info, &imageIndex);
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR){
-		recreate(false);
+		recreate();
 		return;
 	} else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR){
 		throw vk_error(result, "failed to acquire swap chain image!");
@@ -239,7 +241,7 @@ void context::flush(){
 	const auto result2 = vkQueuePresentKHR(device.present_queue(), &info);
 
 	if(result2 == VK_ERROR_OUT_OF_DATE_KHR || result2 == VK_SUBOPTIMAL_KHR || window_.check_resized()){
-		recreate(false);
+		recreate();
 	} else if(result2 != VK_SUCCESS){
 		throw vk_error(result2, "Failed to present swap chain image!");
 	}
@@ -264,7 +266,7 @@ output_frame_token context::acquire_output_frame(){
 	const auto result = vkAcquireNextImage2KHR(device, &acquire_info, &imageIndex);
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR){
-		recreate(false);
+		recreate();
 		return {};
 	} else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR){
 		throw vk_error(result, "failed to acquire swap chain image!");
@@ -302,7 +304,7 @@ void context::present_output_frame(const output_frame_token& token){
 	const auto result = vkQueuePresentKHR(device.present_queue(), &info);
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || token.suboptimal || window_.check_resized()){
-		recreate(false);
+		recreate();
 	} else if(result != VK_SUCCESS){
 		throw vk_error(result, "Failed to present swap chain image!");
 	}
@@ -315,7 +317,16 @@ void context::wait_on_device() const{
 }
 
 
-void context::record_post_command(bool no_fence_wait){
+void context::record_post_command(std::span<const vk::command_buffer> post_commands, bool no_fence_wait){
+	std::vector<VkCommandBuffer> command_handles{};
+	command_handles.reserve(post_commands.size());
+	for(const auto& command : post_commands){
+		command_handles.push_back(command);
+	}
+	record_post_command(command_handles, no_fence_wait);
+}
+
+void context::record_post_command(std::span<const VkCommandBuffer> post_commands, bool no_fence_wait){
 	auto& image_data = final_staging_image;
 
 
@@ -331,9 +342,13 @@ void context::record_post_command(bool no_fence_wait){
 
 	if(!image_data.image){
 		for(auto&& swap_chain_frame : swap_chain_frames){
-			swap_chain_frame.post_command = {};
+			swap_chain_frame.post_command = VK_NULL_HANDLE;
 		}
 		return;
+	}
+
+	if(post_commands.size() != swap_chain_frames.size()){
+		throw std::invalid_argument{"post command count must match swap chain frame count"};
 	}
 
 	cmd::dependency_gen dependency_gen{};
@@ -343,12 +358,19 @@ void context::record_post_command(bool no_fence_wait){
 		};
 
 
-	for(auto&& swap_chain_frame : swap_chain_frames){
-		auto& bf = swap_chain_frame.post_command;
-		bf = main_graphic_command_pool.obtain();
+	for(std::size_t index = 0; index < swap_chain_frames.size(); ++index){
+		auto& swap_chain_frame = swap_chain_frames[index];
+		const auto bf = post_commands[index];
+		if(bf == VK_NULL_HANDLE){
+			throw std::invalid_argument{"post command buffer must not be null"};
+		}
+		swap_chain_frame.post_command = bf;
 
+		if(const auto rst = vkResetCommandBuffer(bf, 0)){
+			throw vk_error{rst, "Failed to reset post command buffer"};
+		}
 
-		bf.begin(VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
+		cmd::begin(bf, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
 
 		{
 			dependency_gen.push(
@@ -472,7 +494,7 @@ void context::record_post_command(bool no_fence_wait){
 			dependency_gen.apply(bf);
 		}
 
-		bf.end();
+		cmd::end(bf);
 	}
 }
 void context::create_device() {
@@ -523,7 +545,7 @@ void context::create_device() {
 	};
 }
 
-void context::recreate(bool no_fence_wait){
+void context::recreate(){
 	(void)window_.check_resized();
 
 	while(window_.iconified() || window_.get_size().width == 0 || window_.get_size().height == 0){
@@ -546,8 +568,5 @@ void context::recreate(bool no_fence_wait){
 	for(const auto& reference : eventManager | std::views::values){
 		reference(*this, window_instance::resize_event(get_extent()));
 	}
-
-
-	record_post_command(no_fence_wait);
 }
 }

@@ -371,8 +371,7 @@ public:
 		}
 
         // 直接累加整条指令的图元，不再进行拆分判定
-		const auto instructionVertices = head.payload.draw.vertex_count;
-		pushedPrimitives += fn_get_primitive_count(head.type, data, instructionVertices);
+		pushedPrimitives += head.payload.draw.primitive_count;
 	}
 
 	template <std::invocable<const instruction_head&, std::byte*> Fn>

@@ -57,86 +57,64 @@ struct row_patch_draw{
 	}
 };
 
-using nine_patch_coord_fn_mtpr_type = decltype(&image_nine_region::get_row_coords);
+using nine_patch_coord_fn_mtpr_type = decltype(&image_nine_region::get_axes);
+
+[[nodiscard]] FORCE_INLINE constexpr graphic::g2d::nine_patch make_nine_patch_instruction(
+	const image_nine_region& patch,
+	const nine_patch_draw_axes& axes,
+	const graphic::g2d::quad_vert_color& color,
+	const graphic::g2d::nine_patch_flags flags = {}) noexcept{
+	return {
+		.generic = {.image = patch.texture_binding()},
+		.x = axes.x,
+		.y = axes.y,
+		.uvx = axes.uvx,
+		.uvy = axes.uvy,
+		.vert_color = color,
+		.flags = flags
+	};
+}
 
 export
-template <nine_patch_coord_fn_mtpr_type getter = &image_nine_region::get_row_coords>
+template <nine_patch_coord_fn_mtpr_type getter = &image_nine_region::get_axes>
 struct nine_patch_draw{
 	const image_nine_region* patch;
 	math::raw_frect region;
 	graphic::color color;
 
-	template <std::invocable<graphic::g2d::row_patch&&> Fn>
+	template <std::invocable<graphic::g2d::nine_patch&&> Fn>
 	FORCE_INLINE constexpr void for_each(Fn fn) const noexcept{
 		assert(patch != nullptr);
-		auto uvs = patch->get_row_uvs();
-		auto coords = std::invoke(getter, patch, region);
-		for(int i = 0; i < 3; ++i){
-			std::invoke(fn, graphic::g2d::row_patch{
-				.generic = {.image = patch->texture_binding()},
-				.coords = coords[i],
-				.uvs = uvs[i],
-				.vert_color = {color}
-			});
-		}
+		auto axes = std::invoke(getter, patch, region);
+		std::invoke(fn, make_nine_patch_instruction(*patch, axes, {color}));
 	}
 
 	FORCE_INLINE void operator()(graphic::g2d::emit_t emit, auto& sink) const {
-		for_each([&] FORCE_INLINE (graphic::g2d::row_patch&& patch){
+		for_each([&] FORCE_INLINE (graphic::g2d::nine_patch&& patch){
 			emit(sink, patch);
 		});
 	}
 };
 
 export
-template <nine_patch_coord_fn_mtpr_type getter = &image_nine_region::get_row_coords>
+template <nine_patch_coord_fn_mtpr_type getter = &image_nine_region::get_axes>
 struct nine_patch_hollow_draw{
 	const image_nine_region* patch;
 	math::raw_frect region;
 	graphic::color color;
 
-	template <typename Fn>
+	template <std::invocable<graphic::g2d::nine_patch&&> Fn>
 	FORCE_INLINE constexpr void for_each(Fn fn) const noexcept{
 		assert(patch != nullptr);
-		auto uvs = patch->get_row_uvs();
-		auto coords = std::invoke(getter, patch, region);
+		auto axes = std::invoke(getter, patch, region);
 
-		std::invoke(fn, graphic::g2d::row_patch{
-			.generic = {.image = patch->texture_binding()},
-			.coords = coords[0],
-			.uvs = uvs[0],
-			.vert_color = {color}
-		});
-
-		std::invoke(fn, graphic::g2d::rect_aabb{
-			.generic = {.image = patch->texture_binding()},
-			.v00 = {coords[1][0], coords[1][4]},
-			.v11 = {coords[1][1], coords[1][5]},
-			.uv00 = {uvs[1][2], uvs[1][0]},
-			.uv11 = {uvs[1][3], uvs[1][1]},
-			.vert_color = {color}
-		});
-
-		std::invoke(fn, graphic::g2d::rect_aabb{
-			.generic = {.image = patch->texture_binding()},
-			.v00 = {coords[1][2], coords[1][4]},
-			.v11 = {coords[1][3], coords[1][5]},
-			.uv00 = {uvs[1][4], uvs[1][0]},
-			.uv11 = {uvs[1][5], uvs[1][1]},
-			.vert_color = {color}
-		});
-
-		std::invoke(fn, graphic::g2d::row_patch{
-			.generic = {.image = patch->texture_binding()},
-			.coords = coords[2],
-			.uvs = uvs[2],
-			.vert_color = {color}
-		});
+		std::invoke(fn, make_nine_patch_instruction(
+			*patch, axes, {color}, graphic::g2d::nine_patch_flags::hollow));
 	}
 
 	FORCE_INLINE void operator()(graphic::g2d::emit_t emit, auto& sink) const {
-		for_each([&]<typename Instr> FORCE_INLINE (Instr&& patch){
-			emit(sink, std::forward<Instr>(patch));
+		for_each([&] FORCE_INLINE (graphic::g2d::nine_patch&& patch){
+			emit(sink, patch);
 		});
 	}
 };
@@ -151,30 +129,9 @@ struct nine_patch_draw_vert_color{
 	FORCE_INLINE void operator()(graphic::g2d::emit_t emit, auto& sink) const {
 		assert(patch != nullptr);
 		auto& img_patch = *patch;
-		auto coords = img_patch.get_row_coords(region);
-		auto uvs = img_patch.get_row_uvs();
+		auto axes = img_patch.get_axes(region);
 
-		auto [CLB, CLT] = img_patch.interpolate_middle_row_values(color[0], color[2], region.extent.y);
-		auto [CRB, CRT] = img_patch.interpolate_middle_row_values(color[1], color[3], region.extent.y);
-
-		emit(sink, graphic::g2d::row_patch{
-			.generic = {.image = img_patch.texture_binding()},
-			.coords = coords[0],
-			.uvs = uvs[0],
-			.vert_color = graphic::g2d::quad_vert_color{color[0], color[1], CLB, CRB}
-		});
-		emit(sink, graphic::g2d::row_patch{
-			.generic = {.image = img_patch.texture_binding()},
-			.coords = coords[1],
-			.uvs = uvs[1],
-			.vert_color = graphic::g2d::quad_vert_color{CLB, CRB, CLT, CRT}
-		});
-		emit(sink, graphic::g2d::row_patch{
-			.generic = {.image = img_patch.texture_binding()},
-			.coords = coords[2],
-			.uvs = uvs[2],
-			.vert_color = graphic::g2d::quad_vert_color{CLT, CRT, color[2], color[3]}
-		});
+		emit(sink, make_nine_patch_instruction(img_patch, axes, color));
 	}
 };
 

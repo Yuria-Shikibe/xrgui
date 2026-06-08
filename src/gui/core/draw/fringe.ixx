@@ -23,7 +23,6 @@ import <beman/inplace_vector.hpp>;
 
 
 namespace mo_yanxi::graphic::g2d::fringe{
-using namespace mo_yanxi::graphic::g2d;
 
 template <std::floating_point T>
 FORCE_INLINE CONST_FN bool is_draw_meaningful(T f) noexcept{
@@ -141,7 +140,7 @@ struct poly_fringe_at_from_draw{
 	poly instr;
 	float fringe = fringe_size;
 
-	FORCE_INLINE void operator()(emit_t emit, auto& sink) const {
+	FORCE_INLINE void operator()(emit_t emit, auto& sink) const{
 		emit(sink, make_poly_fringe_instr(instr, fringe, edge_position::from));
 	}
 };
@@ -151,7 +150,7 @@ struct poly_fringe_at_to_draw{
 	poly instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const{
 		emit(sink, make_poly_fringe_instr(instr, fringe, edge_position::to));
 	}
 };
@@ -161,7 +160,7 @@ struct poly_fringe_only_draw{
 	poly instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const{
 		if(is_draw_meaningful(instr.radius.from)){
 			emit(sink, poly_fringe_at_from_draw{instr, fringe});
 		}
@@ -177,7 +176,7 @@ struct poly_draw{
 	poly instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const{
 		emit(sink, instr);
 		emit(sink, poly_fringe_only_draw{instr, fringe});
 	}
@@ -188,7 +187,7 @@ struct poly_partial_draw{
 	poly_partial instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const{
 		emit(sink, instr);
 
 		if(is_draw_meaningful(instr.radius.from)){
@@ -208,15 +207,19 @@ struct poly_partial_with_cap_draw{
 	float dst_cap_fringe = fringe_size;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const{
 		emit(sink, poly_partial_draw{instr, fringe});
 
 		if(is_draw_meaningful(src_cap_fringe)) [[likely]] {
-			emit(sink, poly_partial_draw{make_poly_partial_cap_instr(instr, src_cap_fringe, edge_position::from), fringe});
+			emit(sink, poly_partial_draw{
+				     make_poly_partial_cap_instr(instr, src_cap_fringe, edge_position::from), fringe
+			     });
 		}
 
 		if(is_draw_meaningful(dst_cap_fringe)) [[likely]] {
-			emit(sink, poly_partial_draw{make_poly_partial_cap_instr(instr, dst_cap_fringe, edge_position::to), fringe});
+			emit(sink, poly_partial_draw{
+				     make_poly_partial_cap_instr(instr, dst_cap_fringe, edge_position::to), fringe
+			     });
 		}
 	}
 };
@@ -226,7 +229,7 @@ struct curve_draw{
 	parametric_curve instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const{
 		emit(sink, instr);
 		emit(sink, make_curve_fringe_instr(instr, fringe, stroke_band::outer));
 		emit(sink, make_curve_fringe_instr(instr, fringe, stroke_band::inner));
@@ -282,13 +285,13 @@ struct curve_with_cap_draw{
 	float cap_length_dst = fringe_size;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const {
+	void operator()(emit_t emit, auto& sink) const{
 		emit(sink, curve_draw{instr, fringe});
 
 		if(cap_length_src <= 0.0f && cap_length_dst <= 0.0f) return;
 
-		emit_curve_cap(emit, sink, instr, cap_length_src, fringe, edge_position::from);
-		emit_curve_cap(emit, sink, instr, cap_length_dst, fringe, edge_position::to);
+		fringe::emit_curve_cap(emit, sink, instr, cap_length_src, fringe, edge_position::from);
+		fringe::emit_curve_cap(emit, sink, instr, cap_length_dst, fringe, edge_position::to);
 	}
 };
 
@@ -318,7 +321,9 @@ FORCE_INLINE auto poly_partial(const mo_yanxi::graphic::g2d::poly_partial& instr
 }
 
 export
-FORCE_INLINE auto poly_partial_with_cap(const mo_yanxi::graphic::g2d::poly_partial& instr, float src_cap_fringe = fringe_size, float dst_cap_fringe = fringe_size, float fringe_width = fringe_size){
+FORCE_INLINE auto poly_partial_with_cap(const mo_yanxi::graphic::g2d::poly_partial& instr,
+                                        float src_cap_fringe = fringe_size, float dst_cap_fringe = fringe_size,
+                                        float fringe_width = fringe_size){
 	return poly_partial_with_cap_draw{instr, src_cap_fringe, dst_cap_fringe, fringe_width};
 }
 
@@ -328,7 +333,9 @@ FORCE_INLINE auto curve(const mo_yanxi::graphic::g2d::parametric_curve& instr, f
 }
 
 export
-FORCE_INLINE auto curve_with_cap(const mo_yanxi::graphic::g2d::parametric_curve& instr, float cap_length_src = fringe_size, float cap_length_dst = fringe_size, float fringe_width = fringe_size){
+FORCE_INLINE auto curve_with_cap(const mo_yanxi::graphic::g2d::parametric_curve& instr,
+                                 float cap_length_src = fringe_size, float cap_length_dst = fringe_size,
+                                 float fringe_width = fringe_size){
 	return curve_with_cap_draw{instr, cap_length_src, cap_length_dst, fringe_width};
 }
 
@@ -369,9 +376,9 @@ public:
 		: buf_(std::move(buf)){
 	}
 
-	template <typename ...Args>
+	template <typename... Args>
 		requires (std::constructible_from<Buffer, Args&&...>)
-	[[nodiscard]] explicit(false) line_context(std::in_place_type_t<Buffer>, Args&& ...args)
+	[[nodiscard]] explicit(false) line_context(std::in_place_type_t<Buffer>, Args&&... args)
 		: buf_(std::forward<Args>(args)...){
 	}
 
@@ -380,7 +387,7 @@ public:
 		line_context* ctx;
 		HeadType head;
 
-		void operator()(emit_t, auto& sink) const {
+		void operator()(emit_t, auto& sink) const{
 			sink(head, ctx->get_nodes());
 		}
 	};
@@ -392,23 +399,23 @@ public:
 		float stroke;
 		bool is_inner;
 
-		void operator()(emit_t, auto& sink) const {
+		void operator()(emit_t, auto& sink) const{
 			ctx->emit_fringe_impl(sink, head, stroke, is_inner);
 		}
 	};
 
 	template <typename HeadType>
-	[[nodiscard]] auto mid(const HeadType& head) noexcept {
+	[[nodiscard]] auto mid(const HeadType& head) noexcept{
 		return mid_draw<HeadType>{this, head};
 	}
 
 	template <typename HeadType>
-	[[nodiscard]] auto fringe_inner(const HeadType& head, float stroke = fringe_size) noexcept {
+	[[nodiscard]] auto fringe_inner(const HeadType& head, float stroke = fringe_size) noexcept{
 		return fringe_draw<HeadType>{this, head, stroke, true};
 	}
 
 	template <typename HeadType>
-	[[nodiscard]] auto fringe_outer(const HeadType& head, float stroke = fringe_size) noexcept {
+	[[nodiscard]] auto fringe_outer(const HeadType& head, float stroke = fringe_size) noexcept{
 		return fringe_draw<HeadType>{this, head, stroke, false};
 	}
 
@@ -441,8 +448,6 @@ public:
 		std::memmove(ptr + 2, ptr, sz * sizeof(line_node));
 
 
-
-
 		const auto tan_front = (ptr[2].pos - ptr[3].pos).set_length(stroke);
 		return patch_cap_src(tan_front);
 	}
@@ -459,7 +464,7 @@ public:
 		return patch_cap_dst(tan_back, sz);
 	}
 
-	FORCE_INLINE math::section<line_node&> add_cap(float cap_src, float cap_dst) noexcept {
+	FORCE_INLINE math::section<line_node&> add_cap(float cap_src, float cap_dst) noexcept{
 		const auto sz = size();
 
 		resize(sz + 4);
@@ -467,11 +472,9 @@ public:
 		auto* ptr = data();
 
 
-
 		auto vec_front = ptr[0].pos - ptr[1].pos;
 
-		auto vec_back = ptr[sz-1].pos - ptr[sz-2].pos;
-
+		auto vec_back = ptr[sz - 1].pos - ptr[sz - 2].pos;
 
 
 		std::memmove(ptr + 2, ptr, sz * sizeof(line_node));
@@ -481,9 +484,7 @@ public:
 		const auto tan_back = vec_back.set_length(cap_dst);
 
 
-
 		auto& src_node = patch_cap_src(tan_front);
-
 
 
 		auto& dst_node = patch_cap_dst(tan_back, sz + 2);
@@ -491,18 +492,16 @@ public:
 		return {src_node, dst_node};
 	}
 
-	FORCE_INLINE math::section<line_node&> add_cap() noexcept {
-		 return this->add_cap(front().stroke / 2.f, back().stroke / 2.f);
+	FORCE_INLINE math::section<line_node&> add_cap() noexcept{
+		return this->add_cap(front().stroke / 2.f, back().stroke / 2.f);
 	}
 
 	FORCE_INLINE void add_fringe_cap_src(float cap_stroke){
-		
 		auto& node = add_cap_src(cap_stroke);
 		node.color.invoke(&graphic::color::set_a, 0.f);
 	}
 
 	FORCE_INLINE void add_fringe_cap_dst(float cap_stroke){
-		
 		auto& node = add_cap_dst(cap_stroke);
 		node.color.invoke(&graphic::color::set_a, 0.f);
 	}
@@ -551,9 +550,8 @@ public:
 	}
 
 private:
-
-	template<typename HeadType>
-	FORCE_INLINE void emit_fringe_impl(auto& sink, const HeadType& head, float stroke, bool is_inner) {
+	template <typename HeadType>
+	FORCE_INLINE void emit_fringe_impl(auto& sink, const HeadType& head, float stroke, bool is_inner){
 		assert(data() != nullptr);
 
 		const auto element_count = size();
@@ -611,5 +609,4 @@ private:
 export
 template <std::size_t N>
 using inplace_line_context = line_context<beman::inplace_vector::inplace_vector<line_node, N>>;
-
 }
