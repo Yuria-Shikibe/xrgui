@@ -24,6 +24,84 @@ export import align;
 namespace mo_yanxi::gui{
 export namespace align = ::mo_yanxi::align;
 
+template <typename Owner>
+concept react_flow_scene_owner = std::derived_from<std::remove_cvref_t<Owner>, scene_base>;
+
+template <typename Owner>
+concept react_flow_elem_owner = std::derived_from<std::remove_cvref_t<Owner>, elem>;
+
+template <typename Owner>
+concept react_flow_owner = react_flow_scene_owner<Owner> || react_flow_elem_owner<Owner>;
+
+template <react_flow_owner Owner>
+scene_base& react_flow_owner_scene_(Owner& owner) noexcept{
+	if constexpr (react_flow_elem_owner<Owner>){
+		return owner.get_scene();
+	}else{
+		return owner;
+	}
+}
+
+template <react_flow_owner Owner>
+const elem* react_flow_owner_elem_(Owner& owner) noexcept{
+	if constexpr (react_flow_elem_owner<Owner>){
+		return std::addressof(static_cast<elem&>(owner));
+	}else{
+		return nullptr;
+	}
+}
+
+struct react_flow_create_access{
+	template <typename AddFn>
+	static decltype(auto) add_node(scene_base& scene, const elem* owner, AddFn&& add){
+		return scene.react_flow_add_node_(owner, std::forward<AddFn>(add));
+	}
+
+	static bool erase_node(scene_base& scene, react_flow::node& node){
+		return scene.react_flow_erase_node_(node);
+	}
+};
+
+export
+template <react_flow_owner Owner, std::derived_from<react_flow::node> NodeType, typename... Args>
+decltype(auto) react_flow_attach_impl(Owner& owner, std::in_place_type_t<NodeType>, Args&&... args){
+	auto& scene = gui::react_flow_owner_scene_(owner);
+	const elem* owner_elem = gui::react_flow_owner_elem_(owner);
+
+	return react_flow_create_access::add_node(scene, owner_elem, [&](react_flow::manager& manager) -> NodeType&{
+		return manager.template add_node<NodeType>(std::forward<Args>(args)...);
+	});
+}
+
+export
+template <react_flow_owner Owner, typename Node>
+	requires std::derived_from<std::remove_cvref_t<Node>, react_flow::node>
+decltype(auto) react_flow_attach_impl(Owner& owner, Node&& node){
+	auto& scene = gui::react_flow_owner_scene_(owner);
+	const elem* owner_elem = gui::react_flow_owner_elem_(owner);
+
+	return react_flow_create_access::add_node(scene, owner_elem, [&](react_flow::manager& manager) -> decltype(auto){
+		return manager.add_node(std::forward<Node>(node));
+	});
+}
+
+export
+template <react_flow_owner Owner>
+decltype(auto) react_flow_attach_impl(Owner& owner, react_flow::node_pointer node){
+	auto& scene = gui::react_flow_owner_scene_(owner);
+	const elem* owner_elem = gui::react_flow_owner_elem_(owner);
+
+	return react_flow_create_access::add_node(scene, owner_elem, [&](react_flow::manager& manager) -> decltype(auto){
+		return manager.add_node(std::move(node));
+	});
+}
+
+export
+template <react_flow_scene_owner Owner>
+bool react_flow_erase_impl(Owner& owner, react_flow::node& node){
+	return react_flow_create_access::erase_node(owner, node);
+}
+
 
 template <typename E, typename Fn>
 void native_communicator::request_clipboard(E& owner, Fn&& on_ready){

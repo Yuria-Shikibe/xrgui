@@ -1036,6 +1036,8 @@ public:
 		return react_flow_;
 	}
 
+	friend struct react_flow_create_access;
+
 protected:
 	void drop_elem_nodes(const elem* elem) noexcept{
 		assert(is_on_scene_thread(*this));
@@ -1059,77 +1061,38 @@ public:
 		this->request_cursor_update();
 	}
 
-#pragma region ReactFlow
-	//TODO make these API async safe
-
-public:
-	/**
-	 * @brief Add a react-flow node owned directly by the scene.
-	 *
-	 * Must be called on the scene/UI thread. Use `elem::request_embedded_react_node`
-	 * when the node should be removed automatically with an element.
-	 */
-	template <typename T, typename ...Args>
-	[[nodiscard]] T& request_independent_react_node(Args&& ...args){
+private:
+	template <typename AddFn>
+	decltype(auto) react_flow_add_node_(const elem* owner, AddFn&& add){
 		if(!is_on_scene_thread(*this)){
 			throw std::runtime_error{"create node not on main ui thread"};
 		}
-		return react_flow_.add_node<T>( std::forward<Args>(args)...);
-	}
 
-	template <typename T>
-	[[nodiscard]] auto& request_independent_react_node(T&& args){
-		if(!is_on_scene_thread(*this)){
-			throw std::runtime_error{"create node not on main ui thread"};
+		auto& node = std::invoke(std::forward<AddFn>(add), react_flow_);
+		if(owner != nullptr){
+			try{
+				elem_owned_nodes_.insert({owner, std::addressof(static_cast<react_flow::node&>(node))});
+			}catch(...){
+				react_flow_.erase_node(node);
+				throw;
+			}
 		}
-		return react_flow_.add_node( std::forward<T>(args));
+		return node;
 	}
 
-	bool erase_independent_react_node(react_flow::node& node) /*noexcept*/ {
+	bool react_flow_erase_node_(react_flow::node& node){
 		if(!is_on_scene_thread(*this)){
 			throw std::runtime_error{"erase node not on main ui thread"};
+		}
+		const auto* node_addr = std::addressof(node);
+		if(std::ranges::any_of(elem_owned_nodes_, [node_addr](const auto& entry){
+			return entry.second == node_addr;
+		})){
+			throw std::invalid_argument{"cannot manually erase element-owned react-flow node"};
 		}
 		return react_flow_.erase_node(node);
 	}
 
-	/**
-	 * @brief Add a react-flow node owned by `elem`.
-	 *
-	 * Owned nodes are removed automatically when the element is dropped.
-	 */
-	template <typename T, std::derived_from<elem> E, typename ...Args>
-	T& request_react_node(E& elem, Args&& ...args){
-		if(!is_on_scene_thread(*this)){
-			throw std::runtime_error{"create node not on main ui thread"};
-		}
-		T& ptr = react_flow_.add_node<T>(elem, std::forward<Args>(args)...);
-		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
-		return ptr;
-	}
-
-	template <typename T, std::derived_from<elem> E>
-	T& request_embedded_react_node(E& elem, T&& args){
-		if(!is_on_scene_thread(*this)){
-			throw std::runtime_error{"create node not on main ui thread"};
-		}
-		T& ptr = react_flow_.add_node(std::forward<T>(args));
-		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(ptr)});
-		return ptr;
-	}
-
-	react_flow::node& request_embedded_react_node(elem& elem, react_flow::node_pointer&& ptr){
-		if(!is_on_scene_thread(*this)){
-			throw std::runtime_error{"create node not on main ui thread"};
-		}
-
-		auto& n = react_flow_.add_node(std::move(ptr));
-		elem_owned_nodes_.insert({std::addressof(elem), std::addressof(n)});
-		return n;
-	}
-
-#pragma endregion
-
-private:
 	void async_push_elem_to_action_pending(elem* e){
 		action_queue_.push(e);
 	}

@@ -220,7 +220,7 @@ public:
 		if(notifier_){
 			return *notifier_;
 		}
-		auto& node = get_scene().request_react_node<progress_bar_terminal>(*this);
+		auto& node = react_flow::attach(*this, std::in_place_type<progress_bar_terminal>, *this);
 		this->notifier_ = &node;
 		return node;
 	}

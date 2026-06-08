@@ -365,7 +365,8 @@ struct my_elem : mo_yanxi::gui::elem {
 元素拥有的节点：
 
 ```cpp
-auto& listener = label->request_embedded_react_node(
+auto& listener = mo_yanxi::react_flow::attach(
+    *label,
     mo_yanxi::react_flow::make_listener([&](float value) {
         label->set_text(std::format("{:.2f}", value));
     }));
@@ -376,7 +377,8 @@ listener.connect_predecessor(slider->get_provider());
 场景独立节点：
 
 ```cpp
-auto& provider = scene.request_independent_react_node(
+auto& provider = mo_yanxi::react_flow::attach(
+    scene,
     mo_yanxi::react_flow::make_provider<float>(0.5f));
 ```
 

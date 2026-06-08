@@ -85,16 +85,19 @@ struct dummy_text_target {
 	std::string text{};
 	std::size_t embedded_node_requests{};
 
-	template <typename T>
-	auto& request_embedded_react_node(T&& node) {
-		++embedded_node_requests;
-		return manager.add_node(std::forward<T>(node));
-	}
-
 	void set_text(std::string_view value) {
 		text = value;
 	}
 };
+
+template <typename T>
+	requires std::derived_from<std::remove_cvref_t<T>, mo_yanxi::react_flow::node>
+auto& react_flow_attach_impl(
+	dummy_text_target& target,
+	T&& node) {
+	++target.embedded_node_requests;
+	return target.manager.add_node(std::forward<T>(node));
+}
 
 struct recording_i18n_callback {
 	std::string prefix{};

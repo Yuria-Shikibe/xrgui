@@ -305,64 +305,64 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 			scene.get_output_communicate_async_task_queue(0).post(std::forward<F>(fn));
 		};
 
-		auto& bloom_scale = scene.request_independent_react_node(react_flow::make_listener(
+		auto& bloom_scale = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_bloom.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_scale(val);
 				});
 			}));
-		auto& bloom_src_recv = scene.request_independent_react_node(react_flow::make_listener(
+		auto& bloom_src_recv = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_bloom.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_strength_src(val);
 				});
 			}));
-		auto& bloom_dst_recv = scene.request_independent_react_node(react_flow::make_listener(
+		auto& bloom_dst_recv = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_bloom.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_strength_dst(val);
 				});
 
 			}));
-		auto& bloom_mix_recv = scene.request_independent_react_node(react_flow::make_listener(
+		auto& bloom_mix_recv = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_bloom.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_mix_factor(val);
 				});
 			}));
 
-		auto& highlight_thres_recv = scene.request_independent_react_node(react_flow::make_listener(
+		auto& highlight_thres_recv = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_filter_high_light.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_ubo_value(&high_light_filter_args::threshold, val);
 				});
 			}));
-		auto& highlight_smooth_recv = scene.request_independent_react_node(react_flow::make_listener(
+		auto& highlight_smooth_recv = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_filter_high_light.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_ubo_value(&high_light_filter_args::smoothness, val);
 				});
 			}));
 
-		auto& tonemap_contrast = scene.request_independent_react_node(react_flow::make_listener(
+		auto& tonemap_contrast = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_present.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_ubo_value(&compositor::fullscreen_present_params::contrast, val);
 				});
 			}));
-		auto& tonemap_exposure = scene.request_independent_react_node(react_flow::make_listener(
+		auto& tonemap_exposure = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_present.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_ubo_value(&compositor::fullscreen_present_params::exposure, val);
 				});
 			}));
-		auto& tonemap_saturation = scene.request_independent_react_node(react_flow::make_listener(
+		auto& tonemap_saturation = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_present.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_ubo_value(&compositor::fullscreen_present_params::saturation, val);
 				});
 			}));
-		auto& tonemap_gamma = scene.request_independent_react_node(react_flow::make_listener(
+		auto& tonemap_gamma = react_flow::attach(scene, react_flow::make_listener(
 			[=, &p = pass_present.data, &scene](float val){
 				post_task(scene, [&, val]{
 					p.set_ubo_value(&compositor::fullscreen_present_params::gamma, val);

@@ -168,8 +168,8 @@ struct make_style_result{
 	}
 
 	void add_to_scene(scene& s) const{
-		s.request_embedded_react_node(s.root(), auto{front_ptr});
-		s.request_embedded_react_node(s.root(), auto{back_ptr});
+		react_flow::attach(s.root(), front_ptr);
+		react_flow::attach(s.root(), back_ptr);
 	}
 };
 

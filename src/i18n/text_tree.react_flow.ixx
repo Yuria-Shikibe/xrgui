@@ -244,7 +244,7 @@ auto& bind_i18n_text_listener(
 		std::move(subscription),
 		std::forward<Fn>(fn),
 		propagate_type));
-	return connect_i18n_text_listener(root, listener);
+	return i18n::connect_i18n_text_listener(root, listener);
 }
 
 export inline i18n_text_subscriber_node& bind_i18n_text(
@@ -277,13 +277,14 @@ auto& bind_i18n_text(
 	Target& target,
 	text_subscription subscription,
 	ApplyFn&& apply){
-	auto& listener = target.request_embedded_react_node(
-		make_i18n_text_listener(
+	auto& listener = react_flow::attach(
+		target,
+		i18n::make_i18n_text_listener(
 			std::move(subscription),
 			[&target, apply = std::forward<ApplyFn>(apply)](std::string_view value) mutable{
 				std::invoke(apply, target, value);
 			}));
-	return connect_i18n_text_listener(root, listener);
+	return i18n::connect_i18n_text_listener(root, listener);
 }
 
 export template <typename Target>

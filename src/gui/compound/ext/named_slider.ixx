@@ -131,7 +131,7 @@ public:
 	template <typename T>
 		requires (std::derived_from<std::remove_cvref_t<T>, react_flow::type_aware_node<std::string>>)
 	T& add_formatter(T&& node){
-		auto& formatter = this->request_embedded_react_node(std::forward<T>(node));
+		auto& formatter = react_flow::attach(*this, std::forward<T>(node));
 		react_flow::connect_chain(progress_transformer_ ? *progress_transformer_ : get_slider().get_provider(), formatter, get_display_text_receiver());
 		return formatter;
 	}

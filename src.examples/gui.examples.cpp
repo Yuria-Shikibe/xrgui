@@ -866,8 +866,8 @@ ui_outputs build_main_ui(
 								});
 								label.cell().set_pending();
 
-								auto& ln = label->request_react_node<direct_label_text_prov>();
-								auto& trans = label->request_embedded_react_node(react_flow::make_transformer(
+								auto& ln = react_flow::attach(label.elem(), std::in_place_type<direct_label_text_prov>, label.elem());
+								auto& trans = react_flow::attach(label.elem(), react_flow::make_transformer(
 									[](std::u32string_view sv){
 										return typesetting::tokenized_text{sv};
 									}));
@@ -937,7 +937,7 @@ ui_outputs build_main_ui(
 							auto& trans = hdl->add_relay(react_flow::make_transformer([](float val){
 								return math::lerp(0.f, 2.f, val);
 							}));
-							auto& formatter = hdl->request_embedded_react_node(react_flow::make_transformer(
+							auto& formatter = react_flow::attach(hdl.elem(), react_flow::make_transformer(
 								[](float val){
 									return std::format("{:.2f}", val);
 								}));
@@ -1199,7 +1199,7 @@ ui_outputs build_main_ui(
 								receiver->set_style(family_variant);
 								receiver->interactivity = interactivity_flag::enabled;
 
-								auto& listener = receiver->request_embedded_react_node(react_flow::make_listener(
+								auto& listener = react_flow::attach(receiver.elem(), react_flow::make_listener(
 									[&e = receiver.elem()](bool i){
 										e.set_toggled(i);
 										if(i){
@@ -1467,7 +1467,7 @@ Edge Cases:
 						hdl->add_formatter_func([](float val){
 							return std::format("{:.2f}", val);
 						});
-						auto& n = hdl->request_embedded_react_node(react_flow::make_listener(
+						auto& n = react_flow::attach(hdl.elem(), react_flow::make_listener(
 							[&vp = vphld.elem()](float val){
 								vp.update_speed = val;
 							}));

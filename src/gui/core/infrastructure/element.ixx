@@ -1248,28 +1248,6 @@ public:
 
 #pragma endregion
 
-public:
-	//TODO give them a better name
-
-	template <typename T, typename S, typename ...Args>
-		requires std::constructible_from<T, S&, Args&&...>
-	T& request_react_node(this S& self, Args&& ...args){
-		return self.get_scene().template request_react_node<T>(self, std::forward<Args>(args)...);
-	}
-
-	template <typename T, typename S>
-		requires (std::derived_from<std::remove_cvref_t<T>, react_flow::node>)
-	T& request_react_node(this S& self, T&& node){
-		return self.get_scene().template request_react_node<T>(self, std::forward<T>(node));
-	}
-
-
-	template <typename T, typename S>
-	T& request_embedded_react_node(this S& self, T&& node){
-		return self.get_scene().template request_embedded_react_node<T>(self, std::forward<T>(node));
-	}
-
-
 protected:
 
 	[[nodiscard]] auto* get_memory_resource() const noexcept{
@@ -1311,17 +1289,6 @@ private:
 	void release_external_ref_() noexcept;
 	[[nodiscard]] bool has_external_refs_() const noexcept{
 		return elem::lifecycle_ref_count_(lifecycle_ref_.load(std::memory_order_acquire)) != 0u;
-	}
-
-	template <typename S, typename T, typename ...Args>
-	T& request_and_cache_node(this S& self, T* S::* cache, Args&& ...args){
-		if(self.*cache){
-			return *(self.*cache);
-		}else{
-			auto& node = self.template request_react_node<T>(std::forward<Args>(args)...);
-			self.*cache = std::addressof(node);
-			return node;
-		}
 	}
 
 private:
