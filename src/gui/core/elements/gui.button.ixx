@@ -113,7 +113,9 @@ public:
 	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
 		base_type::on_click(event, aboves);
 		if(this->is_disabled()) return events::op_afterwards::intercepted;
-		if(callback && event.within_elem(*this)) callback(event, *this);
+		if(event.within_elem(*this)){
+			if(callback) callback(event, *this);
+		}
 		return events::op_afterwards::intercepted;
 	}
 
