@@ -365,112 +365,112 @@ if is_host_project then
             }
         })
     task_end()
-
-    task("xrgui.gen_slang")
-        on_run(function ()
-            import("core.base.option")
-
-            local builder = path.join(current_dir, "properties/build_util/slang_builder.py")
-            local user_config = option.get("config")
-            local user_output = option.get("output")
-
-            local config_path
-            if user_config == "" then
-                config_path = path.join(current_dir, "properties/assets_raw/shader/config.toml")
-            else
-                config_path = path.join(os.curdir(), user_config)
-            end
-
-            local output_dir
-            if user_output == "" then
-                output_dir = path.join(current_dir, "properties/assets/shader/spv")
-            else
-                output_dir = path.join(os.curdir(), user_output)
-            end
-
-            local compiler = option.get("compiler")
-            if not compiler or compiler == "" then
-                compiler = option.get("complier")
-            end
-
-            local args = {
-                builder,
-                compiler,
-                output_dir,
-                config_path,
-                "-j",
-                "30"
-            }
-            local pass = option.get("pass")
-            if pass and pass ~= "" then
-                table.join2(args, os.argv(pass))
-            end
-
-            os.execv("py", args)
-        end)
-
-        set_menu({
-            usage = "compile Slang shaders to SPIR-V",
-            options = {
-                {'c', "compiler", "kv", "", "Path to slangc.exe"},
-                {nil, "complier", "kv", "./slang/bin/slangc.exe", "Deprecated alias for --compiler"},
-                {'o', "output", "kv", "", "SPIR-V output dir relative to project root"},
-                {'f', "config", "kv", "", "Shader build config"},
-                {'p', "pass", "kv", "", "Pass through args to the Slang builder"},
-            }
-        })
-    task_end()
-
-    task("xrgui.gen_icon")
-        on_run(function ()
-            local builder = path.join(current_dir, "properties/assets_raw/svg_normalize.py")
-            local input_dir = path.join(current_dir, "properties/assets_raw/icons")
-            local output_dir = path.join(current_dir, "properties/assets_raw/gen/icons")
-
-            os.execv("py", {builder, "-i", input_dir, "-o", output_dir})
-        end)
-
-        set_menu({
-            usage = "generate path normalized icons for msdfgen"
-        })
-    task_end()
-
-    task("xrgui.switch_mode")
-        set_menu({
-            usage = "xmake xrgui.switch_mode [mode]",
-            description = "切换编译模式。若模式改变，则执行 clean 并重新生成 compile_commands",
-            options = {
-                {nil, "mode", "v", nil, "目标编译模式 (例如: debug, release)"}
-            }
-        })
-
-        on_run(function ()
-            import("core.project.config")
-            import("core.base.option")
-            import("core.base.task")
-
-            local target_mode = option.get("mode")
-            if not target_mode then
-                cprint("${red}错误: 请指定目标模式！例如: xmake xrgui.switch_mode debug${clear}")
-                return
-            end
-
-            config.load()
-            local current_mode = config.get("mode")
-
-            if current_mode == target_mode then
-                cprint("${color.success}当前已经是 %s 模式，无需进行任何操作。${clear}", target_mode)
-                return
-            end
-
-            cprint("${yellow}正在将模式从 '%s' 切换至 '%s'...${clear}", tostring(current_mode), target_mode)
-
-            task.run("config", {mode = target_mode})
-            task.run("clean")
-            task.run("project", {kind = "compile_commands"})
-
-            cprint("${color.success}模式切换与清理配置完成！${clear}")
-        end)
-    task_end()
 end
+
+task("xrgui.gen_slang")
+    on_run(function ()
+        import("core.base.option")
+
+        local builder = path.join(current_dir, "properties/build_util/slang_builder.py")
+        local user_config = option.get("config")
+        local user_output = option.get("output")
+
+        local config_path
+        if user_config == "" then
+            config_path = path.join(current_dir, "properties/assets_raw/shader/config.toml")
+        else
+            config_path = path.join(os.curdir(), user_config)
+        end
+
+        local output_dir
+        if user_output == "" then
+            output_dir = path.join(current_dir, "properties/assets/shader/spv")
+        else
+            output_dir = path.join(os.curdir(), user_output)
+        end
+
+        local compiler = option.get("compiler")
+        if not compiler or compiler == "" then
+            compiler = option.get("complier")
+        end
+
+        local args = {
+            builder,
+            compiler,
+            output_dir,
+            config_path,
+            "-j",
+            "30"
+        }
+        local pass = option.get("pass")
+        if pass and pass ~= "" then
+            table.join2(args, os.argv(pass))
+        end
+
+        os.execv("py", args)
+    end)
+
+    set_menu({
+        usage = "compile Slang shaders to SPIR-V",
+        options = {
+            {'c', "compiler", "kv", "", "Path to slangc.exe"},
+            {nil, "complier", "kv", "./slang/bin/slangc.exe", "Deprecated alias for --compiler"},
+            {'o', "output", "kv", "", "SPIR-V output dir relative to project root"},
+            {'f', "config", "kv", "", "Shader build config"},
+            {'p', "pass", "kv", "", "Pass through args to the Slang builder"},
+        }
+    })
+task_end()
+
+task("xrgui.gen_icon")
+    on_run(function ()
+        local builder = path.join(current_dir, "properties/assets_raw/svg_normalize.py")
+        local input_dir = path.join(current_dir, "properties/assets_raw/icons")
+        local output_dir = path.join(current_dir, "properties/assets_raw/gen/icons")
+
+        os.execv("py", {builder, "-i", input_dir, "-o", output_dir})
+    end)
+
+    set_menu({
+        usage = "generate path normalized icons for msdfgen"
+    })
+task_end()
+
+task("xrgui.switch_mode")
+    set_menu({
+        usage = "xmake xrgui.switch_mode [mode]",
+        description = "切换编译模式。若模式改变，则执行 clean 并重新生成 compile_commands",
+        options = {
+            {nil, "mode", "v", nil, "目标编译模式 (例如: debug, release)"}
+        }
+    })
+
+    on_run(function ()
+        import("core.project.config")
+        import("core.base.option")
+        import("core.base.task")
+
+        local target_mode = option.get("mode")
+        if not target_mode then
+            cprint("${red}错误: 请指定目标模式！例如: xmake xrgui.switch_mode debug${clear}")
+            return
+        end
+
+        config.load()
+        local current_mode = config.get("mode")
+
+        if current_mode == target_mode then
+            cprint("${color.success}当前已经是 %s 模式，无需进行任何操作。${clear}", target_mode)
+            return
+        end
+
+        cprint("${yellow}正在将模式从 '%s' 切换至 '%s'...${clear}", tostring(current_mode), target_mode)
+
+        task.run("config", {mode = target_mode})
+        task.run("clean")
+        task.run("project", {kind = "compile_commands"})
+
+        cprint("${color.success}模式切换与清理配置完成！${clear}")
+    end)
+task_end()
 

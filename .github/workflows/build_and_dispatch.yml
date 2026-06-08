@@ -83,8 +83,8 @@ jobs:
       - name: Generate Assets (Icon & Slang)
         run: |
           # 由于是全局 task，无需 MSVC 和 xmake f 即可直接运行
-          xmake gen_slang -p "--oneshot --show-cmds"
-          xmake gen_icon 
+          xmake xrgui.gen_slang -p "--oneshot --show-cmds"
+          xmake xrgui.gen_icon 
 
       # ==========================================
       # 第二阶段：重度编译环境配置（耗时较长）
