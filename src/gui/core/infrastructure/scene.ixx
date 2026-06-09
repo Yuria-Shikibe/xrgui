@@ -31,10 +31,12 @@ import mo_yanxi.concurrent.mpsc_queue;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.circular_queue;
 import mo_yanxi.log;
+import mo_yanxi.gui.audio_resources;
 
 export import mo_yanxi.gui.util;
 export import mo_yanxi.gui.util.task_queue;
 export import mo_yanxi.gui.style.tree.manager;
+export import mo_yanxi.gui.audio_resources;
 
 export import mo_yanxi.input_handle;
 export import mo_yanxi.input_handle.input_event_queue;
@@ -333,6 +335,7 @@ public:
 	UI_MAIN_THREAD_ACCESS_ONLY style::style_tree_manager style_tree_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY react_flow::node_holder_pinned<i18n_text_root_node> i18n_prov{};
+	UI_MAIN_THREAD_ACCESS_ONLY audio_resource_index audio_resources_{};
 
 	/**
 	 * @brief Install the backend communicator used by GUI elements.
@@ -344,6 +347,18 @@ public:
 	void set_native_communicator(Args&& ...args){
 		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
 			mr::heap_allocator<native_communicator>{heap.get()}, std::forward<Args>(args)...);
+	}
+
+	void set_audio_controller(audio::audio_controller controller) noexcept{
+		audio_resources_.set_controller(std::move(controller));
+	}
+
+	[[nodiscard]] audio_resource_index& audio_resources() noexcept{
+		return audio_resources_;
+	}
+
+	[[nodiscard]] const audio_resource_index& audio_resources() const noexcept{
+		return audio_resources_;
 	}
 
 	template <typename Target, std::invocable<Target&, std::string_view> ApplyFn>
@@ -422,6 +437,7 @@ struct input{
 	}
 
 	void update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manager& tooltip) noexcept;
+	void play_audio_for_intercepted(elem* element) const;
 
 	void drop_event_focus(const elem* target) noexcept{
 		if(focus_scroll == target)focus_scroll = nullptr;

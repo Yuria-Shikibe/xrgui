@@ -12,6 +12,12 @@ namespace mo_yanxi::gui{
 
 namespace scene_submodule{
 
+void input::play_audio_for_intercepted(elem* element) const{
+	if(element != nullptr && !element->is_disabled()){
+		element->play_audio_from_scene_proxy();
+	}
+}
+
 void action_queue::update(float delta_in_tick) noexcept{
 	if(auto cont = pendings.fetch()){
 		for (auto value : *cont){
@@ -108,12 +114,14 @@ input_key_result input::on_key_input(input_handle::key_set key){
 	}else{
 		if(focus_key){
 			if(focus_key->on_key_input(key) == events::op_afterwards::intercepted){
+				play_audio_for_intercepted(focus_key);
 				return input_key_result::intercepted;
 			}
 		}
 
 		for (auto value : inbounds_.get_cur() | std::views::reverse){
 			if(value->on_key_input(key) == events::op_afterwards::intercepted){
+				play_audio_for_intercepted(value);
 				return input_key_result::intercepted;
 			}
 		}
@@ -124,14 +132,22 @@ input_key_result input::on_key_input(input_handle::key_set key){
 
 events::op_afterwards input::on_unicode_input(char32_t val) const{
 	if(focus_key){
-		return focus_key->on_unicode_input(val);
+		const auto rst = focus_key->on_unicode_input(val);
+		if(rst == events::op_afterwards::intercepted){
+			play_audio_for_intercepted(focus_key);
+		}
+		return rst;
 	}
 	return events::op_afterwards::fall_through;
 }
 
 events::op_afterwards input::on_ime_composition(const input_handle::ime_composition_event& event) const{
 	if(focus_key){
-		return focus_key->on_ime_composition(event);
+		const auto rst = focus_key->on_ime_composition(event);
+		if(rst == events::op_afterwards::intercepted){
+			play_audio_for_intercepted(focus_key);
+		}
+		return rst;
 	}
 	return events::op_afterwards::fall_through;
 }
@@ -142,7 +158,10 @@ events::op_afterwards input::on_scroll(math::vec2 scroll) const{
 
 	if(focus_scroll){
 		auto rst = focus_scroll->on_scroll(e, {});
-		if(rst == events::op_afterwards::intercepted)return events::op_afterwards::intercepted;
+		if(rst == events::op_afterwards::intercepted){
+			play_audio_for_intercepted(focus_scroll);
+			return events::op_afterwards::intercepted;
+		}
 	}
 
 	auto rng = get_inbounds();
@@ -152,6 +171,7 @@ events::op_afterwards input::on_scroll(math::vec2 scroll) const{
 		if((*cur)->on_scroll(e, aboves) != events::op_afterwards::intercepted){
 			++cur;
 		}else{
+			play_audio_for_intercepted(*cur);
 			return events::op_afterwards::intercepted;
 		}
 	}
@@ -193,6 +213,7 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 				++cur;
 			}else{
 				result = events::op_afterwards::intercepted;
+				play_audio_for_intercepted(*cur);
 				if(a == act::press){
 					if(last_inbound_click)last_inbound_click->on_last_clicked_changed(false);
 					last_inbound_click = *cur;
@@ -318,6 +339,7 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
 				util::transform_current2parent(**cur, std::span<math::vec2>{drag_points});
 				++cur;
 			}else{
+				play_audio_for_intercepted(*cur);
 				break;
 			}
 		}
@@ -476,6 +498,7 @@ void scene_base::update(double delta_in_tick){
 	const auto delta_in_tick_f = static_cast<float>(delta_in_tick);
 	native_gui_callbacks_->consume();
 	input_communicate_async_task_queue_.consume(static_cast<scene&>(*this));
+	resources_->audio_resources().maintain();
 
 	react_flow_.update();
 	if(async_task_queue_)async_task_queue_->process_done();

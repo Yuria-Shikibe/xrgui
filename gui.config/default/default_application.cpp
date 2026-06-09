@@ -14,9 +14,11 @@ import mo_yanxi.backend.communicator;
 import mo_yanxi.backend.application_timer;
 import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.backend.vulkan.renderer;
+import mo_yanxi.backend.miniaudio.audio;
 
 import mo_yanxi.graphic.g2d;
 import mo_yanxi.graphic.image_atlas;
+import mo_yanxi.audio;
 
 import mo_yanxi.gui.global;
 import mo_yanxi.gui.assets.manager;
@@ -35,6 +37,7 @@ import mo_yanxi.font.manager;
 import mo_yanxi.typesetting.rich_text;
 
 import mo_yanxi.platform;
+import mo_yanxi.log;
 
 namespace mo_yanxi::gui::cfg{
 namespace{
@@ -102,6 +105,7 @@ struct default_application::state{
 	default_application& app;
 
 	std::optional<render_context> gui_render_context{};
+	std::optional<audio::audio_system> audio_system{};
 	std::optional<vk::command_pool> post_command_pool{};
 	std::vector<vk::command_buffer> post_commands{};
 	std::optional<default_application_loop> loop{};
@@ -156,6 +160,8 @@ struct default_application::state{
 
 		backend::glfw::initialize();
 		glfw_initialized = true;
+
+		audio_system.emplace(backend::miniaudio::make_audio_driver(app.config_.audio_device));
 
 		vk::enable_validation_layers = app.config_.enable_validation_layers;
 		if(platform::environment_flag_enabled("NSIGHT")){
@@ -223,6 +229,7 @@ struct default_application::state{
 			gui::global::event_queue.push_frame_split(timer.global_delta());
 
 			loop->get_window_dispatcher().drain();
+			pump_audio_events();
 			loop->permit_burst();
 			loop->get_scene().get_output_communicate_async_task_queue(0).consume();
 
@@ -244,6 +251,7 @@ struct default_application::state{
 	builtin::main_loop_init_return_t initialize_scene(default_application_loop& loop){
 		auto& ui_root = gui::global::manager;
 		auto& resources = ui_root.add_scene_resources(default_scene_name);
+		resources.set_audio_controller(audio_system ? audio_system->controller() : audio::audio_controller{});
 		auto style_pal_prov = builtin::make_styles(resources);
 
 		const auto scene_add_rst = ui_root.add_scene<builtin::example_scene, gui::loose_group>(
@@ -310,6 +318,24 @@ struct default_application::state{
 		app.after_frame();
 	}
 
+	void pump_audio_events(){
+		if(!audio_system || scene_ptr == nullptr){
+			return;
+		}
+
+		audio_system->poll_events([this](const audio::audio_event& event){
+			if(event.type == audio::audio_event_type::backend_error){
+				log::warn({"Audio"}, "{}", event.message);
+			}
+			if(scene_ptr == nullptr){
+				return;
+			}
+			scene_ptr->get_input_communicate_async_task_queue().post([event](gui::scene& scene){
+				scene.resources().audio_resources().consume_audio_event(event);
+			});
+		});
+	}
+
 	void clear_scene() noexcept{
 		if(!scene_created){
 			return;
@@ -348,6 +374,7 @@ struct default_application::state{
 		}
 
 		loop.reset();
+		audio_system.reset();
 		post_commands.clear();
 		post_command_pool.reset();
 		gui_render_context.reset();
@@ -399,6 +426,13 @@ struct default_application::state{
 			throw std::logic_error{"default_application window dispatcher is not initialized"};
 		}
 		return loop->get_window_dispatcher();
+	}
+
+	audio::audio_controller audio(){
+		if(!audio_system){
+			throw std::logic_error{"default_application audio system is not initialized"};
+		}
+		return audio_system->controller();
 	}
 };
 
@@ -457,6 +491,13 @@ gui::window_thread_dispatcher& default_application::window_dispatcher(){
 		throw std::logic_error{"default_application is not running"};
 	}
 	return state_->window_dispatcher();
+}
+
+audio::audio_controller default_application::audio(){
+	if(!state_){
+		throw std::logic_error{"default_application is not running"};
+	}
+	return state_->audio();
 }
 
 }

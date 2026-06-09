@@ -22,6 +22,7 @@ import mo_yanxi.gui.action.queue;
 
 import mo_yanxi.math;
 import align;
+import mo_yanxi.gui.audio_resources;
 
 import :events;
 import :scene;
@@ -232,6 +233,21 @@ private:
 	border_t style_border_cache_{};
 
 	mpsc_action_queue<elem> actions{};
+	audio_resource_ptr audio_resource_{};
+	bool scene_audio_proxy_enabled_{true};
+
+	[[nodiscard]] audio::voice_handle play_audio(audio::play_desc desc = {}) const{
+		if(!audio_resource_){
+			return {};
+		}
+		return audio_resource_->play(std::move(desc));
+	}
+
+	void play_audio_from_scene_proxy() const{
+		if(scene_audio_proxy_enabled_){
+			static_cast<void>(play_audio());
+		}
+	}
 
 public:
 	/**
@@ -301,6 +317,22 @@ public:
 
 	template <typename E, std::invocable<> Fn>
 	void post_task(this E& e, Fn&& fn);
+
+	void set_audio_resource(audio_resource_ptr resource) noexcept{
+		audio_resource_ = std::move(resource);
+	}
+
+	[[nodiscard]] const audio_resource_ptr& audio_resource() const noexcept{
+		return audio_resource_;
+	}
+
+	void set_scene_audio_proxy_enabled(const bool enabled) noexcept{
+		scene_audio_proxy_enabled_ = enabled;
+	}
+
+	[[nodiscard]] bool scene_audio_proxy_enabled() const noexcept{
+		return scene_audio_proxy_enabled_;
+	}
 
 	template <typename E, typename Fn, typename ...Args>
 		requires (std::derived_from<std::remove_const_t<E>, elem> && std::invocable<Fn&&, E&, Args&&...>)

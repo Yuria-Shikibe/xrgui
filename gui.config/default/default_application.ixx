@@ -9,6 +9,7 @@ export import mo_yanxi.backend.vulkan.renderer;
 export import mo_yanxi.graphic.image_atlas;
 export import mo_yanxi.input_handle.input_event_queue;
 export import mo_yanxi.gui.cfg.render_context;
+export import mo_yanxi.audio;
 
 namespace mo_yanxi::gui::cfg{
 
@@ -46,6 +47,14 @@ struct default_application_config{
 	 * flag disables them for profiling.
 	 */
 	bool enable_validation_layers{false};
+
+	/**
+	 * @brief Default audio device configuration.
+	 *
+	 * Audio runs asynchronously. When `require_device` is false, the default
+	 * application falls back to a null driver if device initialization fails.
+	 */
+	audio::device_config audio_device{};
 };
 
 export
@@ -124,6 +133,11 @@ protected:
 	 * cursor, and IME requests.
 	 */
 	gui::window_thread_dispatcher& window_dispatcher();
+
+	/**
+	 * @brief Access the asynchronous audio controller while the application is running.
+	 */
+	audio::audio_controller audio();
 
 private:
 	struct state;
