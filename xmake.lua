@@ -251,6 +251,7 @@ if is_host_project then
         add_files("src/util/fixed_vector.ixx", {public = true})
         add_files("src/util/unicode.ixx", {public = true})
         add_files("src/audio/audio.ixx", {public = true})
+        add_files("src/audio/audio.cpp")
         add_files("src/gui/core/misc/inout_animator.ixx", {public = true})
         add_files("src/gui/core/misc/gui.slider_logic.ixx", {public = true})
         add_files("src/audio/audio_resource.ixx", {public = true})

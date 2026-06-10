@@ -26,38 +26,41 @@ export struct text_subscription{
 	missing_text_policy missing{missing_text_policy::fallback_then_path};
 
 	bool operator==(const text_subscription&) const noexcept = default;
+
+
+	[[nodiscard]] inline std::string_view missing_i18n_text(
+		this const text_subscription& subscription){
+		switch(subscription.missing){
+		case missing_text_policy::empty : return {};
+		case missing_text_policy::path : return subscription.path;
+		case missing_text_policy::fallback : return subscription.fallback;
+		case missing_text_policy::fallback_then_path : return subscription.fallback.empty()
+																  ? subscription.path
+																  : subscription.fallback;
+		default : std::unreachable();
+		}
+	}
+
 };
 
-export [[nodiscard]] inline std::string_view missing_i18n_text(
-	const text_subscription& subscription){
-	switch(subscription.missing){
-	case missing_text_policy::empty : return {};
-	case missing_text_policy::path : return subscription.path;
-	case missing_text_policy::fallback : return subscription.fallback;
-	case missing_text_policy::fallback_then_path : return subscription.fallback.empty()
-		                                                      ? subscription.path
-		                                                      : subscription.fallback;
-	default : std::unreachable();
-	}
-}
 
 export [[nodiscard]] inline std::string_view resolve_i18n_text(
 	const text_snapshot& snapshot,
 	const text_subscription& subscription){
 	if(!snapshot.tree || subscription.path.empty()){
-		return missing_i18n_text(subscription);
+		return subscription.missing_i18n_text();
 	}
 
 	if(const auto text = snapshot.tree->find_text(subscription.path)){
 		return *text;
 	}
-	return missing_i18n_text(subscription);
+	return subscription.missing_i18n_text();
 }
 
 export [[nodiscard]] inline std::string_view resolve_i18n_text(
 	const text_snapshot* snapshot,
 	const text_subscription& subscription){
-	return snapshot == nullptr ? missing_i18n_text(subscription) : resolve_i18n_text(*snapshot, subscription);
+	return snapshot == nullptr ? subscription.missing_i18n_text() : resolve_i18n_text(*snapshot, subscription);
 }
 
 export struct i18n_text_subscription_state{
@@ -88,7 +91,7 @@ private:
 };
 
 struct i18n_text_snapshot_pointer{
-	[[nodiscard]] const text_snapshot* operator()(const text_snapshot& snapshot) const noexcept{
+	[[nodiscard]] static const text_snapshot* operator()(const text_snapshot& snapshot) noexcept{
 		return std::addressof(snapshot);
 	}
 };

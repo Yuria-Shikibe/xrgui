@@ -22,7 +22,7 @@ import mo_yanxi.gui.action.queue;
 
 import mo_yanxi.math;
 import align;
-import mo_yanxi.gui.audio_resources;
+import mo_yanxi.audio.resources;
 
 import :events;
 import :scene;
@@ -233,19 +233,28 @@ private:
 	border_t style_border_cache_{};
 
 	mpsc_action_queue<elem> actions{};
-	audio_resource_ptr audio_resource_{};
+	audio::audio_asset_ptr audio_resource_{};
 	bool scene_audio_proxy_enabled_{true};
 
-	[[nodiscard]] audio::voice_handle play_audio(audio::play_desc desc = {}) const{
+	[[nodiscard]] bool play_audio_detached(audio::play_settings settings = {}) const{
+		if(!audio_resource_){
+			return false;
+		}
+		return audio_resource_->play_detached(std::move(settings));
+	}
+
+	[[nodiscard]] audio::playback_control_handle play_audio_controlled(
+		audio::play_settings settings = {},
+		audio::playback_control_options options = {}) const{
 		if(!audio_resource_){
 			return {};
 		}
-		return audio_resource_->play(std::move(desc));
+		return audio_resource_->play_controlled(std::move(settings), options);
 	}
 
 	void play_audio_from_scene_proxy() const{
 		if(scene_audio_proxy_enabled_){
-			static_cast<void>(play_audio());
+			static_cast<void>(play_audio_detached());
 		}
 	}
 
@@ -318,11 +327,11 @@ public:
 	template <typename E, std::invocable<> Fn>
 	void post_task(this E& e, Fn&& fn);
 
-	void set_audio_resource(audio_resource_ptr resource) noexcept{
+	void set_audio_resource(audio::audio_asset_ptr resource) noexcept{
 		audio_resource_ = std::move(resource);
 	}
 
-	[[nodiscard]] const audio_resource_ptr& audio_resource() const noexcept{
+	[[nodiscard]] const audio::audio_asset_ptr& audio_resource() const noexcept{
 		return audio_resource_;
 	}
 

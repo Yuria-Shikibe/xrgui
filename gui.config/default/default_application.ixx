@@ -135,13 +135,14 @@ protected:
 	gui::window_thread_dispatcher& window_dispatcher();
 
 	/**
-	 * @brief Access the asynchronous audio controller while the application is running.
+	 * @brief Access the owned asynchronous audio system while the application is running.
 	 */
-	audio::audio_controller audio();
+	audio::audio_system& audio();
 
 private:
 	struct state;
 
+	//TODO dont use unique ptr here.
 	std::unique_ptr<state> state_{};
 	default_application_config config_;
 };

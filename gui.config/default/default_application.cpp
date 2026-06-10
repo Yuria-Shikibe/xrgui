@@ -162,6 +162,7 @@ struct default_application::state{
 		glfw_initialized = true;
 
 		audio_system.emplace(backend::miniaudio::make_audio_driver(app.config_.audio_device));
+		static_cast<void>(audio_system->register_channel(audio::channel_id_from_bus(audio::bus::ui)));
 
 		vk::enable_validation_layers = app.config_.enable_validation_layers;
 		if(platform::environment_flag_enabled("NSIGHT")){
@@ -251,7 +252,7 @@ struct default_application::state{
 	builtin::main_loop_init_return_t initialize_scene(default_application_loop& loop){
 		auto& ui_root = gui::global::manager;
 		auto& resources = ui_root.add_scene_resources(default_scene_name);
-		resources.set_audio_controller(audio_system ? audio_system->controller() : audio::audio_controller{});
+		resources.set_audio_system(audio_system ? std::addressof(*audio_system) : nullptr);
 		auto style_pal_prov = builtin::make_styles(resources);
 
 		const auto scene_add_rst = ui_root.add_scene<builtin::example_scene, gui::loose_group>(
@@ -325,7 +326,7 @@ struct default_application::state{
 
 		audio_system->poll_events([this](const audio::audio_event& event){
 			if(event.type == audio::audio_event_type::backend_error){
-				log::warn({"Audio"}, "{}", event.message);
+				log::warn({"Audio"}, "audio backend error");
 			}
 			if(scene_ptr == nullptr){
 				return;
@@ -428,11 +429,11 @@ struct default_application::state{
 		return loop->get_window_dispatcher();
 	}
 
-	audio::audio_controller audio(){
+	audio::audio_system& audio(){
 		if(!audio_system){
 			throw std::logic_error{"default_application audio system is not initialized"};
 		}
-		return audio_system->controller();
+		return *audio_system;
 	}
 };
 
@@ -493,7 +494,7 @@ gui::window_thread_dispatcher& default_application::window_dispatcher(){
 	return state_->window_dispatcher();
 }
 
-audio::audio_controller default_application::audio(){
+audio::audio_system& default_application::audio(){
 	if(!state_){
 		throw std::logic_error{"default_application is not running"};
 	}
