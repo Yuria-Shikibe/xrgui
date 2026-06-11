@@ -349,12 +349,8 @@ public:
 			mr::heap_allocator<native_communicator>{heap.get()}, std::forward<Args>(args)...);
 	}
 
-	void set_audio_system(audio::audio_system* system) noexcept{
-		audio_resources_.set_system(system);
-	}
-
-	void set_audio_system(audio::audio_system& system) noexcept{
-		set_audio_system(std::addressof(system));
+	void attach_audio_system(audio::audio_system& system) noexcept{
+		audio_resources_.attach_system(system);
 	}
 
 	[[nodiscard]] audio::audio_resource_index& audio_resources() noexcept{

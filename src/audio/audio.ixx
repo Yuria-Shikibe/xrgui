@@ -65,6 +65,10 @@ export struct backend_resource_token{
 
 export using backend_resource_handle = void*;
 
+export using audio_load_priority = std::uint32_t;
+export constexpr audio_load_priority lazy_audio_load_priority{};
+export constexpr audio_load_priority default_audio_load_priority{1};
+
 export struct resource_handle_hash{
 	[[nodiscard]] std::size_t operator()(const resource_handle handle) const noexcept{
 		return std::hash<std::uint64_t>{}(handle.value);
@@ -495,6 +499,8 @@ namespace cmd{
 struct load_resource{
 	resource_handle resource{};
 	load_desc desc{};
+	audio_load_priority priority{default_audio_load_priority};
+	std::uint64_t sequence{};
 };
 
 struct unload_resource{
@@ -521,6 +527,8 @@ struct play_controlled{
 	playback_id playback{};
 	play_settings settings{};
 };
+
+using pending_playback = std::variant<play_detached, play_controlled>;
 
 struct stop_playback{
 	playback_id playback{};
@@ -726,7 +734,7 @@ public:
 		return accepting_.load(std::memory_order_acquire);
 	}
 
-	[[nodiscard]] resource_handle load(load_desc desc);
+	[[nodiscard]] resource_handle load(load_desc desc, audio_load_priority priority = default_audio_load_priority);
 	void unload(resource_handle resource) noexcept;
 	[[nodiscard]] audio_channel register_channel(channel_id channel);
 	[[nodiscard]] audio_channel get_channel(channel_id channel);
@@ -757,7 +765,7 @@ public:
 
 private:
 	struct channel_slot{
-		std::atomic<std::uint64_t> channel_value{};
+		std::atomic<std::uint32_t> channel_value{};
 		std::thread::id owner_thread{};
 	};
 
@@ -766,8 +774,8 @@ private:
 		bool inserted{};
 	};
 
-	static constexpr std::uint64_t empty_channel_slot_value_{};
-	static constexpr std::uint64_t pending_channel_slot_value_{std::numeric_limits<std::uint64_t>::max()};
+	static constexpr std::uint32_t empty_channel_slot_value_{};
+	static constexpr std::uint32_t pending_channel_slot_value_{std::numeric_limits<std::uint32_t>::max()};
 
 	ccur::mpsc_queue<cmd::command> commands_{};
 	ccur::mpsc_double_buffer<audio_event> events_{};
@@ -782,6 +790,10 @@ private:
 
 	//TODO make it flat map
 	std::unordered_map<resource_handle, audio_resource_ptr, resource_handle_hash> resources_{};
+	std::unordered_set<resource_handle, resource_handle_hash> pending_load_resources_{};
+	std::vector<cmd::load_resource> pending_loads_{};
+	std::unordered_map<resource_handle, std::vector<cmd::pending_playback>, resource_handle_hash> pending_playbacks_{};
+	std::uint64_t next_load_sequence_{1};
 
 	void start();
 	[[nodiscard]] resource_handle allocate_resource() noexcept{
@@ -792,10 +804,19 @@ private:
 		return playback_id{next_playback_.fetch_add(1, std::memory_order_relaxed)};
 	}
 
+	struct pending_load_less{
+		[[nodiscard]] bool operator()(const cmd::load_resource& lhs, const cmd::load_resource& rhs) const noexcept{
+			if(lhs.priority != rhs.priority){
+				return lhs.priority < rhs.priority;
+			}
+			return lhs.sequence > rhs.sequence;
+		}
+	};
+
 	[[nodiscard]] const channel_slot* find_channel_slot_(channel_id channel) const noexcept;
 	[[nodiscard]] channel_registration reserve_channel_slot_(channel_id channel, std::thread::id owner_thread);
 	void commit_channel_slot_(channel_slot& slot, channel_id channel) noexcept{
-		slot.channel_value.store(channel.value, std::memory_order_release);
+		slot.channel_value.store(static_cast<std::uint32_t>(channel.value), std::memory_order_release);
 	}
 
 	void rollback_channel_slot_(channel_slot& slot) noexcept{
@@ -810,19 +831,12 @@ private:
 	void pop_events(std::vector<audio_event>& out);
 	void run(const std::stop_token& stop_token);
 	void process(cmd::command command);
-	void process_command(cmd::load_resource command);
-	void process_command(const cmd::unload_resource& command);
-	void process_command(const cmd::release_backend_resource& command);
-	void process_command(const cmd::register_channel& command);
-	void process_command(const cmd::play_detached& command);
-	void process_command(const cmd::play_controlled& command);
-	void process_command(const cmd::stop_playback& command);
-	void process_command(const cmd::pause_playback& command);
-	void process_command(const cmd::resume_playback& command);
-	void process_command(const cmd::set_playback_params& command);
-	void process_command(const cmd::release_playback& command);
-	void process_command(const cmd::set_channel_volume& command);
-	void process_command(const cmd::shutdown_audio&) noexcept;
+	void enqueue_load_(cmd::load_resource command);
+	[[nodiscard]] bool process_pending_loads_();
+	void process_load_(cmd::load_resource command);
+	[[nodiscard]] bool is_pending_load_(resource_handle resource) const noexcept;
+	void flush_pending_playbacks_(resource_handle resource);
+	void fail_pending_playbacks_(resource_handle resource);
 	void release_backend_resource_(backend_resource_handle handle) noexcept;
 
 	[[nodiscard]] bool post_play_detached_(channel_id channel, resource_handle resource, play_settings settings);

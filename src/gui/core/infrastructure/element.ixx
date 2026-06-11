@@ -233,7 +233,7 @@ private:
 	border_t style_border_cache_{};
 
 	mpsc_action_queue<elem> actions{};
-	audio::audio_asset_ptr audio_resource_{};
+	audio::audio_asset_handle audio_resource_{};
 	bool scene_audio_proxy_enabled_{true};
 
 	[[nodiscard]] bool play_audio_detached(audio::play_settings settings = {}) const{
@@ -327,11 +327,11 @@ public:
 	template <typename E, std::invocable<> Fn>
 	void post_task(this E& e, Fn&& fn);
 
-	void set_audio_resource(audio::audio_asset_ptr resource) noexcept{
+	void set_audio_resource(audio::audio_asset_handle resource) noexcept{
 		audio_resource_ = std::move(resource);
 	}
 
-	[[nodiscard]] const audio::audio_asset_ptr& audio_resource() const noexcept{
+	[[nodiscard]] const audio::audio_asset_handle& audio_resource() const noexcept{
 		return audio_resource_;
 	}
 

@@ -242,6 +242,7 @@ if is_host_project then
         add_deps("mo_yanxi.utility", "mo_yanxi.react_flow")
         add_packages("gtest")
         add_packages("toml++", {public = true})
+        add_includedirs("./external/plf_hive")
         add_includedirs(path.join(magic_enum_dir, "include"), {public = true})
         add_files(path.join(magic_enum_dir, "module/magic_enum.cppm"), {
             public = true,

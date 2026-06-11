@@ -252,7 +252,9 @@ struct default_application::state{
 	builtin::main_loop_init_return_t initialize_scene(default_application_loop& loop){
 		auto& ui_root = gui::global::manager;
 		auto& resources = ui_root.add_scene_resources(default_scene_name);
-		resources.set_audio_system(audio_system ? std::addressof(*audio_system) : nullptr);
+		if(audio_system){
+			resources.attach_audio_system(*audio_system);
+		}
 		auto style_pal_prov = builtin::make_styles(resources);
 
 		const auto scene_add_rst = ui_root.add_scene<builtin::example_scene, gui::loose_group>(
