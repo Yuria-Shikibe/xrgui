@@ -736,11 +736,16 @@ public:
 
 	[[nodiscard]] resource_handle load(load_desc desc, audio_load_priority priority = default_audio_load_priority);
 	void unload(resource_handle resource) noexcept;
+
 	[[nodiscard]] audio_channel register_channel(channel_id channel);
+
+	//TODO return optional and make this function noexcept
 	[[nodiscard]] audio_channel get_channel(channel_id channel);
+
 	[[nodiscard]] audio_channel default_channel(){
 		return get_channel(channel_id_from_bus(bus::ui));
 	}
+
 
 	[[nodiscard]] bool play_detached(resource_handle resource, play_settings settings = {}){
 		return default_channel().play_detached(resource, std::move(settings));

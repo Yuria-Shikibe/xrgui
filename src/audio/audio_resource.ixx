@@ -1,19 +1,12 @@
 module;
 
 #include <cassert>
-
-#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-#include "plf_hive.h"
-#endif
+#include <gtl/phmap.hpp>
 
 export module mo_yanxi.audio.resources;
 
 import std;
 export import mo_yanxi.audio;
-
-#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
-import <plf_hive.h>;
-#endif
 
 namespace mo_yanxi::audio{
 
@@ -29,6 +22,22 @@ export enum class audio_resource_error : std::uint8_t{
 	system_unavailable,
 	load_not_accepted,
 	resource_failed,
+};
+
+export struct audio_asset_id{
+	std::uint64_t value{};
+
+	[[nodiscard]] constexpr explicit operator bool() const noexcept{
+		return value != 0;
+	}
+
+	[[nodiscard]] constexpr bool operator==(const audio_asset_id&) const noexcept = default;
+};
+
+export struct audio_asset_id_hash{
+	[[nodiscard]] std::size_t operator()(const audio_asset_id id) const noexcept{
+		return std::hash<std::uint64_t>{}(id.value);
+	}
 };
 
 export struct audio_resource_options{
@@ -51,27 +60,25 @@ export class audio_asset_record final : public mo_yanxi::referenced_object_atomi
 	friend struct audio_asset_handle;
 
 	audio_resource_manager* owner_{};
-	std::string id_{};
+	audio_asset_id asset_id_{};
 	load_desc desc_{};
 	audio_resource_metadata metadata_{};
-	audio_system* system_{};
 	audio_load_priority load_priority_{default_audio_load_priority};
 	std::uint64_t reserved_bytes_{};
 
 	resource_handle handle_{};
 	backend_resource_token backend_handle_{};
-	audio_resource_state state_{audio_resource_state::unloaded};
+	std::atomic<audio_resource_state> state_{audio_resource_state::unloaded};
 	bool protected_resource_{};
-	bool registered_{true};
 	std::uint64_t last_used_{};
 	audio_resource_error last_error_{audio_resource_error::none};
+	std::vector<std::string> aliases_{};
 
 public:
 	[[nodiscard]] audio_asset_record(
 		audio_resource_manager& owner,
-		std::string id,
+		audio_asset_id id,
 		load_desc desc,
-		audio_system& system,
 		audio_resource_options options = {});
 
 	~audio_asset_record() = default;
@@ -81,8 +88,8 @@ public:
 	audio_asset_record& operator=(const audio_asset_record&) = delete;
 	audio_asset_record& operator=(audio_asset_record&&) = delete;
 
-	[[nodiscard]] std::string_view id() const noexcept{
-		return id_;
+	[[nodiscard]] audio_asset_id asset_id() const noexcept{
+		return asset_id_;
 	}
 
 	[[nodiscard]] const load_desc& load_description() const noexcept{
@@ -93,39 +100,38 @@ public:
 		return metadata_;
 	}
 
-	[[nodiscard]] audio_system& system() const noexcept{
-		assert(system_ != nullptr);
-		return *system_;
-	}
+	[[nodiscard]] audio_system& system() const noexcept;
+	[[nodiscard]] audio_system* try_system() const noexcept;
 
-	[[nodiscard]] audio_system* try_system() const noexcept{
-		return system_;
+	[[nodiscard]] audio_resource_state state() const noexcept{
+		return state_.load(std::memory_order_acquire);
 	}
-
-	[[nodiscard]] resource_handle handle() const noexcept;
-	[[nodiscard]] backend_resource_token backend_handle() const noexcept;
-	[[nodiscard]] audio_resource_state state() const noexcept;
 
 	[[nodiscard]] bool loaded() const noexcept{
 		return state() == audio_resource_state::loaded;
 	}
 
-	[[nodiscard]] bool resident() const noexcept;
+	[[nodiscard]] bool resident() const noexcept{
+		const auto current = state();
+		return current == audio_resource_state::loading || current == audio_resource_state::loaded;
+	}
 
-	[[nodiscard]] audio_load_priority load_priority() const noexcept{
+	[[nodiscard]] audio_load_priority load_priority() const noexcept
+	{
 		return load_priority_;
 	}
 
 	[[nodiscard]] bool is_protected() const noexcept;
 	void set_protected(bool value) noexcept;
-	[[nodiscard]] bool registered() const noexcept;
 
 	[[nodiscard]] std::uint64_t reserved_bytes() const noexcept{
 		return reserved_bytes_;
 	}
 
-	[[nodiscard]] std::uint64_t last_used() const noexcept;
-	[[nodiscard]] std::size_t external_ref_count() const noexcept;
+	[[nodiscard]] std::size_t external_ref_count() const noexcept{
+		return ref_count();
+	}
+
 	[[nodiscard]] std::string last_error() const;
 
 	[[nodiscard]] resource_handle load_now(audio_load_priority priority = default_audio_load_priority);
@@ -172,18 +178,43 @@ private:
 };
 
 class audio_resource_manager{
-	mutable std::mutex mutex_{};
+	struct alias_hash{
+		using is_transparent = void;
+
+		[[nodiscard]] std::size_t operator()(const std::string_view value) const noexcept{
+			return std::hash<std::string_view>{}(value);
+		}
+	};
+
+	struct alias_equal{
+		using is_transparent = void;
+
+		[[nodiscard]] bool operator()(const std::string_view lhs, const std::string_view rhs) const noexcept{
+			return lhs == rhs;
+		}
+	};
+
+	using asset_map = gtl::parallel_node_hash_map_m<audio_asset_id, std::unique_ptr<audio_asset_record>, audio_asset_id_hash>;
+	using alias_map = gtl::parallel_flat_hash_map_m<std::string, audio_asset_id, alias_hash, alias_equal>;
+	using resource_map = gtl::parallel_flat_hash_map_m<resource_handle, audio_asset_id, resource_handle_hash>;
+
+	mutable std::shared_mutex mutex_{};
+
+	//TODO these two fields should be immutable
 	audio_system* system_{};
 	audio_resource_limits limits_{};
+
+
 	std::uint64_t access_clock_{};
+	std::uint64_t next_asset_id_{1};
 
-	//TODO directly store hive iterator?
-
-	std::unordered_map<std::string, audio_asset_record*> aliases_{};
-	std::unordered_map<resource_handle, audio_asset_record*, resource_handle_hash> resources_{};
-	plf::hive<audio_asset_record> records_{};
+	asset_map assets_{};
+	alias_map aliases_{};
+	resource_map resources_{};
 
 public:
+	[[nodiscard]] audio_resource_manager() noexcept = default;
+
 	[[nodiscard]] explicit audio_resource_manager(audio_system& system) noexcept
 		: system_(std::addressof(system)){
 	}
@@ -197,14 +228,28 @@ public:
 	audio_resource_manager& operator=(const audio_resource_manager&) = delete;
 	audio_resource_manager& operator=(audio_resource_manager&&) = delete;
 
-	[[nodiscard]] audio_system& system() const noexcept{
+	void attach_system(audio_system& system) noexcept{
 		std::scoped_lock lock{mutex_};
+		if(system_ == std::addressof(system)){
+			return;
+		}
+		if(system_ != nullptr){
+			assets_.for_each_m([&](asset_map::value_type& entry){
+				auto& record = entry.second;
+				static_cast<void>(release_backend_(*record, true));
+			});
+		}
+		system_ = std::addressof(system);
+	}
+
+	[[nodiscard]] audio_system& system() const noexcept{
+		std::shared_lock lock{mutex_};
 		assert(system_ != nullptr);
 		return *system_;
 	}
 
 	[[nodiscard]] audio_system* try_system() const noexcept{
-		std::scoped_lock lock{mutex_};
+		std::shared_lock lock{mutex_};
 		return system_;
 	}
 
@@ -215,7 +260,7 @@ public:
 	}
 
 	[[nodiscard]] audio_resource_limits limits() const noexcept{
-		std::scoped_lock lock{mutex_};
+		std::shared_lock lock{mutex_};
 		return limits_;
 	}
 
@@ -226,80 +271,146 @@ public:
 	}
 
 	[[nodiscard]] audio_asset_handle register_audio(
-		std::string id,
+		std::string alias,
 		load_desc desc,
 		audio_resource_options options = {}){
 		std::scoped_lock lock{mutex_};
 		if(system_ == nullptr){
 			throw std::runtime_error{"audio resource manager requires an audio system before registering audio"};
 		}
-		if(id.empty()){
-			throw std::invalid_argument{"audio resource id must not be empty"};
+		if(alias.empty()){
+			throw std::invalid_argument{"audio resource alias must not be empty"};
 		}
-		if(aliases_.contains(id)){
-			throw std::invalid_argument{"audio resource id already exists"};
+		if(aliases_.contains(alias)){
+			throw std::invalid_argument{"audio resource alias already exists"};
 		}
 
-		auto record_iter = records_.emplace(
+		const auto id = allocate_asset_id_();
+		auto record = std::make_unique<audio_asset_record>(
 			*this,
-			std::move(id),
+			id,
 			std::move(desc),
-			*system_,
 			options);
-		auto& record = *record_iter;
-		aliases_.emplace(std::string{record.id()}, std::addressof(record));
-		touch_(record);
+		auto* record_ptr = record.get();
+		assets_.emplace(id, std::move(record));
+		add_alias_unlocked_(*record_ptr, std::move(alias));
+		touch_(*record_ptr);
 
-		audio_asset_handle handle{record};
+		audio_asset_handle handle{*record_ptr};
 		if(options.load_priority != lazy_audio_load_priority){
-			static_cast<void>(request_load_(record, true, options.load_priority));
+			static_cast<void>(request_load_(*record_ptr, true, options.load_priority));
 		}
 		enforce_limits_();
 		return handle;
 	}
 
-	[[nodiscard]] audio_asset_handle find_audio(std::string_view id) const{
-		std::scoped_lock lock{mutex_};
-		if(const auto iter = aliases_.find(std::string{id}); iter != aliases_.end()){
-			return audio_asset_handle{iter->second};
-		}
-		return {};
+	[[nodiscard]] audio_asset_handle find_audio(const audio_asset_id id) const{
+		std::shared_lock lock{mutex_};
+		return audio_asset_handle{find_asset_unlocked_(id)};
 	}
 
-	bool unregister_audio(std::string_view id) noexcept{
+	[[nodiscard]] audio_asset_handle find_audio(std::string_view alias) const{
+		std::shared_lock lock{mutex_};
+		audio_asset_id id{};
+		const bool found = aliases_.if_contains(alias, [&](const alias_map::value_type& entry){
+			id = entry.second;
+		});
+		return found ? audio_asset_handle{find_asset_unlocked_(id)} : audio_asset_handle{};
+	}
+
+	[[nodiscard]] std::optional<audio_asset_id> get_relevant_id(std::string_view alias) const{
+		std::shared_lock lock{mutex_};
+		std::optional<audio_asset_id> result{};
+		aliases_.if_contains(alias, [&](const alias_map::value_type& entry){
+			result = entry.second;
+		});
+		return result;
+	}
+
+	void add_alias(const audio_asset_id id, std::string alias){
 		std::scoped_lock lock{mutex_};
-		const auto iter = aliases_.find(std::string{id});
-		if(iter == aliases_.end()){
+		auto* record = find_asset_unlocked_(id);
+		if(record == nullptr){
+			throw std::invalid_argument{"audio asset id does not exist"};
+		}
+		add_alias_unlocked_(*record, std::move(alias));
+	}
+
+	bool erase_alias(std::string_view alias) noexcept{
+		std::scoped_lock lock{mutex_};
+		const bool erased = erase_alias_unlocked_(alias);
+		release_unused_();
+		collect_retired_entries_();
+		return erased;
+	}
+
+	bool erase_audio(const audio_asset_id id) noexcept{
+		std::scoped_lock lock{mutex_};
+		auto* record = find_asset_unlocked_(id);
+		if(record == nullptr){
 			return false;
 		}
-		if(iter->second != nullptr){
-			iter->second->registered_ = false;
+		for(const auto& alias : record->aliases_){
+			aliases_.erase(alias);
 		}
-		aliases_.erase(iter);
+		record->aliases_.clear();
+		record->protected_resource_ = false;
+		release_unused_();
+		collect_retired_entries_();
 		return true;
 	}
 
-	bool protect_audio(std::string_view id, bool protected_resource = true) noexcept{
+	bool unregister_audio(std::string_view alias) noexcept{
 		std::scoped_lock lock{mutex_};
-		const auto iter = aliases_.find(std::string{id});
-		if(iter == aliases_.end() || iter->second == nullptr){
+		audio_asset_id id{};
+		const bool found = aliases_.if_contains(alias, [&](const alias_map::value_type& entry){
+			id = entry.second;
+		});
+		if(!found){
 			return false;
 		}
-		iter->second->protected_resource_ = protected_resource;
-		if(!protected_resource){
-			enforce_limits_();
+		auto* record = find_asset_unlocked_(id);
+		if(record == nullptr){
+			aliases_.erase(alias);
+			return false;
 		}
+		for(const auto& record_alias : record->aliases_){
+			aliases_.erase(record_alias);
+		}
+		record->aliases_.clear();
+		record->protected_resource_ = false;
+		release_unused_();
+		collect_retired_entries_();
 		return true;
+	}
+
+	bool protect_audio(std::string_view alias, bool protected_resource = true) noexcept{
+		std::scoped_lock lock{mutex_};
+		audio_asset_id id{};
+		const bool found = aliases_.if_contains(alias, [&](const alias_map::value_type& entry){
+			id = entry.second;
+		});
+		if(!found){
+			return false;
+		}
+		return protect_audio_unlocked_(id, protected_resource);
+	}
+
+	bool protect_audio(const audio_asset_id id, bool protected_resource = true) noexcept{
+		std::scoped_lock lock{mutex_};
+		return protect_audio_unlocked_(id, protected_resource);
 	}
 
 	void clear_audio() noexcept{
 		std::scoped_lock lock{mutex_};
 		aliases_.clear();
 		resources_.clear();
-		for(auto& record : records_){
-			record.registered_ = false;
-			static_cast<void>(release_backend_(record, true));
-		}
+		assets_.for_each_m([&](asset_map::value_type& entry){
+			auto& record = entry.second;
+			record->aliases_.clear();
+			record->protected_resource_ = false;
+			static_cast<void>(release_backend_(*record, true));
+		});
 		collect_retired_entries_();
 	}
 
@@ -332,6 +443,71 @@ private:
 		std::uint64_t bytes{};
 	};
 
+	[[nodiscard]] audio_asset_id allocate_asset_id_() noexcept{
+		return audio_asset_id{next_asset_id_++};
+	}
+
+	[[nodiscard]] audio_asset_record* find_asset_unlocked_(const audio_asset_id id) noexcept{
+		audio_asset_record* result{};
+		assets_.if_contains(id, [&](asset_map::value_type& entry){
+			result = entry.second.get();
+		});
+		return result;
+	}
+
+	[[nodiscard]] audio_asset_record* find_asset_unlocked_(const audio_asset_id id) const noexcept{
+		audio_asset_record* result{};
+		assets_.if_contains(id, [&](const asset_map::value_type& entry){
+			result = entry.second.get();
+		});
+		return result;
+	}
+
+	void add_alias_unlocked_(audio_asset_record& record, std::string alias){
+		if(alias.empty()){
+			throw std::invalid_argument{"audio resource alias must not be empty"};
+		}
+		auto [iter, inserted] = aliases_.try_emplace(alias, record.asset_id_);
+		if(!inserted){
+			throw std::invalid_argument{"audio resource alias already exists"};
+		}
+		try{
+			record.aliases_.push_back(iter->first);
+		}catch(...){
+			aliases_.erase(alias);
+			throw;
+		}
+	}
+
+	bool erase_alias_unlocked_(std::string_view alias) noexcept{
+		audio_asset_id id{};
+		const bool found = aliases_.if_contains(alias, [&](const alias_map::value_type& entry){
+			id = entry.second;
+		});
+		if(!found){
+			return false;
+		}
+		aliases_.erase(alias);
+		if(auto* record = find_asset_unlocked_(id)){
+			std::erase_if(record->aliases_, [alias](const std::string& candidate){
+				return candidate == alias;
+			});
+		}
+		return true;
+	}
+
+	bool protect_audio_unlocked_(const audio_asset_id id, const bool protected_resource) noexcept{
+		auto* record = find_asset_unlocked_(id);
+		if(record == nullptr){
+			return false;
+		}
+		record->protected_resource_ = protected_resource;
+		if(!protected_resource){
+			enforce_limits_();
+		}
+		return true;
+	}
+
 	[[nodiscard]] resource_handle request_load_(
 		audio_asset_record& record,
 		bool retry_failed,
@@ -339,7 +515,7 @@ private:
 		if(priority == lazy_audio_load_priority){
 			return {};
 		}
-		const auto current_state = record.state_;
+		const auto current_state = record.state_.load(std::memory_order_acquire);
 		if(record.handle_ &&
 			(current_state == audio_resource_state::loading || current_state == audio_resource_state::loaded)){
 			return record.handle_;
@@ -347,31 +523,31 @@ private:
 		if(current_state == audio_resource_state::failed && !retry_failed){
 			return {};
 		}
-		if(record.system_ == nullptr || !record.system_->valid()){
-			record.state_ = audio_resource_state::failed;
+		if(system_ == nullptr || !system_->valid()){
 			record.last_error_ = audio_resource_error::system_unavailable;
+			record.state_.store(audio_resource_state::failed, std::memory_order_release);
 			return {};
 		}
 
-		const auto new_handle = record.system_->load(record.desc_, priority);
+		const auto new_handle = system_->load(record.desc_, priority);
 		if(!new_handle){
-			record.state_ = audio_resource_state::failed;
 			record.last_error_ = audio_resource_error::load_not_accepted;
+			record.state_.store(audio_resource_state::failed, std::memory_order_release);
 			return {};
 		}
 
 		record.handle_ = new_handle;
 		record.backend_handle_ = {};
-		record.state_ = audio_resource_state::loading;
 		record.last_error_ = audio_resource_error::none;
-		resources_[new_handle] = std::addressof(record);
+		resources_[new_handle] = record.asset_id_;
+		record.state_.store(audio_resource_state::loading, std::memory_order_release);
 		return new_handle;
 	}
 
 	bool release_backend_(audio_asset_record& record, bool force) noexcept{
 		if(!record.handle_){
-			if(record.state_ != audio_resource_state::failed){
-				record.state_ = audio_resource_state::unloaded;
+			if(record.state_.load(std::memory_order_acquire) != audio_resource_state::failed){
+				record.state_.store(audio_resource_state::unloaded, std::memory_order_release);
 			}
 			return false;
 		}
@@ -379,14 +555,14 @@ private:
 			return false;
 		}
 
+		record.last_error_ = audio_resource_error::none;
+		record.state_.store(audio_resource_state::unloaded, std::memory_order_release);
 		const auto old_handle = std::exchange(record.handle_, {});
 		record.backend_handle_ = {};
 		resources_.erase(old_handle);
-		if(record.system_ != nullptr){
-			record.system_->unload(old_handle);
+		if(system_ != nullptr){
+			system_->unload(old_handle);
 		}
-		record.state_ = audio_resource_state::unloaded;
-		record.last_error_ = audio_resource_error::none;
 		return true;
 	}
 
@@ -395,36 +571,38 @@ private:
 			return;
 		}
 
-		const auto iter = resources_.find(event.resource);
-		if(iter == resources_.end() || iter->second == nullptr){
+		audio_asset_id id{};
+		const bool found = resources_.if_contains(event.resource, [&](const resource_map::value_type& entry){
+			id = entry.second;
+		});
+		if(!found){
 			return;
 		}
 
-		auto& record = *iter->second;
-		if(event.resource != record.handle_){
+		auto* record = find_asset_unlocked_(id);
+		if(record == nullptr || event.resource != record->handle_){
 			return;
 		}
 
 		switch(event.type){
 		case audio_event_type::resource_loaded:
-			record.backend_handle_ = event.backend_handle;
-			record.metadata_ = event.backend_metadata;
-			record.state_ = audio_resource_state::loaded;
-			record.last_error_ = audio_resource_error::none;
+			record->backend_handle_ = event.backend_handle;
+			record->last_error_ = audio_resource_error::none;
+			record->state_.store(audio_resource_state::loaded, std::memory_order_release);
 			break;
 		case audio_event_type::resource_failed:
-			record.state_ = audio_resource_state::failed;
-			record.handle_ = {};
-			record.backend_handle_ = {};
-			record.last_error_ = audio_resource_error::resource_failed;
-			resources_.erase(iter);
+			record->last_error_ = audio_resource_error::resource_failed;
+			record->state_.store(audio_resource_state::failed, std::memory_order_release);
+			record->handle_ = {};
+			record->backend_handle_ = {};
+			resources_.erase(event.resource);
 			break;
 		case audio_event_type::resource_unloaded:
-			record.state_ = audio_resource_state::unloaded;
-			record.handle_ = {};
-			record.backend_handle_ = {};
-			record.last_error_ = audio_resource_error::none;
-			resources_.erase(iter);
+			record->last_error_ = audio_resource_error::none;
+			record->state_.store(audio_resource_state::unloaded, std::memory_order_release);
+			record->handle_ = {};
+			record->backend_handle_ = {};
+			resources_.erase(event.resource);
 			break;
 		default:
 			break;
@@ -435,28 +613,8 @@ private:
 		record.last_used_ = ++access_clock_;
 	}
 
-	[[nodiscard]] resource_handle handle_of_(const audio_asset_record& record) const noexcept{
-		std::scoped_lock lock{mutex_};
-		return record.handle_;
-	}
-
-	[[nodiscard]] backend_resource_token backend_handle_of_(const audio_asset_record& record) const noexcept{
-		std::scoped_lock lock{mutex_};
-		return record.backend_handle_;
-	}
-
-	[[nodiscard]] audio_resource_state state_of_(const audio_asset_record& record) const noexcept{
-		std::scoped_lock lock{mutex_};
-		return record.state_;
-	}
-
-	[[nodiscard]] bool resident_(const audio_asset_record& record) const noexcept{
-		std::scoped_lock lock{mutex_};
-		return is_resident_unlocked_(record);
-	}
-
 	[[nodiscard]] bool protected_of_(const audio_asset_record& record) const noexcept{
-		std::scoped_lock lock{mutex_};
+		std::shared_lock lock{mutex_};
 		return record.protected_resource_;
 	}
 
@@ -468,74 +626,63 @@ private:
 		}
 	}
 
-	[[nodiscard]] bool registered_of_(const audio_asset_record& record) const noexcept{
-		std::scoped_lock lock{mutex_};
-		return record.registered_;
-	}
-
-	[[nodiscard]] std::uint64_t last_used_of_(const audio_asset_record& record) const noexcept{
-		std::scoped_lock lock{mutex_};
-		return record.last_used_;
-	}
-
 	[[nodiscard]] audio_resource_error last_error_of_(const audio_asset_record& record) const noexcept{
-		std::scoped_lock lock{mutex_};
+		std::shared_lock lock{mutex_};
 		return record.last_error_;
 	}
 
-	[[nodiscard]] std::size_t external_ref_count_(const audio_asset_record& record) const noexcept{
-		std::scoped_lock lock{mutex_};
-		return record.ref_count();
-	}
-
 	[[nodiscard]] bool is_resident_unlocked_(const audio_asset_record& record) const noexcept{
+		const auto current_state = record.state_.load(std::memory_order_acquire);
 		return record.handle_ &&
-			(record.state_ == audio_resource_state::loading || record.state_ == audio_resource_state::loaded);
+			(current_state == audio_resource_state::loading || current_state == audio_resource_state::loaded);
 	}
 
 	[[nodiscard]] resident_summary resident_summary_() const noexcept{
 		resident_summary summary{};
-		for(const auto& record : records_){
-			if(is_resident_unlocked_(record)){
+		assets_.for_each([&](const asset_map::value_type& entry){
+			const auto& record = entry.second;
+			if(is_resident_unlocked_(*record)){
 				++summary.count;
-				if(std::numeric_limits<std::uint64_t>::max() - summary.bytes < record.reserved_bytes()){
+				if(std::numeric_limits<std::uint64_t>::max() - summary.bytes < record->reserved_bytes()){
 					summary.bytes = std::numeric_limits<std::uint64_t>::max();
 				}else{
-					summary.bytes += record.reserved_bytes();
+					summary.bytes += record->reserved_bytes();
 				}
 			}
-		}
+		});
 		return summary;
 	}
 
 	[[nodiscard]] audio_asset_record* find_capacity_candidate_() noexcept{
 		audio_asset_record* best{};
-		for(auto& record : records_){
-			if(!is_resident_unlocked_(record) || record.protected_resource_){
-				continue;
+		assets_.for_each([&](const asset_map::value_type& entry){
+			auto* record = entry.second.get();
+			if(!is_resident_unlocked_(*record) || record->protected_resource_){
+				return;
 			}
 			if(best == nullptr){
-				best = std::addressof(record);
-				continue;
+				best = record;
+				return;
 			}
 
-			const auto lhs_refs = record.ref_count();
+			const auto lhs_refs = record->ref_count();
 			const auto rhs_refs = best->ref_count();
 			if(lhs_refs == 0 && rhs_refs != 0){
-				best = std::addressof(record);
-			}else if(lhs_refs == rhs_refs && record.last_used_ < best->last_used_){
-				best = std::addressof(record);
+				best = record;
+			}else if(lhs_refs == rhs_refs && record->last_used_ < best->last_used_){
+				best = record;
 			}
-		}
+		});
 		return best;
 	}
 
 	void release_unused_(){
-		for(auto& record : records_){
-			if(is_resident_unlocked_(record) && !record.protected_resource_ && record.ref_count() == 0){
-				static_cast<void>(release_backend_(record, false));
+		assets_.for_each_m([&](asset_map::value_type& entry){
+			auto& record = entry.second;
+			if(is_resident_unlocked_(*record) && !record->protected_resource_ && record->ref_count() == 0){
+				static_cast<void>(release_backend_(*record, false));
 			}
-		}
+		});
 	}
 
 	void enforce_limits_(){
@@ -552,17 +699,21 @@ private:
 	}
 
 	void collect_retired_entries_() noexcept{
-		for(auto iter = records_.begin(); iter != records_.end();){
-			auto& record = *iter;
-			if(record.registered_ || is_resident_unlocked_(record) || !record.droppable()){
-				++iter;
-				continue;
+		std::vector<audio_asset_id> candidates{};
+		assets_.for_each([&](const asset_map::value_type& entry){
+			const auto& record = *entry.second;
+			if(!record.aliases_.empty() || is_resident_unlocked_(record) || !record.droppable()){
+				return;
 			}
-			if(record.check_droppable_and_retire()){
-				iter = records_.erase(iter);
-			}else{
-				++iter;
-			}
+			candidates.push_back(entry.first);
+		});
+		for(const auto id : candidates){
+			assets_.erase_if(id, [&](asset_map::value_type& entry){
+				auto& record = *entry.second;
+				return record.aliases_.empty() &&
+					!is_resident_unlocked_(record) &&
+					record.check_droppable_and_retire();
+			});
 		}
 	}
 
@@ -576,20 +727,12 @@ audio_resource_manager& audio_asset_record::owner_checked_() const noexcept{
 	return *owner_;
 }
 
-resource_handle audio_asset_record::handle() const noexcept{
-	return owner_checked_().handle_of_(*this);
+audio_system& audio_asset_record::system() const noexcept{
+	return owner_checked_().system();
 }
 
-backend_resource_token audio_asset_record::backend_handle() const noexcept{
-	return owner_checked_().backend_handle_of_(*this);
-}
-
-audio_resource_state audio_asset_record::state() const noexcept{
-	return owner_checked_().state_of_(*this);
-}
-
-bool audio_asset_record::resident() const noexcept{
-	return owner_checked_().resident_(*this);
+audio_system* audio_asset_record::try_system() const noexcept{
+	return owner_checked_().try_system();
 }
 
 bool audio_asset_record::is_protected() const noexcept{
@@ -600,33 +743,19 @@ void audio_asset_record::set_protected(const bool value) noexcept{
 	owner_checked_().set_protected_(*this, value);
 }
 
-bool audio_asset_record::registered() const noexcept{
-	return owner_checked_().registered_of_(*this);
-}
-
-std::uint64_t audio_asset_record::last_used() const noexcept{
-	return owner_checked_().last_used_of_(*this);
-}
-
-std::size_t audio_asset_record::external_ref_count() const noexcept{
-	return owner_checked_().external_ref_count_(*this);
-}
-
 std::string audio_asset_record::last_error() const{
 	return error_message_(owner_checked_().last_error_of_(*this));
 }
 
 audio_asset_record::audio_asset_record(
 	audio_resource_manager& owner,
-	std::string id,
+	audio_asset_id id,
 	load_desc desc,
-	audio_system& system,
 	audio_resource_options options)
 	: owner_(std::addressof(owner)),
-	  id_(std::move(id)),
+	  asset_id_(id),
 	  desc_(std::move(desc)),
 	  metadata_(make_audio_resource_metadata(desc_)),
-	  system_(std::addressof(system)),
 	  load_priority_(options.load_priority),
 	  reserved_bytes_(options.reserved_bytes != 0 ? options.reserved_bytes : estimate_reserved_bytes_(desc_)),
 	  protected_resource_(options.protected_resource){
@@ -682,7 +811,7 @@ bool audio_asset_record::play_detached(
 	{
 		std::scoped_lock lock{owner.mutex_};
 		owner.touch_(*this);
-		if(state_ == audio_resource_state::failed){
+		if(state_.load(std::memory_order_acquire) == audio_resource_state::failed){
 			return false;
 		}
 		resource = owner.request_load_(*this, false, priority);
@@ -714,7 +843,7 @@ playback_control_handle audio_asset_record::play_controlled(
 	{
 		std::scoped_lock lock{owner.mutex_};
 		owner.touch_(*this);
-		if(state_ == audio_resource_state::failed){
+		if(state_.load(std::memory_order_acquire) == audio_resource_state::failed){
 			return {};
 		}
 		resource = owner.request_load_(*this, false, priority);
@@ -738,8 +867,8 @@ void audio_asset_record::reload(const audio_load_priority priority){
 		return;
 	}
 	static_cast<void>(owner.release_backend_(*this, false));
-	state_ = audio_resource_state::unloaded;
 	last_error_ = audio_resource_error::none;
+	state_.store(audio_resource_state::unloaded, std::memory_order_release);
 	static_cast<void>(owner.request_load_(*this, true, priority));
 }
 
