@@ -230,7 +230,6 @@ struct default_application::state{
 			gui::global::event_queue.push_frame_split(timer.global_delta());
 
 			loop->get_window_dispatcher().drain();
-			pump_audio_events();
 			loop->permit_burst();
 			loop->get_scene().get_output_communicate_async_task_queue(0).consume();
 
@@ -322,21 +321,6 @@ struct default_application::state{
 	}
 
 	void pump_audio_events(){
-		if(!audio_system || scene_ptr == nullptr){
-			return;
-		}
-
-		audio_system->poll_events([this](const audio::audio_event& event){
-			if(event.type == audio::audio_event_type::backend_error){
-				log::warn({"Audio"}, "audio backend error");
-			}
-			if(scene_ptr == nullptr){
-				return;
-			}
-			scene_ptr->get_input_communicate_async_task_queue().post([event](gui::scene& scene){
-				scene.resources().audio_resources().consume_audio_event(event);
-			});
-		});
 	}
 
 	void clear_scene() noexcept{

@@ -268,6 +268,7 @@ struct resource_entry{
 };
 
 struct voice_entry{
+	audio::playback_id playback{};
 	std::vector<std::byte> memory_owner{};
 	decoder_handle decoder{};
 	sound_handle sound{};
@@ -363,19 +364,18 @@ public:
 		groups_.emplace(channel, std::move(group));
 	}
 
-	void play_detached(
-		const audio::audio_resource& resource,
-		const audio::channel_id channel,
-		const audio::play_settings& settings) override{
-		detached_voices_.push_back(make_voice_entry(resource, channel, settings));
-	}
-
-	void play_controlled(
-		const audio::audio_resource& resource,
+	void start_voice(
+		const audio::audio_backend_resource_view resource,
 		const audio::channel_id channel,
 		const audio::playback_id playback,
-		const audio::play_settings& settings) override{
-		controlled_voices_[playback] = make_voice_entry(resource, channel, settings);
+		const audio::play_settings& settings,
+		const bool controlled) override{
+		auto voice = make_voice_entry(resource, channel, playback, settings);
+		if(controlled){
+			controlled_voices_[playback] = std::move(voice);
+		}else{
+			detached_voices_.push_back(std::move(voice));
+		}
 	}
 
 	void stop(const audio::playback_id playback) noexcept override{
@@ -434,12 +434,12 @@ public:
 		}
 	}
 
-	void update(std::vector<audio::audio_event>& out_events) override{
+	void update(std::vector<audio::audio_backend_event>& out_events) override{
 		for(auto iter = controlled_voices_.begin(); iter != controlled_voices_.end();){
 			const bool stopped = iter->second.manually_stopped ||
 				iter->second.sound.at_end();
 			if(stopped){
-				out_events.push_back(audio::audio_event{
+				out_events.push_back(audio::audio_backend_event{
 					.type = audio::audio_event_type::playback_stopped,
 					.playback = iter->first
 				});
@@ -449,9 +449,17 @@ public:
 			}
 		}
 
-		std::erase_if(detached_voices_, [](const voice_entry& entry){
-			return entry.manually_stopped || entry.sound.at_end();
-		});
+		for(auto iter = detached_voices_.begin(); iter != detached_voices_.end();){
+			if(iter->manually_stopped || iter->sound.at_end()){
+				out_events.push_back(audio::audio_backend_event{
+					.type = audio::audio_event_type::playback_stopped,
+					.playback = iter->playback
+				});
+				iter = detached_voices_.erase(iter);
+			}else{
+				++iter;
+			}
+		}
 	}
 
 	void shutdown() noexcept override{
@@ -463,15 +471,16 @@ public:
 
 private:
 	[[nodiscard]] voice_entry make_voice_entry(
-		const audio::audio_resource& resource,
+		const audio::audio_backend_resource_view resource,
 		const audio::channel_id channel,
+		const audio::playback_id playback,
 		const audio::play_settings& settings){
-		if(resource.native_handle() == nullptr){
+		if(resource.handle == nullptr){
 			throw std::runtime_error{"audio resource token is not loaded"};
 		}
-		const auto& loaded_resource = *static_cast<const resource_entry*>(resource.native_handle());
+		const auto& loaded_resource = *static_cast<const resource_entry*>(resource.handle);
 
-		voice_entry entry{};
+		voice_entry entry{.playback = playback};
 		const bool memory_source = std::holds_alternative<std::vector<std::byte>>(loaded_resource.source);
 		const ma_uint32 flags = loaded_resource.stream && !memory_source ? MA_SOUND_FLAG_STREAM : 0;
 		ma_sound_group* group = group_for(channel);
