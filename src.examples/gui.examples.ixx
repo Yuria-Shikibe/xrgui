@@ -12,6 +12,7 @@ import mo_yanxi.gui.elem.group;
 import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.react_flow;
+import mo_yanxi.audio;
 
 
 
@@ -56,6 +57,7 @@ ui_outputs build_main_ui(
 	backend::vulkan::context& ctx,
 	renderer_frontend r,
 	graphic::image_atlas& image_atlas,
+	audio::audio_system& audio_system,
 	window_thread_dispatcher& window_dispatcher);
 
 export

@@ -5,8 +5,16 @@ import std;
 import mo_yanxi.csv;
 import mo_yanxi.fixed_vector;
 import mo_yanxi.unicode;
+import mo_yanxi.vector_string;
 
 namespace {
+
+static_assert(std::ranges::random_access_range<mo_yanxi::vector_string>);
+static_assert(std::ranges::sized_range<mo_yanxi::vector_string>);
+static_assert(std::ranges::common_range<mo_yanxi::vector_string>);
+static_assert(!std::ranges::view<mo_yanxi::vector_string>);
+static_assert(!std::ranges::borrowed_range<mo_yanxi::vector_string>);
+static_assert(std::same_as<std::ranges::range_reference_t<mo_yanxi::vector_string>, std::string_view>);
 
 std::string to_string(std::u8string_view value) {
 	return std::string{reinterpret_cast<const char*>(value.data()), value.size()};
@@ -162,6 +170,76 @@ TEST(FixedVector, DestroysConstructedObjectsExactlyOnce) {
 		EXPECT_EQ(9, copied[2].value);
 	}
 	EXPECT_EQ(0, counted_value::alive);
+}
+
+TEST(VectorString, StoresStringsSeparatedByZero) {
+	mo_yanxi::vector_string values;
+	const auto first = values.push_back("alpha");
+	const auto second = values.emplace_back(3, 'x');
+	values.push_back("");
+
+	EXPECT_EQ("alpha", first);
+	EXPECT_EQ("xxx", second);
+	EXPECT_EQ(3uz, values.size());
+	EXPECT_EQ(11uz, values.storage_size());
+	EXPECT_EQ(std::string("alpha\0xxx\0\0", 11), values.storage());
+	EXPECT_EQ((std::vector<std::size_t>{0, 6, 10}), values.starts());
+	EXPECT_EQ("alpha", values[0]);
+	EXPECT_EQ("xxx", values.at(1));
+	EXPECT_TRUE(values[2].empty());
+
+	auto iter = values.begin();
+	static_assert(std::random_access_iterator<decltype(iter)>);
+	EXPECT_EQ("xxx", iter[1]);
+	EXPECT_EQ("", *(iter + 2));
+	EXPECT_EQ(3, values.end() - values.begin());
+	EXPECT_EQ("xxx", *(values.end() - 2));
+	EXPECT_EQ("", *(values.end() - 1));
+
+	std::vector<std::string> copied;
+	for(std::string_view value : values) {
+		copied.emplace_back(value);
+	}
+	EXPECT_EQ((std::vector<std::string>{"alpha", "xxx", ""}), copied);
+}
+
+TEST(VectorString, AllowsOnlyOpenTailModification) {
+	mo_yanxi::vector_string values;
+	values.push_back("sealed");
+
+	const auto begin_pos = values.modify_begin();
+	EXPECT_TRUE(values.modifying());
+	EXPECT_EQ(1uz, values.size());
+	EXPECT_EQ(values.storage_size(), begin_pos);
+
+	values.modify_append(begin_pos, "work");
+	values.modify_push_back(begin_pos, '_');
+	values.modify_append(begin_pos, "item");
+	EXPECT_EQ("work_item", values.modify_view(begin_pos));
+	values.modify_at(begin_pos, 4) = '-';
+
+	const auto inserted = values.modify_end(begin_pos);
+	EXPECT_FALSE(values.modifying());
+	EXPECT_EQ("work-item", inserted);
+	EXPECT_EQ(2uz, values.size());
+	EXPECT_EQ("sealed", values[0]);
+	EXPECT_EQ("work-item", values[1]);
+	EXPECT_EQ((std::vector<std::size_t>{0, 7}), values.starts());
+	EXPECT_THROW(values.modify_push_back(begin_pos, 'x'), std::logic_error);
+}
+
+TEST(VectorString, RejectsEmbeddedSeparatorsAndNestedModification) {
+	mo_yanxi::vector_string values;
+
+	EXPECT_THROW((void)values.push_back(std::string_view{"a\0b", 3}), std::invalid_argument);
+
+	const auto begin_pos = values.modify_begin();
+	EXPECT_THROW((void)values.modify_begin(), std::logic_error);
+	EXPECT_THROW(values.modify_push_back(begin_pos, '\0'), std::invalid_argument);
+
+	values.modify_append(begin_pos, "valid");
+	EXPECT_EQ("valid", values.modify_end(begin_pos));
+	EXPECT_THROW((void)values.modify_end(begin_pos), std::logic_error);
 }
 
 TEST(Unicode, ConvertsUtf8Utf16AndUtf32RoundTrips) {

@@ -108,6 +108,7 @@ struct default_application::state{
 	std::optional<audio::audio_system> audio_system{};
 	std::optional<vk::command_pool> post_command_pool{};
 	std::vector<vk::command_buffer> post_commands{};
+	std::vector<audio::audio_event> pending_audio_events{};
 	std::optional<default_application_loop> loop{};
 
 	gui::scene* scene_ptr{};
@@ -230,6 +231,7 @@ struct default_application::state{
 			gui::global::event_queue.push_frame_split(timer.global_delta());
 
 			loop->get_window_dispatcher().drain();
+			pump_audio_events();
 			loop->permit_burst();
 			loop->get_scene().get_output_communicate_async_task_queue(0).consume();
 
@@ -250,10 +252,7 @@ struct default_application::state{
 
 	builtin::main_loop_init_return_t initialize_scene(default_application_loop& loop){
 		auto& ui_root = gui::global::manager;
-		auto& resources = ui_root.add_scene_resources(default_scene_name);
-		if(audio_system){
-			resources.attach_audio_system(*audio_system);
-		}
+		auto& resources = ui_root.add_scene_resources(default_scene_name, audio());
 		auto style_pal_prov = builtin::make_styles(resources);
 
 		const auto scene_add_rst = ui_root.add_scene<builtin::example_scene, gui::loose_group>(
@@ -318,9 +317,32 @@ struct default_application::state{
 		renderer.create_command();
 
 		app.after_frame();
+		if(audio_system){
+			audio_system->flush_thread_events();
+		}
 	}
 
 	void pump_audio_events(){
+		if(!audio_system || scene_ptr == nullptr){
+			return;
+		}
+
+		audio_system->flush_thread_events();
+		audio_system->poll_events_into(pending_audio_events);
+		if(pending_audio_events.empty()){
+			return;
+		}
+
+		for(const auto& event : pending_audio_events){
+			if(event.type == audio::audio_event_type::backend_error){
+				log::warn({"Audio"}, "audio backend error");
+			}
+		}
+
+		auto events = std::exchange(pending_audio_events, {});
+		scene_ptr->get_input_communicate_async_task_queue().post([events = std::move(events)](gui::scene& scene){
+			scene.resources().audio_resources().consume_audio_events(events);
+		});
 	}
 
 	void clear_scene() noexcept{

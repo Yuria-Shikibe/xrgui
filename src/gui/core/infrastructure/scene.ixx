@@ -335,7 +335,7 @@ public:
 	UI_MAIN_THREAD_ACCESS_ONLY style::style_tree_manager style_tree_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY react_flow::node_holder_pinned<i18n_text_root_node> i18n_prov{};
-	UI_MAIN_THREAD_ACCESS_ONLY audio::audio_resource_index audio_resources_{};
+	UI_MAIN_THREAD_ACCESS_ONLY audio::audio_resource_index audio_resources_;
 
 	/**
 	 * @brief Install the backend communicator used by GUI elements.
@@ -347,10 +347,6 @@ public:
 	void set_native_communicator(Args&& ...args){
 		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
 			mr::heap_allocator<native_communicator>{heap.get()}, std::forward<Args>(args)...);
-	}
-
-	void attach_audio_system(audio::audio_system& system) noexcept{
-		audio_resources_.attach_system(system);
 	}
 
 	[[nodiscard]] audio::audio_resource_index& audio_resources() noexcept{
@@ -366,14 +362,20 @@ public:
 		return i18n::bind_i18n_text(i18n_prov.node, tgt, std::move(subscription), std::forward<ApplyFn>(fn));
 	}
 
-	[[nodiscard]] scene_resources() = default;
+	scene_resources() = delete;
 
-	[[nodiscard]] explicit scene_resources(mr::heap&& heap)
-		: heap(std::move(heap)), style_tree_manager(init_style_tree_manager_()){
+	[[nodiscard]] explicit scene_resources(audio::audio_system& system)
+		: audio_resources_(system){
 	}
 
-	[[nodiscard]] explicit scene_resources(mr::arena_id_t arena_id)
-		: scene_resources{mr::heap{arena_id}}{
+	[[nodiscard]] scene_resources(audio::audio_system& system, mr::heap&& heap)
+		: heap(std::move(heap)),
+		  style_tree_manager(init_style_tree_manager_()),
+		  audio_resources_(system){
+	}
+
+	[[nodiscard]] scene_resources(audio::audio_system& system, mr::arena_id_t arena_id)
+		: scene_resources{system, mr::heap{arena_id}}{
 	}
 };
 

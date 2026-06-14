@@ -12,6 +12,7 @@ import std;
 import mo_yanxi.binary_trace;
 
 import mo_yanxi.gui.infrastructure;
+import mo_yanxi.audio;
 import mo_yanxi.gui.elem.group;
 import mo_yanxi.gui.global;
 
@@ -647,9 +648,10 @@ ui_outputs build_main_ui(
 	backend::vulkan::context& ctx,
 	renderer_frontend renderer,
 	graphic::image_atlas& image_atlas,
+	audio::audio_system& audio_system,
 	window_thread_dispatcher& window_dispatcher){
 	auto& ui_root = global::manager;
-	auto& res = ui_root.add_scene_resources("main");
+	auto& res = ui_root.add_scene_resources("main", audio_system);
 	auto style_pal_prov = make_styles(res);
 
 	const auto scene_add_rst = ui_root.add_scene<example_scene, loose_group>("main", res, true, std::move(renderer));

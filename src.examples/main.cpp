@@ -41,6 +41,7 @@ import mo_yanxi.react_flow;
 
 import mo_yanxi.gui.markdown;
 import mo_yanxi.platform;
+import mo_yanxi.audio;
 
 import mo_yanxi.gui.examples;
 import mo_yanxi.gui.cfg.builtin.main_loop;
@@ -133,6 +134,8 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 	auto renderer_create_bundle = gui_context.make_renderer_create_info();
 	backend::vulkan::renderer renderer{std::move(renderer_create_bundle.create_info)};
 	auto& image_atlas = gui_context.image_atlas();
+	audio::audio_system audio_system{};
+	static_cast<void>(audio_system.register_channel(audio::channel_id_from_bus(audio::bus::ui)));
 
 #pragma region SetupRenderGraph
 	log::info({"Compositor"}, "initialize");
@@ -297,6 +300,7 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 			loop.get_ctx(),
 			loop.get_renderer().create_frontend(),
 			image_atlas,
+			audio_system,
 			loop.get_window_dispatcher());
 		auto& scene = *ui_providers.scene_ptr;
 		ret.main_scene = ui_providers.scene_ptr;
