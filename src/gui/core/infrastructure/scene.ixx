@@ -36,6 +36,7 @@ import mo_yanxi.audio;
 export import mo_yanxi.gui.util;
 export import mo_yanxi.gui.util.task_queue;
 export import mo_yanxi.gui.style.tree.manager;
+export import mo_yanxi.gui.sound.manager;
 export import mo_yanxi.audio;
 
 export import mo_yanxi.input_handle;
@@ -295,6 +296,7 @@ public:
 	any_pool<false, mr::unvs_allocator<std::byte>> object_pool{};
 
 	UI_MAIN_THREAD_ACCESS_ONLY style::style_tree_manager style_tree_manager{};
+	UI_MAIN_THREAD_ACCESS_ONLY sound::manager sound_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY react_flow::node_holder_pinned<i18n_text_root_node> i18n_prov{};
 
@@ -402,7 +404,7 @@ struct input{
 	}
 
 	void update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manager& tooltip) noexcept;
-	void play_audio_for_intercepted(elem* element) const;
+	void play_audio_for_intercepted(elem* element, sound::play_event event) const;
 
 	void drop_event_focus(const elem* target) noexcept{
 		if(focus_scroll == target)focus_scroll = nullptr;

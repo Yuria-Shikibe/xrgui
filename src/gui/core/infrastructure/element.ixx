@@ -23,6 +23,7 @@ import mo_yanxi.gui.action.queue;
 import mo_yanxi.math;
 import align;
 import mo_yanxi.audio.resources;
+import mo_yanxi.gui.sound.manager;
 
 import :events;
 import :scene;
@@ -233,14 +234,22 @@ private:
 	border_t style_border_cache_{};
 
 	mpsc_action_queue<elem> actions{};
-	audio::audio_asset_handle audio_resource_{};
+	sound::asset_group_handle audio_group_{};
 	bool scene_audio_proxy_enabled_{true};
 
-	[[nodiscard]] bool play_audio_detached(audio::play_settings settings = {}) const{
-		if(!audio_resource_){
+	[[nodiscard]] audio::audio_asset_handle get_audio_asset_(sound::play_event event) const noexcept{
+		if(!audio_group_){
+			return {};
+		}
+		return audio_group_->get(event);
+	}
+
+	[[nodiscard]] bool play_audio_detached(sound::play_event event, audio::play_settings settings = {}) const{
+		auto asset = get_audio_asset_(event);
+		if(!asset){
 			return false;
 		}
-		const auto resource = audio_resource_->load_now();
+		const auto resource = asset->load_now();
 		if(!resource){
 			return false;
 		}
@@ -248,21 +257,23 @@ private:
 	}
 
 	[[nodiscard]] audio::playback_control_handle play_audio_controlled(
+		sound::play_event event,
 		audio::play_settings settings = {},
 		audio::playback_control_options options = {}) const{
-		if(!audio_resource_){
+		auto asset = get_audio_asset_(event);
+		if(!asset){
 			return {};
 		}
-		const auto resource = audio_resource_->load_now();
+		const auto resource = asset->load_now();
 		if(!resource){
 			return {};
 		}
 		return get_scene().resources().audio_channel().play_controlled(resource, std::move(settings), options);
 	}
 
-	void play_audio_from_scene_proxy() const{
+	void play_audio_from_scene_proxy(sound::play_event event) const{
 		if(scene_audio_proxy_enabled_){
-			static_cast<void>(play_audio_detached());
+			static_cast<void>(play_audio_detached(event));
 		}
 	}
 
@@ -335,12 +346,16 @@ public:
 	template <typename E, std::invocable<> Fn>
 	void post_task(this E& e, Fn&& fn);
 
-	void set_audio_resource(audio::audio_asset_handle resource) noexcept{
-		audio_resource_ = std::move(resource);
+	void set_audio_group(sound::asset_group_handle group) noexcept{
+		audio_group_ = std::move(group);
 	}
 
-	[[nodiscard]] const audio::audio_asset_handle& audio_resource() const noexcept{
-		return audio_resource_;
+	void clear_audio_group() noexcept{
+		audio_group_ = {};
+	}
+
+	[[nodiscard]] const sound::asset_group_handle& audio_group() const noexcept{
+		return audio_group_;
 	}
 
 	void set_scene_audio_proxy_enabled(const bool enabled) noexcept{
@@ -997,6 +1012,10 @@ public:
 public:
 	style::style_tree_manager& get_style_tree_manager() const noexcept{
 		return get_scene().resources().style_tree_manager;
+	}
+
+	sound::manager& get_sound_manager() const noexcept{
+		return get_scene().resources().sound_manager;
 	}
 
 	[[nodiscard]] FORCE_INLINE inline const cursor_states& cursor_state() const noexcept{

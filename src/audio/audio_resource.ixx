@@ -132,7 +132,7 @@ private:
 };
 
 struct audio_asset_handle : mo_yanxi::referenced_ptr<audio_asset_record, mo_yanxi::no_deletion_on_ref_count_to_zero>{
-	using base_type = mo_yanxi::referenced_ptr<audio_asset_record, mo_yanxi::no_deletion_on_ref_count_to_zero>;
+	using base_type = referenced_ptr;
 
 	[[nodiscard]] audio_asset_handle() = default;
 

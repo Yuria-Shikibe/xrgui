@@ -12,9 +12,26 @@ namespace mo_yanxi::gui{
 
 namespace scene_submodule{
 
-void input::play_audio_for_intercepted(elem* element) const{
+namespace{
+
+[[nodiscard]] std::optional<sound::play_event> mouse_play_event(input_handle::act action) noexcept{
+	switch(action){
+	case input_handle::act::press:
+		return sound::play_event::on_press;
+	case input_handle::act::release:
+		return sound::play_event::on_release;
+	case input_handle::act::double_press:
+		return sound::play_event::on_double_press;
+	default:
+		return std::nullopt;
+	}
+}
+
+}
+
+void input::play_audio_for_intercepted(elem* element, sound::play_event event) const{
 	if(element != nullptr && !element->is_disabled()){
-		element->play_audio_from_scene_proxy();
+		element->play_audio_from_scene_proxy(event);
 	}
 }
 
@@ -114,14 +131,14 @@ input_key_result input::on_key_input(input_handle::key_set key){
 	}else{
 		if(focus_key){
 			if(focus_key->on_key_input(key) == events::op_afterwards::intercepted){
-				play_audio_for_intercepted(focus_key);
+				play_audio_for_intercepted(focus_key, sound::play_event::on_key);
 				return input_key_result::intercepted;
 			}
 		}
 
 		for (auto value : inbounds_.get_cur() | std::views::reverse){
 			if(value->on_key_input(key) == events::op_afterwards::intercepted){
-				play_audio_for_intercepted(value);
+				play_audio_for_intercepted(value, sound::play_event::on_key);
 				return input_key_result::intercepted;
 			}
 		}
@@ -134,7 +151,7 @@ events::op_afterwards input::on_unicode_input(char32_t val) const{
 	if(focus_key){
 		const auto rst = focus_key->on_unicode_input(val);
 		if(rst == events::op_afterwards::intercepted){
-			play_audio_for_intercepted(focus_key);
+			play_audio_for_intercepted(focus_key, sound::play_event::on_text_input);
 		}
 		return rst;
 	}
@@ -145,7 +162,7 @@ events::op_afterwards input::on_ime_composition(const input_handle::ime_composit
 	if(focus_key){
 		const auto rst = focus_key->on_ime_composition(event);
 		if(rst == events::op_afterwards::intercepted){
-			play_audio_for_intercepted(focus_key);
+			play_audio_for_intercepted(focus_key, sound::play_event::on_ime_composition);
 		}
 		return rst;
 	}
@@ -159,7 +176,7 @@ events::op_afterwards input::on_scroll(math::vec2 scroll) const{
 	if(focus_scroll){
 		auto rst = focus_scroll->on_scroll(e, {});
 		if(rst == events::op_afterwards::intercepted){
-			play_audio_for_intercepted(focus_scroll);
+			play_audio_for_intercepted(focus_scroll, sound::play_event::on_scroll);
 			return events::op_afterwards::intercepted;
 		}
 	}
@@ -171,7 +188,7 @@ events::op_afterwards input::on_scroll(math::vec2 scroll) const{
 		if((*cur)->on_scroll(e, aboves) != events::op_afterwards::intercepted){
 			++cur;
 		}else{
-			play_audio_for_intercepted(*cur);
+			play_audio_for_intercepted(*cur, sound::play_event::on_scroll);
 			return events::op_afterwards::intercepted;
 		}
 	}
@@ -213,7 +230,9 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 				++cur;
 			}else{
 				result = events::op_afterwards::intercepted;
-				play_audio_for_intercepted(*cur);
+				if(const auto event = mouse_play_event(a)){
+					play_audio_for_intercepted(*cur, *event);
+				}
 				if(a == act::press){
 					if(last_inbound_click)last_inbound_click->on_last_clicked_changed(false);
 					last_inbound_click = *cur;
@@ -339,7 +358,7 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
 				util::transform_current2parent(**cur, std::span<math::vec2>{drag_points});
 				++cur;
 			}else{
-				play_audio_for_intercepted(*cur);
+				play_audio_for_intercepted(*cur, sound::play_event::on_drag);
 				break;
 			}
 		}

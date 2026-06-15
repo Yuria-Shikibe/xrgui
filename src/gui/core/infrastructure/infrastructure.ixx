@@ -16,6 +16,7 @@ export import :flags;
 export import :elem_async_task;
 
 export import mo_yanxi.gui.window_thread_dispatcher;
+export import mo_yanxi.gui.sound.manager;
 export import mo_yanxi.audio.resources;
 export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.input_handle;
@@ -136,6 +137,20 @@ template <typename E>
 void sync_set_elem_style(elem& e, E v, std::string_view style_family_name){
 	e.sync_run([v, style_family_name](elem& el){
 		el.set_style(el.get_style_tree_manager().get_slice<elem>().value().get_or_default(style_family_name, std::to_underlying(v)));
+	});
+}
+
+export
+inline void sync_set_elem_audio_group(elem& e, sound::asset_group_handle group){
+	e.sync_run([group = std::move(group)](elem& el) mutable{
+		el.set_audio_group(std::move(group));
+	});
+}
+
+export
+inline void sync_set_elem_audio_group(elem& e, std::string_view sound_family_name){
+	e.sync_run([sound_family_name = std::string{sound_family_name}](elem& el){
+		el.set_audio_group(el.get_sound_manager().resolve(sound_family_name));
 	});
 }
 
