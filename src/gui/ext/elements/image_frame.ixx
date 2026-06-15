@@ -175,17 +175,17 @@ public:
 	//TODO tooltip dropdown
 
 protected:
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		auto rst = image_frame::on_click(event, aboves);
 		if(get_drawable_size() <= 1)return rst;
 
-		if(!event.key.on_release())return events::op_afterwards::intercepted;
+		if(!event.key.on_release())return {this};
 
-		if(!event.within_elem(*this))return events::op_afterwards::intercepted;
+		if(!event.within_elem(*this))return {this};
 
 		set_index((current_frame_index_ + 1) % drawables_.size());
 
-		return events::op_afterwards::intercepted;
+		return {this};
 	}
 };*/
 

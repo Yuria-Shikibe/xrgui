@@ -514,14 +514,14 @@ public:
 	 * `aboves` contains elements above this element in the current inbound stack
 	 * and can be used for occlusion-aware behavior.
 	 */
-	virtual events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves){
+	virtual events::event_rst on_click(const events::click event, std::span<elem* const> aboves){
 		if(!is_interactable()){
-			return events::op_afterwards::fall_through;
+			return {};
 		}else if(is_focused()){
 			cursor_states_.update_press(event.key);
 		}
 
-		return events::op_afterwards::fall_through;
+		return {};
 	}
 
 	/**

@@ -79,7 +79,7 @@ public:
 		return cur_val_;
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		base_type::on_click(event, aboves);
 		if(!this->is_disabled() && event.key.on_release() && event.within_elem(*this)){
 			if(event.key.as_mouse() == input_handle::mouse::LMB){
@@ -89,7 +89,7 @@ public:
 				decr_selected_value();
 			}
 		}
-		return events::op_afterwards::intercepted;
+		return {this};
 	}
 
 	events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override{

@@ -533,7 +533,7 @@ public:
 	}
 
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		auto ret = elem::on_click(event, aboves);
 		if(event.key.as_mouse() != input_handle::mouse::LMB){
 			return ret;
@@ -545,14 +545,14 @@ public:
 			}
 
 			begin_scroll_bar_drag();
-			return events::op_afterwards::intercepted;
+			return {this};
 		}
 
 		if(event.key.action == input_handle::act::release){
 			bool intercepted = end_scroll_bar_drag();
 			scroll_.apply();
 			saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
-			if(intercepted)return events::op_afterwards::intercepted;
+			if(intercepted)return {this};
 		}
 
 		return ret;

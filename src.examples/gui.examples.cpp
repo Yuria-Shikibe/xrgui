@@ -209,7 +209,7 @@ struct pie_menu_demo_area : label{
 		set_text("Hold RMB, move toward an item, then release");
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		label::on_click(event, aboves);
 		if(event.key.action == input_handle::act::press && event.key.as_mouse() == input_handle::mouse::RMB){
 			auto owner = ref<pie_menu_demo_area>();
@@ -259,7 +259,7 @@ struct pie_menu_demo_area : label{
 				},
 				input_handle::mouse::RMB);
 		}
-		return events::op_afterwards::intercepted;
+		return {this};
 	}
 };
 
@@ -1100,7 +1100,7 @@ ui_outputs build_main_ui(
 													interactivity = interactivity_flag::enabled;
 												}
 
-												events::op_afterwards on_click(
+												events::event_rst on_click(
 													const events::click event,
 													std::span<elem* const> aboves) override{
 													if(event.key.on_release()){
@@ -1124,7 +1124,7 @@ ui_outputs build_main_ui(
 																e.end_line().emplace_back<elem>();
 															});
 													}
-													return events::op_afterwards::intercepted;
+													return {this};
 												}
 											};
 											tooltip.emplace_back<dialog_creator>().cell().set_size({

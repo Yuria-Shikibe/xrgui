@@ -573,7 +573,7 @@ public:
 		: scroll_adaptor(scene, parent, layout::layout_specifier::fixed(layout::layout_policy::none)){
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		if(event.key.action == input_handle::act::press){
 			auto ret = scroll_adaptor::on_click(event, aboves);
 			if(ret == events::op_afterwards::intercepted){
@@ -587,7 +587,7 @@ public:
 				});
 
 				if(last_modified_col != no_modified){
-					return events::op_afterwards::intercepted;
+					return {this};
 				}
 			}
 
@@ -603,7 +603,7 @@ public:
 
 		auto ret = scroll_adaptor::on_click(event, aboves);
 		if(intercepted){
-			return events::op_afterwards::intercepted;
+			return {this};
 		}
 		return ret;
 	}

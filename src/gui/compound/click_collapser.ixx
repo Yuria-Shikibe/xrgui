@@ -79,7 +79,7 @@ public:
 
 	public:
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		auto rst = collapser::on_click(event, aboves);
 
 		if(is_clicked())get_arrow().arrow_enter(std::identity{});

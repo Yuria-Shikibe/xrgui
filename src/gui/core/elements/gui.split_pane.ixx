@@ -142,7 +142,7 @@ public:
 		}
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		auto ret = head_body::on_click(event, aboves);
 		if(event.key.as_mouse() != input_handle::mouse::LMB){
 			return ret;
@@ -154,7 +154,7 @@ public:
 			}
 
 			begin_separator_drag();
-			return events::op_afterwards::intercepted;
+			return {this};
 		}
 
 		if(event.key.on_release()){
@@ -166,7 +166,7 @@ public:
 				intercepted = true;
 			}
 
-			if(intercepted)return events::op_afterwards::intercepted;
+			if(intercepted)return {this};
 		}
 		return ret;
 	}

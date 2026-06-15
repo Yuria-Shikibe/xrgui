@@ -62,4 +62,22 @@ enum struct op_afterwards{
 	fall_through,
 };
 
+export
+struct event_rst{
+	elem* e{};
+
+	[[nodiscard]] explicit operator bool() const noexcept{
+		return e != nullptr;
+	}
+
+	[[nodiscard]] op_afterwards op() const noexcept{
+		return e ? op_afterwards::intercepted : op_afterwards::fall_through;
+	}
+
+	[[nodiscard]] friend bool operator==(event_rst lhs, op_afterwards rhs) noexcept{
+		return lhs.op() == rhs;
+	}
+
+};
+
 }

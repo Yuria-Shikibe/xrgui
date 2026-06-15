@@ -716,7 +716,7 @@ public:
 		return events::op_afterwards::intercepted;
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		elem::on_click(event, aboves);
 		if(event.key.as_mouse() == activation_button_){
 			set_selected(hit_test_local(event.pos));
@@ -724,7 +724,7 @@ public:
 				finish_from_current_selection();
 			}
 		}
-		return events::op_afterwards::intercepted;
+		return {this};
 	}
 
 	void layout_elem() override{

@@ -110,13 +110,13 @@ public:
 		add_button_prop();
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		base_type::on_click(event, aboves);
-		if(this->is_disabled()) return events::op_afterwards::intercepted;
+		if(this->is_disabled()) return {this};
 		if(event.within_elem(*this)){
 			if(callback) callback(event, *this);
 		}
-		return events::op_afterwards::intercepted;
+		return {this};
 	}
 
 	void set_button_callback(callback_type&& func){

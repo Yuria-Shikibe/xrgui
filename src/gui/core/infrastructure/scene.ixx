@@ -428,6 +428,8 @@ struct input{
 		last_inbound_click = elem;
 	}
 
+	void switch_last_inbound_click(elem* elem);
+
 	void input_inbound(bool is_inbound){
 		inputs_.set_inbound(is_inbound);
 	}

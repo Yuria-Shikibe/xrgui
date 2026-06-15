@@ -162,13 +162,13 @@ protected:
 		get_button_pane().get_elem().propagate_layout_policy(trsp);
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		if(aboves.size() < 3)return events::op_afterwards::fall_through;
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
+		if(aboves.size() < 3)return {};
 		//this -> scroll[0] -> sequence[1] -> actual button[2]
 		auto* elem = aboves[2];
 		auto& seq = get_button_pane().get_elem();
 		auto idx = seq.find_index(elem);
-		if(idx == seq.exposed_children().size())return events::op_afterwards::fall_through;
+		if(idx == seq.exposed_children().size())return {};
 
 		if(event.key.on_release()){
 			if(idx == current_showing_){
@@ -178,7 +178,7 @@ protected:
 			}
 		}
 
-		return events::op_afterwards::intercepted;
+		return {elem};
 	}
 
 };

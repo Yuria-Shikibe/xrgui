@@ -121,24 +121,24 @@ public:
 		}
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		if(expand_cond_ == collapser_expand_cond::click){
 			if((!aboves.empty() && aboves.front() == items[0].get())){
 				if(event.key.action == input_handle::act::release){
 					clicked_ = !clicked_;
 					util::update_insert(*this, update_channel::layout);
 				}
-				return events::op_afterwards::intercepted;
+				return {aboves.front()};
 			} else if(head().contains(event.pos)){
 				cursor_states_.update_press(event.key);
 				if(event.key.action == input_handle::act::release){
 					clicked_ = !clicked_;
 					util::update_insert(*this, update_channel::layout);
 				}
-				return events::op_afterwards::intercepted;
+				return {this};
 			}
 
-			return events::op_afterwards::fall_through;
+			return {};
 		}else{
 			util::update_insert(*this, update_channel::layout);
 			return elem::on_click(event, aboves);

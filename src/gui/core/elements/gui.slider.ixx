@@ -197,7 +197,7 @@ public:
         return events::op_afterwards::intercepted;
     }
 
-    events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override {
+    events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override {
         elem::on_click(event, aboves);
         const auto [key, action, mode] = event.key;
 
@@ -224,7 +224,7 @@ public:
             drag_src_.reset();
             bar.resume();
         }
-        return events::op_afterwards::intercepted;
+        return {this};
     }
 
     void set_smooth_scroll(const bool smooth = true) {

@@ -129,7 +129,7 @@ private:
 			return self.parent_ref<sequence, true>().parent_ref<numeric_input_area<T>, true>();
 		}
 
-			events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+			events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 				if(!is_disabled() && event.key.on_release() && event.within_elem(*this)){
 					numeric_input_area& area = get_area();
 					auto current = area.get_current_value();
@@ -171,7 +171,7 @@ private:
 
 					area.set_value(next_val);
 				}
-			return events::op_afterwards::intercepted;
+			return {this};
 		}
 	};
 
@@ -399,30 +399,27 @@ public:
 		return events::op_afterwards::intercepted;
 	}
 
-	events::op_afterwards on_click(events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(events::click event, std::span<elem* const> aboves) override{
 		elem::on_click(event, aboves);
 		if(event.key.on_release()){
 			if(drag_state_ != drag_state::none){
 				this->set_value(get_drag_temp_val_());
 				drag_state_ = drag_state::none;
 			}else{
-				{
-					switch_to(1);
-					auto& edit = at<text_edit>(1);
-					edit.apply_edit([this](std::u32string& s){
-						cpd::process_arithmetic_to_string(get_current_value(), [&](std::string_view sv){
-							s.assign_range(sv);
-						});
-						return true;
+				switch_to(1);
+				auto& edit = at<text_edit>(1);
+				edit.apply_edit([this](std::u32string& s){
+					cpd::process_arithmetic_to_string(get_current_value(), [&](std::string_view sv){
+						s.assign_range(sv);
 					});
-					edit.on_last_clicked_changed(true);
-					edit.action_select_all();
-					get_scene().overwrite_last_inbound_click_quiet(&edit);
-				}
+					return true;
+				});
+				edit.action_select_all();
+				return {&edit};
 			}
 
 		}
-		return events::op_afterwards::intercepted;
+		return {this};
 	}
 
 	events::op_afterwards on_esc() override{

@@ -133,16 +133,16 @@ public:
 		std::invoke(std::forward<onExit>(onExit), self);
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		elem::on_click(event, aboves);
 		if(!is_disabled() && event.within_elem(*this) && event.key.on_release()){
 			arrow_flip([](arrow_button& b){
 				           if(!b.has_tooltip() && !b.invisible) b.create_tooltip();
 			           }, [](arrow_button& b){
-				           b.drop_tooltip();
+			           b.drop_tooltip();
 			           });
 		}
-		return events::op_afterwards::intercepted;
+		return {this};
 	}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
@@ -277,23 +277,34 @@ struct current_position_bar : flipper<2>{
 		set_style_side_bar(*this);
 	}
 
+	text_edit& activate_editor(){
+		switch_to(1);
+		auto& edit = at<text_edit>(1);
+		edit.apply_edit([this](std::u32string& s){
+			s = selector->get_current_directory().u32string();
+			return true;
+		});
+		edit.action_select_all();
+		return edit;
+	}
+
 	void on_last_clicked_changed(bool isFocused) override{
 		if(isFocused){
-			switch_to(1);
-			auto& edit = at<text_edit>(1);
-			edit.apply_edit([this](std::u32string& s){
-				s = selector->get_current_directory().u32string();
-				return true;
-			});
+			auto& edit = activate_editor();
 			edit.on_last_clicked_changed(true);
-			edit.action_select_all();
 			get_scene().overwrite_last_inbound_click_quiet(&edit);
 		}
 	}
 
-	events::op_afterwards on_click(events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(events::click event, std::span<elem* const> aboves) override{
 		elem::on_click(event, aboves);
-		return events::op_afterwards::intercepted;
+		if(event.key.action == input_handle::act::press){
+			return {&activate_editor()};
+		}
+		if(get_current_active_index() == 1){
+			return {&at<text_edit>(1)};
+		}
+		return {this};
 	}
 
 	events::op_afterwards on_esc() override{
@@ -467,7 +478,7 @@ file_selector::file_entry::file_entry(scene& scene, elem* parent, file_selector&
 	set_expand_policy(layout::expand_policy::passive);
 }
 
-events::op_afterwards file_selector::file_entry::on_click(const events::click event, std::span<elem* const> aboves){
+events::event_rst file_selector::file_entry::on_click(const events::click event, std::span<elem* const> aboves){
 	elem::on_click(event, aboves);
 	if(!is_disabled() && event.key.on_release() && event.within_elem(*this)){
 		auto& menu = get_file_selector();
@@ -477,7 +488,7 @@ events::op_afterwards file_selector::file_entry::on_click(const events::click ev
 			menu.handle_file_selection(this, event.key.mode_bits);
 		}
 	}
-	return events::op_afterwards::intercepted;
+	return {this};
 }
 
 bool file_selector::file_entry::set_toggled(bool isToggled){

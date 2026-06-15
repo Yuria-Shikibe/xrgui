@@ -80,11 +80,11 @@ namespace mo_yanxi::gui{
 			return events::op_afterwards::intercepted;
 		}
 
-		events::op_afterwards on_click(const events::click e, std::span<elem* const> aboves) override{
+		events::event_rst on_click(const events::click e, std::span<elem* const> aboves) override{
 			if(e.key.as_mouse() == input_handle::mouse::CMB){
 				last_camera_center_pos_ = camera.get_stable_center();
 			}
-			return events::op_afterwards::intercepted;
+			return {this};
 		}
 
 		void viewport_begin() const {

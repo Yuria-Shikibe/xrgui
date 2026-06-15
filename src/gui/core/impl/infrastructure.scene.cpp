@@ -80,6 +80,13 @@ void input::switch_key_focus(elem* element){
 	if(focus_key)focus_key->on_focus_key_changed(true);
 }
 
+void input::switch_last_inbound_click(elem* element){
+	if(last_inbound_click == element)return;
+	if(last_inbound_click)last_inbound_click->on_last_clicked_changed(false);
+	last_inbound_click = element;
+	if(last_inbound_click)last_inbound_click->on_last_clicked_changed(true);
+}
+
 void input::try_swap_focus(){
 	elem* newFocus = nullptr;
 	auto rst = std::ranges::find_last_if(inbounds_.get_cur(), [](const elem* e){
@@ -215,7 +222,7 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 		return events::op_afterwards::fall_through;
 	}
 
-	auto result = events::op_afterwards::fall_through;
+	auto result = events::event_rst{};
 	if(focus_cursor){
 		const std::span rng = inbounds_.get_cur();
 		auto pos = inputs_.cursor_pos();
@@ -225,18 +232,17 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 		auto cur = rng.rbegin();
 		while(cur != rng.rend()){
 			const std::span aboves{cur.base(), rng.end()};
-			if((*cur)->on_click(e, aboves) != events::op_afterwards::intercepted){
+			const auto rst = (*cur)->on_click(e, aboves);
+			if(rst != events::op_afterwards::intercepted){
 				e.pos = util::transform_current2parent(**cur, e.pos);
 				++cur;
 			}else{
-				result = events::op_afterwards::intercepted;
+				result = rst;
 				if(const auto event = mouse_play_event(a)){
-					play_audio_for_intercepted(*cur, *event);
+					play_audio_for_intercepted(rst.e, *event);
 				}
-				if(a == act::press){
-					if(last_inbound_click)last_inbound_click->on_last_clicked_changed(false);
-					last_inbound_click = *cur;
-					last_inbound_click->on_last_clicked_changed(true);
+				if(a == act::press || a == act::release){
+					switch_last_inbound_click(rst.e);
 				}
 
 				goto END;
@@ -244,8 +250,7 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 		}
 
 		if(a == act::press){
-			if(last_inbound_click)last_inbound_click->on_last_clicked_changed(false);
-			last_inbound_click = nullptr;
+			switch_last_inbound_click(nullptr);
 		}
 
 	END:
@@ -267,7 +272,7 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 		}
 	}
 
-	return result;
+	return result.op();
 }
 
 void input::update_inbounds(){

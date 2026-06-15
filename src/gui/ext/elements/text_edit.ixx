@@ -505,13 +505,13 @@ public:
 
 	events::op_afterwards on_drag(const events::drag event) override;
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
 		elem::on_click(event, aboves);
 		if(!event.key.on_release()){
 			if(has_active_ime_composition()){
 				cancel_ime_composition_preview();
 				reset_blink();
-				return events::op_afterwards::intercepted;
+				return {this};
 			}
 
 			auto t_params = get_transform_params();
@@ -525,12 +525,12 @@ public:
 					scroll_to_caret();
 					update_ime_position();
 				}
-				return events::op_afterwards::intercepted;
+				return {this};
 			}
 		}else {
 			last_drag_dst_.reset();
 		}
-		return events::op_afterwards::fall_through;
+		return {};
 	}
 
 	events::op_afterwards on_key_input(const input_handle::key_set key) override;
