@@ -171,11 +171,6 @@ void audio_channel::set_volume(const float volume) const{
 	system_->post_set_channel_volume_(id_, volume);
 }
 
-void audio_channel::flush() const{
-	require_owner_thread("audio_channel::flush");
-	system_->flush_thread_channel_events_(id_);
-}
-
 void audio_system::start(){
 	worker_ = std::jthread{[this](std::stop_token stop_token){
 		run(stop_token);
@@ -295,15 +290,11 @@ bool audio_system::post(cmd::command_batch batch) noexcept{
 	}
 }
 
-bool audio_system::stage_channel_command_(const channel_id channel, cmd::command command) noexcept{
+bool audio_system::post_channel_command_(const channel_id channel, cmd::command command) noexcept{
 	if(!channel || !valid()){
 		return false;
 	}
 	return post(std::move(command));
-}
-
-void audio_system::flush_thread_channel_events_(const channel_id channel) noexcept{
-	(void)channel;
 }
 
 void audio_system::detach_control_sink_() noexcept{
@@ -518,12 +509,6 @@ void audio_system::process(cmd::command command){
 					.playback = command.playback
 				});
 			}
-		},
-		[this](const cmd::stop_playback& command){
-			if(release_pending_playback_(command.playback, playback_release_policy::stop_on_release)){
-				return;
-			}
-			driver_->stop(command.playback);
 		},
 		[this](const cmd::pause_playback& command){
 			driver_->pause(command.playback);
@@ -856,7 +841,7 @@ bool audio_system::post_play_detached_(
 		return false;
 	}
 	require_registered_channel_(channel);
-	return stage_channel_command_(channel, cmd::play_detached{
+	return post_channel_command_(channel, cmd::play_detached{
 		.resource = resource,
 		.channel = channel,
 		.settings = std::move(settings)
@@ -881,7 +866,7 @@ playback_control_handle audio_system::post_play_controlled_(
 		return {};
 	}
 
-	if(stage_channel_command_(channel, cmd::play_controlled{
+	if(post_channel_command_(channel, cmd::play_controlled{
 		.resource = resource,
 		.channel = channel,
 		.playback = playback,
@@ -896,26 +881,9 @@ playback_control_handle audio_system::post_play_controlled_(
 
 void audio_system::post_set_channel_volume_(const channel_id channel, const float volume){
 	require_registered_channel_(channel);
-	(void)(stage_channel_command_(channel, cmd::set_channel_volume{
+	(void)(post_channel_command_(channel, cmd::set_channel_volume{
 		.channel = channel,
 		.volume = volume
-	}));
-}
-
-void audio_system::post_stop_playback_(const channel_id channel, const playback_id playback) noexcept{
-	if(!playback){
-		return;
-	}
-	(void)(stage_channel_command_(channel, cmd::stop_playback{.playback = playback}));
-}
-
-void audio_system::post_detach_playback_(const channel_id channel, const playback_id playback) noexcept{
-	if(!playback){
-		return;
-	}
-	(void)(stage_channel_command_(channel, cmd::release_playback{
-		.playback = playback,
-		.policy = playback_release_policy::detach_on_release
 	}));
 }
 
@@ -923,14 +891,14 @@ void audio_system::post_pause_playback_(const channel_id channel, const playback
 	if(!playback){
 		return;
 	}
-	(void)(stage_channel_command_(channel, cmd::pause_playback{.playback = playback}));
+	(void)(post_channel_command_(channel, cmd::pause_playback{.playback = playback}));
 }
 
 void audio_system::post_resume_playback_(const channel_id channel, const playback_id playback) noexcept{
 	if(!playback){
 		return;
 	}
-	(void)(stage_channel_command_(channel, cmd::resume_playback{.playback = playback}));
+	(void)(post_channel_command_(channel, cmd::resume_playback{.playback = playback}));
 }
 
 void audio_system::post_set_playback_params_(
@@ -940,7 +908,7 @@ void audio_system::post_set_playback_params_(
 	if(!playback || params.empty()){
 		return;
 	}
-	(void)(stage_channel_command_(channel, cmd::set_playback_params{
+	(void)(post_channel_command_(channel, cmd::set_playback_params{
 		.playback = playback,
 		.params = params
 	}));
@@ -953,7 +921,7 @@ void audio_system::post_release_playback_(
 	if(!playback){
 		return;
 	}
-	(void)(stage_channel_command_(channel, cmd::release_playback{
+	(void)(post_channel_command_(channel, cmd::release_playback{
 		.playback = playback,
 		.policy = policy
 	}));
@@ -1029,11 +997,7 @@ std::optional<audio_channel> audio_system::get_channel(const channel_id channel)
 	return audio_channel{*this, channel, owner_thread};
 }
 
-void audio_system::flush_thread_events(){
-}
-
 void audio_system::shutdown() noexcept{
-	flush_thread_events();
 	const bool was_accepting = accepting_.exchange(false, std::memory_order_acq_rel);
 	if(loader_.joinable()){
 		loader_.request_stop();

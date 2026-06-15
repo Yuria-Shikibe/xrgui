@@ -298,7 +298,7 @@ struct voice_entry{
 
 class driver final : public audio::audio_driver_backend{
 	engine_handle engine_{};
-	std::unordered_map<audio::channel_id, std::unique_ptr<sound_group_handle>, audio::channel_id_hash> groups_{};
+	std::unordered_map<audio::channel_id, std::unique_ptr<sound_group_handle>, audio::channel_id_hash> channel_groups_{};
 
 	std::atomic<std::uint64_t> next_token_{1};
 	std::vector<voice_entry> detached_voices_{};
@@ -354,13 +354,13 @@ public:
 	}
 
 	void register_channel(const audio::channel_id channel) override{
-		if(!channel || channel == audio::channel_id_from_bus(audio::bus::master) || groups_.contains(channel)){
+		if(!channel || channel == audio::channel_id_from_role(audio::channel_role::master) || channel_groups_.contains(channel)){
 			return;
 		}
 
 		auto group = std::make_unique<sound_group_handle>();
 		group->init(engine_, nullptr, "audio channel");
-		groups_.emplace(channel, std::move(group));
+		channel_groups_.emplace(channel, std::move(group));
 	}
 
 	void play_detached(
@@ -425,11 +425,11 @@ public:
 
 	void set_channel_volume(const audio::channel_id channel, const float volume) noexcept override{
 		const float safe_volume = std::max(0.f, volume);
-		if(channel == audio::channel_id_from_bus(audio::bus::master)){
+		if(channel == audio::channel_id_from_role(audio::channel_role::master)){
 			engine_.set_volume(safe_volume);
 			return;
 		}
-		if(auto iter = groups_.find(channel); iter != groups_.end() && iter->second){
+		if(auto iter = channel_groups_.find(channel); iter != channel_groups_.end() && iter->second){
 			iter->second->set_volume(safe_volume);
 		}
 	}
@@ -457,7 +457,7 @@ public:
 	void shutdown() noexcept override{
 		controlled_voices_.clear();
 		detached_voices_.clear();
-		groups_.clear();
+		channel_groups_.clear();
 		engine_.reset();
 	}
 
@@ -497,10 +497,10 @@ private:
 	}
 
 	[[nodiscard]] ma_sound_group* group_for(const audio::channel_id channel){
-		if(channel == audio::channel_id_from_bus(audio::bus::master)){
+		if(channel == audio::channel_id_from_role(audio::channel_role::master)){
 			return nullptr;
 		}
-		if(auto iter = groups_.find(channel); iter != groups_.end() && iter->second){
+		if(auto iter = channel_groups_.find(channel); iter != channel_groups_.end() && iter->second){
 			return iter->second->get();
 		}
 		throw std::runtime_error{"audio channel is not registered in miniaudio driver"};

@@ -135,7 +135,7 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 	backend::vulkan::renderer renderer{std::move(renderer_create_bundle.create_info)};
 	auto& image_atlas = gui_context.image_atlas();
 	audio::audio_system audio_system{};
-	static_cast<void>(audio_system.register_channel(audio::channel_id_from_bus(audio::bus::ui)));
+	auto ui_audio_channel = audio_system.register_channel(audio::channel_id_from_role(audio::channel_role::ui));
 
 #pragma region SetupRenderGraph
 	log::info({"Compositor"}, "initialize");
@@ -301,6 +301,7 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 			loop.get_renderer().create_frontend(),
 			image_atlas,
 			audio_system,
+			ui_audio_channel,
 			loop.get_window_dispatcher());
 		auto& scene = *ui_providers.scene_ptr;
 		ret.main_scene = ui_providers.scene_ptr;

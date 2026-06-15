@@ -250,7 +250,9 @@ if is_host_project then
             defines = "MAGIC_ENUM_USE_STD_MODULE"
         })
         add_files("src/util/csv.ixx", {public = true})
+        add_files("src/util/double_buffer.ixx", {public = true})
         add_files("src/util/fixed_vector.ixx", {public = true})
+        add_files("src/util/resource_manager.ixx", {public = true})
         add_files("src/util/unicode.ixx", {public = true})
         add_files("src/util/vector_string.ixx", {public = true})
         add_files("src/audio/audio.ixx", {public = true})

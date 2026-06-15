@@ -16,7 +16,7 @@ import mo_yanxi.concurrent.mpsc_double_buffer;
 
 namespace mo_yanxi::audio{
 
-export enum class bus : std::uint8_t{
+export enum class channel_role : std::uint8_t{
 	master,
 	ui,
 	music,
@@ -34,7 +34,7 @@ export struct channel_id{
 	[[nodiscard]] constexpr bool operator==(const channel_id&) const noexcept = default;
 };
 
-export [[nodiscard]] constexpr channel_id channel_id_from_bus(const bus value) noexcept{
+export [[nodiscard]] constexpr channel_id channel_id_from_role(const channel_role value) noexcept{
 	return channel_id{static_cast<std::uint64_t>(std::to_underlying(value)) + 1u};
 }
 
@@ -46,6 +46,7 @@ export struct resource_handle{
 	}
 
 	[[nodiscard]] constexpr bool operator==(const resource_handle&) const noexcept = default;
+	[[nodiscard]] constexpr auto operator<=>(const resource_handle&) const noexcept = default;
 };
 
 export struct playback_id{
@@ -200,38 +201,6 @@ export class audio_system;
 export class audio_channel;
 export class audio_resource;
 struct audio_control_sink;
-
-struct thread_bound_referenced_object{
-	std::thread::id owner_thread_{std::this_thread::get_id()};
-	std::size_t reference_count_{};
-
-	[[nodiscard]] bool is_owner_thread() const noexcept{
-		return std::this_thread::get_id() == owner_thread_;
-	}
-
-	void require_owner_thread(const char* operation) const{
-		if(!is_owner_thread()){
-			throw std::runtime_error{std::format("{} called from a non-owner audio channel thread", operation)};
-		}
-		assert(is_owner_thread());
-	}
-
-	[[nodiscard]] std::size_t ref_count() const noexcept{
-		return reference_count_;
-	}
-
-	void ref_incr() noexcept{
-		assert(is_owner_thread());
-		++reference_count_;
-	}
-
-	bool ref_decr() noexcept{
-		assert(is_owner_thread());
-		assert(reference_count_ != 0);
-		--reference_count_;
-		return reference_count_ == 0;
-	}
-};
 
 export struct audio_resource_deleter{
 	void operator()(audio_resource* resource) const noexcept;
@@ -538,10 +507,6 @@ struct play_controlled{
 
 using pending_playback = std::variant<play_detached, play_controlled>;
 
-struct stop_playback{
-	playback_id playback{};
-};
-
 struct pause_playback{
 	playback_id playback{};
 };
@@ -574,7 +539,6 @@ using command = std::variant<
 	register_channel,
 	play_detached,
 	play_controlled,
-	stop_playback,
 	pause_playback,
 	resume_playback,
 	set_playback_params,
@@ -722,7 +686,6 @@ public:
 		play_settings settings = {},
 		playback_control_options options = {}) const;
 	void set_volume(float volume) const;
-	void flush() const;
 };
 
 class audio_system{
@@ -752,36 +715,7 @@ public:
 
 	[[nodiscard]] std::optional<audio_channel> get_channel(channel_id channel) noexcept;
 
-	[[nodiscard]] std::optional<audio_channel> default_channel() noexcept{
-		return get_channel(channel_id_from_bus(bus::ui));
-	}
-
-
-	[[nodiscard]] bool play_detached(resource_handle resource, play_settings settings = {}){
-		if(auto channel = default_channel()){
-			return channel->play_detached(resource, std::move(settings));
-		}
-		return false;
-	}
-
-	[[nodiscard]] playback_control_handle play_controlled(
-		resource_handle resource,
-		play_settings settings = {},
-		playback_control_options options = {}){
-		if(auto channel = default_channel()){
-			return channel->play_controlled(resource, std::move(settings), options);
-		}
-		return {};
-	}
-
-	void set_bus_volume(bus target_bus, float volume){
-		if(auto channel = get_channel(channel_id_from_bus(target_bus))){
-			channel->set_volume(volume);
-		}
-	}
-
 	void shutdown() noexcept;
-	void flush_thread_events();
 	void poll_events_into(std::vector<audio_event>& out);
 
 	template <typename Fn>
@@ -829,10 +763,10 @@ private:
 
 	std::array<channel_slot, default_channel_capacity> channels_{};
 
-	std::flat_map<resource_handle, audio_resource_ptr, resource_handle_less> resources_{};
-	std::unordered_set<resource_handle, resource_handle_hash> pending_load_resources_{};
+	std::flat_map<resource_handle, audio_resource_ptr> resources_{};
+	std::flat_set<resource_handle> pending_load_resources_{};
 	std::vector<cmd::load_resource> pending_loads_{};
-	std::flat_map<resource_handle, std::vector<cmd::pending_playback>, resource_handle_less> pending_playbacks_{};
+	std::flat_map<resource_handle, std::vector<cmd::pending_playback>> pending_playbacks_{};
 	std::uint64_t next_load_sequence_{1};
 	std::size_t active_load_count_{};
 	std::mutex deferred_backend_releases_mutex_{};
@@ -874,8 +808,7 @@ private:
 	void require_registered_channel_(channel_id channel) const;
 	[[nodiscard]] bool post(cmd::command command) noexcept;
 	[[nodiscard]] bool post(cmd::command_batch batch) noexcept;
-	[[nodiscard]] bool stage_channel_command_(channel_id channel, cmd::command command) noexcept;
-	void flush_thread_channel_events_(channel_id channel) noexcept;
+	[[nodiscard]] bool post_channel_command_(channel_id channel, cmd::command command) noexcept;
 	void detach_control_sink_() noexcept;
 	void push_event(audio_event event);
 	void push_events(std::vector<audio_event>& new_events);
@@ -906,8 +839,6 @@ private:
 		play_settings settings,
 		playback_control_options options);
 	void post_set_channel_volume_(channel_id channel, float volume);
-	void post_stop_playback_(channel_id channel, playback_id playback) noexcept;
-	void post_detach_playback_(channel_id channel, playback_id playback) noexcept;
 	void post_pause_playback_(channel_id channel, playback_id playback) noexcept;
 	void post_resume_playback_(channel_id channel, playback_id playback) noexcept;
 	void post_set_playback_params_(channel_id channel, playback_id playback, voice_params params) noexcept;

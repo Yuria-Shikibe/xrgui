@@ -106,6 +106,7 @@ struct default_application::state{
 
 	std::optional<render_context> gui_render_context{};
 	std::optional<audio::audio_system> audio_system{};
+	audio::audio_channel ui_audio_channel{};
 	std::optional<vk::command_pool> post_command_pool{};
 	std::vector<vk::command_buffer> post_commands{};
 	std::vector<audio::audio_event> pending_audio_events{};
@@ -163,7 +164,7 @@ struct default_application::state{
 		glfw_initialized = true;
 
 		audio_system.emplace(backend::miniaudio::make_audio_driver(app.config_.audio_device));
-		static_cast<void>(audio_system->register_channel(audio::channel_id_from_bus(audio::bus::ui)));
+		ui_audio_channel = audio_system->register_channel(audio::channel_id_from_role(audio::channel_role::ui));
 
 		vk::enable_validation_layers = app.config_.enable_validation_layers;
 		if(platform::environment_flag_enabled("NSIGHT")){
@@ -252,7 +253,7 @@ struct default_application::state{
 
 	builtin::main_loop_init_return_t initialize_scene(default_application_loop& loop){
 		auto& ui_root = gui::global::manager;
-		auto& resources = ui_root.add_scene_resources(default_scene_name, audio());
+		auto& resources = ui_root.add_scene_resources(default_scene_name, audio(), ui_audio_channel);
 		auto style_pal_prov = builtin::make_styles(resources);
 
 		const auto scene_add_rst = ui_root.add_scene<builtin::example_scene, gui::loose_group>(
@@ -317,9 +318,6 @@ struct default_application::state{
 		renderer.create_command();
 
 		app.after_frame();
-		if(audio_system){
-			audio_system->flush_thread_events();
-		}
 	}
 
 	void pump_audio_events(){
@@ -327,7 +325,6 @@ struct default_application::state{
 			return;
 		}
 
-		audio_system->flush_thread_events();
 		audio_system->poll_events_into(pending_audio_events);
 		if(pending_audio_events.empty()){
 			return;

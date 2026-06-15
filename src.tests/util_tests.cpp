@@ -3,6 +3,7 @@
 import std;
 
 import mo_yanxi.csv;
+import mo_yanxi.double_buffer;
 import mo_yanxi.fixed_vector;
 import mo_yanxi.unicode;
 import mo_yanxi.vector_string;
@@ -172,21 +173,79 @@ TEST(FixedVector, DestroysConstructedObjectsExactlyOnce) {
 	EXPECT_EQ(0, counted_value::alive);
 }
 
+TEST(DoubleBuffer, TracksCurrentAndBackupSlots) {
+	mo_yanxi::double_buffer<std::vector<int>> buffer;
+
+	buffer.get_cur().push_back(1);
+	buffer.get_bak().push_back(2);
+
+	EXPECT_EQ(0uz, buffer.current_index());
+	EXPECT_EQ(1uz, buffer.backup_index());
+	EXPECT_EQ((std::vector<int>{1}), buffer.current());
+	EXPECT_EQ((std::vector<int>{2}), buffer.backup());
+
+	buffer.swap();
+
+	EXPECT_EQ(1uz, buffer.current_index());
+	EXPECT_EQ(0uz, buffer.backup_index());
+	EXPECT_EQ((std::vector<int>{2}), buffer.get_cur());
+	EXPECT_EQ((std::vector<int>{1}), buffer.get_bak());
+}
+
+TEST(DoubleBuffer, ConstructsAndClearsBothBuffers) {
+	mo_yanxi::double_buffer<std::string> buffer(3, 'x');
+
+	EXPECT_EQ("xxx", buffer.current());
+	EXPECT_EQ("xxx", buffer.backup());
+
+	buffer.backup() = "yyy";
+	buffer.swap_buffers();
+	EXPECT_EQ("yyy", buffer.current());
+	EXPECT_EQ("xxx", buffer.backup());
+
+	buffer.clear();
+	EXPECT_TRUE(buffer.current().empty());
+	EXPECT_TRUE(buffer.backup().empty());
+}
+
+TEST(DoubleBuffer, SupportsMoveOnlyBufferValues) {
+	auto buffer = mo_yanxi::double_buffer<std::unique_ptr<int>>::from_buffers(
+		std::make_unique<int>(7),
+		std::make_unique<int>(9)
+	);
+
+	ASSERT_TRUE(buffer.current());
+	ASSERT_TRUE(buffer.backup());
+	EXPECT_EQ(7, *buffer.current());
+	EXPECT_EQ(9, *buffer.backup());
+
+	buffer.flip();
+
+	ASSERT_TRUE(buffer.current());
+	ASSERT_TRUE(buffer.backup());
+	EXPECT_EQ(9, *buffer.get_cur());
+	EXPECT_EQ(7, *buffer.get_bak());
+}
+
 TEST(VectorString, StoresStringsSeparatedByZero) {
 	mo_yanxi::vector_string values;
-	const auto first = values.push_back("alpha");
-	const auto second = values.emplace_back(3, 'x');
+	EXPECT_EQ(0uz, values.storage_size());
+	EXPECT_TRUE(values.indices().empty());
+
+	EXPECT_EQ(std::string_view{"alpha"}, values.push_back("alpha"));
+	EXPECT_EQ(std::string_view{"xxx"}, values.emplace_back(3, 'x'));
 	values.push_back("");
 
-	EXPECT_EQ("alpha", first);
-	EXPECT_EQ("xxx", second);
 	EXPECT_EQ(3uz, values.size());
 	EXPECT_EQ(11uz, values.storage_size());
 	EXPECT_EQ(std::string("alpha\0xxx\0\0", 11), values.storage());
-	EXPECT_EQ((std::vector<std::size_t>{0, 6, 10}), values.starts());
+	EXPECT_TRUE(std::ranges::equal(values.indices(), std::array{5uz, 9uz, 10uz}));
+	EXPECT_EQ(10uz, values.indices().back());
+	EXPECT_EQ(values.storage_size() - 1, values.indices().back());
 	EXPECT_EQ("alpha", values[0]);
 	EXPECT_EQ("xxx", values.at(1));
 	EXPECT_TRUE(values[2].empty());
+	EXPECT_EQ(5uz, values.span_at(0).size());
 
 	auto iter = values.begin();
 	static_assert(std::random_access_iterator<decltype(iter)>);
@@ -207,25 +266,32 @@ TEST(VectorString, AllowsOnlyOpenTailModification) {
 	mo_yanxi::vector_string values;
 	values.push_back("sealed");
 
-	const auto begin_pos = values.modify_begin();
+	const auto index = values.modify_begin(9);
+#ifndef NDEBUG
 	EXPECT_TRUE(values.modifying());
-	EXPECT_EQ(1uz, values.size());
-	EXPECT_EQ(values.storage_size(), begin_pos);
+#endif
+	EXPECT_EQ(2uz, values.size());
 
-	values.modify_append(begin_pos, "work");
-	values.modify_push_back(begin_pos, '_');
-	values.modify_append(begin_pos, "item");
-	EXPECT_EQ("work_item", values.modify_view(begin_pos));
-	values.modify_at(begin_pos, 4) = '-';
+	auto span = values.span_at(index);
+	ASSERT_EQ(9uz, span.size());
+	std::char_traits<char>::copy(span.data(), "work_item", span.size());
+	EXPECT_EQ("work_item", values[index]);
+	span[4] = '-';
 
-	const auto inserted = values.modify_end(begin_pos);
+	const auto inserted = values.modify_end(index);
+#ifndef NDEBUG
 	EXPECT_FALSE(values.modifying());
+#endif
 	EXPECT_EQ("work-item", inserted);
 	EXPECT_EQ(2uz, values.size());
 	EXPECT_EQ("sealed", values[0]);
 	EXPECT_EQ("work-item", values[1]);
-	EXPECT_EQ((std::vector<std::size_t>{0, 7}), values.starts());
-	EXPECT_THROW(values.modify_push_back(begin_pos, 'x'), std::logic_error);
+	EXPECT_TRUE(std::ranges::equal(values.indices(), std::array{6uz, 16uz}));
+	EXPECT_EQ(16uz, values.indices().back());
+	EXPECT_EQ(values.storage_size() - 1, values.indices().back());
+#ifndef NDEBUG
+	EXPECT_THROW((void)values.modify_end(index), std::logic_error);
+#endif
 }
 
 TEST(VectorString, RejectsEmbeddedSeparatorsAndNestedModification) {
@@ -233,13 +299,20 @@ TEST(VectorString, RejectsEmbeddedSeparatorsAndNestedModification) {
 
 	EXPECT_THROW((void)values.push_back(std::string_view{"a\0b", 3}), std::invalid_argument);
 
-	const auto begin_pos = values.modify_begin();
+	const auto index = values.modify_begin(5);
+#ifndef NDEBUG
 	EXPECT_THROW((void)values.modify_begin(), std::logic_error);
-	EXPECT_THROW(values.modify_push_back(begin_pos, '\0'), std::invalid_argument);
+#endif
 
-	values.modify_append(begin_pos, "valid");
-	EXPECT_EQ("valid", values.modify_end(begin_pos));
-	EXPECT_THROW((void)values.modify_end(begin_pos), std::logic_error);
+	auto span = values.span_at(index);
+	std::char_traits<char>::copy(span.data(), "a\0bcd", span.size());
+	EXPECT_THROW((void)values.modify_end(index), std::invalid_argument);
+
+	std::char_traits<char>::copy(span.data(), "valid", span.size());
+	EXPECT_EQ("valid", values.modify_end(index));
+#ifndef NDEBUG
+	EXPECT_THROW((void)values.modify_end(index), std::logic_error);
+#endif
 }
 
 TEST(Unicode, ConvertsUtf8Utf16AndUtf32RoundTrips) {

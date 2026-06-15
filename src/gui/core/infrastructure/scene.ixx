@@ -50,6 +50,7 @@ import mo_yanxi.allocator_aware_unique_ptr;
 import mo_yanxi.flat_set;
 import mo_yanxi.fixed_vector;
 import mo_yanxi.call_stream;
+import mo_yanxi.double_buffer;
 
 namespace mo_yanxi::gui{
 std::thread::id exchange_scene_thread(scene& s, std::thread::id id);
@@ -101,45 +102,6 @@ public:
 
 	altitude_t get_max() const noexcept {
 		return max_used_;
-	}
-};
-
-template <typename T>
-struct double_buffer{
-private:
-	bool cur{};
-	T buf_[2]{};
-public:
-
-	constexpr double_buffer() = default;
-
-	template <typename ...Args>
-		requires (std::constructible_from<T, const Args&...>)
-	constexpr explicit double_buffer(const Args& ...args) : buf_{T(args...), T(args...)}{
-
-	}
-
-	template <typename S>
-	constexpr auto&& get_cur(this S&& self) noexcept{
-		return std::forward_like<S>(self.buf_[self.cur]);
-	}
-
-	void clear() noexcept{
-		buf_[0].clear();
-		buf_[1].clear();
-	}
-
-	template <typename S>
-	constexpr auto&& get_bak(this S&& self) noexcept{
-		return std::forward_like<S>(self.buf_[!self.cur]);
-	}
-
-	constexpr void swap() noexcept{
-		cur = !cur;
-	}
-
-	constexpr void swap_internal() noexcept{
-		std::ranges::swap(buf_[0], buf_[1]);
 	}
 };
 
@@ -335,6 +297,8 @@ public:
 	UI_MAIN_THREAD_ACCESS_ONLY style::style_tree_manager style_tree_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY react_flow::node_holder_pinned<i18n_text_root_node> i18n_prov{};
+
+	UI_MAIN_THREAD_ACCESS_ONLY audio::audio_channel audio_channel_;
 	UI_MAIN_THREAD_ACCESS_ONLY audio::audio_resource_index audio_resources_;
 
 	/**
@@ -357,6 +321,14 @@ public:
 		return audio_resources_;
 	}
 
+	[[nodiscard]] audio::audio_channel& audio_channel() noexcept{
+		return audio_channel_;
+	}
+
+	[[nodiscard]] const audio::audio_channel& audio_channel() const noexcept{
+		return audio_channel_;
+	}
+
 	template <typename Target, std::invocable<Target&, std::string_view> ApplyFn>
 	decltype(auto) bind_i18n(i18n::text_subscription&& subscription, Target& tgt, ApplyFn&& fn) noexcept{
 		return i18n::bind_i18n_text(i18n_prov.node, tgt, std::move(subscription), std::forward<ApplyFn>(fn));
@@ -364,18 +336,20 @@ public:
 
 	scene_resources() = delete;
 
-	[[nodiscard]] explicit scene_resources(audio::audio_system& system)
-		: audio_resources_(system){
-	}
-
-	[[nodiscard]] scene_resources(audio::audio_system& system, mr::heap&& heap)
-		: heap(std::move(heap)),
-		  style_tree_manager(init_style_tree_manager_()),
+	[[nodiscard]] scene_resources(audio::audio_system& system, audio::audio_channel audio_channel)
+		: audio_channel_(audio_channel),
 		  audio_resources_(system){
 	}
 
-	[[nodiscard]] scene_resources(audio::audio_system& system, mr::arena_id_t arena_id)
-		: scene_resources{system, mr::heap{arena_id}}{
+	[[nodiscard]] scene_resources(audio::audio_system& system, audio::audio_channel audio_channel, mr::heap&& heap)
+		: heap(std::move(heap)),
+		  style_tree_manager(init_style_tree_manager_()),
+		  audio_channel_(audio_channel),
+		  audio_resources_(system){
+	}
+
+	[[nodiscard]] scene_resources(audio::audio_system& system, audio::audio_channel audio_channel, mr::arena_id_t arena_id)
+		: scene_resources{system, audio_channel, mr::heap{arena_id}}{
 	}
 };
 

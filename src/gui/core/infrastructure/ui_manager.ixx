@@ -48,9 +48,12 @@ private:
 	std::atomic<scene*> focus{nullptr};
 
 public:
-	scene_resources& add_scene_resources(std::string_view name, audio::audio_system& audio_system){
+	scene_resources& add_scene_resources(
+		std::string_view name,
+		audio::audio_system& audio_system,
+		audio::audio_channel audio_channel){
 		std::lock_guard lock(resources_mutex_);
-		return resources.try_emplace(name, audio_system, get_arena_id()).first->second;
+		return resources.try_emplace(name, audio_system, audio_channel, get_arena_id()).first->second;
 	}
 
 	scene* switch_scene_to(std::string_view name) noexcept{

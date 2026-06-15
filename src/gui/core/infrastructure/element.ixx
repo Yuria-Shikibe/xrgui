@@ -240,7 +240,11 @@ private:
 		if(!audio_resource_){
 			return false;
 		}
-		return audio_resource_->play_detached(std::move(settings));
+		const auto resource = audio_resource_->load_now();
+		if(!resource){
+			return false;
+		}
+		return get_scene().resources().audio_channel().play_detached(resource, std::move(settings));
 	}
 
 	[[nodiscard]] audio::playback_control_handle play_audio_controlled(
@@ -249,7 +253,11 @@ private:
 		if(!audio_resource_){
 			return {};
 		}
-		return audio_resource_->play_controlled(std::move(settings), options);
+		const auto resource = audio_resource_->load_now();
+		if(!resource){
+			return {};
+		}
+		return get_scene().resources().audio_channel().play_controlled(resource, std::move(settings), options);
 	}
 
 	void play_audio_from_scene_proxy() const{
