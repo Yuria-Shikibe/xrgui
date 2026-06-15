@@ -300,7 +300,6 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 			loop.get_ctx(),
 			loop.get_renderer().create_frontend(),
 			image_atlas,
-			audio_system,
 			ui_audio_channel,
 			loop.get_window_dispatcher());
 		auto& scene = *ui_providers.scene_ptr;

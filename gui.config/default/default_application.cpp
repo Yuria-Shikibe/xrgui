@@ -253,7 +253,7 @@ struct default_application::state{
 
 	builtin::main_loop_init_return_t initialize_scene(default_application_loop& loop){
 		auto& ui_root = gui::global::manager;
-		auto& resources = ui_root.add_scene_resources(default_scene_name, audio(), ui_audio_channel);
+		auto& resources = ui_root.add_scene_resources(default_scene_name, ui_audio_channel);
 		auto style_pal_prov = builtin::make_styles(resources);
 
 		const auto scene_add_rst = ui_root.add_scene<builtin::example_scene, gui::loose_group>(
@@ -321,7 +321,7 @@ struct default_application::state{
 	}
 
 	void pump_audio_events(){
-		if(!audio_system || scene_ptr == nullptr){
+		if(!audio_system){
 			return;
 		}
 
@@ -335,11 +335,7 @@ struct default_application::state{
 				log::warn({"Audio"}, "audio backend error");
 			}
 		}
-
-		auto events = std::exchange(pending_audio_events, {});
-		scene_ptr->get_input_communicate_async_task_queue().post([events = std::move(events)](gui::scene& scene){
-			scene.resources().audio_resources().consume_audio_events(events);
-		});
+		pending_audio_events.clear();
 	}
 
 	void clear_scene() noexcept{

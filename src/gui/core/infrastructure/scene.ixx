@@ -31,12 +31,12 @@ import mo_yanxi.concurrent.mpsc_queue;
 import mo_yanxi.heterogeneous;
 import mo_yanxi.circular_queue;
 import mo_yanxi.log;
-import mo_yanxi.audio.resources;
+import mo_yanxi.audio;
 
 export import mo_yanxi.gui.util;
 export import mo_yanxi.gui.util.task_queue;
 export import mo_yanxi.gui.style.tree.manager;
-export import mo_yanxi.audio.resources;
+export import mo_yanxi.audio;
 
 export import mo_yanxi.input_handle;
 export import mo_yanxi.input_handle.input_event_queue;
@@ -299,7 +299,6 @@ public:
 	UI_MAIN_THREAD_ACCESS_ONLY react_flow::node_holder_pinned<i18n_text_root_node> i18n_prov{};
 
 	UI_MAIN_THREAD_ACCESS_ONLY audio::audio_channel audio_channel_;
-	UI_MAIN_THREAD_ACCESS_ONLY audio::audio_resource_index audio_resources_;
 
 	/**
 	 * @brief Install the backend communicator used by GUI elements.
@@ -311,14 +310,6 @@ public:
 	void set_native_communicator(Args&& ...args){
 		communicator_ = mo_yanxi::make_allocate_aware_poly_unique<Ty, native_communicator>(
 			mr::heap_allocator<native_communicator>{heap.get()}, std::forward<Args>(args)...);
-	}
-
-	[[nodiscard]] audio::audio_resource_index& audio_resources() noexcept{
-		return audio_resources_;
-	}
-
-	[[nodiscard]] const audio::audio_resource_index& audio_resources() const noexcept{
-		return audio_resources_;
 	}
 
 	[[nodiscard]] audio::audio_channel& audio_channel() noexcept{
@@ -336,20 +327,18 @@ public:
 
 	scene_resources() = delete;
 
-	[[nodiscard]] scene_resources(audio::audio_system& system, audio::audio_channel audio_channel)
-		: audio_channel_(audio_channel),
-		  audio_resources_(system){
+	[[nodiscard]] explicit scene_resources(audio::audio_channel audio_channel)
+		: audio_channel_(audio_channel){
 	}
 
-	[[nodiscard]] scene_resources(audio::audio_system& system, audio::audio_channel audio_channel, mr::heap&& heap)
+	[[nodiscard]] scene_resources(audio::audio_channel audio_channel, mr::heap&& heap)
 		: heap(std::move(heap)),
 		  style_tree_manager(init_style_tree_manager_()),
-		  audio_channel_(audio_channel),
-		  audio_resources_(system){
+		  audio_channel_(audio_channel){
 	}
 
-	[[nodiscard]] scene_resources(audio::audio_system& system, audio::audio_channel audio_channel, mr::arena_id_t arena_id)
-		: scene_resources{system, audio_channel, mr::heap{arena_id}}{
+	[[nodiscard]] scene_resources(audio::audio_channel audio_channel, mr::arena_id_t arena_id)
+		: scene_resources{audio_channel, mr::heap{arena_id}}{
 	}
 };
 

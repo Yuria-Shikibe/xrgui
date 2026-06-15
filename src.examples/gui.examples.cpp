@@ -648,11 +648,10 @@ ui_outputs build_main_ui(
 	backend::vulkan::context& ctx,
 	renderer_frontend renderer,
 	graphic::image_atlas& image_atlas,
-	audio::audio_system& audio_system,
 	audio::audio_channel audio_channel,
 	window_thread_dispatcher& window_dispatcher){
 	auto& ui_root = global::manager;
-	auto& res = ui_root.add_scene_resources("main", audio_system, audio_channel);
+	auto& res = ui_root.add_scene_resources("main", audio_channel);
 	auto style_pal_prov = make_styles(res);
 
 	const auto scene_add_rst = ui_root.add_scene<example_scene, loose_group>("main", res, true, std::move(renderer));

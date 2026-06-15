@@ -498,7 +498,6 @@ void scene_base::update(double delta_in_tick){
 	const auto delta_in_tick_f = static_cast<float>(delta_in_tick);
 	native_gui_callbacks_->consume();
 	input_communicate_async_task_queue_.consume(static_cast<scene&>(*this));
-	resources_->audio_resources().maintain();
 
 	react_flow_.update();
 	if(async_task_queue_)async_task_queue_->process_done();
