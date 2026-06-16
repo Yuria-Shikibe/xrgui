@@ -371,35 +371,30 @@ bool elem::parent_contain_constrain(const math::vec2 pos_relative) const noexcep
 
 bool elem::is_focused_scroll() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.focus_scroll == this;
+	return scene_->input_handler_.is_scroll_focus(this);
 }
 
 bool elem::is_focused_key() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.focus_key == this;
+	return scene_->input_handler_.is_key_focus(this);
 }
 
 bool elem::is_focused() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.focus_cursor == this;
+	return scene_->input_handler_.is_cursor_focus(this);
 }
 
 bool elem::is_inbounded() const noexcept{
 	assert(scene_ != nullptr);
-	return std::ranges::contains(scene_->input_handler_.get_inbounds(), this);
+	return scene_->input_handler_.contains_inbound(this);
 }
 
 void elem::set_focused_scroll(const bool focus) noexcept{
-	if(!focus && !is_focused_scroll()) return;
-	this->scene_->input_handler_.focus_scroll = focus ? this : nullptr;
+	this->scene_->input_handler_.set_scroll_focus(this, focus);
 }
 
 void elem::set_focused_key(const bool focus) noexcept{
-	if(focus){
-		get_scene().input_handler_.switch_key_focus(this);
-	} else if(is_focused_key()){
-		get_scene().input_handler_.switch_key_focus(nullptr);
-	}
+	get_scene().input_handler_.set_key_focus(this, focus);
 }
 
 void elem::relocate_scene(scene& target_scene) noexcept{

@@ -868,12 +868,12 @@ void text_edit::set_focus(bool keyFocused){
 			set_text_internal(U"");
 		}
 
-		if(auto map = get_scene().find_input(text_edit_key_binding_name)){
-			auto& kmap = dynamic_cast<text_edit_key_binding&>(*map);
+		if(auto* map = get_scene().find_input_mapping<text_edit_key_binding>(text_edit_key_binding_name)){
+			auto& kmap = *map;
 			kmap.set_context(std::ref(*this));
 			kmap.set_activated(true);
 		} else{
-			auto& kmap = get_scene().get_inputs().register_sub_input<text_edit_key_binding>(text_edit_key_binding_name);
+			auto& kmap = get_scene().register_input_mapping<text_edit_key_binding>(text_edit_key_binding_name);
 			kmap.use_default_setting();
 			kmap.set_context(std::ref(*this));
 			kmap.set_activated(true);
@@ -892,8 +892,8 @@ void text_edit::set_focus(bool keyFocused){
 			set_text_internal(hint_text_when_idle_);
 		}
 
-		if(auto map = get_scene().find_input(text_edit_key_binding_name)){
-			auto& kmap = dynamic_cast<text_edit_key_binding&>(*map);
+		if(auto* map = get_scene().find_input_mapping<text_edit_key_binding>(text_edit_key_binding_name)){
+			auto& kmap = *map;
 			auto [host] = kmap.get_context();
 			if(host && &host.get() == this){
 				kmap.set_context(text_edit_key_binding::context_tuple_t{});

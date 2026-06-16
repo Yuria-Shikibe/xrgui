@@ -27,45 +27,7 @@ template <std::invocable<input_handle::input_event_variant> UnhandledFn>
 void consume(scene& f, std::span<const input_handle::input_event_variant> events, UnhandledFn&& fn) {
 	using namespace input_handle;
 	for(const auto& ev : events){
-
-		events::dispatch_result status = events::dispatch_result::handled;
-
-		switch(ev.type){
-		case input_event_type::input_key:
-			status = f.handle_key_input(ev.input_key);
-			break;
-		case input_event_type::input_mouse:
-			status = f.handle_mouse_input(ev.input_key);
-			break;
-		case input_event_type::input_scroll:
-			status = f.handle_scroll(ev.cursor);
-			break;
-		case input_event_type::input_u32:
-			status = f.handle_text_input(ev.input_char);
-			break;
-		case input_event_type::input_ime_composition:
-			status = f.handle_ime_composition(ev.ime_composition);
-			break;
-		case input_event_type::cursor_move:
-			status = f.handle_cursor_move(ev.cursor);
-			break;
-
-
-		case input_event_type::cursor_inbound:
-			f.on_inbound_changed(ev.is_inbound);
-			status = events::dispatch_result::handled;
-			break;
-		case input_event_type::focus_lost:
-			f.on_focus_lost();
-			status = events::dispatch_result::handled;
-			break;
-		case input_event_type::frame_split:
-			f.update(std::chrono::duration_cast<std::chrono::duration<double, std::ratio<1, 60>>>(ev.frame_delta_time).count());
-			status = events::dispatch_result::handled;
-			break;
-		}
-
-
+		const events::dispatch_result status = f.handle_input_event(ev);
 		if(status == events::dispatch_result::unhandled){
 			std::invoke(fn, ev);
 		}

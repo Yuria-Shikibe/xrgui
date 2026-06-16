@@ -53,7 +53,7 @@ struct input_event_variant{
 	bool is_inbound{};
 	std::chrono::duration<double> frame_delta_time{};
 	ime_composition_event ime_composition{};
-	std::chrono::steady_clock::time_point timestamp{std::chrono::steady_clock::now()};
+	std::chrono::steady_clock::time_point timestamp{};
 };
 
 export

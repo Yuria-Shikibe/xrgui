@@ -147,12 +147,12 @@ public:
 
 	[[nodiscard]] bool is_scroll_idle() const noexcept{
 		scene* current_focus = focus.load(std::memory_order_acquire);
-		return !current_focus || current_focus->input_handler_.focus_scroll == nullptr;
+		return !current_focus || !current_focus->has_scroll_focus();
 	}
 
 	[[nodiscard]] bool is_focus_idle() const noexcept{
 		scene* current_focus = focus.load(std::memory_order_acquire);
-		return !current_focus || current_focus->input_handler_.focus_cursor == nullptr;
+		return !current_focus || !current_focus->has_cursor_focus();
 	}
 
 	[[nodiscard]] mr::arena_id_t get_arena_id() const{

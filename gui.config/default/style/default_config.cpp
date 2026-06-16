@@ -263,7 +263,7 @@ void example_scene::draw_impl(rect clip){
 		}
 	}
 
-	if(input_handler_.inputs_.is_cursor_inbound()){
+	if(input_handler_.is_cursor_inbound()){
 		renderer().update_state(fx::pipeline_config{
 				.pipeline_index = gpip::idx::cursor_outline,
 				.draw_targets = {0b1}
