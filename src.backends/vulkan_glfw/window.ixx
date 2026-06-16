@@ -10,6 +10,7 @@ import mo_yanxi.backend.glfw.window.callback;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.platform.glfw;
 import mo_yanxi.vk.util;
+import mo_yanxi.input_handle.input_event_queue;
 
 namespace mo_yanxi{
 //TODO set according to user monitor
@@ -104,6 +105,20 @@ public:
 
 	[[nodiscard]] GLFWwindow* get_handle() const noexcept{ return handle; }
 
+	void set_input_sink(input_handle::input_sink* sink) noexcept{
+		input_sink_ = sink;
+	}
+
+	[[nodiscard]] input_handle::input_sink* get_input_sink() const noexcept{
+		return input_sink_;
+	}
+
+	void push_input_event(input_handle::raw_input_event event) const{
+		if(input_sink_ != nullptr){
+			input_sink_->push(std::move(event));
+		}
+	}
+
 	[[nodiscard]] VkExtent2D get_size() const noexcept{
 		return size;
 	}
@@ -180,20 +195,24 @@ public:
 		:
 		handle{std::move(other.handle)},
 		size{std::move(other.size)},
+		input_sink_{other.input_sink_},
 		current_mode{other.current_mode},
 		last_windowed_geo{other.last_windowed_geo}{
 		if(handle) backend::glfw::set_call_back(handle, this);
+		other.input_sink_ = nullptr;
 	}
 
 	window_instance& operator=(window_instance&& other) noexcept{
 		if(this == &other) return *this;
 		handle = std::move(other.handle);
 		size = std::move(other.size);
+		input_sink_ = other.input_sink_;
 		// 移动新增的状态
 		current_mode = other.current_mode;
 		last_windowed_geo = other.last_windowed_geo;
 
 		if(handle) backend::glfw::set_call_back(handle, this);
+		other.input_sink_ = nullptr;
 		return *this;
 	}
 
@@ -209,6 +228,7 @@ private:
 	exclusive_handle_member<GLFWwindow*> handle{};
 	VkExtent2D size{};
 	bool lazy_resized_check{};
+	input_handle::input_sink* input_sink_{};
 
 	window_mode current_mode{window_mode::windowed};
 	window_geometry last_windowed_geo{};
