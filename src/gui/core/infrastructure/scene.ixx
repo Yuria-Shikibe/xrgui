@@ -387,10 +387,35 @@ struct input{
 		events::op_afterwards op;
 		style::cursor_style style;
 	};
+
+	struct audio_request{
+		const elem* element{};
+		sound::play_event event{};
+		sound::play_priority priority{};
+	};
+
+	struct audio_request_transaction{
+		const input* owner{};
+
+		[[nodiscard]] explicit audio_request_transaction(const input& target) noexcept;
+
+		audio_request_transaction(const audio_request_transaction&) = delete;
+		audio_request_transaction& operator=(const audio_request_transaction&) = delete;
+
+		[[nodiscard]] audio_request_transaction(audio_request_transaction&& other) noexcept;
+
+		audio_request_transaction& operator=(audio_request_transaction&& other);
+
+		~audio_request_transaction() noexcept(false);
+	};
+
 	std::array<mouse_state, std::to_underlying(input_handle::mouse::Count)> mouse_states_{};
 	input_handle::input_manager<scene&> inputs_{};
 	double_buffer<mr::heap_vector<elem*>> inbounds_{};
 	linear_flat_set<mr::heap_vector<elem*>> cursor_event_active_elems_{};
+
+	mutable std::optional<audio_request> pending_audio_request_{};
+	mutable std::uint32_t audio_request_transaction_depth_{};
 
 	elem* focus_scroll{nullptr};
 	elem* focus_cursor{nullptr};
@@ -403,8 +428,16 @@ struct input{
 		inbounds_{alloc}, cursor_event_active_elems_{alloc} {
 	}
 
+	void begin_audio_request_transaction() const noexcept;
+	void end_audio_request_transaction() const;
+
+	[[nodiscard]] audio_request_transaction make_audio_request_transaction() const noexcept{
+		return audio_request_transaction{*this};
+	}
+
+	void request_audio(const elem* element, sound::play_event event, sound::play_priority priority) const;
 	void update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manager& tooltip) noexcept;
-	void play_audio_for_intercepted(elem* element, sound::play_event event) const;
+	void play_audio_for_intercepted(const elem* element, sound::play_event event) const;
 
 	void drop_event_focus(const elem* target) noexcept{
 		if(focus_scroll == target)focus_scroll = nullptr;
@@ -473,6 +506,9 @@ struct input{
 	style::cursor_style get_cursor_style(math::vec2 cursor_local_pos) const;
 
 	style::cursor_style get_cursor_style() const;
+
+private:
+	void flush_audio_request_() const;
 };
 
 struct scene_deleter{
@@ -961,6 +997,14 @@ public:
 		return *resources_;
 	}
 
+	void request_audio_from_scene_proxy(
+		const elem& element,
+		const sound::play_event event,
+		const sound::play_priority priority = sound::play_priority::input) const{
+		assert(is_on_scene_thread(*this));
+		input_handler_.request_audio(std::addressof(element), event, priority);
+	}
+
 	void notify_display_state_changed(elem_tree_channel channel) noexcept{
 		assert(is_on_scene_thread(*this));
 		if(channel == elem_tree_channel::deduced){
@@ -1091,6 +1135,7 @@ public:
 
 	events::op_afterwards on_cursor_move(math::vec2 pos){
 		assert(is_on_scene_thread(*this));
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
 		input_handler_.inputs_.cursor_move_inform(pos);
 		auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
 		current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
@@ -1099,6 +1144,7 @@ public:
 
 	events::op_afterwards on_mouse_input(const input_handle::key_set key){
 		assert(is_on_scene_thread(*this));
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
 		input_handler_.inputs_.inform(key);
 		switch(overlay_manager_.handle_external_press(input_handler_.inputs_.cursor_pos(), key)){
 		case overlay_external_press_result::ignored:
@@ -1125,21 +1171,25 @@ public:
 
 	events::op_afterwards on_unicode_input(char32_t val) const{
 		assert(is_on_scene_thread(*this));
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
 		return input_handler_.on_unicode_input(val);
 	}
 
 	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) const{
 		assert(is_on_scene_thread(*this));
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
 		return input_handler_.on_ime_composition(event);
 	}
 
 	events::op_afterwards on_scroll(const math::vec2 scroll) const{
 		assert(is_on_scene_thread(*this));
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
 		return input_handler_.on_scroll(scroll);
 	}
 
 	events::op_afterwards on_key_input(input_handle::key_set key){
 		assert(is_on_scene_thread(*this));
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
 		switch(input_handler_.on_key_input(key)){
 		case scene_submodule::input_key_result::intercepted :
 			return events::op_afterwards::intercepted;

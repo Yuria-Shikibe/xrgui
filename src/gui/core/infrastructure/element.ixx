@@ -278,7 +278,7 @@ private:
 
 	void play_audio_from_scene_proxy(sound::play_event event) const{
 		if(scene_audio_auto_proxy){
-			static_cast<void>(play_audio_detached(event));
+			get_scene().request_audio_from_scene_proxy(*this, event);
 		}
 	}
 
@@ -1002,11 +1002,25 @@ public:
 	}
 
 	virtual bool set_toggled(bool isToggled){
-		return util::try_modify(toggled, isToggled);
+		if(util::try_modify(toggled, isToggled)){
+			get_scene().request_audio_from_scene_proxy(
+				*this,
+				isToggled ? sound::play_event::on_toggle_on : sound::play_event::on_toggle_off,
+				sound::play_priority::state);
+			return true;
+		}
+		return false;
 	}
 
 	virtual bool set_disabled(bool isDisabled){
-		return util::try_modify(disabled, isDisabled);
+		if(util::try_modify(disabled, isDisabled)){
+			get_scene().request_audio_from_scene_proxy(
+				*this,
+				isDisabled ? sound::play_event::on_disable : sound::play_event::on_enable,
+				sound::play_priority::state);
+			return true;
+		}
+		return false;
 	}
 
 	virtual style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept{

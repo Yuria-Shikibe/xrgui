@@ -15,6 +15,15 @@ export enum class play_event : std::size_t{
 	on_key,
 	on_text_input,
 	on_ime_composition,
+	on_toggle_on,
+	on_toggle_off,
+	on_disable,
+	on_enable,
+};
+
+export enum class play_priority : std::uint8_t{
+	input,
+	state,
 };
 
 export constexpr inline std::string_view default_asset_group_name{"default"};

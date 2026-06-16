@@ -29,10 +29,89 @@ namespace{
 
 }
 
-void input::play_audio_for_intercepted(elem* element, sound::play_event event) const{
-	if(element != nullptr && !element->is_disabled()){
-		element->play_audio_from_scene_proxy(event);
+input::audio_request_transaction::audio_request_transaction(const input& target) noexcept
+	: owner(std::addressof(target)){
+	owner->begin_audio_request_transaction();
+}
+
+input::audio_request_transaction::audio_request_transaction(audio_request_transaction&& other) noexcept
+	: owner(std::exchange(other.owner, nullptr)){
+}
+
+input::audio_request_transaction& input::audio_request_transaction::operator=(
+	audio_request_transaction&& other){
+	if(this != std::addressof(other)){
+		if(owner != nullptr){
+			owner->end_audio_request_transaction();
+		}
+		owner = std::exchange(other.owner, nullptr);
 	}
+	return *this;
+}
+
+input::audio_request_transaction::~audio_request_transaction() noexcept(false){
+	if(owner != nullptr){
+		owner->end_audio_request_transaction();
+	}
+}
+
+void input::play_audio_for_intercepted(const elem* element, sound::play_event event) const{
+	if(element != nullptr && !element->is_disabled()){
+		request_audio(element, event, sound::play_priority::input);
+	}
+}
+
+void input::begin_audio_request_transaction() const noexcept{
+	++audio_request_transaction_depth_;
+}
+
+void input::end_audio_request_transaction() const{
+	assert(audio_request_transaction_depth_ > 0);
+	if(audio_request_transaction_depth_ == 0){
+		return;
+	}
+	--audio_request_transaction_depth_;
+	if(audio_request_transaction_depth_ == 0){
+		flush_audio_request_();
+	}
+}
+
+void input::request_audio(
+	const elem* element,
+	const sound::play_event event,
+	const sound::play_priority priority) const{
+	if(element == nullptr || !element->scene_audio_auto_proxy){
+		return;
+	}
+	if(!element->get_audio_asset_(event)){
+		if(pending_audio_request_
+			&& std::to_underlying(priority) >= std::to_underlying(pending_audio_request_->priority)){
+			pending_audio_request_.reset();
+		}
+		return;
+	}
+
+	if(pending_audio_request_
+		&& std::to_underlying(priority) < std::to_underlying(pending_audio_request_->priority)){
+		return;
+	}
+
+	pending_audio_request_ = audio_request{
+		.element = element,
+		.event = event,
+		.priority = priority
+	};
+	if(audio_request_transaction_depth_ == 0){
+		flush_audio_request_();
+	}
+}
+
+void input::flush_audio_request_() const{
+	auto request = std::exchange(pending_audio_request_, std::nullopt);
+	if(!request || request->element == nullptr){
+		return;
+	}
+	static_cast<void>(request->element->play_audio_detached(request->event));
 }
 
 void action_queue::update(float delta_in_tick) noexcept{
