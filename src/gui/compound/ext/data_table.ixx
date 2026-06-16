@@ -573,66 +573,70 @@ public:
 		: scroll_adaptor(scene, parent, layout::layout_specifier::fixed(layout::layout_policy::none)){
 	}
 
-	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.action == input_handle::act::press){
-			auto ret = scroll_adaptor::on_click(event, aboves);
-			if(ret == events::op_afterwards::intercepted){
-				return ret;
+			scroll_adaptor::on_pointer_button(ctx, event);
+			if(ctx.handled()){
+				return;
 			}
 
 			if(event.key.as_mouse() == input_handle::mouse::LMB && last_modified_col == no_modified){
 				const auto delta = get_scroll_offset();
-				get_item().hit_col_bound(event.pos + delta - content_src_offset(), [&](std::size_t col){
+				get_item().hit_col_bound(event.local_pos + delta - content_src_offset(), [&](std::size_t col){
 					last_modified_col = col;
 				});
 
 				if(last_modified_col != no_modified){
-					return {this};
+					ctx.consume(*this);
+					return;
 				}
 			}
 
-			return ret;
+			return;
 		}
 
-		bool intercepted = false;
+		bool handled = false;
 		if(event.key.on_release() && last_modified_col != no_modified){
 			get_item().apply_col_temp_size(last_modified_col);
 			last_modified_col = no_modified;
-			intercepted = true;
+			handled = true;
 		}
 
-		auto ret = scroll_adaptor::on_click(event, aboves);
-		if(intercepted){
-			return {this};
+		scroll_adaptor::on_pointer_button(ctx, event);
+		if(handled){
+			ctx.consume(*this);
 		}
-		return ret;
 	}
 
-	events::op_afterwards on_drag(const events::drag event) override{
+	void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event) override{
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(is_scroll_bar_drag_active() || scroll_.is_dirty()){
 			//scroll bar dragging
-			return scroll_adaptor::on_drag(event);
+			scroll_adaptor::on_pointer_drag(ctx, event);
+			return;
 		}
 
 		const auto delta = get_scroll_offset();
 		auto& table = get_item();
 
 		if(last_modified_col == no_modified){
-			table.hit_col_bound(event.src + delta - content_src_offset(), [&](std::size_t col){
-				if(table.set_col_temp_size(col, event.delta().x)){
+			table.hit_col_bound(event.local_src + delta - content_src_offset(), [&](std::size_t col){
+				if(table.set_col_temp_size(col, event.local_delta().x)){
 					last_modified_col = col;
 				}
 			});
 		}
 
 		if(last_modified_col != no_modified){
-			if(table.set_col_temp_size(last_modified_col, event.delta().x)){
+			if(table.set_col_temp_size(last_modified_col, event.local_delta().x)){
 				notify_isolated_layout_changed();
 			}
-			return events::op_afterwards::intercepted;
+			ctx.consume(*this);
+			return;
 		}
 
-		return scroll_adaptor::on_drag(event);
+		scroll_adaptor::on_pointer_drag(ctx, event);
 	}
 };
 }

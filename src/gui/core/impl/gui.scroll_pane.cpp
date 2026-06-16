@@ -125,8 +125,9 @@ namespace mo_yanxi::gui{
 		});
 	}
 
-	events::op_afterwards scroll_adaptor_base::on_scroll(const events::scroll e, std::span<elem* const> aboves){
-		if(!(is_hori_scroll_active() || is_vert_scroll_active()))return events::op_afterwards::fall_through;
+	void scroll_adaptor_base::on_wheel(events::event_context& ctx, const events::wheel_event& e){
+		if(!ctx.is_target_or_bubble_phase()) return;
+		if(!(is_hori_scroll_active() || is_vert_scroll_active()))return;
 		util::update_insert(
 			*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 		auto cmp = -e.delta;
@@ -156,22 +157,23 @@ namespace mo_yanxi::gui{
 
 		scroll_velocity_ = scroll_target_velocity_;
 
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
 	}
 
-	events::op_afterwards scroll_adaptor_base::on_drag(const events::drag e){
+	void scroll_adaptor_base::on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& e){
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(e.key.as_mouse() != input_handle::mouse::LMB){
-			return events::op_afterwards::fall_through;
+			return;
 		}
 
-		if(!scroll_bar_dragging_ && !is_scroll_bar_drag_hit(e.src)){
-			return events::op_afterwards::fall_through;
+		if(!scroll_bar_dragging_ && !is_scroll_bar_drag_hit(e.local_src)){
+			return;
 		}
 
 		scroll_bar_dragging_ = true;
 		util::update_insert(*this, update_channel::position | (overlay_scroll_bars_ ? update_channel::draw : update_channel{}));
 		scroll_target_velocity_ = scroll_velocity_ = {};
-		const auto trans = e.delta() * get_vel_clamp();
+		const auto trans = e.local_delta() * get_vel_clamp();
 
 		const auto blank = get_viewport_extent() - math::vec2{bar_hori_length(), bar_vert_length()};
 		auto rst = scroll_.base + (trans / blank) * scrollable_extent();
@@ -185,6 +187,6 @@ namespace mo_yanxi::gui{
 			require_scene_cursor_update();
 		}
 
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
 	}
 }

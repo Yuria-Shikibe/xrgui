@@ -130,7 +130,7 @@ public:
 		dropped.clear();
 	}
 
-	events::op_afterwards on_esc();
+	events::dispatch_result on_esc();
 
 	[[nodiscard]] std::span<const tooltip_draw_info> get_draw_sequence() const{
 		return drawSequence;

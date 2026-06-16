@@ -155,6 +155,49 @@ elem::elem(scene& scene, elem* parent) noexcept :
 	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
 }
 
+void elem::on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event){
+	if(!ctx.is_target_or_bubble_phase()){
+		return;
+	}
+	if(!is_interactable()){
+		return;
+	}
+	if(is_focused()){
+		cursor_states_.update_press(event.key);
+	}
+}
+
+void elem::on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event){
+	(void)ctx;
+	(void)event;
+}
+
+void elem::on_pointer_move(events::event_context& ctx, const events::pointer_move_event& event){
+	if(ctx.is_target_or_bubble_phase()){
+		on_cursor_moved(event);
+	}
+}
+
+void elem::on_wheel(events::event_context& ctx, const events::wheel_event& event){
+	(void)ctx;
+	(void)event;
+}
+
+void elem::on_key(events::event_context& ctx, const events::key_event& event){
+	(void)ctx;
+	(void)event;
+}
+
+void elem::on_text(events::event_context& ctx, const events::text_event& event){
+	(void)ctx;
+	(void)event;
+}
+
+void elem::on_ime(events::event_context& ctx, const events::ime_event& event){
+	(void)ctx;
+	(void)event;
+}
+
 void elem::load_default_resources(){
 	sync_run([](elem& elem){
 		elem.sound_group = elem.get_sound_manager().lookup(sound::default_asset_group_name);
@@ -432,13 +475,13 @@ void elem::relocate_self_scene(scene& target_scene) noexcept{
 	scene_->incr_ref_count_();
 }
 
-events::op_afterwards util::thoroughly_esc(elem* where) noexcept{
+events::dispatch_result util::thoroughly_esc(elem* where) noexcept{
 	while(where){
-		if(where->on_esc() == events::op_afterwards::intercepted){
-			return events::op_afterwards::intercepted;
+		if(where->on_esc() == events::dispatch_result::handled){
+			return events::dispatch_result::handled;
 		}
 		where = where->parent();
 	}
-	return events::op_afterwards::fall_through;
+	return events::dispatch_result::unhandled;
 }
 }

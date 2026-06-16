@@ -27,6 +27,72 @@ namespace{
 	}
 }
 
+struct scene_event_router{
+	[[nodiscard]] static mr::heap_vector<elem*> collect_ancestor_path(elem& target){
+		auto path = mr::heap_vector<elem*>{target.get_scene().get_heap_allocator<elem*>()};
+		for(elem* current = std::addressof(target); current != nullptr; current = current->parent()){
+			path.push_back(current);
+		}
+		std::ranges::reverse(path);
+		return path;
+	}
+
+	template <typename MakeEvent, typename Handler>
+	[[nodiscard]] static events::event_control dispatch_path(
+		std::span<elem* const> path,
+		const events::gui_event_type type,
+		MakeEvent&& make_event,
+		Handler handler){
+		events::event_control control{};
+		if(path.empty()){
+			return control;
+		}
+
+		elem* const target = path.back();
+
+		auto invoke_one = [&](elem& current, const events::event_phase phase){
+			events::event_context ctx{
+				events::event_route{
+					.type = type,
+					.phase = phase,
+					.target = target,
+					.current = std::addressof(current),
+					.path = path
+				},
+				control
+			};
+			auto event = std::invoke(make_event, current);
+			std::invoke(handler, current, ctx, event);
+		};
+
+		for(elem* current : path){
+			invoke_one(*current, events::event_phase::preview);
+			if(control.propagation_stopped()){
+				break;
+			}
+		}
+
+		if(!control.propagation_stopped()){
+			invoke_one(*target, events::event_phase::target);
+		}
+
+		if(!control.propagation_stopped() && path.size() > 1){
+			for(auto current = std::next(path.rbegin()); current != path.rend(); ++current){
+				invoke_one(**current, events::event_phase::bubble);
+				if(control.propagation_stopped()){
+					break;
+				}
+			}
+		}
+
+		if(!control.default_prevented()){
+			invoke_one(*target, events::event_phase::default_action);
+		}
+
+		return control;
+	}
+};
+
 }
 
 input::audio_request_transaction::audio_request_transaction(const input& target) noexcept
@@ -55,7 +121,7 @@ input::audio_request_transaction::~audio_request_transaction() noexcept(false){
 	}
 }
 
-void input::play_audio_for_intercepted(const elem* element, sound::play_event event) const{
+void input::play_audio_for_handled(const elem* element, sound::play_event event) const{
 	if(element != nullptr && !element->is_disabled()){
 		request_audio(element, event, sound::play_priority::input);
 	}
@@ -209,78 +275,153 @@ void input::swap_focus(elem* newFocus){
 	}
 }
 
-input_key_result input::on_key_input(input_handle::key_set key){
-	inputs_.inform(key);
+scene_input_dispatcher::scene_input_dispatcher(input& state) noexcept
+	: state_(state){
+}
+
+events::gui_event_type scene_input_dispatcher::key_event_type(const input_handle::act action) noexcept{
+	switch(action){
+	case input_handle::act::release:
+		return events::gui_event_type::key_up;
+	case input_handle::act::repeat:
+	case input_handle::act::continuous:
+		return events::gui_event_type::key_repeat;
+	default:
+		return events::gui_event_type::key_down;
+	}
+}
+
+events::gui_event_type scene_input_dispatcher::pointer_event_type(const input_handle::act action) noexcept{
+	switch(action){
+	case input_handle::act::release:
+		return events::gui_event_type::pointer_release;
+	case input_handle::act::double_press:
+		return events::gui_event_type::pointer_click;
+	default:
+		return events::gui_event_type::pointer_press;
+	}
+}
+
+input_key_result scene_input_dispatcher::dispatch_key_input(input_handle::key_set key) const{
+	state_.inputs_.inform(key);
 
 	if(key.action == input_handle::act::press && key.key_code == std::to_underlying(input_handle::key::esc)){
 		return input_key_result::esc_required;
-	}else{
-		if(focus_key){
-			if(focus_key->on_key_input(key) == events::op_afterwards::intercepted){
-				play_audio_for_intercepted(focus_key, sound::play_event::on_key);
-				return input_key_result::intercepted;
-			}
-		}
-
-		for (auto value : inbounds_.get_cur() | std::views::reverse){
-			if(value->on_key_input(key) == events::op_afterwards::intercepted){
-				play_audio_for_intercepted(value, sound::play_event::on_key);
-				return input_key_result::intercepted;
-			}
-		}
 	}
 
-	return input_key_result::fall_through;
+	if(!state_.focus_key){
+		return input_key_result::unhandled;
+	}
+
+	auto path = scene_event_router::collect_ancestor_path(*state_.focus_key);
+	const auto control = scene_event_router::dispatch_path(
+		std::span<elem* const>{path},
+		key_event_type(key.action),
+		[&](elem&){
+			return events::key_event{
+				.key = key
+			};
+		},
+		&elem::on_key);
+	if(control.handled()){
+		state_.play_audio_for_handled(control.handled_by(), sound::play_event::on_key);
+		return input_key_result::handled;
+	}
+	return input_key_result::unhandled;
 }
 
-events::op_afterwards input::on_unicode_input(char32_t val) const{
-	if(focus_key){
-		const auto rst = focus_key->on_unicode_input(val);
-		if(rst == events::op_afterwards::intercepted){
-			play_audio_for_intercepted(focus_key, sound::play_event::on_text_input);
-		}
-		return rst;
-	}
-	return events::op_afterwards::fall_through;
+input_key_result input::handle_key_input(input_handle::key_set key){
+	return scene_input_dispatcher{*this}.dispatch_key_input(key);
 }
 
-events::op_afterwards input::on_ime_composition(const input_handle::ime_composition_event& event) const{
-	if(focus_key){
-		const auto rst = focus_key->on_ime_composition(event);
-		if(rst == events::op_afterwards::intercepted){
-			play_audio_for_intercepted(focus_key, sound::play_event::on_ime_composition);
-		}
-		return rst;
+events::dispatch_result scene_input_dispatcher::dispatch_text_input(char32_t val) const{
+	if(!state_.focus_key){
+		return events::dispatch_result::unhandled;
 	}
-	return events::op_afterwards::fall_through;
+	auto path = scene_event_router::collect_ancestor_path(*state_.focus_key);
+	const auto control = scene_event_router::dispatch_path(
+		std::span<elem* const>{path},
+		events::gui_event_type::text_input,
+		[&](elem&){
+			return events::text_event{
+				.value = val
+			};
+		},
+		&elem::on_text);
+	if(control.handled()){
+		state_.play_audio_for_handled(control.handled_by(), sound::play_event::on_text_input);
+	}
+	return control.result();
 }
 
-events::op_afterwards input::on_scroll(math::vec2 scroll){
-	inputs_.set_scroll_offset(scroll.x, scroll.y);
-	events::scroll e{scroll, inputs_.main_binds.get_mode()};
-	//TODO provide cursor position?
+events::dispatch_result input::handle_text_input(char32_t val){
+	return scene_input_dispatcher{*this}.dispatch_text_input(val);
+}
 
-	if(focus_scroll){
-		auto rst = focus_scroll->on_scroll(e, {});
-		if(rst == events::op_afterwards::intercepted){
-			play_audio_for_intercepted(focus_scroll, sound::play_event::on_scroll);
-			return events::op_afterwards::intercepted;
+events::dispatch_result scene_input_dispatcher::dispatch_ime_composition(
+	const input_handle::ime_composition_event& ime_event) const{
+	if(!state_.focus_key){
+		return events::dispatch_result::unhandled;
+	}
+	auto path = scene_event_router::collect_ancestor_path(*state_.focus_key);
+	const auto control = scene_event_router::dispatch_path(
+		std::span<elem* const>{path},
+		events::gui_event_type::ime_composition,
+		[&](elem&){
+			return events::ime_event{
+				.composition = std::addressof(ime_event)
+			};
+		},
+		&elem::on_ime);
+	if(control.handled()){
+		state_.play_audio_for_handled(control.handled_by(), sound::play_event::on_ime_composition);
+	}
+	return control.result();
+}
+
+events::dispatch_result input::handle_ime_composition(const input_handle::ime_composition_event& event){
+	return scene_input_dispatcher{*this}.dispatch_ime_composition(event);
+}
+
+events::dispatch_result scene_input_dispatcher::dispatch_scroll(math::vec2 scroll) const{
+	state_.inputs_.set_scroll_offset(scroll.x, scroll.y);
+	const auto mode = state_.inputs_.main_binds.get_mode();
+	const auto cursor_scene_pos = state_.inputs_.cursor_pos();
+
+	auto dispatch_wheel = [&](std::span<elem* const> path){
+		return scene_event_router::dispatch_path(
+			path,
+			events::gui_event_type::wheel,
+			[&](elem& current){
+				return events::wheel_event{
+					.scene_pos = cursor_scene_pos,
+					.local_pos = util::transform_scene2local(current, cursor_scene_pos),
+					.delta = scroll,
+					.mode = mode
+				};
+			},
+			&elem::on_wheel);
+	};
+
+	if(state_.focus_scroll){
+		auto path = scene_event_router::collect_ancestor_path(*state_.focus_scroll);
+		const auto control = dispatch_wheel(std::span<elem* const>{path});
+		if(control.handled()){
+			state_.play_audio_for_handled(control.handled_by(), sound::play_event::on_scroll);
+			return control.result();
 		}
 	}
 
-	auto rng = get_inbounds();
-	auto cur = rng.rbegin();
-	while(cur != rng.rend()){
-		std::span aboves{cur.base(), rng.end()};
-		if((*cur)->on_scroll(e, aboves) != events::op_afterwards::intercepted){
-			++cur;
-		}else{
-			play_audio_for_intercepted(*cur, sound::play_event::on_scroll);
-			return events::op_afterwards::intercepted;
-		}
+	auto path = state_.get_inbounds();
+	const auto control = dispatch_wheel(path);
+	if(control.handled()){
+		state_.play_audio_for_handled(control.handled_by(), sound::play_event::on_scroll);
 	}
+	return control.result();
+}
 
-	return events::op_afterwards::fall_through;
+events::dispatch_result input::handle_scroll(math::vec2 scroll){
+	return scene_input_dispatcher{*this}.dispatch_scroll(scroll);
 }
 
 void input::on_focus_lost(){
@@ -303,87 +444,96 @@ void input::on_focus_lost(){
 	request_cursor_update();
 }
 
-events::op_afterwards input::on_mouse_input(input_handle::key_set k){
+events::dispatch_result scene_input_dispatcher::dispatch_pointer_button(input_handle::key_set k) const{
 	using namespace input_handle;
 	auto [c, a, m] = k;
 
-	if(has_passthrough_mouse_capture()){
+	if(state_.has_passthrough_mouse_capture()){
 		if(a == act::press){
-			mouse_states_[c].reset(inputs_.cursor_pos(), mouse_capture_owner::passthrough);
+			state_.mouse_states_[c].reset(state_.inputs_.cursor_pos(), mouse_capture_owner::passthrough);
 		}
 
 		if(a == act::release){
-			mouse_states_[c].clear();
-			if(!has_passthrough_mouse_capture()){
-				request_cursor_update();
+			state_.mouse_states_[c].clear();
+			if(!state_.has_passthrough_mouse_capture()){
+				state_.request_cursor_update();
 			}
 		}
 
-		return events::op_afterwards::fall_through;
+		return events::dispatch_result::unhandled;
 	}
 
-	auto result = events::event_rst{};
-	if(auto* captured_target = mouse_states_[c].capture_target();
+	const auto cursor_scene_pos = state_.inputs_.cursor_pos();
+	if(auto* captured_target = state_.mouse_states_[c].capture_target();
 		captured_target != nullptr && a == act::release){
-		result = {captured_target};
-		const auto pos = util::transform_scene2local(*captured_target, inputs_.cursor_pos());
-		const auto rst = captured_target->on_click(events::click{pos, k}, {});
-		if(rst == events::op_afterwards::intercepted){
-			if(const auto event = mouse_play_event(a)){
-				play_audio_for_intercepted(rst.e, *event);
-			}
+		auto path = scene_event_router::collect_ancestor_path(*captured_target);
+		auto control = scene_event_router::dispatch_path(
+			std::span<elem* const>{path},
+			pointer_event_type(a),
+			[&](elem& current){
+				return events::pointer_button_event{
+					.scene_pos = cursor_scene_pos,
+					.local_pos = util::transform_scene2local(current, cursor_scene_pos),
+					.key = k
+				};
+			},
+			&elem::on_pointer_button);
+		if(const auto play_event = mouse_play_event(a); control.handled() && play_event){
+			state_.play_audio_for_handled(control.handled_by(), *play_event);
 		}
-		switch_last_inbound_click(captured_target);
-	}else if(focus_cursor){
-		const std::span rng = inbounds_.get_cur();
-		auto pos = inputs_.cursor_pos();
-		util::transform_scene2local(rng, std::span{&pos, 1});
-		events::click e{pos, k};
-
-		auto cur = rng.rbegin();
-		while(cur != rng.rend()){
-			const std::span aboves{cur.base(), rng.end()};
-			const auto rst = (*cur)->on_click(e, aboves);
-			if(rst != events::op_afterwards::intercepted){
-				e.pos = util::transform_current2parent(**cur, e.pos);
-				++cur;
-			}else{
-				result = rst;
-				if(const auto event = mouse_play_event(a)){
-					play_audio_for_intercepted(rst.e, *event);
-				}
-				if(a == act::press || a == act::release){
-					switch_last_inbound_click(rst.e);
-				}
-
-				goto END;
+		if(!control.handled()){
+			control.mark_handled(*captured_target);
+		}
+		state_.switch_last_inbound_click(control.handled() ? control.handled_by() : captured_target);
+		state_.mouse_states_[c].clear();
+		if(state_.focus_cursor && state_.focus_cursor->is_focus_extended_by_mouse()){
+			state_.request_cursor_update();
+		}
+		return control.result();
+	}else if(state_.focus_cursor){
+		auto path = state_.inbounds_.get_cur();
+		const auto control = scene_event_router::dispatch_path(
+			path,
+			pointer_event_type(a),
+			[&](elem& current){
+				return events::pointer_button_event{
+					.scene_pos = cursor_scene_pos,
+					.local_pos = util::transform_scene2local(current, cursor_scene_pos),
+					.key = k
+				};
+			},
+			&elem::on_pointer_button);
+		if(control.handled()){
+			if(const auto play_event = mouse_play_event(a)){
+				state_.play_audio_for_handled(control.handled_by(), *play_event);
 			}
+			if(a == act::press || a == act::release){
+				state_.switch_last_inbound_click(control.handled_by());
+			}
+		}else if(a == act::press){
+			state_.switch_last_inbound_click(nullptr);
 		}
 
 		if(a == act::press){
-			switch_last_inbound_click(nullptr);
+			const auto owner = control.handled() ? mouse_capture_owner::ui : mouse_capture_owner::passthrough;
+			state_.mouse_states_[c].reset(cursor_scene_pos, owner, control.handled_by());
 		}
 
-	END:
-		(void)0;
-	}
-
-	if(a == act::press){
-		const auto owner = result == events::op_afterwards::intercepted
-			? mouse_capture_owner::ui
-			: mouse_capture_owner::passthrough;
-		mouse_states_[c].reset(inputs_.cursor_pos(), owner, result ? result.e : nullptr);
-	}
-
-	if(a == act::release){
-		mouse_states_[c].clear();
-
-		if(focus_cursor && focus_cursor->is_focus_extended_by_mouse()){
-			request_cursor_update();
+		if(a == act::release){
+			state_.mouse_states_[c].clear();
+			if(state_.focus_cursor && state_.focus_cursor->is_focus_extended_by_mouse()){
+				state_.request_cursor_update();
+			}
 		}
+
+		return control.result();
 	}
 
-	return result.op();
+	return events::dispatch_result::unhandled;
+}
+
+events::dispatch_result input::handle_mouse_input(input_handle::key_set k){
+	return scene_input_dispatcher{*this}.dispatch_pointer_button(k);
 }
 
 void input::update_inbounds(){
@@ -413,12 +563,98 @@ void input::update_inbounds(){
 	try_swap_focus();
 }
 
+events::dispatch_result scene_input_dispatcher::dispatch_pointer_drag(
+	const mouse_state& drag_state,
+	const std::uint16_t button_code,
+	std::span<elem* const> path) const{
+	if(!drag_state.is_ui_owned()){
+		return events::dispatch_result::unhandled;
+	}
+
+	std::array<math::vec2, 2> drag_points{drag_state.src, state_.get_cursor_pos()};
+	const auto scene_src = drag_points[0];
+	const auto scene_dst = drag_points[1];
+	const auto mode = state_.inputs_.main_binds.get_mode();
+	events::key_set key{button_code, input_handle::act::ignore, mode};
+
+	auto dispatch_drag = [&](std::span<elem* const> route){
+		return scene_event_router::dispatch_path(
+			route,
+			events::gui_event_type::pointer_drag,
+			[&](elem& current){
+				std::array points{scene_src, scene_dst};
+				util::transform_scene2local(current, std::span<math::vec2>{points});
+				return events::pointer_drag_event{
+					.scene_src = scene_src,
+					.scene_dst = scene_dst,
+					.local_src = points[0],
+					.local_dst = points[1],
+					.key = key
+				};
+			},
+			&elem::on_pointer_drag);
+	};
+
+	if(elem* captured_target = drag_state.capture_target()){
+		auto route = scene_event_router::collect_ancestor_path(*captured_target);
+		const auto control = dispatch_drag(std::span<elem* const>{route});
+		if(control.handled()){
+			state_.play_audio_for_handled(control.handled_by(), sound::play_event::on_drag);
+		}
+		return control.result();
+	}
+
+	if(path.empty()){
+		return events::dispatch_result::unhandled;
+	}
+
+	const auto control = dispatch_drag(path);
+	if(control.handled()){
+		state_.play_audio_for_handled(control.handled_by(), sound::play_event::on_drag);
+	}
+
+	return control.result();
+}
+
+events::dispatch_result scene_input_dispatcher::dispatch_cursor_move(
+	std::span<elem* const> path,
+	std::span<const math::vec2, 2> local_points) const{
+	(void)local_points;
+	if(state_.focus_cursor == nullptr){
+		return events::dispatch_result::unhandled;
+	}
+
+	mr::heap_vector<elem*> fallback_path{};
+	if(path.empty()){
+		fallback_path = scene_event_router::collect_ancestor_path(*state_.focus_cursor);
+		path = std::span<elem* const>{fallback_path};
+	}
+
+	const auto scene_src = state_.inputs_.last_cursor_pos();
+	const auto scene_dst = state_.get_cursor_pos();
+	const auto control = scene_event_router::dispatch_path(
+		path,
+		events::gui_event_type::pointer_move,
+		[&](elem& current){
+			std::array points{scene_src, scene_dst};
+			util::transform_scene2local(current, std::span<math::vec2>{points});
+			return events::pointer_move_event{
+				.scene_src = scene_src,
+				.scene_dst = scene_dst,
+				.local_src = points[0],
+				.local_dst = points[1]
+			};
+		},
+		&elem::on_pointer_move);
+	return control.result();
+}
+
 input::cursor_update_result input::update_cursor(overlay_manager& overlays, tooltip::tooltip_manager& tooltips,
                                                  elem& scene_root){
 	request_cursor_update_ = false;
 
 	if(has_passthrough_mouse_capture()){
-		return {events::op_afterwards::fall_through, style::cursor_style{style::cursor_type::regular}};
+		return {events::dispatch_result::unhandled, style::cursor_style{style::cursor_type::regular}};
 	}
 
 	if(!(focus_cursor && is_mouse_pressed() && focus_cursor->is_focus_extended_by_mouse())){
@@ -453,43 +689,21 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
 		update_inbounds();
 	}
 
-	if(!focus_cursor) return {events::op_afterwards::fall_through, style::cursor_style{style::cursor_type::regular}};
-
+	if(!focus_cursor) return {events::dispatch_result::unhandled, style::cursor_style{style::cursor_type::regular}};
 
 	const auto rng = get_inbounds();
 	std::array cursor_points{inputs_.last_cursor_pos(), get_cursor_pos()};
 	util::transform_scene2local(rng, std::span<math::vec2>{cursor_points});
+	scene_input_dispatcher dispatcher{*this};
 
 	for(const auto& [i, state] : mouse_states_ | std::views::enumerate){
 		if(!state.is_ui_owned()) continue;
-
-		std::array<math::vec2, 2> drag_points{state.src, get_cursor_pos()};
-		const auto mode = inputs_.main_binds.get_mode();
-		events::key_set key{static_cast<std::uint16_t>(i), input_handle::act::ignore, mode};
-
-		if(elem* captured_target = state.capture_target()){
-			util::transform_scene2local(*captured_target, drag_points);
-			if(captured_target->on_drag({drag_points[0], drag_points[1], key}) == events::op_afterwards::intercepted){
-				play_audio_for_intercepted(captured_target, sound::play_event::on_drag);
-			}
-			continue;
-		}
-
-		util::transform_scene2local(rng, drag_points);
-		auto cur = rng.rbegin();
-		while(cur != rng.rend()){
-			if((*cur)->on_drag({drag_points[0], drag_points[1], key}) != events::op_afterwards::intercepted){
-				util::transform_current2parent(**cur, std::span<math::vec2>{drag_points});
-				++cur;
-			}else{
-				play_audio_for_intercepted(*cur, sound::play_event::on_drag);
-				break;
-			}
-		}
+		static_cast<void>(dispatcher.dispatch_pointer_drag(state, static_cast<std::uint16_t>(i), rng));
 	}
 
-	const auto rst = focus_cursor->on_cursor_moved(
-		events::cursor_move{.src = cursor_points[0], .dst = cursor_points[1]});
+	const auto rst = dispatcher.dispatch_cursor_move(
+		rng,
+		std::span<const math::vec2, 2>{cursor_points});
 
 	return {rst, get_cursor_style(cursor_points[1])};
 }
@@ -676,24 +890,24 @@ void scene_base::update(double delta_in_tick){
 
 
 
-events::op_afterwards scene_base::on_esc(){
-	if(tooltip_manager_.on_esc() != events::op_afterwards::fall_through){
+events::dispatch_result scene_base::on_esc(){
+	if(tooltip_manager_.on_esc() != events::dispatch_result::unhandled){
 		request_cursor_update();
-		return events::op_afterwards::intercepted;
+		return events::dispatch_result::handled;
 	}
-	if(overlay_manager_.on_esc() != events::op_afterwards::fall_through){
+	if(overlay_manager_.on_esc() != events::dispatch_result::unhandled){
 		request_cursor_update();
-		return events::op_afterwards::intercepted;
+		return events::dispatch_result::handled;
 	}
 
 	elem* focus = input_handler_.focus_key;
 	if(!focus) focus = input_handler_.focus_cursor;
 
-	if(util::thoroughly_esc(focus) != events::op_afterwards::fall_through){
+	if(util::thoroughly_esc(focus) != events::dispatch_result::unhandled){
 		request_cursor_update();
-		return events::op_afterwards::intercepted;
+		return events::dispatch_result::handled;
 	}
-	return events::op_afterwards::fall_through;
+	return events::dispatch_result::unhandled;
 }
 
 

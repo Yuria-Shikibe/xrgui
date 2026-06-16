@@ -384,14 +384,41 @@ public:
 };
 
 enum struct input_key_result{
-	intercepted,
-	fall_through,
+	handled,
+	unhandled,
 	esc_required
+};
+
+struct input;
+
+struct scene_input_dispatcher{
+private:
+	input& state_;
+
+	[[nodiscard]] static events::gui_event_type key_event_type(input_handle::act action) noexcept;
+	[[nodiscard]] static events::gui_event_type pointer_event_type(input_handle::act action) noexcept;
+
+public:
+	[[nodiscard]] explicit scene_input_dispatcher(input& state) noexcept;
+
+	[[nodiscard]] input_key_result dispatch_key_input(input_handle::key_set key) const;
+	[[nodiscard]] events::dispatch_result dispatch_text_input(char32_t val) const;
+	[[nodiscard]] events::dispatch_result dispatch_ime_composition(
+		const input_handle::ime_composition_event& event) const;
+	[[nodiscard]] events::dispatch_result dispatch_scroll(math::vec2 scroll) const;
+	[[nodiscard]] events::dispatch_result dispatch_pointer_button(input_handle::key_set key) const;
+	[[nodiscard]] events::dispatch_result dispatch_pointer_drag(
+		const mouse_state& state,
+		std::uint16_t button_code,
+		std::span<elem* const> path) const;
+	[[nodiscard]] events::dispatch_result dispatch_cursor_move(
+		std::span<elem* const> path,
+		std::span<const math::vec2, 2> local_points) const;
 };
 
 struct input{
 	struct cursor_update_result{
-		events::op_afterwards op;
+		events::dispatch_result result;
 		style::cursor_style style;
 	};
 
@@ -444,7 +471,7 @@ struct input{
 
 	void request_audio(const elem* element, sound::play_event event, sound::play_priority priority) const;
 	void update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manager& tooltip) noexcept;
-	void play_audio_for_intercepted(const elem* element, sound::play_event event) const;
+	void play_audio_for_handled(const elem* element, sound::play_event event) const;
 
 	void drop_event_focus(const elem* target) noexcept{
 		if(focus_scroll == target)focus_scroll = nullptr;
@@ -504,12 +531,12 @@ struct input{
 	void try_swap_focus();
 	void swap_focus(elem* newFocus);
 
-	input_key_result on_key_input(input_handle::key_set key);
+	input_key_result handle_key_input(input_handle::key_set key);
 
-	events::op_afterwards on_unicode_input(char32_t val) const;
-	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) const;
-	events::op_afterwards on_scroll(math::vec2 scroll);
-	events::op_afterwards on_mouse_input(input_handle::key_set k);
+	events::dispatch_result handle_text_input(char32_t val);
+	events::dispatch_result handle_ime_composition(const input_handle::ime_composition_event& event);
+	events::dispatch_result handle_scroll(math::vec2 scroll);
+	events::dispatch_result handle_mouse_input(input_handle::key_set k);
 	void on_focus_lost();
 
 	void update_inbounds();
@@ -1146,7 +1173,7 @@ public:
 
 	void update(double delta_in_tick);
 
-	events::op_afterwards on_cursor_move(math::vec2 pos){
+	events::dispatch_result handle_cursor_move(math::vec2 pos){
 		assert(is_on_scene_thread(*this));
 		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
 		input_handler_.inputs_.cursor_move_inform(pos);
@@ -1155,7 +1182,7 @@ public:
 		return op;
 	}
 
-	events::op_afterwards on_mouse_input(const input_handle::key_set key){
+	events::dispatch_result handle_mouse_input(const input_handle::key_set key){
 		assert(is_on_scene_thread(*this));
 		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
 		input_handler_.inputs_.inform(key);
@@ -1166,7 +1193,7 @@ public:
 			auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
 			static_cast<void>(op);
 			current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
-			return events::op_afterwards::intercepted;
+			return events::dispatch_result::handled;
 		}
 		case overlay_external_press_result::retarget:{
 			auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
@@ -1177,39 +1204,39 @@ public:
 		default:
 			std::unreachable();
 		}
-		auto rst = input_handler_.on_mouse_input(key);
+		auto rst = input_handler_.handle_mouse_input(key);
 		update_cursor_type();
 		return rst;
 	}
 
-	events::op_afterwards on_unicode_input(char32_t val) const{
+	events::dispatch_result handle_text_input(char32_t val){
 		assert(is_on_scene_thread(*this));
 		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
-		return input_handler_.on_unicode_input(val);
+		return input_handler_.handle_text_input(val);
 	}
 
-	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) const{
+	events::dispatch_result handle_ime_composition(const input_handle::ime_composition_event& event){
 		assert(is_on_scene_thread(*this));
 		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
-		return input_handler_.on_ime_composition(event);
+		return input_handler_.handle_ime_composition(event);
 	}
 
-	events::op_afterwards on_scroll(const math::vec2 scroll){
+	events::dispatch_result handle_scroll(const math::vec2 scroll){
 		assert(is_on_scene_thread(*this));
 		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
-		return input_handler_.on_scroll(scroll);
+		return input_handler_.handle_scroll(scroll);
 	}
 
-	events::op_afterwards on_key_input(input_handle::key_set key){
+	events::dispatch_result handle_key_input(input_handle::key_set key){
 		assert(is_on_scene_thread(*this));
 		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
-		switch(input_handler_.on_key_input(key)){
-		case scene_submodule::input_key_result::intercepted :
-			return events::op_afterwards::intercepted;
+		switch(input_handler_.handle_key_input(key)){
+		case scene_submodule::input_key_result::handled :
+			return events::dispatch_result::handled;
 		case scene_submodule::input_key_result::esc_required :
 			return on_esc();
 		default :
-			return events::op_afterwards::fall_through;
+			return events::dispatch_result::unhandled;
 		}
 	}
 
@@ -1224,7 +1251,7 @@ public:
 		request_cursor_update();
 	}
 
-	events::op_afterwards on_esc();
+	events::dispatch_result on_esc();
 
 	void request_cursor_update() noexcept{
 		input_handler_.request_cursor_update_ = true;

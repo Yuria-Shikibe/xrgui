@@ -93,7 +93,7 @@ struct button : public T{
 	using base_type = T;
 
 protected:
-	using callback_type = fixed_function<32, void(events::click, elem&)>;
+	using callback_type = fixed_function<32, void(const events::pointer_button_event&, elem&)>;
 
 	callback_type callback{};
 
@@ -110,13 +110,17 @@ public:
 		add_button_prop();
 	}
 
-	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
-		base_type::on_click(event, aboves);
-		if(this->is_disabled()) return {this};
-		if(event.within_elem(*this)){
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		base_type::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
+		if(this->is_disabled()){
+			ctx.consume(*this);
+			return;
+		}
+		if(event.within_elem(ctx, *this)){
 			if(callback) callback(event, *this);
 		}
-		return {this};
+		ctx.consume(*this);
 	}
 
 	void set_button_callback(callback_type&& func){
@@ -125,7 +129,7 @@ public:
 
 	template <std::invocable<> Func>
 	void set_button_callback(Func&& fn){
-		callback = [func = std::forward<Func>(fn)](events::click e, elem&){
+		callback = [func = std::forward<Func>(fn)](const events::pointer_button_event& e, elem&){
 			if(e.key.on_release()){
 				std::invoke(func);
 			}
@@ -134,7 +138,7 @@ public:
 
 	template <std::invocable<button&> Func>
 	void set_button_callback(Func&& fn){
-		callback = [func = std::forward<Func>(fn)](events::click e, elem& element){
+		callback = [func = std::forward<Func>(fn)](const events::pointer_button_event& e, elem& element){
 			if(e.key.on_release()){
 				auto& b = static_cast<button&>(element);
 				std::invoke(func, b);

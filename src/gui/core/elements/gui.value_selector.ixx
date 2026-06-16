@@ -79,9 +79,10 @@ public:
 		return cur_val_;
 	}
 
-	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
-		base_type::on_click(event, aboves);
-		if(!this->is_disabled() && event.key.on_release() && event.within_elem(*this)){
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		base_type::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
+		if(!this->is_disabled() && event.key.on_release() && event.within_elem(ctx, *this)){
 			if(event.key.as_mouse() == input_handle::mouse::LMB){
 				incr_selected_value();
 			}
@@ -89,14 +90,15 @@ public:
 				decr_selected_value();
 			}
 		}
-		return {this};
+		ctx.consume(*this);
 	}
 
-	events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override{
+	void on_wheel(events::event_context& ctx, const events::wheel_event& event) override{
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.delta.y > 0)incr_selected_value();
 		else if(event.delta.y < 0) decr_selected_value();
 
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
 	}
 };
 

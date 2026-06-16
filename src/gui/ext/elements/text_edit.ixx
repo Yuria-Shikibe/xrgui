@@ -501,21 +501,23 @@ public:
 		};
 	}
 
-	events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override;
+	void on_wheel(events::event_context& ctx, const events::wheel_event& event) override;
 
-	events::op_afterwards on_drag(const events::drag event) override;
+	void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event) override;
 
-	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
-		elem::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		elem::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(!event.key.on_release()){
 			if(has_active_ime_composition()){
 				cancel_ime_composition_preview();
 				reset_blink();
-				return {this};
+				ctx.consume(*this);
+				return;
 			}
 
 			auto t_params = get_transform_params();
-			math::vec2 raw_hit_pos = t_params.inverse_local(event.pos);
+			math::vec2 raw_hit_pos = t_params.inverse_local(event.local_pos);
 
 			if(core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), raw_hit_pos,
 				render_cache_.get_line_align(), false)){
@@ -525,18 +527,18 @@ public:
 					scroll_to_caret();
 					update_ime_position();
 				}
-				return {this};
+				ctx.consume(*this);
+				return;
 			}
 		}else {
 			last_drag_dst_.reset();
 		}
-		return {};
 	}
 
-	events::op_afterwards on_key_input(const input_handle::key_set key) override;
-	events::op_afterwards on_unicode_input(const char32_t val) override;
-	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) override;
-	events::op_afterwards on_esc() override;
+	void on_key(events::event_context& ctx, const events::key_event& event) override;
+	void on_text(events::event_context& ctx, const events::text_event& event) override;
+	void on_ime(events::event_context& ctx, const events::ime_event& event) override;
+	events::dispatch_result on_esc() override;
 
 	void update_ime_position() const;
 

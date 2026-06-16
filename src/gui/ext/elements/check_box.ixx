@@ -71,6 +71,11 @@ protected:
 		prov_->update_value(value);
 	}
 
+	void load_default_resources() override{
+		select_box<2>::load_default_resources();
+		set_default_style();
+	}
+
 public:
 	react_flow::provider_cached<pass_type>& get_prov() noexcept{
 		return prov_.node;
@@ -81,8 +86,7 @@ public:
 	}
 
 	[[nodiscard]] check_box(scene& scene, elem* parent, std::in_place_t)
-		: select_box<2>(scene, parent){
-		set_default_style();
+	: select_box<2>(scene, parent){
 	}
 
 	void set_default_style();

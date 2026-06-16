@@ -130,19 +130,19 @@ void overlay::update_bound(const rect scene_viewport) const{
 	element->try_layout();
 }
 
-events::op_afterwards overlay_manager::on_esc() noexcept{
+events::dispatch_result overlay_manager::on_esc() noexcept{
 	for (overlay* elem : active_stack_ | std::views::reverse){
-		if(util::thoroughly_esc(elem->element.get()) != events::op_afterwards::fall_through){
-			return events::op_afterwards::intercepted;
+		if(util::thoroughly_esc(elem->element.get()) != events::dispatch_result::unhandled){
+			return events::dispatch_result::handled;
 		}
 	}
 
 	if(!active_stack_.empty()){
 		truncate(std::prev(active_stack_.end()));
-		return events::op_afterwards::intercepted;
+		return events::dispatch_result::handled;
 	}
 
-	return events::op_afterwards::fall_through;
+	return events::dispatch_result::unhandled;
 }
 }
 

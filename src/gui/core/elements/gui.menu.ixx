@@ -162,13 +162,15 @@ protected:
 		get_button_pane().get_elem().propagate_layout_policy(trsp);
 	}
 
-	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
-		if(aboves.size() < 3)return {};
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		if(!ctx.is_target_or_bubble_phase()) return;
+		const auto descendants = ctx.descendants_to_target();
+		if(descendants.size() < 3)return;
 		//this -> scroll[0] -> sequence[1] -> actual button[2]
-		auto* elem = aboves[2];
+		auto* elem = descendants[2];
 		auto& seq = get_button_pane().get_elem();
-		auto idx = seq.find_index(elem);
-		if(idx == seq.exposed_children().size())return {};
+		const auto idx = seq.find_index(elem);
+		if(idx == seq.exposed_children().size())return;
 
 		if(event.key.on_release()){
 			if(idx == current_showing_){
@@ -178,7 +180,7 @@ protected:
 			}
 		}
 
-		return {elem};
+		ctx.consume(*elem);
 	}
 
 };

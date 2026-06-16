@@ -129,8 +129,10 @@ private:
 			return self.parent_ref<sequence, true>().parent_ref<numeric_input_area<T>, true>();
 		}
 
-			events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
-				if(!is_disabled() && event.key.on_release() && event.within_elem(*this)){
+			void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+				general_arrow::on_pointer_button(ctx, event);
+				if(!ctx.is_target_or_bubble_phase()) return;
+				if(!is_disabled() && event.key.on_release() && event.within_elem(ctx, *this)){
 					numeric_input_area& area = get_area();
 					auto current = area.get_current_value();
 					auto step = area.move_step_;
@@ -171,7 +173,7 @@ private:
 
 					area.set_value(next_val);
 				}
-			return {this};
+			ctx.consume(*this);
 		}
 	};
 
@@ -359,8 +361,9 @@ public:
 public:
 
 #pragma region FilpperOverrides
-	events::op_afterwards on_drag(const events::drag event) override{
-		auto raw_mov = event.delta().x;
+	void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event) override{
+		if(!ctx.is_target_or_bubble_phase()) return;
+		auto raw_mov = event.local_delta().x;
 
 		// 拖拽初始触发
 		if(raw_mov && drag_state_ == drag_state::none){
@@ -396,15 +399,17 @@ public:
 			this->set_text_display_(get_drag_temp_val_());
 		}
 
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
 	}
 
-	events::event_rst on_click(events::click event, std::span<elem* const> aboves) override{
-		elem::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		elem::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.on_release()){
 			if(drag_state_ != drag_state::none){
 				this->set_value(get_drag_temp_val_());
 				drag_state_ = drag_state::none;
+				ctx.consume(*this);
 			}else{
 				switch_to(1);
 				auto& edit = at<text_edit>(1);
@@ -415,19 +420,19 @@ public:
 					return true;
 				});
 				edit.action_select_all();
-				return {&edit};
+				ctx.consume(edit);
 			}
-
+			return;
 		}
-		return {this};
+		ctx.consume(*this);
 	}
 
-	events::op_afterwards on_esc() override{
+	events::dispatch_result on_esc() override{
 		if(get_current_active_index() == 1){
 			switch_to(0);
-			return events::op_afterwards::intercepted;
+			return events::dispatch_result::handled;
 		}
-		return events::op_afterwards::fall_through;
+		return events::dispatch_result::unhandled;
 	}
 #pragma endregion
 	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{

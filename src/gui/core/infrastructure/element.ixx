@@ -188,6 +188,7 @@ using element_collect_buffer = gch::small_vector<elem_wrapper, 2, mr::unvs_alloc
 
 namespace scene_submodule{
 struct input;
+struct scene_input_dispatcher;
 }
 
 export struct elem : tooltip::spawner_general<elem>{
@@ -198,6 +199,7 @@ export struct elem : tooltip::spawner_general<elem>{
 	friend tooltip::tooltip_manager;
 	friend overlay_manager;
 	friend scene_submodule::input;
+	friend scene_submodule::scene_input_dispatcher;
 
 private:
 	void(*deleter_)(elem*) noexcept = nullptr;
@@ -335,13 +337,15 @@ public:
 
 	[[nodiscard]] elem(scene& scene, elem* parent) noexcept;
 
-public:
 	elem(const elem& other) = delete;
 	elem(elem&& other) noexcept = delete;
 	elem& operator=(const elem& other) = delete;
 	elem& operator=(elem&& other) noexcept = delete;
 
+protected:
 	virtual void load_default_resources();
+
+public:
 #pragma region Action
 private:
 	void push_to_action_queue();
@@ -491,71 +495,23 @@ public:
 		if(!is_focused && !is_focus_extended_by_mouse())cursor_states_.pressed = false;
 	}
 
-	/**
-	 * @brief Handle key input delivered to the key focus or inbound stack.
-	 *
-	 * Return `intercepted` to stop propagation. Key input is delivered on the
-	 * scene thread after global input state has been updated.
-	 */
-	virtual events::op_afterwards on_key_input(const input_handle::key_set key){
-		return events::op_afterwards::fall_through;
-	}
-
-	/**
-	 * @brief Handle Unicode text input delivered to the current key focus.
-	 */
-	virtual events::op_afterwards on_unicode_input(const char32_t val){
-		return events::op_afterwards::fall_through;
-	}
-
-	/**
-	 * @brief Handle native IME composition preview/update/commit events.
-	 */
-	virtual events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event){
-		return events::op_afterwards::fall_through;
-	}
-
-	/**
-	 * @brief Handle mouse button input in this element's local coordinate space.
-	 *
-	 * `aboves` contains elements above this element in the current inbound stack
-	 * and can be used for occlusion-aware behavior.
-	 */
-	virtual events::event_rst on_click(const events::click event, std::span<elem* const> aboves){
-		if(!is_interactable()){
-			return {};
-		}else if(is_focused()){
-			cursor_states_.update_press(event.key);
-		}
-
-		return {};
-	}
-
-	/**
-	 * @brief Handle drag updates while a mouse button captured by UI remains down.
-	 */
-	virtual events::op_afterwards on_drag(const events::drag event){
-		return events::op_afterwards::fall_through;
-	}
-
+	virtual void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event);
+	virtual void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event);
+	virtual void on_pointer_move(events::event_context& ctx, const events::pointer_move_event& event);
+	virtual void on_wheel(events::event_context& ctx, const events::wheel_event& event);
+	virtual void on_key(events::event_context& ctx, const events::key_event& event);
+	virtual void on_text(events::event_context& ctx, const events::text_event& event);
+	virtual void on_ime(events::event_context& ctx, const events::ime_event& event);
 
 	/**
 	 * @brief Handle cursor movement after hit testing and focus updates.
 	 */
-	virtual events::op_afterwards on_cursor_moved(const events::cursor_move event){
+	virtual void on_cursor_moved(const events::pointer_move_event& event){
 		cursor_states_.time_stagnate = 0;
-		if(tooltip_create_config.use_stagnate_time && !event.delta().equals({})){
+		if(tooltip_create_config.use_stagnate_time && !event.local_delta().equals({})){
 			cursor_states_.time_tooltip = 0.;
 			on_tooltip_drop();
 		}
-		return events::op_afterwards::fall_through;
-	}
-
-	/**
-	 * @brief Handle scroll input from focus-scroll or the inbound stack.
-	 */
-	virtual events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves){
-		return events::op_afterwards::fall_through;
 	}
 
 	/**
@@ -564,8 +520,8 @@ public:
 	 * Scene-level ESC handling first gives tooltips and overlays a chance to
 	 * close, then calls this through the focused element's parent chain.
 	 */
-	virtual events::op_afterwards on_esc(){
-		return events::op_afterwards::fall_through;
+	virtual events::dispatch_result on_esc(){
+		return events::dispatch_result::unhandled;
 	}
 
 #pragma endregion
@@ -1592,9 +1548,9 @@ export
 	return pos_in_local_space;
 }
 
-events::op_afterwards thoroughly_esc(elem* where) noexcept;
+events::dispatch_result thoroughly_esc(elem* where) noexcept;
 
-FORCE_INLINE inline events::op_afterwards thoroughly_esc(elem& where) noexcept{
+FORCE_INLINE inline events::dispatch_result thoroughly_esc(elem& where) noexcept{
 	return thoroughly_esc(std::addressof(where));
 }
 
@@ -1679,7 +1635,7 @@ void elem_ptr::delete_elem(elem* ptr) noexcept{
 
 template <std::derived_from<elem> T>
 void elem_ptr::dynamic_init(T& ptr){
-	ptr.T::load_default_resources();
+	static_cast<elem&>(ptr).load_default_resources();
 }
 
 
@@ -1729,12 +1685,28 @@ T post_sync_assign(E& e, T E::* mptr, Fn&& fn){
 
 
 namespace events{
-math::vec2 click::get_content_pos(const elem& elem) const noexcept{
-	return pos - elem.content_src_offset();
+std::span<elem* const> event_context::descendants_to_target() const noexcept{
+	const auto route_path = path();
+	const auto* begin = route_path.data();
+	for(std::size_t i = 0; i < route_path.size(); ++i){
+		if(begin[i] == current()){
+			return {begin + i + 1, route_path.size() - i - 1};
+		}
+	}
+	return {};
 }
 
-bool click::within_elem(const elem& elem, float margin) const noexcept{
-	auto p = pos;
+math::vec2 pointer_button_event::get_content_pos(const event_context& ctx, const elem& elem) const noexcept{
+	if(ctx.current() == std::addressof(elem)){
+		return local_pos - elem.content_src_offset();
+	}
+	return util::transform_scene2local(elem, scene_pos) - elem.content_src_offset();
+}
+
+bool pointer_button_event::within_elem(const event_context& ctx, const elem& elem, float margin) const noexcept{
+	auto p = ctx.current() == std::addressof(elem)
+		? local_pos
+		: util::transform_scene2local(elem, scene_pos);
 	p.x += margin;
 	p.y += margin;
 	return p.axis_greater(0, 0) && p.axis_less(elem.extent().add(margin * 2));

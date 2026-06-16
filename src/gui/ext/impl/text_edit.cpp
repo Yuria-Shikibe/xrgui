@@ -745,28 +745,30 @@ void text_edit::scroll_to_caret() {
 	clamp_scroll_offset();
 }
 
-events::op_afterwards text_edit::on_scroll(const events::scroll event, std::span<elem* const> aboves) {
+void text_edit::on_wheel(events::event_context& ctx, const events::wheel_event& event) {
+	if(!ctx.is_target_or_bubble_phase()) return;
 	if (is_scrollable_mode()) {
 		float scroll_sensitivity = 40.0f;
 		target_scroll_offset_ -= event.delta * scroll_sensitivity;
 		clamp_scroll_offset();
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
 	}
-	return events::op_afterwards::fall_through;
 }
 
-events::op_afterwards text_edit::on_drag(const events::drag event){
+void text_edit::on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event){
+	if(!ctx.is_target_or_bubble_phase()) return;
 	if(has_active_ime_composition()){
 		last_drag_dst_.reset();
 		cancel_ime_composition_preview();
 		reset_blink();
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
+		return;
 	}
 
-	last_drag_dst_ = event.dst;
+	last_drag_dst_ = event.local_dst;
 
 	auto t_params = get_transform_params();
-	math::vec2 raw_hit_pos = t_params.inverse_local(event.dst);
+	math::vec2 raw_hit_pos = t_params.inverse_local(event.local_dst);
 
 	core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), raw_hit_pos, render_cache_.get_line_align(), true);
 	reset_blink();
@@ -777,15 +779,17 @@ events::op_afterwards text_edit::on_drag(const events::drag event){
 		update_ime_position();
 	}
 
-	return events::op_afterwards::intercepted;
+	ctx.consume(*this);
 }
 
-events::op_afterwards text_edit::on_unicode_input(const char32_t val){
+void text_edit::on_text(events::event_context& ctx, const events::text_event& event){
+	if(!ctx.is_target_or_bubble_phase()) return;
 	if(has_active_ime_composition()){
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
+		return;
 	}
 
-	if(!is_character_allowed(val)){
+	if(!is_character_allowed(event.value)){
 		set_input_invalid();
 	} else{
 		auto caret = core_.get_caret();
@@ -794,69 +798,75 @@ events::op_afterwards text_edit::on_unicode_input(const char32_t val){
 		if(tokenized_text_.get_text().size() - sel_len + 1 > maximum_code_points_){
 			set_input_invalid();
 		} else{
-			const std::u32string_view buf{&val, 1};
+			const std::u32string_view buf{&event.value, 1};
 			action_do_insert(buf);
 		}
 	}
-	return events::op_afterwards::intercepted;
+	ctx.consume(*this);
 }
 
-events::op_afterwards text_edit::on_ime_composition(const input_handle::ime_composition_event& event){
+void text_edit::on_ime(events::event_context& ctx, const events::ime_event& event){
+	if(!ctx.is_target_or_bubble_phase()) return;
+	if(event.composition == nullptr){
+		return;
+	}
+	const auto& composition = *event.composition;
 	using input_handle::ime_composition_event_type;
 
-	switch(event.type){
+	switch(composition.type){
 	case ime_composition_event_type::begin:
 		begin_ime_composition();
 		reset_blink();
-		return events::op_afterwards::intercepted;
+		break;
 	case ime_composition_event_type::update:
 		if(!has_active_ime_composition()){
 			begin_ime_composition();
 		}
-		ime_composition_.text = event.text;
+		ime_composition_.text = composition.text;
 		ime_composition_.cursor = static_cast<std::uint32_t>(
-			std::min<std::size_t>(event.cursor, ime_composition_.text.size()));
+			std::min<std::size_t>(composition.cursor, ime_composition_.text.size()));
 		mark_ime_composition_layout_changed();
 		reset_blink();
-		return events::op_afterwards::intercepted;
+		break;
 	case ime_composition_event_type::commit: {
-		auto text = event.text;
+		auto text = composition.text;
 		cancel_ime_composition_preview();
 		apply_committed_text(std::move(text));
 		reset_blink();
-		return events::op_afterwards::intercepted;
+		break;
 	}
 	case ime_composition_event_type::cancel:
 		cancel_ime_composition_preview();
 		reset_blink();
-		return events::op_afterwards::intercepted;
+		break;
 	}
 
-	return events::op_afterwards::intercepted;
+	ctx.consume(*this);
 }
 
-events::op_afterwards text_edit::on_key_input(const input_handle::key_set key){
+void text_edit::on_key(events::event_context& ctx, const events::key_event& event){
+	if(!ctx.is_target_or_bubble_phase()) return;
 	if(caret_cache_.last_cached_caret_ != get_effective_caret() && !is_layout_expired_()){
 		update_caret_cache();
 		scroll_to_caret();
 	}
 	update_ime_position();
-	return events::op_afterwards::intercepted;
+	ctx.consume(*this);
 }
 
-events::op_afterwards text_edit::on_esc(){
+events::dispatch_result text_edit::on_esc(){
 	if(has_active_ime_composition()){
 		cancel_ime_composition_preview();
-		return events::op_afterwards::intercepted;
+		return events::dispatch_result::handled;
 	}
 
-	if(elem::on_esc() == events::op_afterwards::fall_through && is_focused_key()){
+	if(elem::on_esc() == events::dispatch_result::unhandled && is_focused_key()){
 		set_focus(false);
 		set_focused_key(false);
-		return events::op_afterwards::intercepted;
+		return events::dispatch_result::handled;
 	}
 
-	return events::op_afterwards::fall_through;
+	return events::dispatch_result::unhandled;
 }
 
 void text_edit::set_text_internal(std::u32string_view str){

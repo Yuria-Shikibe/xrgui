@@ -223,6 +223,6 @@ public:
 
 	void update(float delta_in_tick);
 
-	events::op_afterwards on_esc() noexcept;
+	events::dispatch_result on_esc() noexcept;
 };
 }

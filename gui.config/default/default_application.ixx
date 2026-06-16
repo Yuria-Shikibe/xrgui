@@ -104,7 +104,7 @@ protected:
 	virtual void after_frame(){}
 
 	/**
-	 * @brief Receives input events that no GUI element intercepted.
+	 * @brief Receives input events that no GUI element handled.
 	 */
 	virtual void on_unhandled_input(input_handle::input_event_variant event){}
 

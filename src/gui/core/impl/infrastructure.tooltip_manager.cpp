@@ -137,19 +137,19 @@ void tooltip_manager::update(
 	}
 }
 
-events::op_afterwards tooltip_manager::on_esc(){
+events::dispatch_result tooltip_manager::on_esc(){
 	for (auto&& elem : actives_ | std::views::reverse){
-		if(util::thoroughly_esc(elem.element.get()) != events::op_afterwards::fall_through){
-			return events::op_afterwards::intercepted;
+		if(util::thoroughly_esc(elem.element.get()) != events::dispatch_result::unhandled){
+			return events::dispatch_result::handled;
 		}
 	}
 
 	if(!actives_.empty()){
 		drop_back();
-		return events::op_afterwards::intercepted;
+		return events::dispatch_result::handled;
 	}
 
-	return events::op_afterwards::fall_through;
+	return events::dispatch_result::unhandled;
 }
 
 bool tooltip_manager::drop(ActivesItr be, ActivesItr se){

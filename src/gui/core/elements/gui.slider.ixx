@@ -159,7 +159,8 @@ public:
 
     [[nodiscard]] bool is_sliding() const noexcept { return bar.is_sliding(); }
 
-    events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override {
+    void on_wheel(events::event_context& ctx, const events::wheel_event& event) override {
+        if(!ctx.is_target_or_bubble_phase()) return;
         math::vec2 move = event.delta;
         if(input_handle::matched(event.mode, input_handle::mode::shift)) move.swap_xy();
 
@@ -176,15 +177,19 @@ public:
         if(!smooth_scroll_) check_apply();
         else update_approach_state();
 
-        return events::op_afterwards::intercepted;
+        ctx.consume(*this);
     }
 
-    events::op_afterwards on_drag(const events::drag event) override {
-        if(event.key.mode_bits == input_handle::mode::ctrl) return events::op_afterwards::fall_through;
-        if(!drag_src_) return events::op_afterwards::intercepted;
+    void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event) override {
+        if(!ctx.is_target_or_bubble_phase()) return;
+        if(event.key.mode_bits == input_handle::mode::ctrl) return;
+        if(!drag_src_) {
+            ctx.consume(*this);
+            return;
+        }
 
         if(event.key.as_mouse() == input_handle::mouse::LMB) {
-            auto move_arr = extract_vec2(event.delta() / content_extent());
+            auto move_arr = extract_vec2(event.local_delta() / content_extent());
             for (std::size_t i = 0; i < Dim; ++i) {
                 move_arr[i] *= sensitivity[i];
             }
@@ -194,18 +199,19 @@ public:
         }
 
         update_approach_state();
-        return events::op_afterwards::intercepted;
+        ctx.consume(*this);
     }
 
-    events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override {
-        elem::on_click(event, aboves);
+    void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override {
+        elem::on_pointer_button(ctx, event);
+        if(!ctx.is_target_or_bubble_phase()) return;
         const auto [key, action, mode] = event.key;
 
         if(static_cast<input_handle::mouse>(key) == input_handle::mouse::_1) {
             if(action == input_handle::act::press) {
                 drag_src_ = bar.get_temp_progress();
                 if(mode == input_handle::mode::ctrl) {
-                    auto diff = event.get_content_pos(*this) - expand_to_vec2(bar.get_progress()) * content_extent();
+                    auto diff = event.get_content_pos(ctx, *this) - expand_to_vec2(bar.get_progress()) * content_extent();
                     auto move_arr = extract_vec2(diff / content_extent());
                     for (std::size_t i = 0; i < Dim; ++i) {
                         float sign = sensitivity[i] > 0.0f ? 1.0f : (sensitivity[i] < 0.0f ? -1.0f : 0.0f);
@@ -224,7 +230,7 @@ public:
             drag_src_.reset();
             bar.resume();
         }
-        return {this};
+        ctx.consume(*this);
     }
 
     void set_smooth_scroll(const bool smooth = true) {

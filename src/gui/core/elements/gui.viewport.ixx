@@ -66,25 +66,29 @@ namespace mo_yanxi::gui{
 			this->set_focused_key(is_focused);
 		}
 
-		events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override{
+		void on_wheel(events::event_context& ctx, const events::wheel_event& event) override{
+			if(!ctx.is_target_or_bubble_phase()) return;
 			camera.set_scale_by_delta(event.delta.y * 0.05f);
-			return events::op_afterwards::intercepted;
+			ctx.consume(*this);
 		}
 
-		events::op_afterwards on_drag(const events::drag e) override{
+		void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& e) override{
+			if(!ctx.is_target_or_bubble_phase()) return;
 			if(e.key.as_mouse() == input_handle::mouse::CMB){
-				auto src = get_transferred_pos(e.src);
-				auto dst = get_transferred_pos(e.dst);
+				auto src = get_transferred_pos(e.local_src);
+				auto dst = get_transferred_pos(e.local_dst);
 				camera.set_center(last_camera_center_pos_ - (dst - src));
 			}
-			return events::op_afterwards::intercepted;
+			ctx.consume(*this);
 		}
 
-		events::event_rst on_click(const events::click e, std::span<elem* const> aboves) override{
+		void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& e) override{
+			elem::on_pointer_button(ctx, e);
+			if(!ctx.is_target_or_bubble_phase()) return;
 			if(e.key.as_mouse() == input_handle::mouse::CMB){
 				last_camera_center_pos_ = camera.get_stable_center();
 			}
-			return {this};
+			ctx.consume(*this);
 		}
 
 		void viewport_begin() const {

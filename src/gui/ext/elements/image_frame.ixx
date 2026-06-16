@@ -138,63 +138,6 @@ protected:
 
 
 
-/*struct check_box : image_frame{
-	using image_frame::image_frame;
-private:
-	using node_provider_type = react_flow::provider_cached<std::size_t>;
-	using node_terminal_type = check_box_receiver;
-
-	node_provider_type* node_prov_;
-	node_terminal_type* node_rcvr_;
-
-public:
-	[[nodiscard]] check_box(scene& scene, elem* parent)
-	: image_frame(scene, parent){
-		interactivity = interactivity_flag::enabled;
-		extend_focus_until_mouse_drop = true;
-	}
-
-	bool set_index(std::size_t idx) override{
-		if(image_frame::set_index(idx)){
-			if(node_prov_){
-				node_prov_->update_value(idx);
-			}
-			return true;
-		}
-		return false;
-	}
-
-
-
-
-	//
-
-
-
-
-	//TODO tooltip dropdown
-
-protected:
-	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
-		auto rst = image_frame::on_click(event, aboves);
-		if(get_drawable_size() <= 1)return rst;
-
-		if(!event.key.on_release())return {this};
-
-		if(!event.within_elem(*this))return {this};
-
-		set_index((current_frame_index_ + 1) % drawables_.size());
-
-		return {this};
-	}
-};*/
-
-/*
-void check_box_receiver::on_update(react_flow::data_carrier<std::size_t>& data){
-	this->check_box_->set_index(data.get());
-}
-*/
-
 export
 template <std::derived_from<drawable_base> T>
 struct image_frame_single : public elem{
@@ -252,12 +195,18 @@ struct icon_frame : image_frame_single<icon<>>{
 
 export
 struct row_separator : image_frame_single<drawable_row_patch<component::batch_draw_mode>>{
+protected:
+	void load_default_resources() override{
+		image_frame_single<drawable_row_patch<component::batch_draw_mode>>::load_default_resources();
+		set_style();
+	}
+
+public:
 	[[nodiscard]] row_separator(
 		scene& scene, elem* group,
 		const image_row_patch& patch = assets::builtin::get_separator_row_patch(),
 		const image_display_style& style = {align::scale::stretch, align::pos::center})
 	: image_frame_single(scene, group, drawable_row_patch{patch, component::combined_components<component::batch_draw_mode>{fx::batch_draw_mode::msdf}}, style){
-		set_style();
 	}
 };
 

@@ -151,6 +151,13 @@ struct fps_counter_label : label{
 	float sample_seconds_{};
 	std::uint32_t sample_frames_{};
 
+protected:
+	void load_default_resources() override{
+		label::load_default_resources();
+		set_style(style::family_variant::base_only);
+	}
+
+public:
 	[[nodiscard]] fps_counter_label(scene& scene, elem* parent)
 		: label(scene, parent){
 		interactivity = interactivity_flag::disabled;
@@ -160,7 +167,6 @@ struct fps_counter_label : label{
 		auto pad = gui::border_t{};
 		pad.set_hori(8.f).set_vert(4.f);
 		set_self_border(pad);
-		set_style(style::family_variant::base_only);
 		text_entire_align = align::pos::center;
 		set_text("FPS --");
 
@@ -198,10 +204,16 @@ struct fps_counter_label : label{
 };
 
 struct pie_menu_demo_area : label{
+protected:
+	void load_default_resources() override{
+		label::load_default_resources();
+		set_style();
+	}
+
+public:
 	[[nodiscard]] pie_menu_demo_area(scene& scene, elem* parent)
 		: label(scene, parent){
 		interactivity = interactivity_flag::enabled;
-		set_style();
 		// set_style(style::family_variant::solid);
 		set_fit_type(label_fit_type::scl);
 		text_entire_align = align::pos::center;
@@ -209,14 +221,15 @@ struct pie_menu_demo_area : label{
 		set_text("Hold RMB, move toward an item, then release");
 	}
 
-	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
-		label::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		label::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.action == input_handle::act::press && event.key.as_mouse() == input_handle::mouse::RMB){
 			auto owner = ref<pie_menu_demo_area>();
 
 			cpd::show_pie_menu(
 				get_scene(),
-				util::transform_local2scene(*this, event.pos),
+				util::transform_local2scene(*this, event.local_pos),
 				[&](cpd::pie_menu_item_builder& items){
 					items.reserve(8);
 					auto push_item = [&](std::string text, bool disabled = false){
@@ -257,9 +270,9 @@ struct pie_menu_demo_area : label{
 						}
 					}
 				},
-				input_handle::mouse::RMB);
+					input_handle::mouse::RMB);
+			ctx.consume(*this);
 		}
-		return {this};
 	}
 };
 
@@ -325,9 +338,15 @@ struct csv_file_reader : head_body{
 
 	react_flow::node_holder_pinned<file_listener> path_node_{this};
 
+protected:
+	void load_default_resources() override{
+		head_body::load_default_resources();
+		set_style();
+	}
+
+public:
 	[[nodiscard]] csv_file_reader(scene& scene, elem* parent)
 		: head_body(scene, parent){
-		set_style();
 		set_expand_policy(layout::expand_policy::passive);
 
 		create_head([this](button<direct_label>& b){
@@ -1104,9 +1123,9 @@ ui_outputs build_main_ui(
 													interactivity = interactivity_flag::enabled;
 												}
 
-												events::event_rst on_click(
-													const events::click event,
-													std::span<elem* const> aboves) override{
+												void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+													elem::on_pointer_button(ctx, event);
+													if(!ctx.is_target_or_bubble_phase()) return;
 													if(event.key.on_release()){
 														get_scene().create_overlay({
 																.extent = {
@@ -1128,7 +1147,7 @@ ui_outputs build_main_ui(
 																e.end_line().emplace_back<elem>();
 															});
 													}
-													return {this};
+													ctx.consume(*this);
 												}
 											};
 											tooltip.emplace_back<dialog_creator>().cell().set_size({

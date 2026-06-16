@@ -133,16 +133,17 @@ public:
 		std::invoke(std::forward<onExit>(onExit), self);
 	}
 
-	events::event_rst on_click(const events::click event, std::span<elem* const> aboves) override{
-		elem::on_click(event, aboves);
-		if(!is_disabled() && event.within_elem(*this) && event.key.on_release()){
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		elem::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
+		if(!is_disabled() && event.within_elem(ctx, *this) && event.key.on_release()){
 			arrow_flip([](arrow_button& b){
 				           if(!b.has_tooltip() && !b.invisible) b.create_tooltip();
 			           }, [](arrow_button& b){
 			           b.drop_tooltip();
 			           });
 		}
-		return {this};
+		ctx.consume(*this);
 	}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
@@ -177,11 +178,17 @@ struct trace_entry : gui::head_body{
 	file_selector* selector;
 	std::filesystem::path path;
 
+protected:
+	void load_default_resources() override{
+		head_body::load_default_resources();
+		set_style();
+	}
+
+public:
 	[[nodiscard]] trace_entry(scene& scene, elem* parent, file_selector& selector,
 	                          const std::filesystem::path& path_,
 	                          bool is_root = false)
-		: head_body(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)), selector(&selector), path(path_){
-		set_style();
+	: head_body(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)), selector(&selector), path(path_){
 		create_head([&](button<direct_label>& l){
 			set_style_base_only(l);
 			l.set_fit_type(label_fit_type::scl);
@@ -296,23 +303,26 @@ struct current_position_bar : flipper<2>{
 		}
 	}
 
-	events::event_rst on_click(events::click event, std::span<elem* const> aboves) override{
-		elem::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		elem::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.action == input_handle::act::press){
-			return {&activate_editor()};
+			ctx.consume(activate_editor());
+			return;
 		}
 		if(get_current_active_index() == 1){
-			return {&at<text_edit>(1)};
+			ctx.consume(at<text_edit>(1));
+			return;
 		}
-		return {this};
+		ctx.consume(*this);
 	}
 
-	events::op_afterwards on_esc() override{
+	events::dispatch_result on_esc() override{
 		if(get_current_active_index() == 1){
 			switch_to(0);
-			return events::op_afterwards::intercepted;
+			return events::dispatch_result::handled;
 		}
-		return events::op_afterwards::fall_through;
+		return events::dispatch_result::unhandled;
 	}
 
 	gui::style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
@@ -350,9 +360,6 @@ struct path_edit : text_edit{
 		}
 	}
 
-	events::op_afterwards on_key_input(const input_handle::key_set key) override{
-		return text_edit::on_key_input(key);
-	}
 };
 
 struct filter_editor : text_edit{
@@ -478,9 +485,10 @@ file_selector::file_entry::file_entry(scene& scene, elem* parent, file_selector&
 	set_expand_policy(layout::expand_policy::passive);
 }
 
-events::event_rst file_selector::file_entry::on_click(const events::click event, std::span<elem* const> aboves){
-	elem::on_click(event, aboves);
-	if(!is_disabled() && event.key.on_release() && event.within_elem(*this)){
+void file_selector::file_entry::on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event){
+	elem::on_pointer_button(ctx, event);
+	if(!ctx.is_target_or_bubble_phase()) return;
+	if(!is_disabled() && event.key.on_release() && event.within_elem(ctx, *this)){
 		auto& menu = get_file_selector();
 		if(std::filesystem::is_directory(path)){
 			menu.visit_directory(path);
@@ -488,7 +496,7 @@ events::event_rst file_selector::file_entry::on_click(const events::click event,
 			menu.handle_file_selection(this, event.key.mode_bits);
 		}
 	}
-	return {this};
+	ctx.consume(*this);
 }
 
 bool file_selector::file_entry::set_toggled(bool isToggled){
@@ -887,13 +895,16 @@ void file_selector::toggle_file_selection(file_entry* entry){
 	sync_done_button_state_();
 }
 
+void file_selector::load_default_resources(){
+	head_body::load_default_resources();
+	util::sync_set_elem_style(*this, style::family_variant::general_static);
+}
+
 file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode) : head_body(
 	scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)),
 	mode_(mode){
 	prov_path_->update_value_quiet(this);
 	interactivity = interactivity_flag::children_only;
-
-	util::sync_set_elem_style(*this, style::family_variant::general_static);
 
 	this->create_head([this](head_body_no_invariant& s){
 		s.set_expand_policy(layout::expand_policy::passive);
