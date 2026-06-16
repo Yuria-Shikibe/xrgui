@@ -6,7 +6,8 @@ module;
 export module mo_yanxi.backend.communicator;
 
 import mo_yanxi.gui.infrastructure;
-import mo_yanxi.gui.global;
+import mo_yanxi.backend.glfw.window;
+import mo_yanxi.input_handle.input_event_queue;
 import mo_yanxi.platform.glfw;
 import std;
 
@@ -64,8 +65,12 @@ using native_window_state_shared = std::shared_ptr<native_window_state>;
 	return gui_type::cancel;
 }
 
-void push_ime_composition_event(platform::native_ime_composition_event event) {
-	gui::global::event_queue.push_ime_composition(input_handle::ime_composition_event{
+void push_ime_composition_event(GLFWwindow* window, platform::native_ime_composition_event event) {
+	auto* instance = static_cast<window_instance*>(glfwGetWindowUserPointer(window));
+	if(instance == nullptr || instance->get_input_sink() == nullptr) {
+		return;
+	}
+	instance->get_input_sink()->push_ime_composition(input_handle::ime_composition_event{
 		.type = to_gui_ime_event_type(event.type),
 		.text = std::move(event.text),
 		.cursor = event.cursor
@@ -81,8 +86,8 @@ struct native_window_state : std::enable_shared_from_this<native_window_state> {
 	[[nodiscard]] explicit native_window_state(GLFWwindow* target_window, gui::window_thread_dispatcher& target_dispatcher)
 		: window(target_window),
 		  dispatcher(std::addressof(target_dispatcher)),
-		  ime_controller(target_window, [](platform::native_ime_composition_event event) {
-			  push_ime_composition_event(std::move(event));
+		  ime_controller(target_window, [target_window](platform::native_ime_composition_event event) {
+			  push_ime_composition_event(target_window, std::move(event));
 		  }) {
 	}
 

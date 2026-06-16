@@ -364,7 +364,7 @@ bool elem::parent_contain_constrain(const math::vec2 pos_relative) const noexcep
 
 bool elem::is_focused_scroll() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.focus_cursor == this;
+	return scene_->input_handler_.focus_scroll == this;
 }
 
 bool elem::is_focused_key() const noexcept{

@@ -55,6 +55,10 @@ void consume(scene& f, std::span<const input_handle::input_event_variant> events
 			f.on_inbound_changed(ev.is_inbound);
 			status = events::op_afterwards::intercepted;
 			break;
+		case input_event_type::focus_lost:
+			f.on_focus_lost();
+			status = events::op_afterwards::intercepted;
+			break;
 		case input_event_type::frame_split:
 			f.update(std::chrono::duration_cast<std::chrono::duration<double, std::ratio<1, 60>>>(ev.frame_delta_time).count());
 			status = events::op_afterwards::intercepted;

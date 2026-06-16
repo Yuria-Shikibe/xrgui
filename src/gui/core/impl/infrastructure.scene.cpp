@@ -255,7 +255,8 @@ events::op_afterwards input::on_ime_composition(const input_handle::ime_composit
 	return events::op_afterwards::fall_through;
 }
 
-events::op_afterwards input::on_scroll(math::vec2 scroll) const{
+events::op_afterwards input::on_scroll(math::vec2 scroll){
+	inputs_.set_scroll_offset(scroll.x, scroll.y);
 	events::scroll e{scroll, inputs_.main_binds.get_mode()};
 	//TODO provide cursor position?
 
@@ -282,6 +283,26 @@ events::op_afterwards input::on_scroll(math::vec2 scroll) const{
 	return events::op_afterwards::fall_through;
 }
 
+void input::on_focus_lost(){
+	for(elem* element : inbounds_.get_cur()){
+		element->on_inbound_changed(false, true);
+		cursor_event_active_elems_.insert(element);
+	}
+	inbounds_.clear();
+
+	focus_scroll = nullptr;
+	swap_focus(nullptr);
+	switch_key_focus(nullptr);
+	switch_last_inbound_click(nullptr);
+
+	for(auto& state : mouse_states_){
+		state.clear();
+	}
+	inputs_.set_inbound(false);
+	inputs_.reset_active_inputs();
+	request_cursor_update();
+}
+
 events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 	using namespace input_handle;
 	auto [c, a, m] = k;
@@ -302,7 +323,18 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 	}
 
 	auto result = events::event_rst{};
-	if(focus_cursor){
+	if(auto* captured_target = mouse_states_[c].capture_target();
+		captured_target != nullptr && a == act::release){
+		result = {captured_target};
+		const auto pos = util::transform_scene2local(*captured_target, inputs_.cursor_pos());
+		const auto rst = captured_target->on_click(events::click{pos, k}, {});
+		if(rst == events::op_afterwards::intercepted){
+			if(const auto event = mouse_play_event(a)){
+				play_audio_for_intercepted(rst.e, *event);
+			}
+		}
+		switch_last_inbound_click(captured_target);
+	}else if(focus_cursor){
 		const std::span rng = inbounds_.get_cur();
 		auto pos = inputs_.cursor_pos();
 		util::transform_scene2local(rng, std::span{&pos, 1});
@@ -340,7 +372,7 @@ events::op_afterwards input::on_mouse_input(input_handle::key_set k){
 		const auto owner = result == events::op_afterwards::intercepted
 			? mouse_capture_owner::ui
 			: mouse_capture_owner::passthrough;
-		mouse_states_[c].reset(inputs_.cursor_pos(), owner);
+		mouse_states_[c].reset(inputs_.cursor_pos(), owner, result ? result.e : nullptr);
 	}
 
 	if(a == act::release){
@@ -432,10 +464,18 @@ input::cursor_update_result input::update_cursor(overlay_manager& overlays, tool
 		if(!state.is_ui_owned()) continue;
 
 		std::array<math::vec2, 2> drag_points{state.src, get_cursor_pos()};
-		util::transform_scene2local(rng, std::span<math::vec2>{drag_points});
 		const auto mode = inputs_.main_binds.get_mode();
 		events::key_set key{static_cast<std::uint16_t>(i), input_handle::act::ignore, mode};
 
+		if(elem* captured_target = state.capture_target()){
+			util::transform_scene2local(*captured_target, drag_points);
+			if(captured_target->on_drag({drag_points[0], drag_points[1], key}) == events::op_afterwards::intercepted){
+				play_audio_for_intercepted(captured_target, sound::play_event::on_drag);
+			}
+			continue;
+		}
+
+		util::transform_scene2local(rng, drag_points);
 		auto cur = rng.rbegin();
 		while(cur != rng.rend()){
 			if((*cur)->on_drag({drag_points[0], drag_points[1], key}) != events::op_afterwards::intercepted){
@@ -581,7 +621,8 @@ void scene_base::capture_mouse(elem& target, input_handle::mouse mouse_button_co
 	input_handler_.swap_focus(std::addressof(target));
 	input_handler_.mouse_states_[std::to_underlying(mouse_button_code)].reset(
 		press_scene_pos,
-		mouse_capture_owner::ui);
+		mouse_capture_owner::ui,
+		std::addressof(target));
 
 	if(input_handler_.last_inbound_click != std::addressof(target)){
 		if(input_handler_.last_inbound_click){
@@ -605,6 +646,7 @@ void scene_base::update(double delta_in_tick){
 	react_flow_.update();
 	if(async_task_queue_)async_task_queue_->process_done();
 	instant_task_queue_.consume();
+	input_handler_.inputs_.update(delta_in_tick_f);
 
 	tooltip_manager_.update(delta_in_tick_f, get_cursor_pos(), input_handler_.is_mouse_pressed());
 	overlay_manager_.update(delta_in_tick_f);
