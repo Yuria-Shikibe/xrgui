@@ -20,9 +20,13 @@ enum struct input_event_type : std::uint8_t{
 
 	cursor_inbound,
 	cursor_move,
+	focus_lost,
 
 	frame_split,
 };
+
+export
+using raw_input_event_type = input_event_type;
 
 export
 enum struct ime_composition_event_type : std::uint8_t{
@@ -49,7 +53,11 @@ struct input_event_variant{
 	bool is_inbound{};
 	std::chrono::duration<double> frame_delta_time{};
 	ime_composition_event ime_composition{};
+	std::chrono::steady_clock::time_point timestamp{std::chrono::steady_clock::now()};
 };
+
+export
+using raw_input_event = input_event_variant;
 
 export
 struct input_event_queue{
@@ -59,57 +67,70 @@ private:
 	std::vector<input_event_variant> consumer_cache_{};
 
 public:
+	void push(raw_input_event event){
+		if(event.timestamp == std::chrono::steady_clock::time_point{}){
+			event.timestamp = std::chrono::steady_clock::now();
+		}
+		buffer_.push(std::move(event));
+	}
+
 	void push_key(const key_set k){
-		buffer_.push(input_event_variant{
+		push(input_event_variant{
 				.type = input_event_type::input_key,
 				.input_key = k
 			});
 	}
 
 	void push_mouse(const key_set k){
-		buffer_.push(input_event_variant{
+		push(input_event_variant{
 				.type = input_event_type::input_mouse,
 				.input_key = k
 			});
 	}
 
 	void push_scroll(const math::vec2 cursor){
-		buffer_.push(input_event_variant{
+		push(input_event_variant{
 				.type = input_event_type::input_scroll,
 				.cursor = cursor
 			});
 	}
 
 	void push_u32(const char32_t val){
-		buffer_.push(input_event_variant{
+		push(input_event_variant{
 				.type = input_event_type::input_u32,
 				.input_char = val
 			});
 	}
 
 	void push_ime_composition(ime_composition_event event){
-		buffer_.push(input_event_variant{
+		push(input_event_variant{
 				.type = input_event_type::input_ime_composition,
 				.ime_composition = std::move(event)
 			});
 	}
 
 	void push_cursor_inbound(const bool inbound){
-		buffer_.push(input_event_variant{
+		push(input_event_variant{
 				.type = input_event_type::cursor_inbound,
 				.is_inbound = inbound
 			});
 	}
 
 	void push_cursor_move(const math::vec2 cursor){
-		buffer_.push(input_event_variant{
+		push(input_event_variant{
 				.type = input_event_type::cursor_move,
 				.cursor = cursor
 			});
 	}
 
+	void push_focus_lost(){
+		push(input_event_variant{
+				.type = input_event_type::focus_lost
+			});
+	}
+
 	void push_frame_split(const std::chrono::duration<double> dt){
-		buffer_.push(input_event_variant{
+		push(input_event_variant{
 				.type = input_event_type::frame_split,
 				.frame_delta_time = dt
 			});
@@ -154,4 +175,7 @@ public:
 
 	}
 };
+
+export
+using input_sink = input_event_queue;
 }
