@@ -27,6 +27,18 @@ namespace{
 	}
 }
 
+[[nodiscard]] sound::play_event state_play_event(
+	const sound::state_family family,
+	const bool after) noexcept{
+	switch(family){
+	case sound::state_family::toggle:
+		return after ? sound::play_event::on_toggle_on : sound::play_event::on_toggle_off;
+	case sound::state_family::disabled:
+		return after ? sound::play_event::on_disable : sound::play_event::on_enable;
+	}
+	std::unreachable();
+}
+
 struct scene_event_router{
 	[[nodiscard]] static mr::heap_vector<elem*> collect_ancestor_path(elem& target){
 		auto path = mr::heap_vector<elem*>{target.get_scene().get_heap_allocator<elem*>()};
@@ -158,8 +170,10 @@ input_key_result scene_input_dispatcher::dispatch_key_input(input_handle::key_se
 	}
 
 	auto path = scene_event_router::collect_ancestor_path(*state_.focus_key);
+	auto route = std::span<elem* const>{path};
+	auto audio_route = state_.make_audio_route_scope(route);
 	const auto control = scene_event_router::dispatch_path(
-		std::span<elem* const>{path},
+		route,
 		key_event_type(key.action),
 		[&](elem&){
 			return events::key_event{
@@ -179,8 +193,10 @@ events::dispatch_result scene_input_dispatcher::dispatch_text_input(char32_t val
 		return events::dispatch_result::unhandled;
 	}
 	auto path = scene_event_router::collect_ancestor_path(*state_.focus_key);
+	auto route = std::span<elem* const>{path};
+	auto audio_route = state_.make_audio_route_scope(route);
 	const auto control = scene_event_router::dispatch_path(
-		std::span<elem* const>{path},
+		route,
 		events::gui_event_type::text_input,
 		[&](elem&){
 			return events::text_event{
@@ -200,8 +216,10 @@ events::dispatch_result scene_input_dispatcher::dispatch_ime_composition(
 		return events::dispatch_result::unhandled;
 	}
 	auto path = scene_event_router::collect_ancestor_path(*state_.focus_key);
+	auto route = std::span<elem* const>{path};
+	auto audio_route = state_.make_audio_route_scope(route);
 	const auto control = scene_event_router::dispatch_path(
-		std::span<elem* const>{path},
+		route,
 		events::gui_event_type::ime_composition,
 		[&](elem&){
 			return events::ime_event{
@@ -221,6 +239,7 @@ events::dispatch_result scene_input_dispatcher::dispatch_scroll(math::vec2 scrol
 	const auto cursor_scene_pos = state_.inputs_.cursor_pos();
 
 	auto dispatch_wheel = [&](std::span<elem* const> path){
+		auto audio_route = state_.make_audio_route_scope(path);
 		return scene_event_router::dispatch_path(
 			path,
 			events::gui_event_type::wheel,
@@ -275,8 +294,10 @@ events::dispatch_result scene_input_dispatcher::dispatch_pointer_button(input_ha
 	if(auto* captured_target = state_.mouse_states_[c].capture_target();
 		captured_target != nullptr && a == act::release){
 		auto path = scene_event_router::collect_ancestor_path(*captured_target);
+		auto route = std::span<elem* const>{path};
+		auto audio_route = state_.make_audio_route_scope(route);
 		auto control = scene_event_router::dispatch_path(
-			std::span<elem* const>{path},
+			route,
 			pointer_event_type(a),
 			[&](elem& current){
 				return events::pointer_button_event{
@@ -300,6 +321,7 @@ events::dispatch_result scene_input_dispatcher::dispatch_pointer_button(input_ha
 		return control.result();
 	}else if(state_.focus_cursor){
 		auto path = state_.inbounds_.get_cur();
+		auto audio_route = state_.make_audio_route_scope(path);
 		const auto control = scene_event_router::dispatch_path(
 			path,
 			pointer_event_type(a),
@@ -355,6 +377,7 @@ events::dispatch_result scene_input_dispatcher::dispatch_pointer_drag(
 	events::key_set key{button_code, input_handle::act::ignore, mode};
 
 	auto dispatch_drag = [&](std::span<elem* const> route){
+		auto audio_route = state_.make_audio_route_scope(route);
 		return scene_event_router::dispatch_path(
 			route,
 			events::gui_event_type::pointer_drag,
@@ -410,6 +433,7 @@ events::dispatch_result scene_input_dispatcher::dispatch_cursor_move(
 
 	const auto scene_src = state_.inputs_.last_cursor_pos();
 	const auto scene_dst = state_.get_cursor_pos();
+	auto audio_route = state_.make_audio_route_scope(path);
 	const auto control = scene_event_router::dispatch_path(
 		path,
 		events::gui_event_type::pointer_move,
@@ -454,7 +478,45 @@ input::audio_request_transaction::~audio_request_transaction() noexcept(false){
 	}
 }
 
+input::audio_route_scope::audio_route_scope(const input& target, std::span<elem* const> route) noexcept
+	: owner(std::addressof(target)),
+	  previous_route(target.current_audio_route_){
+	owner->current_audio_route_ = route;
+	if(!route.empty()){
+		owner->audio_transaction_had_route_ = true;
+	}
+}
+
+input::audio_route_scope::audio_route_scope(audio_route_scope&& other) noexcept
+	: owner(std::exchange(other.owner, nullptr)),
+	  previous_route(std::exchange(other.previous_route, {})){
+}
+
+input::audio_route_scope& input::audio_route_scope::operator=(audio_route_scope&& other) noexcept{
+	if(this != std::addressof(other)){
+		if(owner != nullptr){
+			owner->current_audio_route_ = previous_route;
+		}
+		owner = std::exchange(other.owner, nullptr);
+		previous_route = std::exchange(other.previous_route, {});
+	}
+	return *this;
+}
+
+input::audio_route_scope::~audio_route_scope(){
+	if(owner != nullptr){
+		owner->current_audio_route_ = previous_route;
+	}
+}
+
 void input::begin_audio_request_transaction() const noexcept{
+	if(audio_request_transaction_depth_ == 0){
+		input_audio_fallback_.reset();
+		semantic_audio_request_.reset();
+		state_audio_deltas_.clear();
+		audio_transaction_had_route_ = false;
+		current_audio_route_ = {};
+	}
 	++audio_request_transaction_depth_;
 }
 
@@ -472,28 +534,58 @@ void input::end_audio_request_transaction() const{
 void input::request_audio(
 	const elem* element,
 	const sound::play_event event,
-	const sound::play_priority priority) const{
+	const sound::request_origin origin) const{
 	if(element == nullptr || !element->scene_audio_auto_proxy){
 		return;
 	}
 	if(!element->get_audio_asset_(event)){
-		if(pending_audio_request_
-			&& std::to_underlying(priority) >= std::to_underlying(pending_audio_request_->priority)){
-			pending_audio_request_.reset();
-		}
 		return;
 	}
 
-	if(pending_audio_request_
-		&& std::to_underlying(priority) < std::to_underlying(pending_audio_request_->priority)){
+	auto request = audio_request{
+		.element = element,
+		.event = event,
+		.origin = origin,
+		.sequence = ++audio_request_sequence_
+	};
+	switch(origin){
+	case sound::request_origin::input_fallback:
+		input_audio_fallback_ = request;
+		break;
+	case sound::request_origin::semantic:
+		semantic_audio_request_ = request;
+		break;
+	case sound::request_origin::state_delta:
+		break;
+	}
+
+	if(audio_request_transaction_depth_ == 0){
+		flush_audio_request_();
+	}
+}
+
+void input::request_semantic_audio(const elem* element, const sound::play_event event) const{
+	request_audio(element, event, sound::request_origin::semantic);
+}
+
+void input::record_state_audio_delta(
+	const elem* element,
+	const sound::state_family family,
+	const bool before,
+	const bool after) const{
+	if(element == nullptr || before == after){
 		return;
 	}
 
-	pending_audio_request_ = audio_request{
-			.element = element,
-			.event = event,
-			.priority = priority
-		};
+	const bool on_event_route = std::ranges::find(current_audio_route_, element) != current_audio_route_.end();
+	state_audio_deltas_.push_back(state_audio_delta{
+		.element = element,
+		.family = family,
+		.before = before,
+		.after = after,
+		.on_event_route = on_event_route,
+		.sequence = ++audio_request_sequence_
+	});
 	if(audio_request_transaction_depth_ == 0){
 		flush_audio_request_();
 	}
@@ -513,7 +605,7 @@ void input::update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manag
 
 void input::play_audio_for_handled(const elem* element, sound::play_event event) const{
 	if(element != nullptr && !element->is_disabled()){
-		request_audio(element, event, sound::play_priority::input);
+		request_audio(element, event, sound::request_origin::input_fallback);
 	}
 }
 
@@ -718,7 +810,103 @@ style::cursor_style input::get_cursor_style() const{
 }
 
 void input::flush_audio_request_() const{
-	auto request = std::exchange(pending_audio_request_, std::nullopt);
+	struct net_state_delta{
+		const elem* element{};
+		sound::state_family family{};
+		bool before{};
+		bool after{};
+		bool on_event_route{};
+		std::uint64_t sequence{};
+	};
+
+	std::vector<net_state_delta> net_deltas{};
+	net_deltas.reserve(state_audio_deltas_.size());
+	for(const auto& delta : state_audio_deltas_){
+		auto existing = std::ranges::find_if(net_deltas, [&](const net_state_delta& value){
+			return value.element == delta.element && value.family == delta.family;
+		});
+		if(existing == net_deltas.end()){
+			net_deltas.push_back(net_state_delta{
+				.element = delta.element,
+				.family = delta.family,
+				.before = delta.before,
+				.after = delta.after,
+				.on_event_route = delta.on_event_route,
+				.sequence = delta.sequence
+			});
+		}else{
+			existing->after = delta.after;
+			existing->on_event_route = existing->on_event_route || delta.on_event_route;
+			existing->sequence = delta.sequence;
+		}
+	}
+
+	struct family_summary{
+		bool enter{};
+		bool exit{};
+	};
+	std::array<family_summary, 2> family_summaries{};
+
+	auto is_delta_eligible = [&](const net_state_delta& delta) noexcept{
+		if(delta.before == delta.after){
+			return false;
+		}
+		if(audio_transaction_had_route_ && !delta.on_event_route){
+			return false;
+		}
+		return true;
+	};
+
+	for(const auto& delta : net_deltas){
+		if(delta.before == delta.after){
+			continue;
+		}
+		auto& summary = family_summaries[std::to_underlying(delta.family)];
+		if(delta.after){
+			summary.enter = true;
+		}else{
+			summary.exit = true;
+		}
+	}
+
+	auto state_request = std::optional<audio_request>{};
+	for(const auto& delta : net_deltas){
+		if(!is_delta_eligible(delta) || delta.element == nullptr || !delta.element->scene_audio_auto_proxy){
+			continue;
+		}
+		const auto& summary = family_summaries[std::to_underlying(delta.family)];
+		if(summary.enter && summary.exit){
+			continue;
+		}
+
+		const auto event = state_play_event(delta.family, delta.after);
+		if(!delta.element->get_audio_asset_(event)){
+			continue;
+		}
+		if(!state_request || delta.sequence >= state_request->sequence){
+			state_request = audio_request{
+				.element = delta.element,
+				.event = event,
+				.origin = sound::request_origin::state_delta,
+				.sequence = delta.sequence
+			};
+		}
+	}
+
+	auto request = semantic_audio_request_;
+	if(!request){
+		request = state_request;
+	}
+	if(!request){
+		request = input_audio_fallback_;
+	}
+
+	input_audio_fallback_.reset();
+	semantic_audio_request_.reset();
+	state_audio_deltas_.clear();
+	audio_transaction_had_route_ = false;
+	current_audio_route_ = {};
+
 	if(!request || request->element == nullptr){
 		return;
 	}

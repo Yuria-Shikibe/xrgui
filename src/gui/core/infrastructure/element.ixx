@@ -955,22 +955,26 @@ public:
 	}
 
 	virtual bool set_toggled(bool isToggled){
+		const bool was_toggled = toggled;
 		if(util::try_modify(toggled, isToggled)){
-			get_scene().request_audio_from_scene_proxy(
+			get_scene().record_state_audio_delta(
 				*this,
-				isToggled ? sound::play_event::on_toggle_on : sound::play_event::on_toggle_off,
-				sound::play_priority::state);
+				sound::state_family::toggle,
+				was_toggled,
+				isToggled);
 			return true;
 		}
 		return false;
 	}
 
 	virtual bool set_disabled(bool isDisabled){
+		const bool was_disabled = disabled;
 		if(util::try_modify(disabled, isDisabled)){
-			get_scene().request_audio_from_scene_proxy(
+			get_scene().record_state_audio_delta(
 				*this,
-				isDisabled ? sound::play_event::on_disable : sound::play_event::on_enable,
-				sound::play_priority::state);
+				sound::state_family::disabled,
+				was_disabled,
+				isDisabled);
 			return true;
 		}
 		return false;

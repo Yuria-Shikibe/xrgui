@@ -425,7 +425,17 @@ struct input{
 	struct audio_request{
 		const elem* element{};
 		sound::play_event event{};
-		sound::play_priority priority{};
+		sound::request_origin origin{};
+		std::uint32_t sequence{};
+	};
+
+	struct state_audio_delta{
+		const elem* element{};
+		sound::state_family family{};
+		bool before{};
+		bool after{};
+		bool on_event_route{};
+		std::uint32_t sequence{};
 	};
 
 	struct audio_request_transaction{
@@ -443,13 +453,36 @@ struct input{
 		~audio_request_transaction() noexcept(false);
 	};
 
+	struct audio_route_scope{
+		const input* owner{};
+		std::span<elem* const> previous_route{};
+
+		[[nodiscard]] audio_route_scope(const input& target, std::span<elem* const> route) noexcept;
+
+		audio_route_scope(const audio_route_scope&) = delete;
+		audio_route_scope& operator=(const audio_route_scope&) = delete;
+
+		[[nodiscard]] audio_route_scope(audio_route_scope&& other) noexcept;
+
+		audio_route_scope& operator=(audio_route_scope&& other) noexcept;
+
+		~audio_route_scope();
+	};
+
+	using state_delta_allocator = std::allocator_traits<mr::heap_allocator<elem*>>::rebind_alloc<state_audio_delta>;
+
 	std::array<mouse_state, std::to_underlying(input_handle::mouse::Count)> mouse_states_{};
 	input_handle::input_manager<scene&> inputs_{};
 	double_buffer<mr::heap_vector<elem*>> inbounds_{};
 	linear_flat_set<mr::heap_vector<elem*>> cursor_event_active_elems_{};
 
-	mutable std::optional<audio_request> pending_audio_request_{};
+	mutable std::optional<audio_request> input_audio_fallback_{};
+	mutable std::optional<audio_request> semantic_audio_request_{};
+	mutable mr::heap_vector<state_audio_delta> state_audio_deltas_;
 	mutable std::uint32_t audio_request_transaction_depth_{};
+	mutable std::uint64_t audio_request_sequence_{};
+	mutable std::span<elem* const> current_audio_route_{};
+	mutable bool audio_transaction_had_route_{};
 
 	elem* focus_scroll{nullptr};
 	elem* focus_cursor{nullptr};
@@ -459,7 +492,9 @@ struct input{
 	bool request_cursor_update_{};
 
 	explicit input(const mr::heap_allocator<elem*>& alloc) :
-		inbounds_{alloc}, cursor_event_active_elems_{alloc} {
+		inbounds_{alloc},
+		cursor_event_active_elems_{alloc},
+		state_audio_deltas_{state_delta_allocator{alloc}} {
 	}
 
 	void begin_audio_request_transaction() const noexcept;
@@ -469,7 +504,13 @@ struct input{
 		return audio_request_transaction{*this};
 	}
 
-	void request_audio(const elem* element, sound::play_event event, sound::play_priority priority) const;
+	[[nodiscard]] audio_route_scope make_audio_route_scope(std::span<elem* const> route) const noexcept{
+		return audio_route_scope{*this, route};
+	}
+
+	void request_audio(const elem* element, sound::play_event event, sound::request_origin origin) const;
+	void request_semantic_audio(const elem* element, sound::play_event event) const;
+	void record_state_audio_delta(const elem* element, sound::state_family family, bool before, bool after) const;
 	void update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manager& tooltip) noexcept;
 	void play_audio_for_handled(const elem* element, sound::play_event event) const;
 
@@ -1039,10 +1080,25 @@ public:
 
 	void request_audio_from_scene_proxy(
 		const elem& element,
-		const sound::play_event event,
-		const sound::play_priority priority = sound::play_priority::input) const{
+		const sound::play_event event) const{
 		assert(is_on_scene_thread(*this));
-		input_handler_.request_audio(std::addressof(element), event, priority);
+		input_handler_.request_audio(std::addressof(element), event, sound::request_origin::input_fallback);
+	}
+
+	void request_semantic_audio_from_scene_proxy(
+		const elem& element,
+		const sound::play_event event) const{
+		assert(is_on_scene_thread(*this));
+		input_handler_.request_semantic_audio(std::addressof(element), event);
+	}
+
+	void record_state_audio_delta(
+		const elem& element,
+		const sound::state_family family,
+		const bool before,
+		const bool after) const{
+		assert(is_on_scene_thread(*this));
+		input_handler_.record_state_audio_delta(std::addressof(element), family, before, after);
 	}
 
 	void notify_display_state_changed(elem_tree_channel channel) noexcept{

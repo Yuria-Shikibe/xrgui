@@ -21,9 +21,20 @@ export enum class play_event : std::size_t{
 	on_enable,
 };
 
-export enum class play_priority : std::uint8_t{
-	input,
-	state,
+export enum class state_family : std::uint8_t{
+	toggle,
+	disabled,
+};
+
+export enum class state_direction : std::uint8_t{
+	exit,
+	enter,
+};
+
+export enum class request_origin : std::uint8_t{
+	input_fallback,
+	state_delta,
+	semantic,
 };
 
 export constexpr inline std::string_view default_asset_group_name{"default"};
