@@ -58,6 +58,7 @@ ui_outputs build_main_ui(
 	renderer_frontend r,
 	graphic::image_atlas& image_atlas,
 	audio::audio_channel audio_channel,
+	sound::asset_group_handle default_sound_group,
 	window_thread_dispatcher& window_dispatcher);
 
 export

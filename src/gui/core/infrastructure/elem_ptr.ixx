@@ -348,7 +348,7 @@ private:
 	static void delete_elem(elem* ptr) noexcept;
 
 	template <std::derived_from<elem> T = elem>
-	static void dynamic_init(T& ptr) noexcept;
+	static void dynamic_init(T& ptr);
 
 public:
 	static constexpr auto cvt_mptr = transparent_convert<&elem_ptr::element>;

@@ -10,6 +10,7 @@ import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.backend.glfw.window;
 import mo_yanxi.backend.application_timer;
 import mo_yanxi.backend.vulkan.renderer;
+import mo_yanxi.backend.miniaudio.audio;
 
 import mo_yanxi.graphic.g2d;
 import mo_yanxi.graphic.image_atlas;
@@ -50,6 +51,7 @@ import mo_yanxi.gui.cfg.builtin.colored_cerr;
 import mo_yanxi.gui.cfg.builtin.font_styles;
 import mo_yanxi.gui.cfg.builtin.log_channels;
 import mo_yanxi.gui.cfg.render_context;
+import mo_yanxi.gui.cfg.audio_assets;
 import mo_yanxi.log;
 
 
@@ -74,11 +76,14 @@ void configure_example_runtime_working_directory(const char* executable_path){
 
 void app_run(
 	mo_yanxi::gui::cfg::builtin::main_loop_type& main_loop,
-	std::vector<mo_yanxi::vk::command_buffer>& post_process_cmds
+	std::vector<mo_yanxi::vk::command_buffer>& post_process_cmds,
+	mo_yanxi::audio::audio_system& audio_system,
+	mo_yanxi::audio::audio_resource_manager& audio_resources
 ){
 	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
+	std::vector<audio::audio_event> pending_audio_events{};
 
 	auto& current_focus = main_loop.get_scene();
 	log::info({"App"}, "entering main loop");
@@ -91,6 +96,9 @@ void app_run(
 		timer.fetch_time();
 		//
 		gui::global::event_queue.push_frame_split(timer.global_delta());
+		audio_system.poll_events_into(pending_audio_events);
+		audio_resources.consume_audio_events(pending_audio_events);
+		audio_resources.maintain();
 
 		auto output_token = ctx.acquire_output_frame();
 		if(!output_token.acquired){
@@ -134,8 +142,9 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 	auto renderer_create_bundle = gui_context.make_renderer_create_info();
 	backend::vulkan::renderer renderer{std::move(renderer_create_bundle.create_info)};
 	auto& image_atlas = gui_context.image_atlas();
-	audio::audio_system audio_system{};
-	auto ui_audio_channel = audio_system.register_channel(audio::channel_id_from_role(audio::channel_role::ui));
+	audio::audio_system audio_system{backend::miniaudio::make_audio_driver()};
+	audio::audio_resource_manager audio_resources{audio_system};
+	gui::cfg::default_ui_sound_assets default_audio_assets{};
 
 #pragma region SetupRenderGraph
 	log::info({"Compositor"}, "initialize");
@@ -296,11 +305,13 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 	auto init_fn = [&](gui::cfg::builtin::main_loop_type& loop) -> gui::cfg::builtin::main_loop_init_return_t {
 		gui::cfg::builtin::main_loop_init_return_t ret{};
 
+		default_audio_assets = gui::cfg::load_default_ui_sound_assets(audio_resources);
 		auto ui_providers = gui::cfg::builtin::build_main_ui(
 			loop.get_ctx(),
 			loop.get_renderer().create_frontend(),
 			image_atlas,
-			ui_audio_channel,
+			audio_system.register_channel(audio::channel_id_from_role(audio::channel_role::ui)),
+			default_audio_assets.group,
 			loop.get_window_dispatcher());
 		auto& scene = *ui_providers.scene_ptr;
 		ret.main_scene = ui_providers.scene_ptr;
@@ -457,7 +468,7 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 		rebuild_post_process_commands(context, event.size);
 	});
 
-	app_run(main_loop, post_process_cmds);
+	app_run(main_loop, post_process_cmds, audio_system, audio_resources);
 
 	log::info({"GUI"}, "exiting");
 

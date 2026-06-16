@@ -227,21 +227,26 @@ private:
 
 private:
 	style::target_known_node_ptr<elem> style_{};
+public:
 
-	[[nodiscard]] style::target_known_node_ptr<elem> get_elem_default_style_() const;
+	[[nodiscard]] style::target_known_node_ptr<elem> get_elem_default_style() const;
+private:
 
 	border_t border_{};
 	border_t style_border_cache_{};
 
 	mpsc_action_queue<elem> actions{};
-	sound::asset_group_handle audio_group_{};
-	bool scene_audio_proxy_enabled_{true};
 
+public:
+	sound::asset_group_handle sound_group{};
+	bool scene_audio_auto_proxy{true};
+
+private:
 	[[nodiscard]] audio::audio_asset_handle get_audio_asset_(sound::play_event event) const noexcept{
-		if(!audio_group_){
+		if(!sound_group){
 			return {};
 		}
-		return audio_group_->get(event);
+		return sound_group->get(event);
 	}
 
 	[[nodiscard]] bool play_audio_detached(sound::play_event event, audio::play_settings settings = {}) const{
@@ -272,7 +277,7 @@ private:
 	}
 
 	void play_audio_from_scene_proxy(sound::play_event event) const{
-		if(scene_audio_proxy_enabled_){
+		if(scene_audio_auto_proxy){
 			static_cast<void>(play_audio_detached(event));
 		}
 	}
@@ -330,11 +335,13 @@ public:
 
 	[[nodiscard]] elem(scene& scene, elem* parent) noexcept;
 
+public:
 	elem(const elem& other) = delete;
 	elem(elem&& other) noexcept = delete;
 	elem& operator=(const elem& other) = delete;
 	elem& operator=(elem&& other) noexcept = delete;
 
+	virtual void load_default_resources();
 #pragma region Action
 private:
 	void push_to_action_queue();
@@ -347,23 +354,23 @@ public:
 	void post_task(this E& e, Fn&& fn);
 
 	void set_audio_group(sound::asset_group_handle group) noexcept{
-		audio_group_ = std::move(group);
+		sound_group = std::move(group);
 	}
 
 	void clear_audio_group() noexcept{
-		audio_group_ = {};
+		sound_group = {};
 	}
 
 	[[nodiscard]] const sound::asset_group_handle& audio_group() const noexcept{
-		return audio_group_;
+		return sound_group;
 	}
 
 	void set_scene_audio_proxy_enabled(const bool enabled) noexcept{
-		scene_audio_proxy_enabled_ = enabled;
+		scene_audio_auto_proxy = enabled;
 	}
 
 	[[nodiscard]] bool scene_audio_proxy_enabled() const noexcept{
-		return scene_audio_proxy_enabled_;
+		return scene_audio_auto_proxy;
 	}
 
 	template <typename E, typename Fn, typename ...Args>
@@ -1657,7 +1664,8 @@ void elem_ptr::delete_elem(elem* ptr) noexcept{
 
 
 template <std::derived_from<elem> T>
-void elem_ptr::dynamic_init(T& ptr) noexcept{
+void elem_ptr::dynamic_init(T& ptr){
+	ptr.T::load_default_resources();
 }
 
 

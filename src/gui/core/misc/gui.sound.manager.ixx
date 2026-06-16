@@ -17,6 +17,10 @@ export enum class play_event : std::size_t{
 	on_ime_composition,
 };
 
+export constexpr inline std::string_view default_asset_group_name{"default"};
+
+//TODO add allocator support
+
 export class asset_group;
 
 export struct asset_group_deleter{
@@ -124,7 +128,7 @@ public:
 		groups_.reserve(size);
 	}
 
-	[[nodiscard]] asset_group_handle resolve(std::string_view key) const noexcept{
+	[[nodiscard]] asset_group_handle lookup(std::string_view key) const noexcept{
 		if(const auto itr = groups_.find(key); itr != groups_.end()){
 			return itr->second;
 		}
@@ -138,8 +142,7 @@ public:
 		throw std::out_of_range{"sound group key not found"};
 	}
 
-	template <typename Key>
-		requires std::convertible_to<Key, std::string_view>
+	template <std::convertible_to<std::string_view> Key>
 	auto insert_or_assign(Key&& key, asset_group_handle group){
 		return groups_.insert_or_assign(std::forward<Key>(key), std::move(group));
 	}

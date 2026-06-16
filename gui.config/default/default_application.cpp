@@ -30,6 +30,7 @@ import mo_yanxi.gui.cfg.builtin.font_styles;
 import mo_yanxi.gui.cfg.builtin.log_channels;
 import mo_yanxi.gui.cfg.builtin.main_loop;
 import mo_yanxi.gui.cfg.builtin.scene;
+import mo_yanxi.gui.cfg.audio_assets;
 import mo_yanxi.gui.cfg.render_context;
 
 import mo_yanxi.font;
@@ -106,10 +107,11 @@ struct default_application::state{
 
 	std::optional<render_context> gui_render_context{};
 	std::optional<audio::audio_system> audio_system{};
-	audio::audio_channel ui_audio_channel{};
+	std::optional<audio::audio_resource_manager> audio_resources{};
+	default_ui_sound_assets default_audio_assets{};
+	std::vector<audio::audio_event> pending_audio_events{};
 	std::optional<vk::command_pool> post_command_pool{};
 	std::vector<vk::command_buffer> post_commands{};
-	std::vector<audio::audio_event> pending_audio_events{};
 	std::optional<default_application_loop> loop{};
 
 	gui::scene* scene_ptr{};
@@ -164,7 +166,7 @@ struct default_application::state{
 		glfw_initialized = true;
 
 		audio_system.emplace(backend::miniaudio::make_audio_driver(app.config_.audio_device));
-		ui_audio_channel = audio_system->register_channel(audio::channel_id_from_role(audio::channel_role::ui));
+		audio_resources.emplace(*audio_system);
 
 		vk::enable_validation_layers = app.config_.enable_validation_layers;
 		if(platform::environment_flag_enabled("NSIGHT")){
@@ -253,8 +255,11 @@ struct default_application::state{
 
 	builtin::main_loop_init_return_t initialize_scene(default_application_loop& loop){
 		auto& ui_root = gui::global::manager;
+		auto ui_audio_channel = audio_system->register_channel(audio::channel_id_from_role(audio::channel_role::ui));
 		auto& resources = ui_root.add_scene_resources(default_scene_name, ui_audio_channel);
 		auto style_pal_prov = builtin::make_styles(resources);
+		default_audio_assets = load_default_ui_sound_assets(*audio_resources);
+		install_default_ui_sound_assets(resources.sound_manager, default_audio_assets);
 
 		const auto scene_add_rst = ui_root.add_scene<builtin::example_scene, gui::loose_group>(
 			default_scene_name,
@@ -326,6 +331,10 @@ struct default_application::state{
 		}
 
 		audio_system->poll_events_into(pending_audio_events);
+		if(audio_resources){
+			audio_resources->consume_audio_events(pending_audio_events);
+			audio_resources->maintain();
+		}
 		if(pending_audio_events.empty()){
 			return;
 		}
@@ -376,6 +385,7 @@ struct default_application::state{
 		}
 
 		loop.reset();
+		audio_resources.reset();
 		audio_system.reset();
 		post_commands.clear();
 		post_command_pool.reset();

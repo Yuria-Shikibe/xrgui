@@ -86,6 +86,11 @@ private:
 	style::target_known_node_ptr<scroll_adaptor_base> drawer{init_drawer_()};
 
 public:
+	void load_default_resources() override{
+		elem::load_default_resources();
+		scene_audio_auto_proxy = false;
+	}
+
 	float fade_delay_ticks{60.0f * 1.5f};
 	float fade_duration_ticks{60.0f * 0.5f};
 

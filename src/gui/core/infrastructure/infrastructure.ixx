@@ -150,7 +150,7 @@ inline void sync_set_elem_audio_group(elem& e, sound::asset_group_handle group){
 export
 inline void sync_set_elem_audio_group(elem& e, std::string_view sound_family_name){
 	e.sync_run([sound_family_name = std::string{sound_family_name}](elem& el){
-		el.set_audio_group(el.get_sound_manager().resolve(sound_family_name));
+		el.set_audio_group(el.get_sound_manager().lookup(sound_family_name));
 	});
 }
 

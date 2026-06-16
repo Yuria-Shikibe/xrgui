@@ -649,9 +649,13 @@ ui_outputs build_main_ui(
 	renderer_frontend renderer,
 	graphic::image_atlas& image_atlas,
 	audio::audio_channel audio_channel,
+	sound::asset_group_handle default_sound_group,
 	window_thread_dispatcher& window_dispatcher){
 	auto& ui_root = global::manager;
 	auto& res = ui_root.add_scene_resources("main", audio_channel);
+	if(default_sound_group){
+		res.sound_manager.insert_or_assign(sound::default_asset_group_name, std::move(default_sound_group));
+	}
 	auto style_pal_prov = make_styles(res);
 
 	const auto scene_add_rst = ui_root.add_scene<example_scene, loose_group>("main", res, true, std::move(renderer));

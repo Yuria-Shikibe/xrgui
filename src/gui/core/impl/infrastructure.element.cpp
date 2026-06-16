@@ -138,7 +138,7 @@ void style::debug_elem_drawer::draw_background(const elem& element, math::frect 
 }*/
 
 
-style::target_known_node_ptr<elem> elem::get_elem_default_style_() const{
+style::target_known_node_ptr<elem> elem::get_elem_default_style() const{
 	return get_style_tree_manager().get_default<elem>();
 }
 
@@ -153,8 +153,12 @@ elem::elem(scene& scene, elem* parent) noexcept :
 	scene.incr_ref_count_();
 
 	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
+}
+
+void elem::load_default_resources(){
 	sync_run([](elem& elem){
-		elem.set_style(elem.get_elem_default_style_());
+		elem.sound_group = elem.get_sound_manager().lookup(sound::default_asset_group_name);
+		elem.set_style(elem.get_elem_default_style());
 	});
 }
 
