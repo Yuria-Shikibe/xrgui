@@ -195,13 +195,12 @@ struct icon_frame : image_frame_single<icon<>>{
 
 export
 struct row_separator : image_frame_single<drawable_row_patch<component::batch_draw_mode>>{
-protected:
-	void load_default_resources() override{
-		image_frame_single<drawable_row_patch<component::batch_draw_mode>>::load_default_resources();
-		set_style();
+public:
+	void set_default_appearance() override{
+		image_frame_single<drawable_row_patch<component::batch_draw_mode>>::set_default_appearance();
+		set_style_assume_synced();
 	}
 
-public:
 	[[nodiscard]] row_separator(
 		scene& scene, elem* group,
 		const image_row_patch& patch = assets::builtin::get_separator_row_patch(),

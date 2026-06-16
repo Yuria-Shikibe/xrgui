@@ -438,22 +438,6 @@ private:
 	friend class audio_asset_record;
 };
 
-audio_system& audio_asset_record::system() const noexcept{
-	return *system_;
-}
-
-bool audio_asset_record::is_protected() const noexcept{
-	return owner_.protected_of_(*this);
-}
-
-void audio_asset_record::set_protected(const bool value) noexcept{
-	owner_.set_protected_(*this, value);
-}
-
-std::string audio_asset_record::last_error() const{
-	return error_message_(owner_.last_error_of_(*this));
-}
-
 audio_asset_record::audio_asset_record(
 	audio_system& system,
 	audio_resource_manager& owner,
@@ -469,18 +453,20 @@ audio_asset_record::audio_asset_record(
 	  protected_resource_(options.protected_resource){
 }
 
-std::string audio_asset_record::error_message_(const audio_resource_error error){
-	switch(error){
-	case audio_resource_error::none:
-		return {};
-	case audio_resource_error::system_unavailable:
-		return "audio system is unavailable";
-	case audio_resource_error::load_not_accepted:
-		return "audio load command was not accepted";
-	case audio_resource_error::resource_failed:
-		return "audio resource failed";
-	}
-	return "audio resource failed";
+audio_system& audio_asset_record::system() const noexcept{
+	return *system_;
+}
+
+bool audio_asset_record::is_protected() const noexcept{
+	return owner_.protected_of_(*this);
+}
+
+void audio_asset_record::set_protected(const bool value) noexcept{
+	owner_.set_protected_(*this, value);
+}
+
+std::string audio_asset_record::last_error() const{
+	return error_message_(owner_.last_error_of_(*this));
 }
 
 resource_handle audio_asset_record::load_now(const audio_load_priority priority){
@@ -505,6 +491,20 @@ void audio_asset_record::reload(const audio_load_priority priority){
 	last_error_ = audio_resource_error::none;
 	state_.store(audio_resource_state::unloaded, std::memory_order_release);
 	(void)(owner.request_load_(*this, true, priority));
+}
+
+std::string audio_asset_record::error_message_(const audio_resource_error error){
+	switch(error){
+	case audio_resource_error::none:
+		return {};
+	case audio_resource_error::system_unavailable:
+		return "audio system is unavailable";
+	case audio_resource_error::load_not_accepted:
+		return "audio load command was not accepted";
+	case audio_resource_error::resource_failed:
+		return "audio resource failed";
+	}
+	return "audio resource failed";
 }
 
 }

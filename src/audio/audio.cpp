@@ -42,6 +42,10 @@ struct audio_control_sink{
 	}
 };
 
+void audio_resource_deleter::operator()(audio_resource* resource) const noexcept{
+	delete resource;
+}
+
 audio_resource::~audio_resource(){
 	release();
 }
@@ -54,8 +58,8 @@ void audio_resource::release() noexcept{
 	}
 }
 
-void audio_resource_deleter::operator()(audio_resource* resource) const noexcept{
-	delete resource;
+void playback_control_deleter::operator()(playback_control* control) const noexcept{
+	delete control;
 }
 
 playback_control::playback_control(
@@ -69,14 +73,6 @@ playback_control::playback_control(
 	  release_policy_(options.release_policy){
 }
 
-playback_control::~playback_control(){
-	release_(release_policy());
-}
-
-void playback_control::set_release_policy(const playback_release_policy policy){
-	release_policy_.store(policy, std::memory_order_release);
-}
-
 void playback_control::release_(const playback_release_policy policy) noexcept{
 	const playback_id playback{playback_.exchange(0, std::memory_order_acq_rel)};
 	if(!playback){
@@ -87,6 +83,14 @@ void playback_control::release_(const playback_release_policy policy) noexcept{
 			system.post_release_playback_(channel_, playback, policy);
 		});
 	}
+}
+
+playback_control::~playback_control(){
+	release_(release_policy());
+}
+
+void playback_control::set_release_policy(const playback_release_policy policy){
+	release_policy_.store(policy, std::memory_order_release);
 }
 
 void playback_control::stop(){
@@ -133,10 +137,6 @@ void playback_control::set_params(voice_params params) const{
 	}
 }
 
-void playback_control_deleter::operator()(playback_control* control) const noexcept{
-	delete control;
-}
-
 void audio_channel::require_owner_thread(const char* operation) const{
 	if(system_ == nullptr || !id_){
 		throw std::runtime_error{std::format("{} called on an empty audio channel", operation)};
@@ -169,6 +169,112 @@ playback_control_handle audio_channel::play_controlled(
 void audio_channel::set_volume(const float volume) const{
 	require_owner_thread("audio_channel::set_volume");
 	system_->post_set_channel_volume_(id_, volume);
+}
+
+audio_system::audio_system(std::unique_ptr<audio_driver_backend> driver)
+	: driver_(std::move(driver)){
+	if(driver_ == nullptr){
+		driver_ = make_null_audio_driver();
+	}
+	control_sink_ = std::make_shared<audio_control_sink>(*this);
+	start();
+}
+
+audio_system::~audio_system(){
+	shutdown();
+}
+
+resource_handle audio_system::load(load_desc desc, const audio_load_priority priority){
+	if(!valid() || priority == lazy_audio_load_priority){
+		return {};
+	}
+
+	const auto resource = allocate_resource();
+	if(post(cmd::load_resource{
+			.resource = resource,
+			.desc = std::move(desc),
+			.priority = priority
+		})){
+		return resource;
+	}
+	return {};
+}
+
+void audio_system::unload(const resource_handle resource) noexcept{
+	if(!resource){
+		return;
+	}
+	(void)(post(cmd::unload_resource{
+			.resource = resource
+		}));
+}
+
+audio_channel audio_system::register_channel(const channel_id channel){
+	if(!valid()){
+		throw std::runtime_error{"audio system is not accepting channel registrations"};
+	}
+
+	const auto owner_thread = std::this_thread::get_id();
+	auto registration = reserve_channel_slot_(channel, owner_thread);
+	if(registration.inserted){
+		if(!post(cmd::register_channel{.channel = channel})){
+			rollback_channel_slot_(*registration.slot);
+			throw std::runtime_error{"audio channel registration command was not accepted"};
+		}
+		commit_channel_slot_(*registration.slot, channel);
+	}
+	return audio_channel{*this, channel, owner_thread};
+}
+
+std::optional<audio_channel> audio_system::get_channel(const channel_id channel) noexcept{
+	if(!channel || !valid()){
+		return std::nullopt;
+	}
+	const auto owner_thread = std::this_thread::get_id();
+	const auto* slot = find_channel_slot_(channel);
+	if(slot == nullptr){
+		return std::nullopt;
+	}
+	if(slot->owner_thread != owner_thread){
+		return std::nullopt;
+	}
+	return audio_channel{*this, channel, owner_thread};
+}
+
+void audio_system::shutdown() noexcept{
+	const bool was_accepting = accepting_.exchange(false, std::memory_order_acq_rel);
+	if(loader_.joinable()){
+		loader_.request_stop();
+		load_requests_.notify();
+		if(loader_.get_id() != std::this_thread::get_id()){
+			loader_.join();
+			load_requests_.clear();
+		}
+	}
+	if(was_accepting){
+		try{
+			cmd::command_batch batch{};
+			batch.push_back(cmd::shutdown_audio{});
+			commands_.push(std::move(batch));
+			wake_worker_();
+		}catch(...){
+		}
+	}
+
+	if(worker_.joinable()){
+		wake_worker_();
+		if(worker_.get_id() != std::this_thread::get_id()){
+			worker_.join();
+			commands_.clear();
+		}
+	}
+	detach_control_sink_();
+	drain_deferred_backend_releases_();
+	events_.clear();
+}
+
+void audio_system::poll_events_into(std::vector<audio_event>& out){
+	pop_events(out);
 }
 
 void audio_system::start(){
@@ -213,9 +319,9 @@ audio_system::channel_registration audio_system::reserve_channel_slot_(
 					throw std::runtime_error{"audio channel is already bound to another thread"};
 				}
 				return channel_registration{
-					.slot = std::addressof(slot),
-					.inserted = false
-				};
+						.slot = std::addressof(slot),
+						.inserted = false
+					};
 			}
 
 			if(current == pending_channel_slot_value_){
@@ -228,15 +334,15 @@ audio_system::channel_registration audio_system::reserve_channel_slot_(
 
 			auto expected = empty_channel_slot_value_;
 			if(slot.channel_value.compare_exchange_strong(
-				   expected,
-				   pending_channel_slot_value_,
-				   std::memory_order_acq_rel,
-				   std::memory_order_acquire)){
+				expected,
+				pending_channel_slot_value_,
+				std::memory_order_acq_rel,
+				std::memory_order_acquire)){
 				slot.owner_thread = owner_thread;
 				return channel_registration{
-					.slot = std::addressof(slot),
-					.inserted = true
-				};
+						.slot = std::addressof(slot),
+						.inserted = true
+					};
 			}
 			if(expected == pending_channel_slot_value_){
 				saw_pending_slot = true;
@@ -324,10 +430,6 @@ void audio_system::pop_events(std::vector<audio_event>& out){
 	}
 }
 
-void audio_system::poll_events_into(std::vector<audio_event>& out){
-	pop_events(out);
-}
-
 void audio_system::run(const std::stop_token& stop_token){
 	for(;;){
 		if(stop_token.stop_requested()){
@@ -350,8 +452,8 @@ void audio_system::run(const std::stop_token& stop_token){
 			driver_->update(driver_events);
 		}catch(...){
 			driver_events.push_back(audio_event{
-				.type = audio_event_type::backend_error
-			});
+					.type = audio_event_type::backend_error
+				});
 		}
 		push_events(driver_events);
 
@@ -407,146 +509,146 @@ void audio_system::process(cmd::command_batch batch){
 
 void audio_system::process(cmd::command command){
 	std::visit(overload{
-		[this](cmd::load_resource command){
-			enqueue_load_(std::move(command));
-		},
-		[this](const cmd::unload_resource& command){
-			if(!command.resource){
-				return;
-			}
+		           [this](cmd::load_resource command){
+			           enqueue_load_(std::move(command));
+		           },
+		           [this](const cmd::unload_resource& command){
+			           if(!command.resource){
+				           return;
+			           }
 
-			if(pending_load_resources_.erase(command.resource) != 0){
-				fail_pending_playbacks_(command.resource);
-			}
+			           if(pending_load_resources_.erase(command.resource) != 0){
+				           fail_pending_playbacks_(command.resource);
+			           }
 
-			audio_resource_ptr backend_resource{};
-			if(const auto resource_iter = resources_.find(command.resource); resource_iter != resources_.end()){
-				backend_resource = std::move(resource_iter->second);
-				resources_.erase(resource_iter);
-				if(backend_resource){
-					backend_resource->release();
-				}
-			}
-			push_event(audio_event{
-				.type = audio_event_type::resource_unloaded,
-				.resource = command.resource
-			});
-		},
-		[this](const cmd::release_backend_resource& command){
-			if(command.handle != nullptr && driver_ != nullptr){
-				driver_->release_resource(command.handle);
-			}
-		},
-		[this](const cmd::register_channel& command){
-			if(!command.channel){
-				return;
-			}
-			try{
-				driver_->register_channel(command.channel);
-			}catch(...){
-				push_event(audio_event{
-					.type = audio_event_type::backend_error
-				});
-			}
-		},
-		[this](const cmd::play_detached& command){
-			if(!command.resource || !command.channel){
-				return;
-			}
+			           audio_resource_ptr backend_resource{};
+			           if(const auto resource_iter = resources_.find(command.resource); resource_iter != resources_.end()){
+				           backend_resource = std::move(resource_iter->second);
+				           resources_.erase(resource_iter);
+				           if(backend_resource){
+					           backend_resource->release();
+				           }
+			           }
+			           push_event(audio_event{
+					           .type = audio_event_type::resource_unloaded,
+					           .resource = command.resource
+				           });
+		           },
+		           [this](const cmd::release_backend_resource& command){
+			           if(command.handle != nullptr && driver_ != nullptr){
+				           driver_->release_resource(command.handle);
+			           }
+		           },
+		           [this](const cmd::register_channel& command){
+			           if(!command.channel){
+				           return;
+			           }
+			           try{
+				           driver_->register_channel(command.channel);
+			           }catch(...){
+				           push_event(audio_event{
+						           .type = audio_event_type::backend_error
+					           });
+			           }
+		           },
+		           [this](const cmd::play_detached& command){
+			           if(!command.resource || !command.channel){
+				           return;
+			           }
 
-			const auto resource = resources_.find(command.resource);
-			if(resource == resources_.end()){
-				if(is_pending_load_(command.resource)){
-					pending_playbacks_[command.resource].push_back(command);
-					return;
-				}
-				push_event(audio_event{
-					.type = audio_event_type::playback_failed,
-					.resource = command.resource
-				});
-				return;
-			}
+			           const auto resource = resources_.find(command.resource);
+			           if(resource == resources_.end()){
+				           if(is_pending_load_(command.resource)){
+					           pending_playbacks_[command.resource].push_back(command);
+					           return;
+				           }
+				           push_event(audio_event{
+						           .type = audio_event_type::playback_failed,
+						           .resource = command.resource
+					           });
+				           return;
+			           }
 
-			try{
-				driver_->play_detached(*resource->second, command.channel, command.settings);
-			}catch(...){
-				push_event(audio_event{
-					.type = audio_event_type::playback_failed,
-					.resource = command.resource
-				});
-			}
-		},
-		[this](const cmd::play_controlled& command){
-			if(!command.resource || !command.channel || !command.playback){
-				return;
-			}
+			           try{
+				           driver_->play_detached(*resource->second, command.channel, command.settings);
+			           }catch(...){
+				           push_event(audio_event{
+						           .type = audio_event_type::playback_failed,
+						           .resource = command.resource
+					           });
+			           }
+		           },
+		           [this](const cmd::play_controlled& command){
+			           if(!command.resource || !command.channel || !command.playback){
+				           return;
+			           }
 
-			const auto resource = resources_.find(command.resource);
-			if(resource == resources_.end()){
-				if(is_pending_load_(command.resource)){
-					pending_playbacks_[command.resource].push_back(command);
-					return;
-				}
-				push_event(audio_event{
-					.type = audio_event_type::playback_failed,
-					.resource = command.resource,
-					.playback = command.playback
-				});
-				return;
-			}
+			           const auto resource = resources_.find(command.resource);
+			           if(resource == resources_.end()){
+				           if(is_pending_load_(command.resource)){
+					           pending_playbacks_[command.resource].push_back(command);
+					           return;
+				           }
+				           push_event(audio_event{
+						           .type = audio_event_type::playback_failed,
+						           .resource = command.resource,
+						           .playback = command.playback
+					           });
+				           return;
+			           }
 
-			try{
-				driver_->play_controlled(*resource->second, command.channel, command.playback, command.settings);
-				push_event(audio_event{
-					.type = audio_event_type::playback_started,
-					.resource = command.resource,
-					.playback = command.playback
-				});
-			}catch(...){
-				push_event(audio_event{
-					.type = audio_event_type::playback_failed,
-					.resource = command.resource,
-					.playback = command.playback
-				});
-			}
-		},
-		[this](const cmd::pause_playback& command){
-			driver_->pause(command.playback);
-		},
-		[this](const cmd::resume_playback& command){
-			driver_->resume(command.playback);
-		},
-		[this](const cmd::set_playback_params& command){
-			if(apply_pending_playback_params_(command.playback, command.params)){
-				return;
-			}
-			driver_->set_playback_params(command.playback, command.params);
-		},
-		[this](const cmd::release_playback& command){
-			if(!command.playback){
-				return;
-			}
-			if(release_pending_playback_(command.playback, command.policy)){
-				return;
-			}
-			switch(command.policy){
-			case playback_release_policy::stop_on_release:
-				driver_->stop(command.playback);
-				break;
-			case playback_release_policy::detach_on_release:
-				driver_->detach(command.playback);
-				break;
-			}
-		},
-		[this](const cmd::set_channel_volume& command){
-			if(!command.channel){
-				return;
-			}
-			driver_->set_channel_volume(command.channel, command.volume);
-		},
-		[](const cmd::shutdown_audio&) noexcept{
-		}
-	}, std::move(command));
+			           try{
+				           driver_->play_controlled(*resource->second, command.channel, command.playback, command.settings);
+				           push_event(audio_event{
+						           .type = audio_event_type::playback_started,
+						           .resource = command.resource,
+						           .playback = command.playback
+					           });
+			           }catch(...){
+				           push_event(audio_event{
+						           .type = audio_event_type::playback_failed,
+						           .resource = command.resource,
+						           .playback = command.playback
+					           });
+			           }
+		           },
+		           [this](const cmd::pause_playback& command){
+			           driver_->pause(command.playback);
+		           },
+		           [this](const cmd::resume_playback& command){
+			           driver_->resume(command.playback);
+		           },
+		           [this](const cmd::set_playback_params& command){
+			           if(apply_pending_playback_params_(command.playback, command.params)){
+				           return;
+			           }
+			           driver_->set_playback_params(command.playback, command.params);
+		           },
+		           [this](const cmd::release_playback& command){
+			           if(!command.playback){
+				           return;
+			           }
+			           if(release_pending_playback_(command.playback, command.policy)){
+				           return;
+			           }
+			           switch(command.policy){
+			           case playback_release_policy::stop_on_release:
+				           driver_->stop(command.playback);
+				           break;
+			           case playback_release_policy::detach_on_release:
+				           driver_->detach(command.playback);
+				           break;
+			           }
+		           },
+		           [this](const cmd::set_channel_volume& command){
+			           if(!command.channel){
+				           return;
+			           }
+			           driver_->set_channel_volume(command.channel, command.volume);
+		           },
+		           [](const cmd::shutdown_audio&) noexcept{
+		           }
+	           }, std::move(command));
 }
 
 void audio_system::enqueue_load_(cmd::load_resource command){
@@ -555,9 +657,9 @@ void audio_system::enqueue_load_(cmd::load_resource command){
 	}
 	if(command.priority == lazy_audio_load_priority){
 		push_event(audio_event{
-			.type = audio_event_type::resource_failed,
-			.resource = command.resource
-		});
+				.type = audio_event_type::resource_failed,
+				.resource = command.resource
+			});
 		return;
 	}
 	command.sequence = next_load_sequence_++;
@@ -582,9 +684,9 @@ bool audio_system::process_pending_loads_(){
 		}catch(...){
 			pending_load_resources_.erase(command.resource);
 			push_event(audio_event{
-				.type = audio_event_type::resource_failed,
-				.resource = command.resource
-			});
+					.type = audio_event_type::resource_failed,
+					.resource = command.resource
+				});
 			fail_pending_playbacks_(command.resource);
 		}
 		processed = true;
@@ -603,8 +705,8 @@ bool audio_system::process_load_completions_(){
 
 void audio_system::process_load_request_(cmd::load_resource command) noexcept{
 	load_completion completion{
-		.resource = command.resource
-	};
+			.resource = command.resource
+		};
 	try{
 		completion.result = driver_->load_resource(std::move(command.desc));
 	}catch(...){
@@ -635,9 +737,9 @@ void audio_system::process_load_completion_(load_completion completion){
 
 	if(!loaded_resource){
 		push_event(audio_event{
-			.type = audio_event_type::resource_failed,
-			.resource = completion.resource
-		});
+				.type = audio_event_type::resource_failed,
+				.resource = completion.resource
+			});
 		fail_pending_playbacks_(completion.resource);
 		return;
 	}
@@ -649,9 +751,9 @@ void audio_system::process_load_completion_(load_completion completion){
 	}catch(...){
 		release_backend_resource_(native_handle);
 		push_event(audio_event{
-			.type = audio_event_type::resource_failed,
-			.resource = completion.resource
-		});
+				.type = audio_event_type::resource_failed,
+				.resource = completion.resource
+			});
 		fail_pending_playbacks_(completion.resource);
 		return;
 	}
@@ -660,12 +762,12 @@ void audio_system::process_load_completion_(load_completion completion){
 	auto [iter, inserted] = resources_.emplace(completion.resource, resource);
 	(void)inserted;
 	push_event(audio_event{
-		.type = audio_event_type::resource_loaded,
-		.resource = completion.resource,
-		.backend_resource = iter->second,
-		.backend_handle = loaded_resource.token,
-		.backend_metadata = std::move(loaded_resource.metadata)
-	});
+			.type = audio_event_type::resource_loaded,
+			.resource = completion.resource,
+			.backend_resource = iter->second,
+			.backend_handle = loaded_resource.token,
+			.backend_metadata = std::move(loaded_resource.metadata)
+		});
 	flush_pending_playbacks_(completion.resource);
 }
 
@@ -698,9 +800,9 @@ void audio_system::fail_pending_playbacks_(const resource_handle resource){
 		std::visit([this](auto& command){
 			using command_type = std::decay_t<decltype(command)>;
 			audio_event event{
-				.type = audio_event_type::playback_failed,
-				.resource = command.resource
-			};
+					.type = audio_event_type::playback_failed,
+					.resource = command.resource
+				};
 			if constexpr(std::same_as<command_type, cmd::play_controlled>){
 				event.playback = command.playback;
 			}
@@ -739,10 +841,10 @@ bool audio_system::release_pending_playback_(
 
 			if(policy == playback_release_policy::detach_on_release){
 				*playback_iter = cmd::play_detached{
-					.resource = command->resource,
-					.channel = command->channel,
-					.settings = command->settings
-				};
+						.resource = command->resource,
+						.channel = command->channel,
+						.settings = command->settings
+					};
 			}else{
 				pending.erase(playback_iter);
 				if(pending.empty()){
@@ -842,10 +944,10 @@ bool audio_system::post_play_detached_(
 	}
 	require_registered_channel_(channel);
 	return post_channel_command_(channel, cmd::play_detached{
-		.resource = resource,
-		.channel = channel,
-		.settings = std::move(settings)
-	});
+		                             .resource = resource,
+		                             .channel = channel,
+		                             .settings = std::move(settings)
+	                             });
 }
 
 playback_control_handle audio_system::post_play_controlled_(
@@ -867,11 +969,11 @@ playback_control_handle audio_system::post_play_controlled_(
 	}
 
 	if(post_channel_command_(channel, cmd::play_controlled{
-		.resource = resource,
-		.channel = channel,
-		.playback = playback,
-		.settings = std::move(settings)
-	})){
+		                         .resource = resource,
+		                         .channel = channel,
+		                         .playback = playback,
+		                         .settings = std::move(settings)
+	                         })){
 		return control;
 	}
 
@@ -882,9 +984,9 @@ playback_control_handle audio_system::post_play_controlled_(
 void audio_system::post_set_channel_volume_(const channel_id channel, const float volume){
 	require_registered_channel_(channel);
 	(void)(post_channel_command_(channel, cmd::set_channel_volume{
-		.channel = channel,
-		.volume = volume
-	}));
+		                             .channel = channel,
+		                             .volume = volume
+	                             }));
 }
 
 void audio_system::post_pause_playback_(const channel_id channel, const playback_id playback) noexcept{
@@ -909,9 +1011,9 @@ void audio_system::post_set_playback_params_(
 		return;
 	}
 	(void)(post_channel_command_(channel, cmd::set_playback_params{
-		.playback = playback,
-		.params = params
-	}));
+		                             .playback = playback,
+		                             .params = params
+	                             }));
 }
 
 void audio_system::post_release_playback_(
@@ -922,111 +1024,9 @@ void audio_system::post_release_playback_(
 		return;
 	}
 	(void)(post_channel_command_(channel, cmd::release_playback{
-		.playback = playback,
-		.policy = policy
-	}));
-}
-
-audio_system::audio_system(std::unique_ptr<audio_driver_backend> driver)
-	: driver_(std::move(driver)){
-	if(driver_ == nullptr){
-		driver_ = make_null_audio_driver();
-	}
-	control_sink_ = std::make_shared<audio_control_sink>(*this);
-	start();
-}
-
-audio_system::~audio_system(){
-	shutdown();
-}
-
-resource_handle audio_system::load(load_desc desc, const audio_load_priority priority){
-	if(!valid() || priority == lazy_audio_load_priority){
-		return {};
-	}
-
-	const auto resource = allocate_resource();
-	if(post(cmd::load_resource{
-		.resource = resource,
-		.desc = std::move(desc),
-		.priority = priority
-	})){
-		return resource;
-	}
-	return {};
-}
-
-void audio_system::unload(const resource_handle resource) noexcept{
-	if(!resource){
-		return;
-	}
-	(void)(post(cmd::unload_resource{
-		.resource = resource
-	}));
-}
-
-audio_channel audio_system::register_channel(const channel_id channel){
-	if(!valid()){
-		throw std::runtime_error{"audio system is not accepting channel registrations"};
-	}
-
-	const auto owner_thread = std::this_thread::get_id();
-	auto registration = reserve_channel_slot_(channel, owner_thread);
-	if(registration.inserted){
-		if(!post(cmd::register_channel{.channel = channel})){
-			rollback_channel_slot_(*registration.slot);
-			throw std::runtime_error{"audio channel registration command was not accepted"};
-		}
-		commit_channel_slot_(*registration.slot, channel);
-	}
-	return audio_channel{*this, channel, owner_thread};
-}
-
-std::optional<audio_channel> audio_system::get_channel(const channel_id channel) noexcept{
-	if(!channel || !valid()){
-		return std::nullopt;
-	}
-	const auto owner_thread = std::this_thread::get_id();
-	const auto* slot = find_channel_slot_(channel);
-	if(slot == nullptr){
-		return std::nullopt;
-	}
-	if(slot->owner_thread != owner_thread){
-		return std::nullopt;
-	}
-	return audio_channel{*this, channel, owner_thread};
-}
-
-void audio_system::shutdown() noexcept{
-	const bool was_accepting = accepting_.exchange(false, std::memory_order_acq_rel);
-	if(loader_.joinable()){
-		loader_.request_stop();
-		load_requests_.notify();
-		if(loader_.get_id() != std::this_thread::get_id()){
-			loader_.join();
-			load_requests_.clear();
-		}
-	}
-	if(was_accepting){
-		try{
-			cmd::command_batch batch{};
-			batch.push_back(cmd::shutdown_audio{});
-			commands_.push(std::move(batch));
-			wake_worker_();
-		}catch(...){
-		}
-	}
-
-	if(worker_.joinable()){
-		wake_worker_();
-		if(worker_.get_id() != std::this_thread::get_id()){
-			worker_.join();
-			commands_.clear();
-		}
-	}
-	detach_control_sink_();
-	drain_deferred_backend_releases_();
-	events_.clear();
+		                             .playback = playback,
+		                             .policy = policy
+	                             }));
 }
 
 }

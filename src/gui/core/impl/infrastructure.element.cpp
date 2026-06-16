@@ -155,6 +155,58 @@ elem::elem(scene& scene, elem* parent) noexcept :
 	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
 }
 
+void elem::set_default_appearance(){
+	set_default_audio_group_assume_synced();
+	set_style_assume_synced(get_elem_default_style());
+}
+
+void elem::push_to_action_queue(){
+	get_scene().async_push_elem_to_action_pending(this);
+}
+
+void elem::set_audio_group(sound::asset_group_handle group) noexcept{
+	set_audio_group_assume_synced(std::move(group));
+}
+
+void elem::set_audio_group_assume_synced(sound::asset_group_handle group) noexcept{
+	assert(is_on_scene_thread(get_scene()));
+	sound_group = std::move(group);
+}
+
+void elem::set_default_audio_group_assume_synced(){
+	set_audio_group_assume_synced(get_sound_manager().lookup(sound::default_asset_group_name));
+}
+
+tooltip::align_config elem::tooltip_get_align_config() const{
+	tooltip::align_config cfg{
+			tooltip_create_config.layout_info.follow,
+			tooltip_create_config.layout_info.attach_point_tooltip
+		};
+	switch(tooltip_create_config.layout_info.follow){
+	case tooltip::anchor_type::owner :{
+		auto pos = align::get_vert(tooltip_create_config.layout_info.attach_point_spawner, extent());
+		pos = util::transform_local2scene(*this, pos);
+		cfg.pos = pos;
+		break;
+	}
+
+	default : break;
+	}
+	return cfg;
+}
+
+void elem::create_tooltip(bool fade_in, bool below_scene){
+	get_scene().tooltip_manager_.append_tooltip(*this, below_scene, fade_in);
+}
+
+bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
+	return rect{extent()}.contains_loose(util::transform_scene2local(*this, cursorPos));
+}
+
+void elem::drop_tooltip() const{
+	if(has_tooltip()) get_scene().tooltip_manager_.request_drop(this);
+}
+
 void elem::on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event){
 	if(!ctx.is_target_or_bubble_phase()){
 		return;
@@ -198,45 +250,35 @@ void elem::on_ime(events::event_context& ctx, const events::ime_event& event){
 	(void)event;
 }
 
-void elem::load_default_resources(){
-	sync_run([](elem& elem){
-		elem.sound_group = elem.get_sound_manager().lookup(sound::default_asset_group_name);
-		elem.set_style(elem.get_elem_default_style());
-	});
+void elem::set_style(style::target_known_node_ptr<elem>&& style){
+	set_style_assume_synced(std::move(style));
 }
 
-void elem::push_to_action_queue(){
-	get_scene().async_push_elem_to_action_pending(this);
-}
-
-tooltip::align_config elem::tooltip_get_align_config() const{
-	tooltip::align_config cfg{
-			tooltip_create_config.layout_info.follow,
-			tooltip_create_config.layout_info.attach_point_tooltip
-		};
-	switch(tooltip_create_config.layout_info.follow){
-	case tooltip::anchor_type::owner :{
-		auto pos = align::get_vert(tooltip_create_config.layout_info.attach_point_spawner, extent());
-		pos = util::transform_local2scene(*this, pos);
-		cfg.pos = pos;
-		break;
+void elem::set_style_assume_synced(style::target_known_node_ptr<elem>&& style){
+	assert(is_on_scene_thread(get_scene()));
+	if(this->style_ == style){
+		return;
 	}
 
-	default : break;
+	this->style_ = std::move(style);
+	get_scene().notify_display_state_changed(get_channel());
+
+	if(util::try_modify(style_border_cache_, this->style_ ? style::query_metrics(this->style_, {}).total_inset() : gui::border_t{})){
+		notify_isolated_layout_changed();
 	}
-	return cfg;
 }
 
-void elem::create_tooltip(bool fade_in, bool below_scene){
-	get_scene().tooltip_manager_.append_tooltip(*this, below_scene, fade_in);
+void elem::set_style_assume_synced(style::family_variant v){
+	set_style_assume_synced(get_style_tree_manager().get_default<elem>(v));
 }
 
-bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
-	return rect{extent()}.contains_loose(util::transform_scene2local(*this, cursorPos));
-}
-
-void elem::drop_tooltip() const{
-	if(has_tooltip()) get_scene().tooltip_manager_.request_drop(this);
+void elem::set_style_assume_synced() noexcept{
+	assert(is_on_scene_thread(get_scene()));
+	style_ = {};
+	get_scene().notify_display_state_changed(get_channel());
+	if(util::try_modify(style_border_cache_, {})){
+		notify_isolated_layout_changed();
+	}
 }
 
 void elem::set_style(style::family_variant v){
@@ -245,90 +287,12 @@ void elem::set_style(style::family_variant v){
 
 void elem::set_style() noexcept{
 	sync_run([](elem& elem){
-		elem.style_ = {};
-		elem.get_scene().notify_display_state_changed(elem.get_channel());
-		if(util::try_modify(elem.style_border_cache_, {})){
-			elem.notify_isolated_layout_changed();
-		}
+		elem.set_style_assume_synced();
 	});
 }
 
 bool elem::update(float delta_in_ticks){
 	return true;
-}
-
-void elem::mark_destroying_no_external_refs_() noexcept{
-	const auto state = lifecycle_ref_.load(std::memory_order_acquire);
-	if(elem::lifecycle_ref_count_(state) != 0u){
-		assert(false && "cannot destroy an externally referenced elem");
-		std::terminate();
-	}
-	lifecycle_ref_.store(lifecycle_destroying_bit_, std::memory_order_release);
-}
-
-bool elem::try_retain_external_ref_live_() noexcept{
-	auto state = lifecycle_ref_.load(std::memory_order_acquire);
-	while(elem::is_lifecycle_live_(state)){
-		const auto count = elem::lifecycle_ref_count_(state);
-		if(count == lifecycle_ref_mask_){
-			assert(false && "elem external reference count overflow");
-			std::terminate();
-		}
-		if(lifecycle_ref_.compare_exchange_weak(
-			state,
-			state + lifecycle_ref_word{1u},
-			std::memory_order_acq_rel,
-			std::memory_order_acquire)){
-			if(is_live()){
-				return true;
-			}
-			release_external_ref_();
-			return false;
-		}
-	}
-	return false;
-}
-
-void elem::retain_external_ref_existing_() noexcept{
-	auto state = lifecycle_ref_.load(std::memory_order_acquire);
-	while(!elem::is_lifecycle_destroying_(state)){
-		const auto count = elem::lifecycle_ref_count_(state);
-		if(count == 0u || count == lifecycle_ref_mask_){
-			assert(false && "invalid elem external reference count");
-			std::terminate();
-		}
-		if(lifecycle_ref_.compare_exchange_weak(
-			state,
-			state + lifecycle_ref_word{1u},
-			std::memory_order_acq_rel,
-			std::memory_order_acquire)){
-			return;
-		}
-	}
-
-	assert(false && "cannot retain a destroying elem");
-	std::terminate();
-}
-
-void elem::release_external_ref_() noexcept{
-	auto state = lifecycle_ref_.load(std::memory_order_acquire);
-	while(!elem::is_lifecycle_destroying_(state)){
-		const auto count = elem::lifecycle_ref_count_(state);
-		if(count == 0u){
-			assert(false && "elem external reference count underflow");
-			std::terminate();
-		}
-		if(lifecycle_ref_.compare_exchange_weak(
-			state,
-			state - lifecycle_ref_word{1u},
-			std::memory_order_acq_rel,
-			std::memory_order_acquire)){
-			return;
-		}
-	}
-
-	assert(false && "cannot release a destroying elem");
-	std::terminate();
 }
 
 void elem::detach_from_scene() noexcept{
@@ -438,6 +402,98 @@ void elem::set_focused_key(const bool focus) noexcept{
 	}
 }
 
+void elem::relocate_scene(scene& target_scene) noexcept{
+	for(auto&& elem_wrapper : collect_children()){
+		elem_wrapper.for_each([&](elem& e){
+			e.relocate_self_scene(target_scene);
+		});
+	}
+
+	relocate_self_scene(target_scene);
+}
+
+void elem::relocate_self_scene(scene& target_scene) noexcept{
+	assert(&target_scene != scene_);
+
+	scene_->decr_ref_count_();
+	scene_ = &target_scene;
+	scene_->incr_ref_count_();
+}
+
+void elem::mark_destroying_no_external_refs_() noexcept{
+	const auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	if(elem::lifecycle_ref_count_(state) != 0u){
+		assert(false && "cannot destroy an externally referenced elem");
+		std::terminate();
+	}
+	lifecycle_ref_.store(lifecycle_destroying_bit_, std::memory_order_release);
+}
+
+bool elem::try_retain_external_ref_live_() noexcept{
+	auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	while(elem::is_lifecycle_live_(state)){
+		const auto count = elem::lifecycle_ref_count_(state);
+		if(count == lifecycle_ref_mask_){
+			assert(false && "elem external reference count overflow");
+			std::terminate();
+		}
+		if(lifecycle_ref_.compare_exchange_weak(
+			state,
+			state + lifecycle_ref_word{1u},
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)){
+			if(is_live()){
+				return true;
+			}
+			release_external_ref_();
+			return false;
+		}
+	}
+	return false;
+}
+
+void elem::retain_external_ref_existing_() noexcept{
+	auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	while(!elem::is_lifecycle_destroying_(state)){
+		const auto count = elem::lifecycle_ref_count_(state);
+		if(count == 0u || count == lifecycle_ref_mask_){
+			assert(false && "invalid elem external reference count");
+			std::terminate();
+		}
+		if(lifecycle_ref_.compare_exchange_weak(
+			state,
+			state + lifecycle_ref_word{1u},
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)){
+			return;
+		}
+	}
+
+	assert(false && "cannot retain a destroying elem");
+	std::terminate();
+}
+
+void elem::release_external_ref_() noexcept{
+	auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	while(!elem::is_lifecycle_destroying_(state)){
+		const auto count = elem::lifecycle_ref_count_(state);
+		if(count == 0u){
+			assert(false && "elem external reference count underflow");
+			std::terminate();
+		}
+		if(lifecycle_ref_.compare_exchange_weak(
+			state,
+			state - lifecycle_ref_word{1u},
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)){
+			return;
+		}
+	}
+
+	assert(false && "cannot release a destroying elem");
+	std::terminate();
+}
+
 void elem::update_altitude_(altitude_t height){
 	if(layer_altitude_ == height){
 		return;
@@ -455,24 +511,6 @@ void elem::update_altitude_(altitude_t height){
 void elem::init_altitude_(altitude_t height){
 	layer_altitude_ = height;
 	scene_->layer_altitude_record_.insert(height, 1);
-}
-
-void elem::relocate_scene(scene& target_scene) noexcept{
-	for(auto&& elem_wrapper : collect_children()){
-		elem_wrapper.for_each([&](elem& e){
-			e.relocate_self_scene(target_scene);
-		});
-	}
-
-	relocate_self_scene(target_scene);
-}
-
-void elem::relocate_self_scene(scene& target_scene) noexcept{
-	assert(&target_scene != scene_);
-
-	scene_->decr_ref_count_();
-	scene_ = &target_scene;
-	scene_->incr_ref_count_();
 }
 
 events::dispatch_result util::thoroughly_esc(elem* where) noexcept{

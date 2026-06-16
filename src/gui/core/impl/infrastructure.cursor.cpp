@@ -74,8 +74,79 @@ constexpr drag_icon_layout calculate_drag_icon(const vec2& src, const vec2& exte
 	};
 }
 
+rect default_cursor_regular::draw(renderer_frontend& renderer, math::raw_frect region,
+                                  std::span<const elem* const> inbound_stack) const{
+	static constexpr float stroke = fringe_range;
+	static constexpr float scl = .75f;
+
+
+	math::section<graphic::float4> color{graphic::colors::white.copy_set_a(0), graphic::colors::white};
+
+
+
+	const auto verts = std::to_array({
+			region.src + math::vec2{0, region.extent.y * .75f * scl },
+			region.src,
+			region.src + math::vec2{region.extent.x * .225f * scl, region.extent.y * .5f * scl},
+			region.src + region.extent * (1.18f / 2) * scl,
+		});
+
+	//Body
+	renderer.push(quad{
+			.vert = verts,
+			.vert_color = {graphic::colors::white}
+		});
+
+	//AA
+	renderer.push(line_segments_closed{
+		              line_segments{
+			              .generic = {}
+		              }
+	              }, line_node{
+		              .pos = verts[0],
+		              .stroke = stroke,
+		              .offset = stroke * -.5f,
+		              .color = color,
+	              }, line_node{
+		              .pos = verts[1],
+		              .stroke = stroke,
+		              .offset = stroke * -.5f,
+		              .color = color,
+	              }, line_node{
+		              .pos = verts[3],
+		              .stroke = stroke,
+		              .offset = stroke * -.5f,
+		              .color = color,
+	              }, line_node{
+		              .pos = verts[2],
+		              .stroke = stroke,
+		              .offset = stroke * -.5f,
+		              .color = color,
+	              });
+
+	return get_bound(region);
+}
+
+rect default_cursor_drag::draw(gui::renderer_frontend& renderer, math::raw_frect region,
+                               std::span<const elem* const> inbound_stack) const{
+	region.src -= region.extent * .5f;
+	region.expand({-2.5, -2.5});
+
+	auto [ps, radius] = calculate_drag_icon(region.src, region.extent);
+	fx::circle circle{
+			.radius = {0, radius},
+			.color = {graphic::colors::white, graphic::colors::white}
+		};
+	for (const auto & p : ps){
+		circle.pos = p;
+		renderer << graphic::g2d::fringe::poly(circle, fringe_range);
+	}
+
+	return get_bound(region);
+}
+
 rect default_cursor_arrow::draw(gui::renderer_frontend& renderer, math::raw_frect region,
-	std::span<const elem* const> inbound_stack) const{
+                                std::span<const elem* const> inbound_stack) const{
 	region.src -= region.extent * .5f;
 
 	auto rst = style::calculate_rect_arrow(region.src, region.extent, direction);
@@ -90,77 +161,6 @@ rect default_cursor_arrow::draw(gui::renderer_frontend& renderer, math::raw_frec
 	renderer << context.fringe_outer(line_segments{}, fringe_range);
 
 	return style::calculate_arrow_aabb(rst);
-}
-
-rect default_cursor_drag::draw(gui::renderer_frontend& renderer, math::raw_frect region,
-	std::span<const elem* const> inbound_stack) const{
-	region.src -= region.extent * .5f;
-	region.expand({-2.5, -2.5});
-
-	auto [ps, radius] = calculate_drag_icon(region.src, region.extent);
-	fx::circle circle{
-		.radius = {0, radius},
-		.color = {graphic::colors::white, graphic::colors::white}
-	};
-	for (const auto & p : ps){
-		circle.pos = p;
-		renderer << graphic::g2d::fringe::poly(circle, fringe_range);
-	}
-
-	return get_bound(region);
-}
-
-rect default_cursor_regular::draw(renderer_frontend& renderer, math::raw_frect region,
-	std::span<const elem* const> inbound_stack) const{
-	static constexpr float stroke = fringe_range;
-	static constexpr float scl = .75f;
-
-
-	math::section<graphic::float4> color{graphic::colors::white.copy_set_a(0), graphic::colors::white};
-
-
-
-	const auto verts = std::to_array({
-		region.src + math::vec2{0, region.extent.y * .75f * scl },
-		region.src,
-		region.src + math::vec2{region.extent.x * .225f * scl, region.extent.y * .5f * scl},
-		region.src + region.extent * (1.18f / 2) * scl,
-	});
-
-	//Body
-	renderer.push(quad{
-			.vert = verts,
-			.vert_color = {graphic::colors::white}
-		});
-
-	//AA
-	renderer.push(line_segments_closed{
-		line_segments{
-			.generic = {}
-		}
-	}, line_node{
-		.pos = verts[0],
-		.stroke = stroke,
-		.offset = stroke * -.5f,
-		.color = color,
-	}, line_node{
-		.pos = verts[1],
-		.stroke = stroke,
-		.offset = stroke * -.5f,
-		.color = color,
-	}, line_node{
-		.pos = verts[3],
-		.stroke = stroke,
-		.offset = stroke * -.5f,
-		.color = color,
-	}, line_node{
-		.pos = verts[2],
-		.stroke = stroke,
-		.offset = stroke * -.5f,
-		.color = color,
-	});
-
-	return get_bound(region);
 }
 
 }

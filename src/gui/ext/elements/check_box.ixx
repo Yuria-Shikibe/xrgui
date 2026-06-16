@@ -71,12 +71,12 @@ protected:
 		prov_->update_value(value);
 	}
 
-	void load_default_resources() override{
-		select_box<2>::load_default_resources();
+public:
+	void set_default_appearance() override{
+		select_box<2>::set_default_appearance();
 		set_default_style();
 	}
 
-public:
 	react_flow::provider_cached<pass_type>& get_prov() noexcept{
 		return prov_.node;
 	}

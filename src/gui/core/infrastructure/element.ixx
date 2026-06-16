@@ -342,10 +342,9 @@ public:
 	elem& operator=(const elem& other) = delete;
 	elem& operator=(elem&& other) noexcept = delete;
 
-protected:
-	virtual void load_default_resources();
-
 public:
+	virtual void set_default_appearance();
+
 #pragma region Action
 private:
 	void push_to_action_queue();
@@ -357,11 +356,14 @@ public:
 	template <typename E, std::invocable<> Fn>
 	void post_task(this E& e, Fn&& fn);
 
-	void set_audio_group(sound::asset_group_handle group) noexcept{
-		sound_group = std::move(group);
-	}
+	void set_audio_group(sound::asset_group_handle group) noexcept;
+
+	void set_audio_group_assume_synced(sound::asset_group_handle group) noexcept;
+
+	void set_default_audio_group_assume_synced();
 
 	void clear_audio_group() noexcept{
+		assert(is_on_scene_thread(get_scene()));
 		sound_group = {};
 	}
 
@@ -533,18 +535,13 @@ public:
 		return style_;
 	}
 
-	void set_style(style::target_known_node_ptr<elem>&& style){
-		if(this->style_ == style){
-			return;
-		}
+	void set_style(style::target_known_node_ptr<elem>&& style);
 
-		this->style_ = std::move(style);
-		get_scene().notify_display_state_changed(get_channel());
+	void set_style_assume_synced(style::target_known_node_ptr<elem>&& style);
 
-		if(util::try_modify(style_border_cache_, style ? style::query_metrics(this->style_, {}).total_inset() : gui::border_t{})){
-			notify_isolated_layout_changed();
-		}
-	}
+	void set_style_assume_synced(style::family_variant v);
+
+	void set_style_assume_synced() noexcept;
 
 	void set_style(style::family_variant v);
 
@@ -1635,7 +1632,8 @@ void elem_ptr::delete_elem(elem* ptr) noexcept{
 
 template <std::derived_from<elem> T>
 void elem_ptr::dynamic_init(T& ptr){
-	static_cast<elem&>(ptr).load_default_resources();
+	assert(is_on_scene_thread(ptr.get_scene()));
+	ptr.T::set_default_appearance();
 }
 
 
@@ -1687,13 +1685,14 @@ T post_sync_assign(E& e, T E::* mptr, Fn&& fn){
 namespace events{
 std::span<elem* const> event_context::descendants_to_target() const noexcept{
 	const auto route_path = path();
-	const auto* begin = route_path.data();
-	for(std::size_t i = 0; i < route_path.size(); ++i){
-		if(begin[i] == current()){
-			return {begin + i + 1, route_path.size() - i - 1};
-		}
-	}
-	return {};
+	auto itr = std::ranges::find(route_path, current());
+	// for(std::size_t i = 0; i < route_path.size(); ++i){
+	// 	if(begin[i] == current()){
+	// 		return {begin + i + 1, route_path.size() - i - 1};
+	// 	}
+	// }
+	if(itr != route_path.end())++itr;
+	return {itr, route_path.end()};
 }
 
 math::vec2 pointer_button_event::get_content_pos(const event_context& ctx, const elem& elem) const noexcept{

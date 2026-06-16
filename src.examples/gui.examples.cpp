@@ -151,13 +151,12 @@ struct fps_counter_label : label{
 	float sample_seconds_{};
 	std::uint32_t sample_frames_{};
 
-protected:
-	void load_default_resources() override{
-		label::load_default_resources();
-		set_style(style::family_variant::base_only);
+public:
+	void set_default_appearance() override{
+		label::set_default_appearance();
+		set_style_assume_synced(style::family_variant::base_only);
 	}
 
-public:
 	[[nodiscard]] fps_counter_label(scene& scene, elem* parent)
 		: label(scene, parent){
 		interactivity = interactivity_flag::disabled;
@@ -204,13 +203,12 @@ public:
 };
 
 struct pie_menu_demo_area : label{
-protected:
-	void load_default_resources() override{
-		label::load_default_resources();
-		set_style();
+public:
+	void set_default_appearance() override{
+		label::set_default_appearance();
+		set_style_assume_synced();
 	}
 
-public:
 	[[nodiscard]] pie_menu_demo_area(scene& scene, elem* parent)
 		: label(scene, parent){
 		interactivity = interactivity_flag::enabled;
@@ -338,13 +336,12 @@ struct csv_file_reader : head_body{
 
 	react_flow::node_holder_pinned<file_listener> path_node_{this};
 
-protected:
-	void load_default_resources() override{
-		head_body::load_default_resources();
-		set_style();
+public:
+	void set_default_appearance() override{
+		head_body::set_default_appearance();
+		set_style_assume_synced();
 	}
 
-public:
 	[[nodiscard]] csv_file_reader(scene& scene, elem* parent)
 		: head_body(scene, parent){
 		set_expand_policy(layout::expand_policy::passive);

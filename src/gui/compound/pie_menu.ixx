@@ -660,13 +660,12 @@ private:
 		}
 	}
 
-protected:
-	void load_default_resources() override{
-		basic_group::load_default_resources();
-		set_style();
+public:
+	void set_default_appearance() override{
+		basic_group::set_default_appearance();
+		set_style_assume_synced();
 	}
 
-public:
 	[[nodiscard]] pie_menu(
 		scene& scene,
 		elem* parent,

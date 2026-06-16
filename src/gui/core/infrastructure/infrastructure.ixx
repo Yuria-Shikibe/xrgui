@@ -128,7 +128,7 @@ template <typename E>
 	requires (std::is_enum_v<E> && std::convertible_to<std::underlying_type_t<E>, std::size_t>)
 void sync_set_elem_style(elem& e, E v){
 	e.sync_run([v](elem& el){
-		el.set_style(el.get_style_tree_manager().get_default<elem>(v));
+		el.set_style_assume_synced(el.get_style_tree_manager().get_default<elem>(v));
 	});
 }
 export
@@ -136,21 +136,22 @@ template <typename E>
 	requires (std::is_enum_v<E> && std::convertible_to<std::underlying_type_t<E>, std::size_t>)
 void sync_set_elem_style(elem& e, E v, std::string_view style_family_name){
 	e.sync_run([v, style_family_name](elem& el){
-		el.set_style(el.get_style_tree_manager().get_slice<elem>().value().get_or_default(style_family_name, std::to_underlying(v)));
+		el.set_style_assume_synced(
+			el.get_style_tree_manager().get_slice<elem>().value().get_or_default(style_family_name, std::to_underlying(v)));
 	});
 }
 
 export
 inline void sync_set_elem_audio_group(elem& e, sound::asset_group_handle group){
 	e.sync_run([group = std::move(group)](elem& el) mutable{
-		el.set_audio_group(std::move(group));
+		el.set_audio_group_assume_synced(std::move(group));
 	});
 }
 
 export
 inline void sync_set_elem_audio_group(elem& e, std::string_view sound_family_name){
 	e.sync_run([sound_family_name = std::string{sound_family_name}](elem& el){
-		el.set_audio_group(el.get_sound_manager().lookup(sound_family_name));
+		el.set_audio_group_assume_synced(el.get_sound_manager().lookup(sound_family_name));
 	});
 }
 
