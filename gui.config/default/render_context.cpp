@@ -345,6 +345,9 @@ void render_context::initialize(){
 	if(config_.initialize_gui_globals){
 		gui::global::initialize();
 		gui_initialized_ = true;
+
+		//TODO shuold this be set in render context??
+		ctx_.window().set_input_sink(&gui::global::event_queue);
 		gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
 		assets_manager_initialized_ = true;
 	}
@@ -453,6 +456,7 @@ void render_context::shutdown() noexcept{
 	typesetting::look_up_table = nullptr;
 
 	if(gui_initialized_){
+		ctx_.window().set_input_sink(nullptr);
 		global::terminate();
 		gui_initialized_ = false;
 	}

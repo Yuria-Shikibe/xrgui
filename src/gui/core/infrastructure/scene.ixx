@@ -203,26 +203,33 @@ enum struct mouse_capture_owner : std::uint8_t{
 struct mouse_state{
 	math::optional_vec2<float> src{math::nullopt_vec2<float>};
 	mouse_capture_owner owner{mouse_capture_owner::none};
+	elem* target{};
 
-	void reset(const math::vec2 pos, const mouse_capture_owner owner_value) noexcept{
+	void reset(const math::vec2 pos, const mouse_capture_owner owner_value, elem* target_value = nullptr) noexcept{
 		src = pos;
 		owner = owner_value;
+		target = target_value;
 	}
 
 	void clear() noexcept{
 		src.reset();
 		owner = mouse_capture_owner::none;
+		target = nullptr;
 	}
 
-	[[nodiscard]] constexpr bool is_ui_owned() const noexcept{
+	[[nodiscard]] bool is_ui_owned() const noexcept{
 		return src.has_value() && owner == mouse_capture_owner::ui;
 	}
 
-	[[nodiscard]] constexpr bool is_passthrough_owned() const noexcept{
+	[[nodiscard]] bool is_passthrough_owned() const noexcept{
 		return src.has_value() && owner == mouse_capture_owner::passthrough;
 	}
 
-	constexpr explicit operator bool() const noexcept{
+	[[nodiscard]] elem* capture_target() const noexcept{
+		return is_ui_owned() ? target : nullptr;
+	}
+
+	explicit operator bool() const noexcept{
 		return src.has_value();
 	}
 };
@@ -451,6 +458,11 @@ struct input{
 		std::erase(inbounds_.get_bak(), target);
 		std::erase(inbounds_.get_cur(), target);
 		cursor_event_active_elems_.erase(const_cast<elem*>(target));
+		for(auto& state : mouse_states_){
+			if(state.target == target){
+				state.clear();
+			}
+		}
 	}
 
 	void request_cursor_update() noexcept{
@@ -496,8 +508,9 @@ struct input{
 
 	events::op_afterwards on_unicode_input(char32_t val) const;
 	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) const;
-	events::op_afterwards on_scroll(math::vec2 scroll) const;
+	events::op_afterwards on_scroll(math::vec2 scroll);
 	events::op_afterwards on_mouse_input(input_handle::key_set k);
+	void on_focus_lost();
 
 	void update_inbounds();
 
@@ -1181,7 +1194,7 @@ public:
 		return input_handler_.on_ime_composition(event);
 	}
 
-	events::op_afterwards on_scroll(const math::vec2 scroll) const{
+	events::op_afterwards on_scroll(const math::vec2 scroll){
 		assert(is_on_scene_thread(*this));
 		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
 		return input_handler_.on_scroll(scroll);
@@ -1203,6 +1216,12 @@ public:
 	void on_inbound_changed(bool inbounded){
 		assert(is_on_scene_thread(*this));
 		input_handler_.input_inbound(inbounded);
+	}
+
+	void on_focus_lost(){
+		assert(is_on_scene_thread(*this));
+		input_handler_.on_focus_lost();
+		request_cursor_update();
 	}
 
 	events::op_afterwards on_esc();
