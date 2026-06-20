@@ -156,6 +156,7 @@ elem::elem(scene& scene, elem* parent) noexcept :
 }
 
 void elem::set_default_appearance(){
+	assert(is_on_scene_thread(get_scene()));
 	set_default_audio_group_assume_synced();
 	set_style_assume_synced(get_elem_default_style());
 }

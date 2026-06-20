@@ -144,6 +144,8 @@ protected:
 		file_selector* selector;
 		path path;
 
+		void set_default_appearance() override;
+
 		file_selector& get_file_selector() const noexcept;
 		[[nodiscard]] file_entry(scene& scene, elem* parent, file_selector& selector, file_selector::path&& entry_path);
 		void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override;

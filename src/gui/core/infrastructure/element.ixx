@@ -1636,8 +1636,10 @@ void elem_ptr::delete_elem(elem* ptr) noexcept{
 
 template <std::derived_from<elem> T>
 void elem_ptr::dynamic_init(T& ptr){
-	assert(is_on_scene_thread(ptr.get_scene()));
-	ptr.T::set_default_appearance();
+
+	ptr.sync_run([](T& elem){
+		elem.T::set_default_appearance();
+	});
 }
 
 
@@ -1695,7 +1697,9 @@ std::span<elem* const> event_context::descendants_to_target() const noexcept{
 	// 		return {begin + i + 1, route_path.size() - i - 1};
 	// 	}
 	// }
-	if(itr != route_path.end())++itr;
+	if(itr != route_path.end())[[likely]]{
+		++itr;
+	}
 	return {itr, route_path.end()};
 }
 

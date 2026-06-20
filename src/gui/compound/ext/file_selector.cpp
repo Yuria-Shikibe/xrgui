@@ -277,10 +277,14 @@ struct current_position_bar : flipper<2>{
 	file_selector* selector;
 
 	[[nodiscard]] current_position_bar(scene& scene, elem* parent, file_selector& s)
-		: flipper<2>(scene, parent), selector(&s){
+		: flipper(scene, parent), selector(&s){
 		interactivity = interactivity_flag::enabled;
 		set_expand_policy(layout::expand_policy::passive);
-		set_style_side_bar(*this);
+	}
+
+	void set_default_appearance() override{
+		flipper::set_default_appearance();
+		set_style_assume_synced(style::family_variant::base_only);
 	}
 
 	text_edit& activate_editor(){
@@ -459,11 +463,9 @@ file_selector::file_entry::file_entry(scene& scene, elem* parent, file_selector&
 	bool is_dir = std::filesystem::is_directory(path, ec);
 	bool is_root = path == path.parent_path();
 
-	set_style_side_bar(*this);
-
 	auto id = is_root
-		          ? assets::builtin::shape_id::data_server
-		          : (is_dir ? assets::builtin::shape_id::folder : assets::builtin::shape_id::file);
+	          ? assets::builtin::shape_id::data_server
+	          : (is_dir ? assets::builtin::shape_id::folder : assets::builtin::shape_id::file);
 
 	auto& i = this->emplace_head<icon_frame>(id);
 	i.set_style();
@@ -482,6 +484,11 @@ file_selector::file_entry::file_entry(scene& scene, elem* parent, file_selector&
 	set_pad(16);
 	set_fill_parent({true});
 	set_expand_policy(layout::expand_policy::passive);
+}
+
+void file_selector::file_entry::set_default_appearance(){
+	head_body::set_default_appearance();
+	set_style_assume_synced(style::family_variant::base_only);
 }
 
 void file_selector::file_entry::on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event){
