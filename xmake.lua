@@ -73,6 +73,7 @@ local function add_xrgui_target_options()
     set_policy("build.c++.modules", true)
     set_languages("c++latest")
     set_warnings("all", "pedantic")
+    add_cxflags("/bigobj", {tools = "cl"})
 end
 
 local function add_xrgui_core_deps()
