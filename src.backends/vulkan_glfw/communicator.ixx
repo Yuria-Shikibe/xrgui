@@ -162,7 +162,7 @@ export struct communicator : gui::native_communicator {
 		if(native_state.dispatcher == nullptr) {
 			throw std::runtime_error{"native window state has no dispatcher"};
 		}
-		return native_state.dispatcher->post([
+		return gui::async_send(*native_state.dispatcher, [
 			native_state = std::addressof(native_state),
 			task = std::move(task)
 		]() mutable {
@@ -198,15 +198,27 @@ protected:
 	}
 
 	void request_clipboard_impl(gui::native_clipboard_request&& request) override {
-		communicator::post_native(
-			state_,
-			[request = std::move(request)](native_window_state& native_state) mutable {
+		if(state_.is_stopped()) {
+			std::move(request).set_cancelled();
+			return;
+		}
+		if(state_.dispatcher == nullptr) {
+			std::move(request).set_error(std::make_exception_ptr(
+				std::runtime_error{"native window state has no dispatcher"}));
+			return;
+		}
+
+		(void)gui::async_request(
+			*state_.dispatcher,
+			[native_state = std::addressof(state_)] {
+				native_state->require_window_thread();
 				std::string text;
-				if(const auto value = glfwGetClipboardString(native_state.window); value != nullptr) {
+				if(const auto value = glfwGetClipboardString(native_state->window); value != nullptr) {
 					text = value;
 				}
-				std::move(request).set_value(std::move(text));
-			});
+				return text;
+			},
+			std::move(request.reply));
 	}
 
 public:

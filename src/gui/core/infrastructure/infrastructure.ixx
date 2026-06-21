@@ -13,7 +13,7 @@ export import :tooltip_manager;
 export import :dialog_manager;
 export import :cursor;
 export import :flags;
-export import :elem_async_task;
+export import :async_task;
 
 export import mo_yanxi.gui.window_thread_dispatcher;
 export import mo_yanxi.gui.sound.manager;
@@ -156,9 +156,12 @@ inline void sync_set_elem_audio_group(elem& e, std::string_view sound_family_nam
 }
 
 export
-template <std::derived_from<elem> E, std::invocable<E&> Prov>
-elem_async_task_handle post_elem_async_task(E& e, Prov&& prov){
-	return static_cast<const elem&>(e).get_scene().post_elem_async_task(e, std::forward<Prov>(prov));
+template <std::derived_from<elem> E, typename ProcessFn, typename Reply>
+async_operation_handle request_forked(E& e, ProcessFn&& process_fn, Reply&& reply){
+	return static_cast<const elem&>(e).get_scene().request_forked(
+		e,
+		std::forward<ProcessFn>(process_fn),
+		std::forward<Reply>(reply));
 }
 }
 

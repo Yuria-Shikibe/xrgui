@@ -111,7 +111,7 @@ void app_run(
 
 		main_loop.get_window_dispatcher().drain();
 		main_loop.permit_burst();
-		current_focus.get_output_communicate_async_task_queue(0).consume();
+		current_focus.consume_output(0);
 
 		//Clear unused events currently
 		(void)main_loop.unhandled_events.fetch();
@@ -321,7 +321,7 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 		ret.main_scene = ui_providers.scene_ptr;
 
 		static constexpr auto post_task = []<typename F>(gui::scene& scene, F&& fn){
-			scene.get_output_communicate_async_task_queue(0).post(std::forward<F>(fn));
+			(void)scene.post_output(0, std::forward<F>(fn));
 		};
 
 		auto& bloom_scale = react_flow::attach(scene, react_flow::make_listener(

@@ -236,7 +236,7 @@ struct default_application::state{
 			loop->get_window_dispatcher().drain();
 			pump_audio_events();
 			loop->permit_burst();
-			loop->get_scene().get_output_communicate_async_task_queue(0).consume();
+			loop->get_scene().consume_output(0);
 
 			loop->wait_term();
 			loop->get_window_dispatcher().drain();
@@ -273,8 +273,8 @@ struct default_application::state{
 		scene_created = true;
 
 		style_pal_prov.add_to_scene(scene);
-		scene.enable_elem_async_task_post(true);
-		scene.drop_and_reset_communicate_async_task_queue_size(1);
+		scene.enable_forked_scene_tasks(true);
+		scene.reset_output_channels(1);
 		builtin::set_cursors(scene);
 		set_default_scene_pass_config(scene);
 

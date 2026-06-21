@@ -662,41 +662,38 @@ file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode
 				prog.set_progress_state(progress_state::rough);
 			}).cell().set_passive();
 
-			util::post_elem_async_task(*this, [](file_selector&){
-				return elem_async_yield_task<file_selector>{
-						[](gui::elem_async_task_context& context, gui::scene& s){
-							(void)s;
-							context.report_progress(0u, 1u);
-							auto folders = platform::get_quick_access_folders()
-								| std::views::filter([](const std::filesystem::path& p){
-									std::error_code ec{};
-									auto rst = std::filesystem::is_directory(p, ec);
-									return rst;
-								})
-								| std::views::transform(&std::filesystem::path::u32string)
-								| std::ranges::to<std::vector>();
-							context.report_progress(1u, 1u);
-							return folders;
-						},
-						[](file_selector& r, gui::scene& s, std::vector<std::u32string>&& fast_aceesses){
-							(void)s;
-							assert(r.quick_access_entries_ != nullptr);
-							auto& seq = *r.quick_access_entries_;
-							seq.clear();
+			util::request_forked(
+				*this,
+				[](gui::async_task_context& context, gui::scene& s){
+					(void)s;
+					context.report_progress(0u, 1u);
+					auto folders = platform::get_quick_access_folders()
+						| std::views::filter([](const std::filesystem::path& p){
+							std::error_code ec{};
+							auto rst = std::filesystem::is_directory(p, ec);
+							return rst;
+						})
+						| std::views::transform(&std::filesystem::path::u32string)
+						| std::ranges::to<std::vector>();
+					context.report_progress(1u, 1u);
+					return folders;
+				},
+				[](file_selector& r, std::vector<std::u32string> fast_accesses) {
+					assert(r.quick_access_entries_ != nullptr);
+					auto& seq = *r.quick_access_entries_;
+					seq.clear();
 
-							for(auto& quick_access_folder : fast_aceesses){
-								seq.create_back([&, &pth = quick_access_folder](button<direct_label>& l){
-									set_style_side_bar(l);
-									l.set_fit(true);
-									l.set_tokenized_text({std::move(pth), typesetting::tokenize_tag::raw});
-									l.set_button_callback([&, sv = l.get_tokenized_text().get_text()]{
-										r.visit_directory(sv);
-									});
-								});
-							}
-						}
-					};
-			});
+					for(auto& quick_access_folder : fast_accesses){
+						seq.create_back([&r, &quick_access_folder](button<direct_label>& l){
+							set_style_side_bar(l);
+							l.set_fit(true);
+							l.set_tokenized_text({std::move(quick_access_folder), typesetting::tokenize_tag::raw});
+							l.set_button_callback([&r, sv = l.get_tokenized_text().get_text()]{
+								r.visit_directory(sv);
+							});
+						});
+					}
+				});
 		});
 
 		b.create_body([&](scroll_adaptor<sequence>& p){

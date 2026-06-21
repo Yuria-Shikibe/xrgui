@@ -296,11 +296,11 @@ void scene::init_root() const{
 	scene_root_->element_channel_ = elem_tree_channel::regular;
 }
 
-void scene::enable_elem_async_task_post(bool enable){
+void scene::enable_forked_scene_tasks(bool enable){
 	if(enable != (async_task_queue_ != nullptr)){
 		if(enable){
 			async_task_queue_ = std::make_unique<decltype(async_task_queue_)::element_type>(get_heap_allocator(), fork());
-			platform::set_thread_attributes(async_task_queue_->get_element_async_task_thread().native_handle(), {
+			platform::set_thread_attributes(async_task_queue_->get_async_task_thread().native_handle(), {
 				                                .name = "xrgui ui async task",
 				                                .priority = platform::thread_priority::normal
 			                                });

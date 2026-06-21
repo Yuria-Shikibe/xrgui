@@ -34,6 +34,11 @@ public:
 		return true;
 	}
 
+	template <std::invocable<> Fn>
+	[[nodiscard]] bool try_post(Fn&& fn){
+		return post(std::move_only_function<void()>{std::forward<Fn>(fn)});
+	}
+
 	void drain(){
 		if(!is_window_thread()){
 			throw std::runtime_error{"window thread dispatcher drained from a non-window thread"};

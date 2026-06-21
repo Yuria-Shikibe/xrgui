@@ -19,7 +19,7 @@ import :elem_ptr;
 import :tooltip_manager;
 import :dialog_manager;
 import :cursor;
-import :elem_async_task;
+import :async_task;
 import :object_pool;
 import :flags;
 import :scene_input;
@@ -116,15 +116,28 @@ export
  * the GUI scene through an owner-bound callback.
  */
 struct native_clipboard_request{
-	std::move_only_function<void(std::string)> complete{};
+	async_reply<std::string> reply{};
 
 	void set_value(std::string text) &&{
-		if(!complete){
-			throw std::runtime_error{"native clipboard request completed without a receiver"};
-		}
-		std::invoke(std::move(complete), std::move(text));
+		std::move(reply).set_value(std::move(text));
+	}
+
+	void set_error(std::exception_ptr exception) &&{
+		std::move(reply).set_error(std::move(exception));
+	}
+
+	void set_cancelled() &&{
+		std::move(reply).set_cancelled();
 	}
 };
+
+export
+template <typename T, std::derived_from<elem> E, typename ValueFn, typename ErrorFn = std::nullptr_t, typename CancelFn = std::nullptr_t>
+[[nodiscard]] async_reply<T> make_gui_reply(
+	E& owner,
+	ValueFn&& value_fn,
+	ErrorFn&& error_fn = nullptr,
+	CancelFn&& cancel_fn = nullptr);
 
 export
 /**
@@ -277,6 +290,58 @@ public:
 
 namespace scene_submodule{
 
+template <typename Reply, typename Result, bool IsVoid = std::is_void_v<Result>>
+struct async_reply_object_for_impl;
+
+template <typename Reply, typename Result>
+struct async_reply_object_for_impl<Reply, Result, false> : std::bool_constant<
+	!std::is_reference_v<Result>
+	&& requires(Reply& reply, Result result, std::exception_ptr exception){
+		std::move(reply).set_value(std::move(result));
+		std::move(reply).set_error(std::move(exception));
+		std::move(reply).set_cancelled();
+	}> {};
+
+template <typename Reply, typename Result>
+struct async_reply_object_for_impl<Reply, Result, true> : std::bool_constant<
+	requires(Reply& reply, std::exception_ptr exception){
+		std::move(reply).set_value();
+		std::move(reply).set_error(std::move(exception));
+		std::move(reply).set_cancelled();
+	}> {};
+
+template <typename Reply, typename Result>
+concept async_reply_object_for = async_reply_object_for_impl<std::decay_t<Reply>, Result>::value;
+
+template <typename ValueFn, typename E, typename Result, bool IsVoid = std::is_void_v<Result>>
+struct gui_reply_value_callback_for_impl;
+
+template <typename ValueFn, typename E, typename Result>
+struct gui_reply_value_callback_for_impl<ValueFn, E, Result, false> : std::bool_constant<
+	std::invocable<std::decay_t<ValueFn>&&, E&, Result>
+	> {};
+
+template <typename ValueFn, typename E, typename Result>
+struct gui_reply_value_callback_for_impl<ValueFn, E, Result, true> : std::bool_constant<
+	std::invocable<std::decay_t<ValueFn>&&, E&>
+	> {};
+
+template <typename ValueFn, typename E, typename Result>
+concept gui_reply_value_callback_for = gui_reply_value_callback_for_impl<ValueFn, E, Result>::value;
+
+template <typename ErrorFn, typename E>
+concept gui_reply_error_callback_for =
+	std::same_as<std::decay_t<ErrorFn>, std::nullptr_t>
+	|| std::invocable<std::decay_t<ErrorFn>&&, E&, std::exception_ptr>;
+
+template <typename CancelFn, typename E>
+concept gui_reply_cancel_callback_for =
+	std::same_as<std::decay_t<CancelFn>, std::nullptr_t>
+	|| std::invocable<std::decay_t<CancelFn>&&, E&>;
+
+template <typename ProcessFn>
+using forked_scene_process_result_t = std::invoke_result_t<std::decay_t<ProcessFn>&, async_task_context&, scene&>;
+
 struct action_queue{
 private:
 	ccur::mpsc_double_buffer<elem*, mr::heap_vector<elem*>> pendings{};
@@ -310,53 +375,121 @@ struct scene_deleter{
 	static void operator()(scene* ptr) noexcept;;
 };
 
+template <
+	std::derived_from<elem> E,
+	typename ProcessFn,
+	typename Reply,
+	typename Result = std::invoke_result_t<ProcessFn&, async_task_context&, scene&>,
+	bool IsVoid = std::is_void_v<Result>>
+struct forked_scene_request_task;
+
+template <std::derived_from<elem> E, typename ProcessFn, typename Reply, typename Result>
+struct forked_scene_request_task<E, ProcessFn, Reply, Result, false> : forked_scene_task_base{
+	static_assert(!std::is_reference_v<Result>);
+
+	ADAPTED_NO_UNIQUE_ADDRESS ProcessFn process_fn_;
+	ADAPTED_NO_UNIQUE_ADDRESS Reply reply_;
+	std::optional<Result> result_{};
+
+	[[nodiscard]] forked_scene_request_task(ProcessFn process_fn, Reply reply)
+		: process_fn_(std::move(process_fn)),
+		  reply_(std::move(reply)){
+	}
+
+	void process_impl(async_task_context& context, scene& async_scene) override{
+		result_.emplace(std::invoke(process_fn_, context, async_scene));
+	}
+
+	void on_done(elem&, scene&) override{
+		if(result_.has_value()){
+			std::move(reply_).set_value(std::move(*result_));
+		}else{
+			std::move(reply_).set_cancelled();
+		}
+	}
+
+	bool on_error(elem&, scene&, std::exception_ptr exception) override{
+		std::move(reply_).set_error(std::move(exception));
+		return true;
+	}
+};
+
+template <std::derived_from<elem> E, typename ProcessFn, typename Reply, typename Result>
+struct forked_scene_request_task<E, ProcessFn, Reply, Result, true> : forked_scene_task_base{
+	ADAPTED_NO_UNIQUE_ADDRESS ProcessFn process_fn_;
+	ADAPTED_NO_UNIQUE_ADDRESS Reply reply_;
+	bool processed_{false};
+
+	[[nodiscard]] forked_scene_request_task(ProcessFn process_fn, Reply reply)
+		: process_fn_(std::move(process_fn)),
+		  reply_(std::move(reply)){
+	}
+
+	void process_impl(async_task_context& context, scene& async_scene) override{
+		std::invoke(process_fn_, context, async_scene);
+		processed_ = true;
+	}
+
+	void on_done(elem&, scene&) override{
+		if(processed_){
+			std::move(reply_).set_value();
+		}else{
+			std::move(reply_).set_cancelled();
+		}
+	}
+
+	bool on_error(elem&, scene&, std::exception_ptr exception) override{
+		std::move(reply_).set_error(std::move(exception));
+		return true;
+	}
+};
+
 struct async_async_task_queue{
-	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
+	using async_task_ptr = allocator_aware_poly_unique_ptr<forked_scene_task_base, mr::heap_allocator<forked_scene_task_base>>;
 
 private:
-	ccur::mpsc_queue<elem_async_task_ptr, std::deque<
-			elem_async_task_ptr, mr::heap_allocator<elem_async_task_ptr>
-		>> element_async_tasks_pending_{};
-	mr::heap_allocator<basic_elem_async_task> task_allocator_{};
+	ccur::mpsc_queue<async_task_ptr, std::deque<
+			async_task_ptr, mr::heap_allocator<async_task_ptr>
+		>> async_tasks_pending_{};
+	mr::heap_allocator<forked_scene_task_base> task_allocator_{};
 
-	std::atomic<basic_elem_async_task*> current_done_task_{};
-	std::deque<elem_async_task_runtime_state> task_runtime_states_{};
+	std::atomic<forked_scene_task_base*> current_done_task_{};
+	std::deque<async_operation_state> task_runtime_states_{};
 	std::unique_ptr<scene, scene_deleter> forked_scene_{};
-	std::jthread element_async_task_thread_{};
+	std::jthread async_task_thread_{};
 
 public:
-	[[nodiscard]] async_async_task_queue(const mr::heap_allocator<elem_async_task_ptr>& alloc,
+	[[nodiscard]] async_async_task_queue(const mr::heap_allocator<async_task_ptr>& alloc,
 	                                     std::unique_ptr<scene, scene_deleter>&& scene)
 		:
-		element_async_tasks_pending_(alloc),
+		async_tasks_pending_(alloc),
 		task_allocator_(alloc),
 		forked_scene_((assert(scene != nullptr), std::move(scene))),
-		element_async_task_thread_([this](std::stop_token&& stop_token){
+		async_task_thread_([this](std::stop_token&& stop_token){
 			exchange_scene_thread(*forked_scene_, std::this_thread::get_id());
-			elem_async_tasks_process(std::move(stop_token));
+			async_tasks_process(std::move(stop_token));
 		}){
 	}
 
-	[[nodiscard]] std::jthread& get_element_async_task_thread() noexcept{
-		return element_async_task_thread_;
+	[[nodiscard]] std::jthread& get_async_task_thread() noexcept{
+		return async_task_thread_;
 	}
 
 	~async_async_task_queue(){
 		for(auto& state : task_runtime_states_){
-			state.stop_source.request_stop();
-			state.active.store(false, std::memory_order_release);
+			state.mark_cancelled();
 		}
-		element_async_task_thread_.request_stop();
-		element_async_tasks_pending_.notify();
+		async_task_thread_.request_stop();
+		async_tasks_pending_.notify();
 
 		current_done_task_.store(nullptr, std::memory_order_relaxed);
 		current_done_task_.notify_one();
 
-		if(element_async_task_thread_.joinable()
-			&& element_async_task_thread_.get_id() != std::this_thread::get_id()){
-			element_async_task_thread_.join();
+		if(async_task_thread_.joinable()
+			&& async_task_thread_.get_id() != std::this_thread::get_id()){
+			async_task_thread_.join();
 		}
-		element_async_tasks_pending_.clear();
+		async_tasks_pending_.clear();
 		current_done_task_.store(nullptr, std::memory_order_relaxed);
 		exchange_scene_thread(*forked_scene_, std::this_thread::get_id());
 	}
@@ -375,17 +508,15 @@ private:
 		}
 	}
 
-	[[nodiscard]] elem_async_task_runtime_state& create_task_runtime_state(){
+	[[nodiscard]] async_operation_state& create_task_runtime_state(){
 		auto& state = task_runtime_states_.emplace_back();
-		state.progress_current.store(0u, std::memory_order_release);
-		state.progress_total.store(0u, std::memory_order_release);
-		state.active.store(true, std::memory_order_release);
+		state.report_progress(0u, 0u);
 		return state;
 	}
 
-	void elem_async_tasks_process(std::stop_token stop_token){
+	void async_tasks_process(std::stop_token stop_token){
 		while(!stop_token.stop_requested()){
-			auto task = element_async_tasks_pending_.consume([&] noexcept {
+			auto task = async_tasks_pending_.consume([&] noexcept {
 				return stop_token.stop_requested();
 			});
 
@@ -401,27 +532,27 @@ private:
 
 public:
 	void process_done(){
-		if(auto elem_async_task = current_done_task_.load(std::memory_order_acquire)){
+		if(auto task = current_done_task_.load(std::memory_order_acquire)){
 			auto thread = std::this_thread::get_id();
 			auto last = exchange_scene_thread(*forked_scene_, thread);
 			std::exception_ptr ui_exception{};
 			try{
-				elem* owner = elem_async_task->owner();
-				if(owner != nullptr && !elem_async_task->stop_requested()){
-					if(elem_async_task->has_exception()){
-						if(!elem_async_task->on_error(*owner, *forked_scene_, elem_async_task->exception())){
-							log_async_task_exception(elem_async_task->exception());
+				elem* owner = task->owner();
+				if(owner != nullptr && !task->stop_requested()){
+					if(task->has_exception()){
+						if(!task->on_error(*owner, *forked_scene_, task->exception())){
+							log_async_task_exception(task->exception());
 						}
 					}else{
-						elem_async_task->on_done(*owner, *forked_scene_);
+						task->on_done(*owner, *forked_scene_);
 					}
-				}else if(elem_async_task->has_exception()){
-					log_async_task_exception(elem_async_task->exception());
+				}else if(task->has_exception()){
+					log_async_task_exception(task->exception());
 				}
 			}catch(...){
 				ui_exception = std::current_exception();
 			}
-			elem_async_task->mark_finished();
+			task->mark_finished();
 			exchange_scene_thread(*forked_scene_, last);
 			current_done_task_.store(nullptr, std::memory_order_relaxed);
 			current_done_task_.notify_one();
@@ -436,25 +567,25 @@ public:
 	}
 
 	template <std::derived_from<elem> E, std::invocable<E&> Prov>
-	elem_async_task_handle post(E& e, Prov&& prov){
+	async_operation_handle post(E& e, Prov&& prov){
 		using task_type = std::decay_t<std::invoke_result_t<Prov&&, E&>>;
-		static_assert(std::derived_from<task_type, basic_elem_async_task>);
+		static_assert(std::derived_from<task_type, forked_scene_task_base>);
 		auto task = std::invoke_r<task_type>(std::forward<Prov>(prov), e);
 		elem_ref<> owner_ref{e};
-		elem_async_task_runtime_state* task_runtime_state{};
+		async_operation_state* task_runtime_state{};
 		try{
 			task_runtime_state = std::addressof(this->create_task_runtime_state());
 			task.bind_async_owner(std::move(owner_ref), elem_ref_access::stop_token(std::addressof(e)), *task_runtime_state);
-			element_async_tasks_pending_.push(
-				mo_yanxi::make_allocate_aware_poly_unique<task_type, basic_elem_async_task>(
+			async_tasks_pending_.push(
+				mo_yanxi::make_allocate_aware_poly_unique<task_type, forked_scene_task_base>(
 					task_allocator_, std::move(task)));
 		}catch(...){
 			if(task_runtime_state != nullptr){
-				task_runtime_state->active.store(false, std::memory_order_release);
+				task_runtime_state->mark_cancelled();
 			}
 			throw;
 		}
-		return elem_async_task_handle{*task_runtime_state};
+		return async_operation_handle{*task_runtime_state};
 	}
 };
 
@@ -650,29 +781,36 @@ public:
 		}
 	}
 
-	std::size_t get_output_communicate_async_task_queues_size() const noexcept{
+	std::size_t output_channel_count() const noexcept{
 		return output_communicate_async_task_queues_.size();
 	}
 
-	void drop_and_reset_communicate_async_task_queue_size(std::size_t total_channels){
+	void reset_output_channels(std::size_t total_channels){
 		output_communicate_async_task_queues_ = decltype(output_communicate_async_task_queues_){std::allocator_arg, get_heap_allocator(), total_channels};
 	}
 
-	/**
-	 * @brief Queue used by GUI code to send work out to the renderer/main loop side.
-	 *
-	 * The default examples use channel 0 for post-render updates such as
-	 * compositor parameter changes.
-	 */
-	auto& get_output_communicate_async_task_queue(std::size_t channel){
-		return output_communicate_async_task_queues_.at(channel);
+	[[nodiscard]] call_stream_endpoint_ref get_output_communicate_endpoint(std::size_t channel){
+		return call_stream_endpoint_ref{std::addressof(output_communicate_async_task_queues_.at(channel))};
 	}
 
-	/**
-	 * @brief Queue consumed on the GUI thread before scene update work.
-	 */
-	auto& get_input_communicate_async_task_queue(){
-		return input_communicate_async_task_queue_;
+	template <typename Fn, typename... Args>
+		requires (std::invocable<Fn&&, Args&&...>)
+	[[nodiscard]] bool post_output(std::size_t channel, Fn&& fn, Args&&... args){
+		return get_output_communicate_endpoint(channel).try_post(
+			std::forward<Fn>(fn),
+			std::forward<Args>(args)...);
+	}
+
+	void consume_output(std::size_t channel){
+		output_communicate_async_task_queues_.at(channel).consume();
+	}
+
+	[[nodiscard]] async_sync_endpoint_ref<scene&> get_gui_inbox_endpoint() noexcept{
+		return async_sync_endpoint_ref<scene&>{std::addressof(input_communicate_async_task_queue_)};
+	}
+
+	[[nodiscard]] associated_async_endpoint_ref<elem> get_elem_gui_task_endpoint() noexcept{
+		return associated_async_endpoint_ref<elem>{std::addressof(instant_task_queue_)};
 	}
 
 	template <std::invocable<scene&> Fn>
@@ -680,7 +818,28 @@ public:
 		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
 			return false;
 		}
-		return input_communicate_async_task_queue_.try_post(std::forward<Fn>(fn));
+		return get_gui_inbox_endpoint().try_post(std::forward<Fn>(fn));
+	}
+
+	template <std::invocable<scene&> Fn>
+	[[nodiscard]] bool post_gui(Fn&& fn){
+		return this->try_post_scene_task(std::forward<Fn>(fn));
+	}
+
+	template <std::derived_from<elem> E, std::invocable<E&> Fn>
+	[[nodiscard]] bool post_gui(E& owner, Fn&& fn){
+		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
+			return false;
+		}
+		return get_elem_gui_task_endpoint().try_post(owner, std::forward<Fn>(fn));
+	}
+
+	template <std::derived_from<elem> E, std::invocable<> Fn>
+	[[nodiscard]] bool post_gui(E& owner, Fn&& fn){
+		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
+			return false;
+		}
+		return get_elem_gui_task_endpoint().try_post(owner, std::forward<Fn>(fn));
 	}
 
 	void begin_shutdown() noexcept{
@@ -702,32 +861,13 @@ public:
 	native_clipboard_request make_native_clipboard_request(E& owner, Fn&& on_ready){
 		assert(is_on_scene_thread(*this));
 		assert(std::addressof(owner.get_scene()) == this);
-		auto* target_scene = this;
-		auto* owner_ptr = std::addressof(owner);
-		std::stop_token owner_lifetime = owner.lifetime_stop_token();
 
 		return native_clipboard_request{
-			.complete = [
-				target_scene,
-				owner_ptr,
-				owner_lifetime,
-				on_ready = std::forward<Fn>(on_ready)
-			](std::string text) mutable {
-				if(owner_lifetime.stop_requested()){
-					return;
-				}
-				(void)target_scene->try_post_scene_task([
-					owner_ptr,
-					owner_lifetime,
-					on_ready = std::move(on_ready),
-					text = std::move(text)
-				](gui::scene&) mutable {
-					if(owner_lifetime.stop_requested()){
-						return;
-					}
-					std::invoke(std::move(on_ready), *owner_ptr, std::move(text));
-				});
-			}
+			.reply = gui::make_gui_reply<std::string>(
+				owner,
+				[on_ready = std::forward<Fn>(on_ready)](E& live_owner, std::string text) mutable {
+					std::invoke(std::move(on_ready), live_owner, std::move(text));
+				})
 		};
 	}
 
@@ -750,18 +890,12 @@ public:
 #pragma region AsyncTask
 	template <std::derived_from<elem> E, std::invocable<E&> Fn>
 	void post(E& e, Fn&& fn){
-		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
-			return;
-		}
-		instant_task_queue_.post(e, std::forward<Fn>(fn));
+		(void)this->post_gui(e, std::forward<Fn>(fn));
 	}
 
 	template <std::derived_from<elem> E, std::invocable<> Fn>
 	void post(E& e, Fn&& fn){
-		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
-			return;
-		}
-		instant_task_queue_.post(e, std::forward<Fn>(fn));
+		(void)this->post_gui(e, std::forward<Fn>(fn));
 	}
 
 #pragma endregion
@@ -1006,6 +1140,10 @@ private:
 	}
 
 protected:
+	void consume_gui_inbox_from(scene& source){
+		input_communicate_async_task_queue_.consume(source);
+	}
+
 	void merge(scene_base&& target){
 		target.tooltip_manager_.clear();
 		target.overlay_manager_.clear();
@@ -1086,41 +1224,88 @@ protected:
 
 public:
 
-	void enable_elem_async_task_post(bool enable);
+	void enable_forked_scene_tasks(bool enable);
 
 	/**
-	 * @brief Post an element-owned async task.
+	 * @brief Run work on the forked scene and complete a one-shot reply on the GUI thread.
 	 *
-	 * When async posting is enabled, the task is processed on the forked scene
-	 * worker and completed back on the GUI thread. Otherwise it is processed
-	 * synchronously on the current scene.
+	 * `process_fn(context, async_scene)` runs on the forked scene worker when
+	 * async posting is enabled, or synchronously on this scene otherwise. Its
+	 * return value is delivered through `reply` only if `owner` is still live.
 	 */
-	template <std::derived_from<elem> E, std::invocable<E&> Prov>
-	elem_async_task_handle post_elem_async_task(E& e, Prov&& prov){
+	template <std::derived_from<elem> E, typename ProcessFn, typename Reply>
+		requires std::invocable<std::decay_t<ProcessFn>&, async_task_context&, scene&>
+		      && scene_submodule::async_reply_object_for<
+			      Reply,
+			      scene_submodule::forked_scene_process_result_t<ProcessFn>>
+	async_operation_handle request_forked(E& owner, ProcessFn&& process_fn, Reply&& reply){
+		using process_type = std::decay_t<ProcessFn>;
+		using reply_type = std::decay_t<Reply>;
+		using task_type = scene_submodule::forked_scene_request_task<E, process_type, reply_type>;
+
+		process_type process{std::forward<ProcessFn>(process_fn)};
+		reply_type completion{std::forward<Reply>(reply)};
+
 		if(!accepts_gui_tasks_()){
-			return elem_async_task_handle{};
+			std::move(completion).set_cancelled();
+			return async_operation_handle{};
 		}
+
 		if(async_task_queue_){
-			return async_task_queue_->post(e, std::forward<Prov>(prov));
-		}else{
-			std::derived_from<basic_elem_async_task> auto task = std::invoke(std::forward<Prov>(prov), e);
-			task.process(*this);
-			if(!task.stop_requested() && !task.has_exception()){
-				task.on_done(e, *this);
-			}
-			if(task.has_exception()){
-				std::rethrow_exception(task.exception());
-			}
-			return elem_async_task_handle{};
+			return async_task_queue_->post(owner, [
+				process = std::move(process),
+				completion = std::move(completion)
+			](E&) mutable {
+				return task_type{std::move(process), std::move(completion)};
+			});
 		}
+
+		task_type task{std::move(process), std::move(completion)};
+		task.process(*this);
+		if(!task.stop_requested()){
+			if(task.has_exception()){
+				(void)task.on_error(owner, *this, task.exception());
+			}else{
+				task.on_done(owner, *this);
+			}
+		}
+		task.mark_finished();
+		return async_operation_handle{};
 	}
 
+	template <
+		std::derived_from<elem> E,
+		typename ProcessFn,
+		typename ValueFn,
+		typename ErrorFn = std::nullptr_t,
+		typename CancelFn = std::nullptr_t>
+		requires std::invocable<std::decay_t<ProcessFn>&, async_task_context&, scene&>
+		      && scene_submodule::gui_reply_value_callback_for<
+			      ValueFn,
+			      E,
+			      scene_submodule::forked_scene_process_result_t<ProcessFn>>
+		      && scene_submodule::gui_reply_error_callback_for<ErrorFn, E>
+		      && scene_submodule::gui_reply_cancel_callback_for<CancelFn, E>
+	async_operation_handle request_forked(
+		E& owner,
+		ProcessFn&& process_fn,
+		ValueFn&& on_value,
+		ErrorFn&& on_error = nullptr,
+		CancelFn&& on_cancel = nullptr){
+		using result_type = scene_submodule::forked_scene_process_result_t<ProcessFn>;
+		auto reply = gui::make_gui_reply<result_type>(
+			owner,
+			std::forward<ValueFn>(on_value),
+			std::forward<ErrorFn>(on_error),
+			std::forward<CancelFn>(on_cancel));
+		return this->request_forked(owner, std::forward<ProcessFn>(process_fn), std::move(reply));
+	}
 
 	//TODO since them share the same heap, using mimalloc instead of operator new?
 	virtual std::unique_ptr<scene, scene_submodule::scene_deleter> fork(){
 		auto rst = new scene{static_cast<scene_shared_resources>(*this)};
 		try{
-			rst->drop_and_reset_communicate_async_task_queue_size(get_output_communicate_async_task_queues_size());
+			rst->reset_output_channels(output_channel_count());
 		}catch(...){
 			delete rst;
 			throw;
@@ -1130,7 +1315,7 @@ public:
 	}
 
 	virtual void join(scene&& scene){
-		get_input_communicate_async_task_queue().consume(scene);
+		consume_gui_inbox_from(scene);
 		merge(std::move(scene));
 		assert(scene.scene_root_ == nullptr && "target scene must drop all element ownership");
 		scene.check_ref_count_zero_();
@@ -1183,6 +1368,127 @@ public:
 		return static_cast<overlay_create_result<T>>(result);
 	}
 };
+
+namespace scene_submodule{
+
+template <std::derived_from<elem> E>
+struct gui_reply_target{
+	scene* target_scene_{};
+	std::stop_token owner_lifetime_{};
+	elem_ref<E> owner_ref_{};
+
+	[[nodiscard]] explicit gui_reply_target(E& owner)
+		: target_scene_(std::addressof(owner.get_scene())),
+		  owner_lifetime_(owner.lifetime_stop_token()),
+		  owner_ref_(owner){
+	}
+
+	gui_reply_target(const gui_reply_target&) = delete;
+	gui_reply_target& operator=(const gui_reply_target&) = delete;
+	[[nodiscard]] gui_reply_target(gui_reply_target&&) noexcept = default;
+	gui_reply_target& operator=(gui_reply_target&&) noexcept = default;
+
+	template <typename Fn>
+	void dispatch(Fn&& fn) &&{
+		if(owner_lifetime_.stop_requested() || target_scene_ == nullptr){
+			return;
+		}
+
+		auto run = [
+			owner_ref = std::move(owner_ref_),
+			owner_lifetime = std::move(owner_lifetime_),
+			fn = std::forward<Fn>(fn)
+		]() mutable {
+			if(owner_lifetime.stop_requested()){
+				return;
+			}
+			if(auto* live_owner = owner_ref.get_live()){
+				std::invoke(std::move(fn), *live_owner);
+			}
+		};
+
+		if(is_on_scene_thread(*target_scene_)){
+			std::invoke(std::move(run));
+			return;
+		}
+
+		(void)target_scene_->post_gui([run = std::move(run)](scene&) mutable {
+			std::invoke(std::move(run));
+		});
+	}
+};
+
+}
+
+export
+template <typename T, std::derived_from<elem> E, typename ValueFn, typename ErrorFn, typename CancelFn>
+[[nodiscard]] async_reply<T> make_gui_reply(
+	E& owner,
+	ValueFn&& value_fn,
+	ErrorFn&& error_fn,
+	CancelFn&& cancel_fn){
+	static_assert(scene_submodule::gui_reply_value_callback_for<ValueFn, E, T>);
+	static_assert(scene_submodule::gui_reply_error_callback_for<ErrorFn, E>);
+	static_assert(scene_submodule::gui_reply_cancel_callback_for<CancelFn, E>);
+
+	auto make_target = [&owner]{
+		return scene_submodule::gui_reply_target<E>{owner};
+	};
+
+	auto error_callback = [
+		target = make_target(),
+		error_fn = std::forward<ErrorFn>(error_fn)
+	](std::exception_ptr exception) mutable {
+		if constexpr(!std::same_as<std::decay_t<ErrorFn>, std::nullptr_t>){
+			std::move(target).dispatch([
+				error_fn = std::move(error_fn),
+				exception = std::move(exception)
+			](E& live_owner) mutable {
+				std::invoke(std::move(error_fn), live_owner, std::move(exception));
+			});
+		}
+	};
+
+	auto cancel_callback = [
+		target = make_target(),
+		cancel_fn = std::forward<CancelFn>(cancel_fn)
+	]() mutable {
+		if constexpr(!std::same_as<std::decay_t<CancelFn>, std::nullptr_t>){
+			std::move(target).dispatch([cancel_fn = std::move(cancel_fn)](E& live_owner) mutable {
+				std::invoke(std::move(cancel_fn), live_owner);
+			});
+		}
+	};
+
+	if constexpr(std::is_void_v<T>){
+		return gui::make_async_reply<void>(
+			[
+				target = make_target(),
+				value_fn = std::forward<ValueFn>(value_fn)
+			]() mutable {
+				std::move(target).dispatch([value_fn = std::move(value_fn)](E& live_owner) mutable {
+					std::invoke(std::move(value_fn), live_owner);
+				});
+			},
+			std::move(error_callback),
+			std::move(cancel_callback));
+	}else{
+		return gui::make_async_reply<T>(
+			[
+				target = make_target(),
+				value_fn = std::forward<ValueFn>(value_fn)
+			](T value) mutable {
+				std::move(target).dispatch([
+					value_fn = std::move(value_fn),
+					value = std::move(value)
+				](E& live_owner) mutable {
+					std::invoke(std::move(value_fn), live_owner, std::move(value));
+				});
+			},
+			std::move(error_callback),
+			std::move(cancel_callback));
+	}
+}
 
 bool is_on_scene_thread(const scene_base& scene) noexcept{
 	return std::this_thread::get_id() == scene.ui_main_thread_id;

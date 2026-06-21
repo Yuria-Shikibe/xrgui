@@ -292,34 +292,33 @@ struct csv_file_reader : head_body{
 			carrier->get_scene().close_overlay(std::exchange(overlay, nullptr)->element.get());
 
 			const std::filesystem::path selected_path = path;
-			util::post_elem_async_task(*carrier, [selected_path](csv_file_reader&){
-				return elem_async_yield_task<csv_file_reader>{
-						[selected_path](elem_async_task_context& context, scene& s){
-							context.report_progress(0u, 1u);
-							if(context.stop_requested()){
-								return elem_ptr{};
+			util::request_forked(
+				*carrier,
+				[selected_path](async_task_context& context, scene& s){
+					context.report_progress(0u, 1u);
+					if(context.stop_requested()){
+						return elem_ptr{};
+					}
+					auto table = elem_ptr{
+							s, nullptr, [p = selected_path](cpd::data_table& table){
+								table.set_style();
+								table.get_item() = cpd::data_table_desc::from_csv(p, '|');
+								table.get_item().try_update_glyph_layouts();
+								table.notify_isolated_layout_changed();
 							}
-							auto table = elem_ptr{
-									s, nullptr, [p = selected_path](cpd::data_table& table){
-										table.set_style();
-										table.get_item() = cpd::data_table_desc::from_csv(p, '|');
-										table.get_item().try_update_glyph_layouts();
-										table.notify_isolated_layout_changed();
-									}
-								};
-							context.report_progress(1u, 1u);
-							return table;
-						},
-						[](csv_file_reader& r, scene& s, elem_ptr&& ptr){
-							(void)s;
-							if(ptr == nullptr){
-								return;
-							}
-							util::sync_elem_tree(*ptr, r.get_scene());
-							r.set_body_elem(std::move(ptr));
-						}
-					};
-			});
+						};
+					context.report_progress(1u, 1u);
+					return table;
+				},
+				[](csv_file_reader& owner, elem_ptr&& ptr) mutable {
+					if(ptr == nullptr){
+						return;
+					}
+					if(std::addressof(ptr->get_scene()) != std::addressof(owner.get_scene())){
+						util::sync_elem_tree(*ptr, owner.get_scene());
+					}
+					owner.set_body_elem(std::move(ptr));
+				});
 
 			carrier->create_body([&](progress_bar& prog){
 				prog.set_style();
@@ -681,9 +680,9 @@ ui_outputs build_main_ui(
 	auto& root = scene_add_rst.root_group;
 	style_pal_prov.add_to_scene(scene);
 
-	scene.enable_elem_async_task_post(true);
-	scene.drop_and_reset_communicate_async_task_queue_size(1);
-	(void)load_scene_i18n_for_system_locale(
+	scene.enable_forked_scene_tasks(true);
+	scene.reset_output_channels(1);
+	(void)::mo_yanxi::gui::load_scene_i18n_for_system_locale(
 		scene,
 		i18n_load_options{
 			.bundle_dir = std::filesystem::current_path() / "assets/i18n/bundle",
@@ -910,24 +909,6 @@ ui_outputs build_main_ui(
 					"sliders", [&](scroll_adaptor<sequence>& pane){
 						sequence& s = pane.get_elem();
 						pane.set_style();
-
-						// util::post_elem_async_task(s, [](gui::sequence& seq){
-						// 	return elem_async_yield_task{
-						// 			seq,
-						// 			[](elem& e){
-						// 				log::debug({"Task"}, "begin: current thread: {}",
-						// 				             std::this_thread::get_id());
-						// 				std::this_thread::sleep_for(std::chrono::milliseconds(500));
-						// 				log::debug({"Task"}, "end: current thread: {}",
-						// 				             std::this_thread::get_id());
-						// 				return 114;
-						// 			},
-						// 			[](elem& e, int val){
-						// 				log::debug({"Task"}, "done: current thread: {} - {}",
-						// 				             std::this_thread::get_id(), val);
-						// 			}
-						// 		};
-						// });
 
 						s.set_expand_policy(layout::expand_policy::prefer);
 						s.template_cell.set_pending();
