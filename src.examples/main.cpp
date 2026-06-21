@@ -83,6 +83,7 @@ void app_run(
 	using namespace mo_yanxi;
 
 	backend::application_timer timer{backend::application_timer<double>::get_default()};
+
 	std::vector<audio::audio_event> pending_audio_events{};
 
 	auto& current_focus = main_loop.get_scene();
@@ -90,6 +91,9 @@ void app_run(
 	main_loop.wait_term_and_reset();
 
 	auto& ctx = main_loop.get_ctx();
+
+	timer.reset_time();
+
 	while(!ctx.window().should_close()){
 		ctx.window().poll_events();
 		main_loop.get_window_dispatcher().drain();

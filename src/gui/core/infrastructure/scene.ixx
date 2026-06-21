@@ -192,57 +192,18 @@ public:
 
 	}
 
+	void begin_shutdown() noexcept{
+		begin_shutdown_impl();
+	}
+
+protected:
+	virtual void begin_shutdown_impl() noexcept{
+	}
+
 	//TODO sound interface
 };
 
-struct native_gui_callback_entry{
-	elem_ref<> owner{};
-	std::move_only_function<void(elem&)> callback{};
-
-	void exec(){
-		if(!callback){
-			throw std::runtime_error{"native GUI callback entry is empty"};
-		}
-		if(!owner){
-			throw std::runtime_error{"native GUI callback entry has no owner"};
-		}
-		if(auto* live_owner = owner.get_live()){
-			std::invoke(std::move(callback), *live_owner);
-		}
-	}
-};
-
-struct native_gui_callback_state{
-private:
-	using container = mr::heap_vector<native_gui_callback_entry>;
-	ccur::mpsc_double_buffer<native_gui_callback_entry, container> callbacks_{};
-	std::atomic_bool stopped_{false};
-
-public:
-	[[nodiscard]] explicit native_gui_callback_state(const container::allocator_type& alloc)
-		: callbacks_(alloc){
-	}
-
-	void post(native_gui_callback_entry&& entry){
-		if(stopped_.load(std::memory_order_acquire)){
-			throw std::runtime_error{"native GUI callback state is stopped"};
-		}
-		callbacks_.emplace(std::move(entry));
-	}
-
-	void consume(){
-		if(auto callbacks = callbacks_.fetch()){
-			for(auto&& callback : *callbacks){
-				callback.exec();
-			}
-		}
-	}
-
-	void stop() noexcept{
-		stopped_.store(true, std::memory_order_release);
-		callbacks_.clear();
-	}
-};
+struct scene_shared_resources;
 
 export
 /**
@@ -253,6 +214,7 @@ export
  * resource managers is intended from the scene/UI thread.
  */
 struct scene_resources{
+	friend scene_shared_resources;
 	friend scene_base;
 	friend scene;
 private:
@@ -518,24 +480,23 @@ public:
 		return region_.extent();
 	}
 
-
-};
-
-struct scene_base : scene_shared_resources{
-	friend elem;
-	friend ui_manager;
-
 protected:
-
 	[[nodiscard]] mr::heap_handle get_heap() const noexcept{
 		return resources_->heap.get();
 	}
+
 
 public:
 	template <typename T = std::byte>
 	[[nodiscard]] mr::heap_allocator<T> get_heap_allocator() const noexcept {
 		return mr::heap_allocator<T>{get_heap()};
 	}
+};
+
+struct scene_base : scene_shared_resources{
+	friend elem;
+	friend ui_manager;
+
 
 private:
 	UI_MAIN_THREAD_ACCESS_ONLY UI_TRANSIENT renderer_frontend renderer_{};
@@ -574,6 +535,10 @@ protected:
 #ifdef SCENE_REFERENCE_COUNT_CHECK
 		assert(element_on_this_scene_ == 0);
 #endif
+	}
+
+	[[nodiscard]] bool accepts_gui_tasks_() const noexcept{
+		return accepting_gui_tasks_.load(std::memory_order_acquire);
 	}
 
 public:
@@ -641,9 +606,7 @@ protected:
 private:
 	UI_MERGE_ON_JOIN fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_communicate_async_task_queues_{};
 	async_sync_task_queue<scene&> input_communicate_async_task_queue_{get_heap_allocator()};
-	std::shared_ptr<native_gui_callback_state> native_gui_callbacks_{
-		std::make_shared<native_gui_callback_state>(get_heap_allocator<native_gui_callback_entry>())
-	};
+	std::atomic_bool accepting_gui_tasks_{true};
 
 	struct retired_elem_record{
 		elem* element{};
@@ -663,10 +626,8 @@ protected:
 	explicit(false) scene_base(scene_resources& resources, renderer_frontend&& renderer);
 
 	~scene_base(){
-		native_gui_callbacks_->stop();
+		begin_shutdown();
 		async_task_queue_ = nullptr;
-		input_communicate_async_task_queue_.clear();
-		instant_task_queue_.clear();
 		tooltip_manager_.clear();
 		overlay_manager_.clear();
 		collect_retired_elements();
@@ -714,6 +675,23 @@ public:
 		return input_communicate_async_task_queue_;
 	}
 
+	template <std::invocable<scene&> Fn>
+	[[nodiscard]] bool try_post_scene_task(Fn&& fn){
+		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
+			return false;
+		}
+		return input_communicate_async_task_queue_.try_post(std::forward<Fn>(fn));
+	}
+
+	void begin_shutdown() noexcept{
+		const bool was_accepting = accepting_gui_tasks_.exchange(false, std::memory_order_acq_rel);
+		input_communicate_async_task_queue_.close();
+		instant_task_queue_.close();
+		if(was_accepting && resources_ != nullptr && resources_->communicator_){
+			resources_->communicator_->begin_shutdown();
+		}
+	}
+
 	/**
 	 * @brief Create an owner-bound native clipboard completion.
 	 *
@@ -724,23 +702,30 @@ public:
 	native_clipboard_request make_native_clipboard_request(E& owner, Fn&& on_ready){
 		assert(is_on_scene_thread(*this));
 		assert(std::addressof(owner.get_scene()) == this);
-		auto callbacks = native_gui_callbacks_;
-		elem_ref<> owner_ref{owner};
+		auto* target_scene = this;
+		auto* owner_ptr = std::addressof(owner);
+		std::stop_token owner_lifetime = owner.lifetime_stop_token();
 
 		return native_clipboard_request{
 			.complete = [
-				callbacks = std::move(callbacks),
-				owner_ref = std::move(owner_ref),
+				target_scene,
+				owner_ptr,
+				owner_lifetime,
 				on_ready = std::forward<Fn>(on_ready)
 			](std::string text) mutable {
-				callbacks->post(native_gui_callback_entry{
-					.owner = std::move(owner_ref),
-					.callback = [
-						on_ready = std::move(on_ready),
-						text = std::move(text)
-					](elem& owner) mutable {
-						std::invoke(std::move(on_ready), static_cast<E&>(owner), std::move(text));
+				if(owner_lifetime.stop_requested()){
+					return;
+				}
+				(void)target_scene->try_post_scene_task([
+					owner_ptr,
+					owner_lifetime,
+					on_ready = std::move(on_ready),
+					text = std::move(text)
+				](gui::scene&) mutable {
+					if(owner_lifetime.stop_requested()){
+						return;
 					}
+					std::invoke(std::move(on_ready), *owner_ptr, std::move(text));
 				});
 			}
 		};
@@ -765,11 +750,17 @@ public:
 #pragma region AsyncTask
 	template <std::derived_from<elem> E, std::invocable<E&> Fn>
 	void post(E& e, Fn&& fn){
+		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
+			return;
+		}
 		instant_task_queue_.post(e, std::forward<Fn>(fn));
 	}
 
 	template <std::derived_from<elem> E, std::invocable<> Fn>
 	void post(E& e, Fn&& fn){
+		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
+			return;
+		}
 		instant_task_queue_.post(e, std::forward<Fn>(fn));
 	}
 
@@ -1106,6 +1097,9 @@ public:
 	 */
 	template <std::derived_from<elem> E, std::invocable<E&> Prov>
 	elem_async_task_handle post_elem_async_task(E& e, Prov&& prov){
+		if(!accepts_gui_tasks_()){
+			return elem_async_task_handle{};
+		}
 		if(async_task_queue_){
 			return async_task_queue_->post(e, std::forward<Prov>(prov));
 		}else{
@@ -1122,6 +1116,7 @@ public:
 	}
 
 
+	//TODO since them share the same heap, using mimalloc instead of operator new?
 	virtual std::unique_ptr<scene, scene_submodule::scene_deleter> fork(){
 		auto rst = new scene{static_cast<scene_shared_resources>(*this)};
 		try{

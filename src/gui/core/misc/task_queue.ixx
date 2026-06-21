@@ -47,6 +47,7 @@ protected:
 	using container = mr::heap_vector<task_entry>;
 
 	ccur::mpsc_double_buffer<task_entry, container> async_tasks_{};
+	std::atomic_bool closed_{false};
 
 public:
 	[[nodiscard]] explicit associated_async_sync_task_queue_base(const container::allocator_type& alloc)
@@ -54,6 +55,9 @@ public:
 	}
 
 	void consume(){
+		if(closed_.load(std::memory_order_acquire)){
+			return;
+		}
 		if(auto ts = async_tasks_.fetch()){
 			for (auto&& t : *ts){
 				t.exec();
@@ -65,8 +69,30 @@ public:
 		async_tasks_.clear();
 	}
 
+	void close() noexcept{
+		closed_.store(true, std::memory_order_release);
+		async_tasks_.clear();
+	}
+
 protected:
+	template <typename... Args>
+	bool try_emplace(Args&&... args){
+		if(closed_.load(std::memory_order_acquire)){
+			return false;
+		}
+		async_tasks_.emplace(std::forward<Args>(args)...);
+		if(closed_.load(std::memory_order_acquire)){
+			async_tasks_.clear();
+			return false;
+		}
+		return true;
+	}
+
 	void merge(associated_async_sync_task_queue_base&& other){
+		if(closed_.load(std::memory_order_acquire)){
+			other.clear();
+			return;
+		}
 		async_tasks_.merge(std::move(other).async_tasks_);
 	}
 };
@@ -81,7 +107,7 @@ struct associated_async_sync_task_queue : associated_async_sync_task_queue_base{
 	template <std::derived_from<owner_type> E, std::invocable<E&> Fn>
 	void post(E& e, Fn&& fn){
 		auto owner_ref = e.ref();
-		async_tasks_.emplace(
+		this->try_emplace(
 			std::addressof(e),
 			[](void* owner){
 				return static_cast<E*>(owner)->is_live();
@@ -96,7 +122,7 @@ struct associated_async_sync_task_queue : associated_async_sync_task_queue_base{
 	template <std::derived_from<owner_type> E, std::invocable<> Fn>
 	void post(E& e, Fn&& fn){
 		auto owner_ref = e.ref();
-		async_tasks_.emplace(
+		this->try_emplace(
 			std::addressof(e),
 			[](void* owner){
 				return static_cast<E*>(owner)->is_live();
@@ -128,19 +154,36 @@ private:
 	using func = std::move_only_function<void(CtxArgs...)>;
 	using container = mr::heap_vector<func>;
 	ccur::mpsc_double_buffer<func, container> async_tasks_{};
+	std::atomic_bool closed_{false};
 
 public:
 	[[nodiscard]] explicit async_sync_task_queue(const container::allocator_type& alloc) : async_tasks_(alloc){
 	}
 
 	template <std::invocable<CtxArgs...> Fn>
-	void post(Fn&& fn){
-		async_tasks_.emplace([f = std::forward<Fn>(fn)](CtxArgs... args){
+	[[nodiscard]] bool try_post(Fn&& fn){
+		if(closed_.load(std::memory_order_acquire)){
+			return false;
+		}
+		async_tasks_.emplace([f = std::forward<Fn>(fn)](CtxArgs... args) mutable {
 			std::invoke(f, std::forward<CtxArgs>(args)...);
 		});
+		if(closed_.load(std::memory_order_acquire)){
+			async_tasks_.clear();
+			return false;
+		}
+		return true;
+	}
+
+	template <std::invocable<CtxArgs...> Fn>
+	void post(Fn&& fn){
+		(void)try_post(std::forward<Fn>(fn));
 	}
 
 	void consume(CtxArgs... args){
+		if(closed_.load(std::memory_order_acquire)){
+			return;
+		}
 		if(auto ts = async_tasks_.fetch()){
 			for (auto&& t : *ts){
 				t(std::forward<CtxArgs>(args)...);
@@ -149,6 +192,11 @@ public:
 	}
 
 	void clear(){
+		async_tasks_.clear();
+	}
+
+	void close() noexcept{
+		closed_.store(true, std::memory_order_release);
 		async_tasks_.clear();
 	}
 };

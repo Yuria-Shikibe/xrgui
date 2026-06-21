@@ -7,9 +7,9 @@ export
 class window_thread_dispatcher{
 private:
 	std::thread::id window_thread_id_{std::this_thread::get_id()};
-	std::mutex mutex_{};
+	mutable std::mutex mutex_{};
 	std::deque<std::move_only_function<void()>> pending_tasks_{};
-	bool stopped_{false};
+	bool closed_{false};
 
 public:
 	[[nodiscard]] window_thread_dispatcher() = default;
@@ -21,16 +21,17 @@ public:
 		return std::this_thread::get_id() == window_thread_id_;
 	}
 
-	void post(std::move_only_function<void()>&& task){
+	[[nodiscard]] bool post(std::move_only_function<void()>&& task){
 		if(!task){
 			throw std::runtime_error{"window thread dispatcher received an empty task"};
 		}
 
 		std::scoped_lock lock{mutex_};
-		if(stopped_){
-			throw std::runtime_error{"window thread dispatcher is stopped"};
+		if(closed_){
+			return false;
 		}
 		pending_tasks_.push_back(std::move(task));
+		return true;
 	}
 
 	void drain(){
@@ -52,9 +53,23 @@ public:
 		}
 	}
 
-	void stop() noexcept{
+	void close() noexcept{
 		std::scoped_lock lock{mutex_};
-		stopped_ = true;
+		closed_ = true;
+	}
+
+	void stop() noexcept{
+		close();
+	}
+
+	[[nodiscard]] bool is_closed() const noexcept{
+		std::scoped_lock lock{mutex_};
+		return closed_;
+	}
+
+	[[nodiscard]] bool empty() const noexcept{
+		std::scoped_lock lock{mutex_};
+		return pending_tasks_.empty();
 	}
 };
 }

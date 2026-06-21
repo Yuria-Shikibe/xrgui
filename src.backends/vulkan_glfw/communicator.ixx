@@ -13,7 +13,6 @@ import std;
 
 namespace mo_yanxi::backend::glfw {
 struct native_window_state;
-using native_window_state_shared = std::shared_ptr<native_window_state>;
 
 [[nodiscard]] platform::native_ime_rect normalize_client_rect(
 	GLFWwindow* window,
@@ -77,7 +76,7 @@ void push_ime_composition_event(GLFWwindow* window, platform::native_ime_composi
 	});
 }
 
-struct native_window_state : std::enable_shared_from_this<native_window_state> {
+struct native_window_state {
 	GLFWwindow* window{};
 	gui::window_thread_dispatcher* dispatcher{};
 	std::atomic_bool stopped{false};
@@ -137,51 +136,34 @@ struct native_window_state : std::enable_shared_from_this<native_window_state> {
 };
 
 export struct communicator : gui::native_communicator {
-	std::shared_ptr<native_window_state> state{};
+	native_window_state state_;
 
 	[[nodiscard]] explicit communicator(GLFWwindow* window, gui::window_thread_dispatcher& dispatcher)
-		: state(std::make_shared<native_window_state>(window, dispatcher)) {
-		state->dispatcher->post([native_state = state] {
-			if(native_state->is_stopped()) {
-				return;
-			}
-			native_state->install_ime_hook();
+		: state_(window, dispatcher) {
+		communicator::post_native(
+			state_,
+			[](native_window_state& native_state) {
+				native_state.install_ime_hook();
 		});
 	}
 
 	~communicator() override {
-		auto native_state = state;
-		if(native_state == nullptr) {
-			return;
-		}
-
-		try {
-			native_state->stop();
-			if(native_state->dispatcher != nullptr && native_state->dispatcher->is_window_thread()) {
-				native_state->uninstall_ime_hook_noexcept();
-			}else if(native_state->dispatcher != nullptr) {
-				native_state->dispatcher->post([native_state = std::move(native_state)] {
-					native_state->uninstall_ime_hook_noexcept();
-				});
-			}
-		}catch(...) {
-			if(native_state != nullptr) {
-				native_state->stop();
-			}
-		}
+		state_.stop();
+		assert(state_.dispatcher == nullptr || state_.dispatcher->is_closed());
+		assert(state_.dispatcher == nullptr || state_.dispatcher->empty());
 	}
 
-	static void post_native(
-		std::shared_ptr<native_window_state> native_state,
+	static bool post_native(
+		native_window_state& native_state,
 		std::move_only_function<void(native_window_state&)>&& task) {
-		if(native_state == nullptr || native_state->is_stopped()) {
-			return;
+		if(native_state.is_stopped()) {
+			return false;
 		}
-		if(native_state->dispatcher == nullptr) {
+		if(native_state.dispatcher == nullptr) {
 			throw std::runtime_error{"native window state has no dispatcher"};
 		}
-		native_state->dispatcher->post([
-			native_state = std::move(native_state),
+		return native_state.dispatcher->post([
+			native_state = std::addressof(native_state),
 			task = std::move(task)
 		]() mutable {
 			if(native_state->is_stopped()) {
@@ -193,9 +175,23 @@ export struct communicator : gui::native_communicator {
 	}
 
 protected:
+	void begin_shutdown_impl() noexcept override {
+		state_.stop();
+		if(state_.dispatcher == nullptr) {
+			return;
+		}
+		if(state_.dispatcher->is_window_thread()) {
+			state_.uninstall_ime_hook_noexcept();
+			return;
+		}
+		(void)state_.dispatcher->post([native_state = std::addressof(state_)] {
+			native_state->uninstall_ime_hook_noexcept();
+		});
+	}
+
 	void set_clipboard_impl(std::string&& text) override {
 		communicator::post_native(
-			state,
+			state_,
 			[text = std::move(text)](native_window_state& native_state) mutable {
 				glfwSetClipboardString(native_state.window, text.c_str());
 			});
@@ -203,7 +199,7 @@ protected:
 
 	void request_clipboard_impl(gui::native_clipboard_request&& request) override {
 		communicator::post_native(
-			state,
+			state_,
 			[request = std::move(request)](native_window_state& native_state) mutable {
 				std::string text;
 				if(const auto value = glfwGetClipboardString(native_state.window); value != nullptr) {
@@ -216,7 +212,7 @@ protected:
 public:
 	void set_native_cursor_visibility(bool show) override {
 		communicator::post_native(
-			state,
+			state_,
 			[show](native_window_state& native_state) {
 				glfwSetInputMode(native_state.window, GLFW_CURSOR, show ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_HIDDEN);
 			});
@@ -224,7 +220,7 @@ public:
 
 	void set_ime_enabled(bool enabled) override {
 		communicator::post_native(
-			state,
+			state_,
 			[enabled](native_window_state& native_state) {
 				native_state.set_ime_enabled_native(enabled);
 			});
@@ -232,7 +228,7 @@ public:
 
 	void set_ime_cursor_rect(const math::raw_frect region) override {
 		communicator::post_native(
-			state,
+			state_,
 			[region](native_window_state& native_state) {
 				native_state.set_ime_cursor_rect_native(region);
 			});

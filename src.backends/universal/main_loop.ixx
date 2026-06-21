@@ -89,6 +89,7 @@ struct main_loop{
 	struct functions{
 		std::move_only_function<main_loop_init_return_t(main_loop&)> init_fn{};
 		std::move_only_function<void(main_loop&)> main_loop_fn{};
+		std::move_only_function<void(main_loop&)> prepare_exit_fn{};
 		std::move_only_function<void(main_loop&)> exit_fn{};
 	};
 
@@ -108,6 +109,8 @@ private:
 	window_thread_dispatcher window_dispatcher_{};
 	std::jthread exec_thread;
 	scene* target_scene{};
+	bool shutdown_prepared_{false};
+	std::atomic_bool shutdown_destroy_requested_{false};
 
 public:
 	[[nodiscard]] main_loop(
@@ -168,10 +171,18 @@ public:
 		permit_burst();
 	}
 
-	void join() noexcept{
+	void join(){
 		exec_thread.request_stop();
 		permit_burst();
+		sync_ctrl.wait_for_b_done();
+
+		window_dispatcher_.close();
+		window_dispatcher_.drain();
+
+		shutdown_destroy_requested_.store(true, std::memory_order_release);
+		permit_burst();
 		exec_thread.join();
+		propagate_exception();
 	}
 
 	void permit_burst() noexcept{
@@ -259,10 +270,20 @@ private:
 	bool sync_main_loop(const std::stop_token& stoptoken){
 		bool should_stop = this->term([&, this]{
 			if(stoptoken.stop_requested()){
-				//TODO clear main loop payload
-
-				if(functions_.exit_fn)functions_.exit_fn(*this);
-				return true;
+				if(!shutdown_prepared_){
+					if(target_scene != nullptr){
+						target_scene->begin_shutdown();
+					}
+					if(functions_.prepare_exit_fn)functions_.prepare_exit_fn(*this);
+					shutdown_prepared_ = true;
+					return false;
+				}
+				if(shutdown_destroy_requested_.load(std::memory_order_acquire)){
+					if(functions_.exit_fn)functions_.exit_fn(*this);
+					target_scene = nullptr;
+					return true;
+				}
+				return false;
 			}
 
 			if(functions_.main_loop_fn) functions_.main_loop_fn(*this);
