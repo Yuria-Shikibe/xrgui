@@ -1,6 +1,7 @@
 module mo_yanxi.gui.examples.loop_exec;
 
 import mo_yanxi.gui.cfg.builtin.constants;
+import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.global;
 import mo_yanxi.math.rand;
 import std;
@@ -151,7 +152,7 @@ void mo_yanxi::gui::cfg::builtin::main_loop_fn(struct main_loop<main_loop_payloa
 
 		r.update_state(fx::batch_draw_mode::msdf);
 		r << fx::nine_patch_draw_vert_color{
-				.patch = &assets::builtin::default_round_square_border,
+				.patch = &assets::round_square::border(),
 				.region = {200, 200, 600, 600},
 				.color = {
 					graphic::colors::white, graphic::colors::CYAN, graphic::colors::ROYAL, graphic::colors::GREEN
@@ -170,7 +171,7 @@ void mo_yanxi::gui::cfg::builtin::main_loop_fn(struct main_loop<main_loop_payloa
 			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_write_type::ignore_last});
 
 			r << fx::nine_patch_draw_vert_color{
-				.patch = &assets::builtin::default_round_square_base,
+				.patch = &assets::round_square::base(),
 				.region = {200, 200, 600, 600},
 				.color = {
 					graphic::colors::white, graphic::colors::gray, graphic::colors::gray, graphic::colors::black
@@ -181,7 +182,7 @@ void mo_yanxi::gui::cfg::builtin::main_loop_fn(struct main_loop<main_loop_payloa
 			r.update_state(fx::push_constant{fx::batch_draw_mode::msdf, fx::mask_write_type::mul_last});
 
 			r << fx::nine_patch_draw_vert_color{
-				.patch = &assets::builtin::default_round_square_base,
+				.patch = &assets::round_square::base(),
 				.region = {300, 300, 600, 600},
 				.color = {
 					graphic::colors::white, graphic::colors::gray, graphic::colors::gray, graphic::colors::black

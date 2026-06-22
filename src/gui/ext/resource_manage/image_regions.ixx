@@ -441,19 +441,30 @@ struct image_nine_region : nine_patch_layout{
 
 	image_nine_region(
 		const region_type& image_region,
-		math::urect internal_in_relative,
+		math::frect internal_in_relative,
 		const float external_margin = 0.f
 	) : image_view(image_region), margin(external_margin){
-		const auto external = image_region->uv.get_region();
+		const auto external = image_region->uv.get_region().as<float>();
 		internal_in_relative.src += external.src;
 		assert(external.contains_loose(internal_in_relative));
 
 
-		this->nine_patch_layout::operator=(nine_patch_layout{external.as<float>(), internal_in_relative.as<float>()});
+		this->nine_patch_layout::operator=(nine_patch_layout{external, internal_in_relative});
 
 		const auto bound_size = image_view->uv.size.as<float>();
-		outer_uv.fetch_into(bound_size, external.as<float>());
-		inner_uv.fetch_into(bound_size, internal_in_relative.as<float>());
+		outer_uv.fetch_into(bound_size, external);
+		inner_uv.fetch_into(bound_size, internal_in_relative);
+	}
+
+	image_nine_region(
+		const region_type& image_region,
+		math::urect internal_in_relative,
+		const float external_margin = 0.f
+	) : image_nine_region{
+			image_region,
+			internal_in_relative.as<float>(),
+			external_margin
+		}{
 	}
 
 	image_nine_region(
@@ -621,8 +632,5 @@ export image_row_patch get_separator_row_patch();
 
 
 
-export inline image_nine_region default_round_square_border;
-export inline image_nine_region default_round_square_border_thin;
-export inline image_nine_region default_round_square_base;
 }
 }

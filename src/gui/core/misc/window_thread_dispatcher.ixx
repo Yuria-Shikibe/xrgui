@@ -3,6 +3,10 @@ export module mo_yanxi.gui.window_thread_dispatcher;
 import std;
 
 namespace mo_yanxi::gui{
+
+//TODO this struct is complete AI scrap, need refractor
+//
+
 export
 class window_thread_dispatcher{
 private:

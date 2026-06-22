@@ -146,11 +146,7 @@ public:
 	async_operation_binding(const async_operation_binding&) = delete;
 	async_operation_binding& operator=(const async_operation_binding&) = delete;
 
-	[[nodiscard]] async_operation_binding(async_operation_binding&& other) noexcept
-		: owner_ref_(std::move(other.owner_ref_)),
-		  owner_stop_token_(std::move(other.owner_stop_token_)),
-		  runtime_state_(std::move(other.runtime_state_)){
-	}
+	[[nodiscard]] async_operation_binding(async_operation_binding&& other) noexcept = default;
 
 	async_operation_binding& operator=(async_operation_binding&& other) noexcept{
 		if(this != std::addressof(other)){

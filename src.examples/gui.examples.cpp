@@ -5,6 +5,7 @@
 module mo_yanxi.gui.examples;
 
 import mo_yanxi.gui.elem.button;
+import mo_yanxi.gui.assets.manager;
 
 
 import std;
@@ -860,8 +861,8 @@ ui_outputs build_main_ui(
 						slider->set_smooth_drag(true);
 						slider->bar_handle_extent = {40};
 						slider->set_drawer(style::spec::make_round_slider_style({
-							.handle_shape = assets::builtin::default_round_square_base,
-							.bar_shape = assets::builtin::default_round_square_base,
+							.handle_shape = assets::round_square::base(),
+							.bar_shape = assets::round_square::base(),
 							.handle_palette = style::pal::white,
 							.bar_palette = style::pal::pastel_gray.copy().mul_rgb(.7f),
 							.bar_back_palette = style::pal::pastel_gray.copy().mul_rgb(.2f),

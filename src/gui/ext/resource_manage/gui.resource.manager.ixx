@@ -7,6 +7,7 @@ import mo_yanxi.gui.alloc;
 export import mo_yanxi.gui.image_regions;
 export import mo_yanxi.resource_manager;
 
+import mo_yanxi.graphic.image_atlas;
 import std;
 
 namespace mo_yanxi::gui::assets {
@@ -27,15 +28,101 @@ using image_resource_manager = basic_resource_manager<constant_image_region_borr
 
 export using assets_page = image_resource_manager::page_type;
 
+namespace round_square{
+static_assert(sizeof(resource_id) == sizeof(std::uint64_t));
+
+export
+[[nodiscard]] constexpr std::string_view page_name() noexcept{
+	return "__round_square_shape";
+}
+
+export
+enum struct mode : std::uint8_t{
+	solid = 1,
+	stroke = 2
+};
+
+export
+struct fixed2{
+	std::uint16_t raw{};
+
+	[[nodiscard]] constexpr float value() const noexcept{
+		return static_cast<float>(raw) / 4.f;
+	}
+
+	friend constexpr bool operator==(const fixed2&, const fixed2&) noexcept = default;
+};
+
+export
+struct key{
+	mode shape_mode{};
+	fixed2 radius{};
+	fixed2 attribute{};
+
+	friend constexpr bool operator==(const key&, const key&) noexcept = default;
+};
+
+inline constexpr unsigned mode_shift = 56;
+inline constexpr unsigned radius_shift = 40;
+inline constexpr unsigned attribute_shift = 24;
+inline constexpr resource_id field_mask = 0xFFFF;
+inline constexpr resource_id reserved_mask = (resource_id{1} << attribute_shift) - 1;
+
+export
+[[nodiscard]] fixed2 make_fixed2(float value);
+
+export
+[[nodiscard]] constexpr resource_id to_id(const key value) noexcept{
+	return (static_cast<resource_id>(value.shape_mode) << mode_shift)
+		| (static_cast<resource_id>(value.radius.raw) << radius_shift)
+		| (static_cast<resource_id>(value.attribute.raw) << attribute_shift);
+}
+
+export
+[[nodiscard]] key from_id(resource_id id);
+
+export
+[[nodiscard]] key base_key(float radius = 8.f);
+
+export
+[[nodiscard]] key border_key(float radius = 8.f, float width = 2.f);
+
+export
+[[nodiscard]] const image_nine_region& get(key value);
+
+export
+[[nodiscard]] const image_nine_region& get(resource_id id);
+
+export
+[[nodiscard]] const image_nine_region& base(float radius = 8.f);
+
+export
+[[nodiscard]] const image_nine_region& border(float radius = 8.f, float width = 2.f);
+
+export
+[[nodiscard]] const image_nine_region& thin_border(float radius = 8.f);
+
+export
+void bind_image_page(graphic::image_page& page) noexcept;
+
+export
+void clear() noexcept;
+}
+
 export
 struct resource_manager{
 private:
     mr::heap heap_{};
 	image_resource_manager manager_;
+	assets_page* round_square_page_{};
+	graphic::image_page* round_square_atlas_page_{};
+	std::unordered_map<resource_id, image_nine_region> round_square_cache_{};
+	std::mutex round_square_mutex_{};
 
 public:
     [[nodiscard]] explicit resource_manager(const mr::arena_id_t arena_id)
         : heap_(arena_id, 1), manager_(image_resource_allocator{heap_.get()}) {
+		round_square_page_ = std::addressof(manager_.create_page(round_square::page_name()));
     }
 
     template <typename T>
@@ -56,6 +143,13 @@ public:
         return manager_[full_name];
     }
 
+	void bind_round_square_image_page(graphic::image_page& page) noexcept;
+
+	void clear_round_square() noexcept;
+
+	[[nodiscard]] const image_nine_region& get_round_square(round_square::key value);
+
+	[[nodiscard]] const image_nine_region& get_round_square(resource_id id);
 };
 
 } // namespace mo_yanxi::gui::assets
