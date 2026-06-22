@@ -14,7 +14,6 @@ import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.concurrent.mpsc_double_buffer;
 
 import mo_yanxi.platform.thread;
-import mo_yanxi.gui.window_thread_dispatcher;
 
 namespace mo_yanxi::gui::cfg::builtin{
 
@@ -106,7 +105,6 @@ public:
 private:
 	thread_sync_controller sync_ctrl{};
 	std::exception_ptr captured_exception_{nullptr};
-	window_thread_dispatcher window_dispatcher_{};
 	std::jthread exec_thread;
 	scene* target_scene{};
 	bool shutdown_prepared_{false};
@@ -158,10 +156,6 @@ public:
 		return *ctx_ptr;
 	}
 
-	[[nodiscard]] window_thread_dispatcher& get_window_dispatcher() noexcept{
-		return window_dispatcher_;
-	}
-
 	scene& get_scene() const noexcept{
 		return *target_scene;
 	}
@@ -175,9 +169,6 @@ public:
 		exec_thread.request_stop();
 		permit_burst();
 		sync_ctrl.wait_for_b_done();
-
-		window_dispatcher_.close();
-		window_dispatcher_.drain();
 
 		shutdown_destroy_requested_.store(true, std::memory_order_release);
 		permit_burst();

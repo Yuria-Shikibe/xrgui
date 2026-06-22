@@ -68,8 +68,8 @@ export
  *
  * Derive from this class and implement `build_gui()` to create the root UI once.
  * Per-frame work belongs in `before_frame()` or `after_frame()`. Do not access
- * `context()`, `renderer()`, `image_atlas()`, `scene()`, or
- * `window_dispatcher()` before `run()` has started.
+ * `context()`, `renderer()`, `image_atlas()`, or `scene()` before `run()` has
+ * started.
  */
 class default_application{
 public:
@@ -127,12 +127,6 @@ protected:
 	 * @brief Access the main GUI scene while the application is running.
 	 */
 	gui::scene& scene();
-
-	/**
-	 * @brief Access the window-thread dispatcher used for native clipboard,
-	 * cursor, and IME requests.
-	 */
-	gui::window_thread_dispatcher& window_dispatcher();
 
 	/**
 	 * @brief Access the owned asynchronous audio system while the application is running.

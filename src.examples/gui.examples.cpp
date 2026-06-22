@@ -665,8 +665,7 @@ ui_outputs build_main_ui(
 	renderer_frontend renderer,
 	graphic::image_atlas& image_atlas,
 	audio::audio_channel audio_channel,
-	sound::asset_group_handle default_sound_group,
-	window_thread_dispatcher& window_dispatcher){
+	sound::asset_group_handle default_sound_group){
 	auto& ui_root = global::manager;
 	auto& res = ui_root.add_scene_resources("main", audio_channel);
 	if(default_sound_group){
@@ -682,7 +681,7 @@ ui_outputs build_main_ui(
 	style_pal_prov.add_to_scene(scene);
 
 	scene.enable_forked_scene_tasks(true);
-	scene.reset_output_channels(1);
+	scene.reset_output_channels(output_channel::count);
 	(void)::mo_yanxi::gui::load_scene_i18n_for_system_locale(
 		scene,
 		i18n_load_options{
@@ -711,7 +710,7 @@ ui_outputs build_main_ui(
 
 	scene.resources().set_native_communicator<backend::glfw::communicator>(
 		ctx.window().get_handle(),
-		window_dispatcher);
+		scene.output_queue(output_channel::window_thread));
 	scene.get_communicator()->set_native_cursor_visibility(false);
 
 	auto e = scene.create<scaling_stack>();

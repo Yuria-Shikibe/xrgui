@@ -228,18 +228,17 @@ struct default_application::state{
 		auto& ctx = gui_render_context->context();
 		while(!ctx.window().should_close()){
 			ctx.window().poll_events();
-			loop->get_window_dispatcher().drain();
+			loop->get_scene().consume_output(gui::output_channel::window_thread);
 
 			timer.fetch_time();
 			gui::global::event_queue.push_frame_split(timer.global_delta());
 
-			loop->get_window_dispatcher().drain();
 			pump_audio_events();
 			loop->permit_burst();
-			loop->get_scene().consume_output(0);
+			loop->get_scene().consume_output(gui::output_channel::window_thread);
 
 			loop->wait_term();
-			loop->get_window_dispatcher().drain();
+			loop->get_scene().consume_output(gui::output_channel::window_thread);
 
 			vk::cmd::submit_command(
 				ctx.graphic_queue(),
@@ -274,13 +273,13 @@ struct default_application::state{
 
 		style_pal_prov.add_to_scene(scene);
 		scene.enable_forked_scene_tasks(true);
-		scene.reset_output_channels(1);
+		scene.reset_output_channels(gui::output_channel::count);
 		builtin::set_cursors(scene);
 		set_default_scene_pass_config(scene);
 
 		scene.resources().set_native_communicator<backend::glfw::communicator>(
 			gui_render_context->context().window().get_handle(),
-			loop.get_window_dispatcher());
+			scene.output_queue(gui::output_channel::window_thread));
 		scene.get_communicator()->set_native_cursor_visibility(!app.config_.hide_native_cursor);
 
 		root.set_style();
@@ -367,7 +366,6 @@ struct default_application::state{
 
 		try{
 			if(loop){
-				loop->get_window_dispatcher().drain();
 				loop->join();
 			}
 		} catch(...){
@@ -431,13 +429,6 @@ struct default_application::state{
 		return *scene_ptr;
 	}
 
-	gui::window_thread_dispatcher& window_dispatcher(){
-		if(!loop){
-			throw std::logic_error{"default_application window dispatcher is not initialized"};
-		}
-		return loop->get_window_dispatcher();
-	}
-
 	audio::audio_system& audio(){
 		if(!audio_system){
 			throw std::logic_error{"default_application audio system is not initialized"};
@@ -494,13 +485,6 @@ gui::scene& default_application::scene(){
 		throw std::logic_error{"default_application is not running"};
 	}
 	return state_->scene();
-}
-
-gui::window_thread_dispatcher& default_application::window_dispatcher(){
-	if(!state_){
-		throw std::logic_error{"default_application is not running"};
-	}
-	return state_->window_dispatcher();
 }
 
 audio::audio_system& default_application::audio(){

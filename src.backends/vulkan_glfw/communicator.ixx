@@ -78,13 +78,13 @@ void push_ime_composition_event(GLFWwindow* window, platform::native_ime_composi
 
 struct native_window_state {
 	GLFWwindow* window{};
-	gui::window_thread_dispatcher& dispatcher;
+	gui::call_stream_task_queue& output_queue;
 	std::atomic_bool stopped{false};
 	platform::native_ime_controller ime_controller{};
 
-	[[nodiscard]] explicit native_window_state(GLFWwindow* target_window, gui::window_thread_dispatcher& target_dispatcher)
+	[[nodiscard]] explicit native_window_state(GLFWwindow* target_window, gui::call_stream_task_queue& target_output_queue)
 		: window(target_window),
-		  dispatcher(target_dispatcher),
+		  output_queue(target_output_queue),
 		  ime_controller(target_window, [target_window](platform::native_ime_composition_event event) {
 			  push_ime_composition_event(target_window, std::move(event));
 		  }) {
@@ -106,10 +106,10 @@ struct native_window_state {
 		if(window == nullptr) {
 			throw std::runtime_error{"native window state has no GLFW window"};
 		}
-		if(!dispatcher.is_window_thread()) {
+		if(!output_queue.is_consumer_thread()) {
 			throw std::runtime_error{"native window API called from a non-window thread"};
 		}
-		assert(dispatcher.is_window_thread());
+		assert(output_queue.is_consumer_thread());
 	}
 
 	void install_ime_hook() {
@@ -135,8 +135,8 @@ struct native_window_state {
 export struct communicator : gui::native_communicator {
 	native_window_state state_;
 
-	[[nodiscard]] explicit communicator(GLFWwindow* window, gui::window_thread_dispatcher& dispatcher)
-		: state_(window, dispatcher) {
+	[[nodiscard]] explicit communicator(GLFWwindow* window, gui::call_stream_task_queue& output_queue)
+		: state_(window, output_queue) {
 		communicator::post_native(
 			state_,
 			[](native_window_state& native_state) {
@@ -146,8 +146,6 @@ export struct communicator : gui::native_communicator {
 
 	~communicator() override {
 		state_.stop();
-		assert(state_.dispatcher.is_closed());
-		assert(state_.dispatcher.empty());
 	}
 
 	template <typename Fn>
@@ -171,7 +169,7 @@ export struct communicator : gui::native_communicator {
 			binding.mark_cancelled();
 			return false;
 		}
-		return gui::async_send(native_state.dispatcher, std::move(binding), [
+		return gui::async_send(native_state.output_queue, std::move(binding), [
 			native_state = std::addressof(native_state),
 			task = std::forward<Fn>(task)
 		](gui::async_operation_binding& binding, gui::async_task_context&) mutable {
@@ -187,12 +185,12 @@ export struct communicator : gui::native_communicator {
 protected:
 	void begin_shutdown_impl() noexcept override {
 		state_.stop();
-		if(state_.dispatcher.is_window_thread()) {
+		if(state_.output_queue.is_consumer_thread()) {
 			state_.uninstall_ime_hook_noexcept();
 			return;
 		}
 		(void)gui::async_send(
-			state_.dispatcher,
+			state_.output_queue,
 			gui::async_operation_binding{},
 			[native_state = std::addressof(state_)] {
 				native_state->uninstall_ime_hook_noexcept();
@@ -214,7 +212,7 @@ protected:
 		}
 
 		(void)gui::async_request(
-			state_.dispatcher,
+			state_.output_queue,
 			std::move(request.binding),
 			[native_state = std::addressof(state_)] {
 				native_state->require_window_thread();

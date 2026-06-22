@@ -931,6 +931,21 @@ private:
 	ccur::mpsc_double_buffer_heterogeneous<call_stream<mr::unvs_allocator<std::byte>>> async_tasks_{};
 	std::atomic_bool closed_{false};
 
+	mutable std::mutex consumer_thread_mutex_{};
+	std::thread::id consumer_thread_id_{};
+
+	void ensure_consumer_thread_(){
+		const auto current_thread = std::this_thread::get_id();
+		std::scoped_lock lock{consumer_thread_mutex_};
+		if(consumer_thread_id_ == std::thread::id{}){
+			consumer_thread_id_ = current_thread;
+			return;
+		}
+#ifndef NDEBUG
+		assert(consumer_thread_id_ == current_thread && "call_stream_task_queue consumed from a different thread");
+#endif
+	}
+
 public:
 	[[nodiscard]] call_stream_task_queue() = default;
 
@@ -949,12 +964,18 @@ public:
 	}
 
 	void consume(){
+		this->ensure_consumer_thread_();
 		if(closed_.load(std::memory_order_acquire)){
 			return;
 		}
 		if(auto ts = async_tasks_.fetch()){
 			ts->execute();
 		}
+	}
+
+	[[nodiscard]] bool is_consumer_thread() const{
+		std::scoped_lock lock{consumer_thread_mutex_};
+		return consumer_thread_id_ == std::this_thread::get_id();
 	}
 
 	void merge(call_stream_task_queue&& other){

@@ -15,7 +15,6 @@ export import :cursor;
 export import :flags;
 export import :async_task;
 
-export import mo_yanxi.gui.window_thread_dispatcher;
 export import mo_yanxi.gui.sound.manager;
 export import mo_yanxi.audio.resources;
 export import mo_yanxi.gui.renderer.frontend;

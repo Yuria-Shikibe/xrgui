@@ -19,6 +19,13 @@ export using altitude_t = unsigned;
 
 export constexpr std::size_t draw_pass_max_capacity = 8;
 
+export namespace output_channel{
+enum id : std::size_t{
+	window_thread = 0,
+	count
+};
+}
+
 export enum struct elem_tree_channel : std::uint8_t{
 	deduced = 0,
 	regular = 0b001,

@@ -403,7 +403,7 @@ scene.get_communicator()->request_clipboard(my_edit, [](gui::text_edit& edit, st
 });
 ```
 
-默认 GLFW 后端在场景资源上安装 communicator，并通过 `window_thread_dispatcher` 把真正的 native 调用放到窗口线程执行。
+默认 GLFW 后端在场景资源上安装 communicator，并通过 `output_channel::window_thread` 把真正的 native 调用放到窗口线程执行。
 
 ## 10. 参考入口
 

@@ -216,7 +216,7 @@ public:
 	 * @brief Install the backend communicator used by GUI elements.
 	 *
 	 * For GLFW this is normally called during scene setup with the native window
-	 * handle and the window-thread dispatcher.
+	 * handle and the window-thread output queue.
 	 */
 	template <std::derived_from<native_communicator> Ty, typename ...Args>
 	void set_native_communicator(Args&& ...args){
@@ -488,6 +488,10 @@ public:
 
 	void reset_output_channels(std::size_t total_channels){
 		output_channels_ = decltype(output_channels_){std::allocator_arg, get_heap_allocator(), total_channels};
+	}
+
+	[[nodiscard]] call_stream_task_queue& output_queue(std::size_t channel){
+		return output_channels_.at(channel);
 	}
 
 	template <typename Fn, typename... Args>

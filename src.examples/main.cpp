@@ -96,7 +96,7 @@ void app_run(
 
 	while(!ctx.window().should_close()){
 		ctx.window().poll_events();
-		main_loop.get_window_dispatcher().drain();
+		current_focus.consume_output(gui::output_channel::window_thread);
 		timer.fetch_time();
 		//
 		gui::global::event_queue.push_frame_split(timer.global_delta());
@@ -109,15 +109,14 @@ void app_run(
 			continue;
 		}
 
-		main_loop.get_window_dispatcher().drain();
 		main_loop.permit_burst();
-		current_focus.consume_output(0);
+		current_focus.consume_output(gui::output_channel::window_thread);
 
 		//Clear unused events currently
 		(void)main_loop.unhandled_events.fetch();
 
 		main_loop.wait_term();
-		main_loop.get_window_dispatcher().drain();
+		current_focus.consume_output(gui::output_channel::window_thread);
 		std::array<VkCommandBuffer, 2> buffers{
 			main_loop.get_renderer().get_valid_cmd_buf(),
 			post_process_cmds.at(output_token.image.index)
@@ -134,7 +133,7 @@ void app_run(
 		ctx.present_output_frame(output_token);
 		main_loop.reset_term();
 	}
-	main_loop.get_window_dispatcher().drain();
+	current_focus.consume_output(gui::output_channel::window_thread);
 }
 
 void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
@@ -315,13 +314,12 @@ void prepare(mo_yanxi::gui::cfg::render_context& gui_context){
 			loop.get_renderer().create_frontend(),
 			image_atlas,
 			audio_system.register_channel(audio::channel_id_from_role(audio::channel_role::ui)),
-			default_audio_assets.group,
-			loop.get_window_dispatcher());
+			default_audio_assets.group);
 		auto& scene = *ui_providers.scene_ptr;
 		ret.main_scene = ui_providers.scene_ptr;
 
 		static constexpr auto post_task = []<typename F>(gui::scene& scene, F&& fn){
-			(void)scene.post_output(0, std::forward<F>(fn));
+			(void)scene.post_output(gui::output_channel::window_thread, std::forward<F>(fn));
 		};
 
 		auto& bloom_scale = react_flow::attach(scene, react_flow::make_listener(
