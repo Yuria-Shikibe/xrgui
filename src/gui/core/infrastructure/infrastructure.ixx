@@ -106,9 +106,11 @@ bool react_flow_erase_impl(Owner& owner, react_flow::node& node){
 
 
 template <typename E, typename Fn>
-void native_communicator::request_clipboard(E& owner, Fn&& on_ready){
-	this->request_clipboard_impl(
-		owner.get_scene().make_native_clipboard_request(owner, std::forward<Fn>(on_ready)));
+async_operation_handle native_communicator::request_clipboard(E& owner, Fn&& on_ready){
+	auto request = static_cast<elem&>(owner).get_scene().make_native_clipboard_request(owner, std::forward<Fn>(on_ready));
+	auto handle = request.handle();
+	this->request_clipboard_impl(std::move(request));
+	return handle;
 }
 
 template <typename E, typename Fn>

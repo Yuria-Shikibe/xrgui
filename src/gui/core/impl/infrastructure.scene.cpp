@@ -39,8 +39,17 @@ void action_queue::erase(const elem* target){
 }
 
 
-void scene_deleter::operator()(scene* ptr) noexcept{
-	delete ptr;
+void scene_deleter::operator()(scene* ptr) const noexcept{
+	if(ptr == nullptr){
+		return;
+	}
+
+	using allocator_type = mr::heap_allocator<scene>;
+	using allocator_traits = std::allocator_traits<allocator_type>;
+
+	auto alloc = ptr->get_heap_allocator<scene>();
+	std::destroy_at(ptr);
+	allocator_traits::deallocate(alloc, ptr, 1);
 }
 }
 
@@ -114,7 +123,7 @@ void scene_base::drop_(const elem* target) noexcept{
 	active_update_elems_.erase({const_cast<elem*>(target)});
 	std::erase(active_update_elems_state_changes, const_cast<elem*>(target));
 
-	if(forked_scene_tasks_)forked_scene_tasks_->cancel_owner(target);
+	if(forked_scene_worker_)forked_scene_worker_->cancel_owner(target);
 	action_queue_.erase(target);
 
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
@@ -140,7 +149,7 @@ void scene_base::update(double delta_in_tick){
 	gui_inbox_.consume(static_cast<scene&>(*this));
 
 	react_flow_.update();
-	if(forked_scene_tasks_)forked_scene_tasks_->process_done();
+	if(forked_scene_worker_)forked_scene_worker_->process_done();
 	elem_gui_tasks_.consume();
 	input_handler_.update_bindings(delta_in_tick_f);
 
@@ -297,15 +306,15 @@ void scene::init_root() const{
 }
 
 void scene::enable_forked_scene_tasks(bool enable){
-	if(enable != (forked_scene_tasks_ != nullptr)){
+	if(enable != (forked_scene_worker_ != nullptr)){
 		if(enable){
-			forked_scene_tasks_ = std::make_unique<decltype(forked_scene_tasks_)::element_type>(get_heap_allocator(), fork());
-			platform::set_thread_attributes(forked_scene_tasks_->get_async_task_thread().native_handle(), {
+			forked_scene_worker_ = std::make_unique<decltype(forked_scene_worker_)::element_type>(get_heap_allocator(), fork());
+			platform::set_thread_attributes(forked_scene_worker_->get_async_task_thread().native_handle(), {
 				                                .name = "xrgui ui async task",
 				                                .priority = platform::thread_priority::normal
 			                                });
 		}else{
-			forked_scene_tasks_ = nullptr;
+			forked_scene_worker_ = nullptr;
 		}
 	}
 }

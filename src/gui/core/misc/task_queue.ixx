@@ -128,10 +128,6 @@ public:
 		return this->status() != async_operation_status::pending;
 	}
 
-	[[nodiscard]] bool reclaimable() const noexcept{
-		return this->is_finished() && this->ref_count() == 0u;
-	}
-
 	void report_progress(unsigned current, unsigned total) noexcept{
 		if(total == 0u){
 			current = 0u;
@@ -495,7 +491,7 @@ private:
 
 	detail::storage storage_{};
 
-	//TODO make ops as value instead of pointer to vtable
+	// Per-model static ops keep the reply object small while avoiding per-instance function-pointer copies.
 	const ops_type* ops_{};
 	bool heap_storage_{false};
 
@@ -602,11 +598,9 @@ private:
 		ops_ = std::addressof(detail::reply_ops_for<model_type>);
 	}
 
-	void cancel_pending_noexcept() noexcept{
-		try{
-			std::move(*this).set_cancelled();
-		}catch(...){
-		}
+	void reset_pending_noexcept() noexcept{
+		auto pending = this->release_pending();
+		(void)pending;
 	}
 
 	void move_from_(async_reply&& other) noexcept{
@@ -629,7 +623,7 @@ private:
 public:
 	[[nodiscard]] async_reply() = default;
 	~async_reply() noexcept{
-		this->cancel_pending_noexcept();
+		this->reset_pending_noexcept();
 	}
 
 	async_reply(const async_reply&) = delete;
@@ -654,7 +648,7 @@ public:
 
 	async_reply& operator=(async_reply&& other) noexcept{
 		if(this != std::addressof(other)){
-			this->cancel_pending_noexcept();
+			this->reset_pending_noexcept();
 			this->move_from_(std::move(other));
 		}
 		return *this;
@@ -753,36 +747,6 @@ template <typename Endpoint, typename Fn>
 	requires async_endpoint_for<Endpoint, Fn>
 [[nodiscard]] bool async_send(Endpoint& endpoint, Fn&& fn){
 	return endpoint.try_post(std::forward<Fn>(fn));
-}
-
-export
-template <typename Endpoint, typename Work, typename Reply>
-[[nodiscard]] bool async_request(Endpoint& endpoint, Work&& work, Reply&& reply){
-	return ::mo_yanxi::gui::async_send(endpoint, [
-		work = std::forward<Work>(work),
-		reply = std::forward<Reply>(reply)
-	]<typename... Ty>(Ty&&... args) mutable {
-		using result_type = std::invoke_result_t<decltype(work)&, Ty...>;
-		if constexpr(std::is_void_v<result_type>){
-			try{
-				std::invoke(work, std::forward<Ty>(args)...);
-			}catch(...){
-				std::move(reply).set_error(std::current_exception());
-				return;
-			}
-			std::move(reply).set_value();
-		}else{
-			static_assert(!std::is_reference_v<result_type>);
-			std::optional<result_type> result{};
-			try{
-				result.emplace(std::invoke(work, std::forward<Ty>(args)...));
-			}catch(...){
-				std::move(reply).set_error(std::current_exception());
-				return;
-			}
-			std::move(reply).set_value(std::move(*result));
-		}
-	});
 }
 
 export

@@ -155,14 +155,28 @@ export struct communicator : gui::native_communicator {
 	static bool post_native(
 		native_window_state& native_state,
 		Fn&& task) {
+		return communicator::post_native(
+			native_state,
+			gui::async_operation_binding{},
+			std::forward<Fn>(task));
+	}
+
+	template <typename Fn>
+		requires std::invocable<Fn&&, native_window_state&>
+	static bool post_native(
+		native_window_state& native_state,
+		gui::async_operation_binding binding,
+		Fn&& task) {
 		if(native_state.is_stopped()) {
+			binding.mark_cancelled();
 			return false;
 		}
-		return gui::async_send(native_state.dispatcher, [
+		return gui::async_send(native_state.dispatcher, std::move(binding), [
 			native_state = std::addressof(native_state),
 			task = std::forward<Fn>(task)
-		]() mutable {
+		](gui::async_operation_binding& binding, gui::async_task_context&) mutable {
 			if(native_state->is_stopped()) {
+				binding.mark_cancelled();
 				return;
 			}
 			native_state->require_window_thread();
@@ -177,9 +191,12 @@ protected:
 			state_.uninstall_ime_hook_noexcept();
 			return;
 		}
-		(void)gui::async_send(state_.dispatcher, [native_state = std::addressof(state_)] {
-			native_state->uninstall_ime_hook_noexcept();
-		});
+		(void)gui::async_send(
+			state_.dispatcher,
+			gui::async_operation_binding{},
+			[native_state = std::addressof(state_)] {
+				native_state->uninstall_ime_hook_noexcept();
+			});
 	}
 
 	void set_clipboard_impl(std::string&& text) override {
@@ -198,6 +215,7 @@ protected:
 
 		(void)gui::async_request(
 			state_.dispatcher,
+			std::move(request.binding),
 			[native_state = std::addressof(state_)] {
 				native_state->require_window_thread();
 				std::string text;
