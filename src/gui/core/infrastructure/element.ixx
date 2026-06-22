@@ -195,7 +195,6 @@ export struct elem : tooltip::spawner_general<elem>{
 	friend elem_ptr;
 	friend elem_ref_access;
 	friend scene;
-	friend scene_base;
 	friend tooltip::tooltip_manager;
 	friend overlay_manager;
 	friend scene_submodule::input_state;

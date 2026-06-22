@@ -219,7 +219,7 @@ void example_scene::draw_impl(rect clip){
 		}
 
 		if((flags & elem_tree_channel::tooltip) != elem_tree_channel{}){
-			auto seq = tooltip_manager_.get_draw_sequence();
+			auto seq = tooltips().get_draw_sequence();
 			call_stack_tooltip_.resize(seq.size());
 			for(auto&& [idx, elem] : seq | std::views::enumerate){
 				draw_recorder rec{call_stack_tooltip_[idx]};
@@ -228,7 +228,7 @@ void example_scene::draw_impl(rect clip){
 		}
 
 		if((flags & elem_tree_channel::overlay) != elem_tree_channel{}){
-			auto seq = overlay_manager_.get_draw_sequence();
+			auto seq = overlays().get_draw_sequence();
 			call_stack_overlay_.resize(seq.size());
 			for(auto&& [idx, elem] : seq | std::views::enumerate){
 				draw_recorder rec{call_stack_overlay_[idx]};
@@ -243,7 +243,7 @@ void example_scene::draw_impl(rect clip){
 	{
 		viewport_guard _{renderer(), get_region()};
 
-		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(),
+		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltips().get_draw_sequence(),
 		                                                           call_stack_tooltip_)){
 			if(!tooltip.belowScene) continue;
 			draw_at(tooltip.element->bound_abs(), stack);
@@ -251,19 +251,19 @@ void example_scene::draw_impl(rect clip){
 
 		draw_at(root().bound_abs(), call_stack_regular_);
 
-		for(const auto& [overlay, stack] : std::ranges::views::zip(overlay_manager_.get_draw_sequence(),
+		for(const auto& [overlay, stack] : std::ranges::views::zip(overlays().get_draw_sequence(),
 		                                                           call_stack_overlay_)){
 			draw_at(overlay->bound_abs(), stack);
 		}
 
-		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(),
+		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltips().get_draw_sequence(),
 		                                                           call_stack_tooltip_)){
 			if(tooltip.belowScene) continue;
 			draw_at(tooltip.element->bound_abs(), stack);
 		}
 	}
 
-	if(input_handler_.is_cursor_inbound()){
+	if(inputs().is_cursor_inbound()){
 		renderer().update_state(fx::pipeline_config{
 				.pipeline_index = gpip::idx::cursor_outline,
 				.draw_targets = {0b1}
@@ -271,7 +271,7 @@ void example_scene::draw_impl(rect clip){
 
 		renderer().update_state(fx::push_constant{1.f});
 
-		auto region = current_cursor_drawers_.draw(*this, resources_->cursor_collection_manager.get_cursor_size());
+		auto region = draw_cursor();
 
 		renderer().update_state(fx::blit_config{
 				{

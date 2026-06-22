@@ -143,9 +143,9 @@ public:
 		get_renderer().resize({extent.x, extent.y});
 
 		auto& focus = get_scene();
-		auto exec_thread = std::exchange(focus.ui_main_thread_id, std::this_thread::get_id());
+		auto exec_thread = focus.exchange_thread_id(std::this_thread::get_id());
 		focus.resize(math::rect_ortho{tags::from_extent, {}, extent}.as<float>());
-		focus.ui_main_thread_id = exec_thread;
+		focus.exchange_thread_id(exec_thread);
 	}
 
 	[[nodiscard]] backend::vulkan::renderer& get_renderer() noexcept{

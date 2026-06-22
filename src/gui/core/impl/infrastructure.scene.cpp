@@ -64,7 +64,7 @@ style::style_tree_manager scene_resources::init_style_tree_manager_() const{
 }
 
 
-scene_base::scene_base(scene_resources& resources, renderer_frontend&& renderer): scene_shared_resources(resources), renderer_(std::move(renderer)){
+scene::scene(scene_resources& resources, renderer_frontend&& renderer): scene_shared_resources(resources), renderer_(std::move(renderer)){
 	platform::set_thread_attributes(
 		react_flow_.get_async_working_thread().native_handle(), {
 			.name = "xrgui react flow",
@@ -72,7 +72,7 @@ scene_base::scene_base(scene_resources& resources, renderer_frontend&& renderer)
 		});
 }
 
-void scene_base::capture_mouse(elem& target, input_handle::mouse mouse_button_code, math::vec2 press_scene_pos){
+void scene::capture_mouse(elem& target, input_handle::mouse mouse_button_code, math::vec2 press_scene_pos){
 	assert(is_on_scene_thread(*this));
 	assert(std::addressof(target.get_scene()) == this);
 
@@ -80,7 +80,7 @@ void scene_base::capture_mouse(elem& target, input_handle::mouse mouse_button_co
 	request_cursor_update();
 }
 
-void scene_base::retire_elem(elem* target) noexcept{
+void scene::retire_elem(elem* target) noexcept{
 	assert(target != nullptr);
 	assert(is_on_scene_thread(*this));
 	assert(std::addressof(target->get_scene()) == this);
@@ -94,7 +94,7 @@ void scene_base::retire_elem(elem* target) noexcept{
 	}
 }
 
-void scene_base::collect_retired_elements() noexcept{
+void scene::collect_retired_elements() noexcept{
 	assert(is_on_scene_thread(*this));
 
 	for(std::size_t index = 0; index < retired_elements_.size();){
@@ -112,7 +112,7 @@ void scene_base::collect_retired_elements() noexcept{
 	}
 }
 
-void scene_base::drop_(const elem* target) noexcept{
+void scene::drop_(const elem* target) noexcept{
 	drop_elem_nodes(target);
 	input_handler_.drop_elem(target);
 
@@ -129,21 +129,24 @@ void scene_base::drop_(const elem* target) noexcept{
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
 }
 
-void scene_base::resize(const math::frect region){
+void scene::resize(const math::frect region){
 	assert(is_on_scene_thread(*this));
 	if(util::try_modify(region_, region)){
 		renderer().resize(region);
 		root().resize(region.extent());
 		overlay_manager_.resize(region);
+		if(forked_scene_worker_){
+			forked_scene_worker_->get_scene().resize(region);
+		}
 	}
 }
 
-void scene_base::update_cursor_type(){
+void scene::update_cursor_type(){
 	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(input_handler_.get_cursor_style());
 }
 
 
-void scene_base::update(double delta_in_tick){
+void scene::update(double delta_in_tick){
 	assert(is_on_scene_thread(*this));
 	const auto delta_in_tick_f = static_cast<float>(delta_in_tick);
 	gui_inbox_.consume(static_cast<scene&>(*this));
@@ -180,7 +183,7 @@ void scene_base::update(double delta_in_tick){
 }
 
 
-events::dispatch_result scene_base::handle_input_event(const input_handle::input_event_variant& event){
+events::dispatch_result scene::handle_input_event(const input_handle::input_event_variant& event){
 	assert(is_on_scene_thread(*this));
 	using input_handle::input_event_type;
 
@@ -257,7 +260,7 @@ events::dispatch_result scene_base::handle_input_event(const input_handle::input
 
 
 
-events::dispatch_result scene_base::on_esc(){
+events::dispatch_result scene::on_esc(){
 	if(tooltip_manager_.on_esc() != events::dispatch_result::unhandled){
 		request_cursor_update();
 		return events::dispatch_result::handled;
@@ -275,7 +278,7 @@ events::dispatch_result scene_base::on_esc(){
 }
 
 
-void scene_base::layout(){
+void scene::layout(){
 	assert(is_on_scene_thread(*this));
 	std::size_t count{};
 

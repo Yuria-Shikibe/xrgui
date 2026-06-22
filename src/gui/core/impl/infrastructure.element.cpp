@@ -197,7 +197,7 @@ tooltip::align_config elem::tooltip_get_align_config() const{
 }
 
 void elem::create_tooltip(bool fade_in, bool below_scene){
-	get_scene().tooltip_manager_.append_tooltip(*this, below_scene, fade_in);
+	get_scene().tooltips().append_tooltip(*this, below_scene, fade_in);
 }
 
 bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
@@ -205,7 +205,7 @@ bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
 }
 
 void elem::drop_tooltip() const{
-	if(has_tooltip()) get_scene().tooltip_manager_.request_drop(this);
+	if(has_tooltip()) get_scene().tooltips().request_drop(this);
 }
 
 void elem::on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event){
@@ -372,30 +372,30 @@ bool elem::parent_contain_constrain(const math::vec2 pos_relative) const noexcep
 
 bool elem::is_focused_scroll() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.is_scroll_focus(this);
+	return scene_->inputs().is_scroll_focus(this);
 }
 
 bool elem::is_focused_key() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.is_key_focus(this);
+	return scene_->inputs().is_key_focus(this);
 }
 
 bool elem::is_focused() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.is_cursor_focus(this);
+	return scene_->inputs().is_cursor_focus(this);
 }
 
 bool elem::is_inbounded() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.contains_inbound(this);
+	return scene_->inputs().contains_inbound(this);
 }
 
 void elem::set_focused_scroll(const bool focus) noexcept{
-	this->scene_->input_handler_.set_scroll_focus(this, focus);
+	this->scene_->inputs().set_scroll_focus(this, focus);
 }
 
 void elem::set_focused_key(const bool focus) noexcept{
-	get_scene().input_handler_.set_key_focus(this, focus);
+	get_scene().inputs().set_key_focus(this, focus);
 }
 
 void elem::relocate_scene(scene& target_scene) noexcept{

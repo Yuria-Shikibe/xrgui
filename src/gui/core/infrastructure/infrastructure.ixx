@@ -26,7 +26,7 @@ namespace mo_yanxi::gui{
 export namespace align = ::mo_yanxi::align;
 
 template <typename Owner>
-concept react_flow_scene_owner = std::derived_from<std::remove_cvref_t<Owner>, scene_base>;
+concept react_flow_scene_owner = std::derived_from<std::remove_cvref_t<Owner>, scene>;
 
 template <typename Owner>
 concept react_flow_elem_owner = std::derived_from<std::remove_cvref_t<Owner>, elem>;
@@ -35,7 +35,7 @@ template <typename Owner>
 concept react_flow_owner = react_flow_scene_owner<Owner> || react_flow_elem_owner<Owner>;
 
 template <react_flow_owner Owner>
-scene_base& react_flow_owner_scene_(Owner& owner) noexcept{
+scene& react_flow_owner_scene_(Owner& owner) noexcept{
 	if constexpr (react_flow_elem_owner<Owner>){
 		return owner.get_scene();
 	}else{
@@ -54,11 +54,11 @@ const elem* react_flow_owner_elem_(Owner& owner) noexcept{
 
 struct react_flow_create_access{
 	template <typename AddFn>
-	static decltype(auto) add_node(scene_base& scene, const elem* owner, AddFn&& add){
+	static decltype(auto) add_node(scene& scene, const elem* owner, AddFn&& add){
 		return scene.react_flow_add_node_(owner, std::forward<AddFn>(add));
 	}
 
-	static bool erase_node(scene_base& scene, react_flow::node& node){
+	static bool erase_node(scene& scene, react_flow::node& node){
 		return scene.react_flow_erase_node_(node);
 	}
 };

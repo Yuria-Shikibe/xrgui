@@ -57,6 +57,11 @@ export struct elem;
 
 export using i18n_text_root_node = mo_yanxi::i18n::i18n_text_root_node;
 
+namespace util{
+void update_insert(elem& e, update_channel channel);
+void update_erase(const elem& e, update_channel channel);
+}
+
 /**
  * @brief Tracks element count per altitude level with O(1) max query.
  *
@@ -195,7 +200,6 @@ export
  */
 struct scene_resources{
 	friend scene_shared_resources;
-	friend scene_base;
 	friend scene;
 private:
 	mr::heap heap{};
@@ -289,7 +293,9 @@ public:
 }
 
 struct scene_shared_resources{
-protected:
+	friend scene;
+
+private:
 	scene_resources* resources_{};
 	UI_MAIN_THREAD_ACCESS_ONLY rect region_{};
 
@@ -308,7 +314,7 @@ public:
 		return region_.extent();
 	}
 
-protected:
+private:
 	[[nodiscard]] mr::heap_handle get_heap() const noexcept{
 		return resources_->heap.get();
 	}
@@ -321,24 +327,37 @@ public:
 	}
 };
 
-struct scene_base : scene_shared_resources{
+export
+/**
+ * @brief Main retained GUI scene.
+ *
+ * A scene owns the element tree root, input focus state, update queues, overlay
+ * and tooltip managers, react-flow graph, and the renderer frontend used by GUI
+ * drawing. Public methods that mutate GUI state assert the scene/UI thread.
+ */
+struct scene : scene_shared_resources{
 	friend elem;
+	friend elem_ptr;
 	friend ui_manager;
-
+	friend native_communicator;
+	friend struct react_flow_create_access;
+	friend struct scene_submodule::scene_deleter;
+	friend struct scene_submodule::forked_scene_worker;
+	friend std::thread::id exchange_scene_thread(scene& s, std::thread::id id);
+	friend bool is_on_scene_thread(const scene& scene) noexcept;
+	friend void util::update_insert(elem& e, update_channel channel);
+	friend void util::update_erase(const elem& e, update_channel channel);
 
 private:
 	UI_MAIN_THREAD_ACCESS_ONLY UI_TRANSIENT renderer_frontend renderer_{};
-
-public:
 	std::thread::id ui_main_thread_id{std::this_thread::get_id()};
 
-private:
 #ifdef SCENE_REFERENCE_COUNT_CHECK
 	UI_TRANSIENT std::size_t element_on_this_scene_{};
 	struct check_on_destruction{
-		scene_base* scene_base{nullptr};
+		scene* scene{nullptr};
 		~check_on_destruction(){
-			assert(scene_base->element_on_this_scene_ == 0);
+			assert(scene->element_on_this_scene_ == 0);
 		}
 	} check_on_destruction_{this};
 
@@ -357,8 +376,6 @@ private:
 #endif
 	}
 
-protected:
-
 	FORCE_INLINE inline void check_ref_count_zero_() noexcept{
 #ifdef SCENE_REFERENCE_COUNT_CHECK
 		assert(element_on_this_scene_ == 0);
@@ -376,12 +393,9 @@ protected:
 		return async_operation_state_pool_->create_operation();
 	}
 
-public:
-
 	UI_TRANSIENT unsigned long long current_frame_{};
 	UI_TRANSIENT double current_time_{};
 
-protected:
 	UI_TRANSIENT elem_tree_channel display_state_changed_channel_{};
 
 
@@ -392,7 +406,6 @@ protected:
 	std::unique_ptr<scene_submodule::forked_scene_worker> forked_scene_worker_{};
 	UI_TRANSIENT scene_submodule::input_state input_handler_{get_heap_allocator()};
 
-private:
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap_allocator()}};
 
 #pragma region Updates
@@ -426,7 +439,6 @@ private:
 
 #pragma endregion
 
-protected:
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY react_flow::manager react_flow_{};
 
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY std::unordered_multimap<
@@ -435,7 +447,6 @@ protected:
 		mr::heap_allocator<std::pair<const elem* const, react_flow::node*>>>
 	elem_owned_nodes_{get_heap_allocator()};
 
-private:
 	UI_MERGE_ON_JOIN fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_channels_{};
 	async_sync_task_queue<scene&> gui_inbox_{get_heap_allocator()};
 	std::atomic_bool accepting_gui_tasks_{true};
@@ -446,18 +457,18 @@ private:
 
 	mr::heap_vector<retired_elem_record> retired_elements_{get_heap_allocator<retired_elem_record>()};
 
-protected:
 	UI_TRANSIENT tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
 	UI_TRANSIENT overlay_manager overlay_manager_{get_heap_allocator()};
 	UI_TRANSIENT cursor_drawer current_cursor_drawers_{};
 	UI_TRANSIENT layer_altitude_record layer_altitude_record_{get_heap_allocator<unsigned>()};
 	elem* scene_root_{};
 
-	[[nodiscard]] scene_base() = default;
+	[[nodiscard]] scene() = default;
 
-	explicit(false) scene_base(scene_resources& resources, renderer_frontend&& renderer);
+public:
+	explicit(false) scene(scene_resources& resources, renderer_frontend&& renderer);
 
-	~scene_base(){
+	virtual ~scene(){
 		begin_shutdown();
 		forked_scene_worker_ = nullptr;
 		tooltip_manager_.clear();
@@ -466,11 +477,12 @@ protected:
 		assert(retired_elements_.empty() && "scene destroyed while retired elements are still externally referenced");
 	}
 
-public:
-
-	[[nodiscard]] explicit scene_base(const scene_shared_resources& resources)
+protected:
+	[[nodiscard]] explicit scene(const scene_shared_resources& resources)
 		: scene_shared_resources(resources){
 	}
+
+public:
 
 	template <std::derived_from<elem> T = elem, bool unchecked = false>
 	T& root(){
@@ -538,6 +550,11 @@ public:
 		}
 	}
 
+	std::thread::id exchange_thread_id(std::thread::id id) noexcept{
+		return std::exchange(ui_main_thread_id, id);
+	}
+
+private:
 	/**
 	 * @brief Create an owner-bound native clipboard completion.
 	 *
@@ -563,6 +580,7 @@ public:
 		};
 	}
 
+public:
 	[[nodiscard]] unsigned long long get_current_frame() const noexcept{
 		return current_frame_;
 	}
@@ -579,6 +597,7 @@ public:
 		current_time_ = current_time;
 	}
 
+private:
 #pragma region IndependentUpdate
 	void insert_update(elem& p, update_channel channel){
 		assert(is_on_scene_thread(*this));
@@ -612,6 +631,7 @@ public:
 
 #pragma endregion
 
+public:
 	[[nodiscard]] native_communicator* get_communicator() const noexcept{
 		assert(is_on_scene_thread(*this));
 		return resources_->communicator_.get();
@@ -665,16 +685,18 @@ public:
 		}
 	}
 
+protected:
 	elem_tree_channel check_display_state_changed() noexcept{
 		assert(is_on_scene_thread(*this));
 		return std::exchange(display_state_changed_channel_, elem_tree_channel{});
 	}
 
-
+private:
 	[[nodiscard]] auto* get_memory_resource() const noexcept {
 		return get_heap();
 	}
 
+public:
 	[[nodiscard]] vec2 get_cursor_pos() const noexcept{
 		assert(is_on_scene_thread(*this));
 		return input_handler_.get_cursor_pos();
@@ -722,18 +744,11 @@ public:
 		input_handler_.overwrite_last_inbound_click_quiet(elem);
 	}
 
+private:
 	void retire_elem(elem* target) noexcept;
 
 	void collect_retired_elements() noexcept;
 
-	[[nodiscard]] react_flow::manager& get_react_flow() noexcept{
-		assert(is_on_scene_thread(*this));
-		return react_flow_;
-	}
-
-	friend struct react_flow_create_access;
-
-protected:
 	void drop_elem_nodes(const elem* elem) noexcept{
 		assert(is_on_scene_thread(*this));
 		auto [begin, end] = elem_owned_nodes_.equal_range(elem);
@@ -817,12 +832,12 @@ private:
 		independent_layouts_.get_bak().insert(element);
 	}
 
-protected:
+private:
 	void consume_gui_inbox_from(scene& source){
 		gui_inbox_.consume(source);
 	}
 
-	void merge(scene_base&& target){
+	void merge(scene&& target){
 		target.tooltip_manager_.clear();
 		target.overlay_manager_.clear();
 
@@ -856,34 +871,51 @@ protected:
 		action_queue_.merge(std::move(target.action_queue_));
 		elem_gui_tasks_.merge(std::move(target.elem_gui_tasks_));
 	}
-};
-
-export
-/**
- * @brief Main retained GUI scene.
- *
- * A scene owns the element tree root, input focus state, update queues, overlay
- * and tooltip managers, react-flow graph, and the renderer frontend used by GUI
- * drawing. Public methods that mutate GUI state assert the scene/UI thread.
- */
-struct scene : scene_base{
-	friend elem;
-	friend ui_manager;
 
 protected:
+	void set_root(elem& root){
+		input_handler_.bind_scene_context(*this);
+		scene_root_ = std::addressof(root);
+		init_root();
+	}
 
+	[[nodiscard]] scene_submodule::input_state& inputs() noexcept{
+		return input_handler_;
+	}
+
+	[[nodiscard]] const scene_submodule::input_state& inputs() const noexcept{
+		return input_handler_;
+	}
+
+	[[nodiscard]] tooltip::tooltip_manager& tooltips() noexcept{
+		return tooltip_manager_;
+	}
+
+	[[nodiscard]] const tooltip::tooltip_manager& tooltips() const noexcept{
+		return tooltip_manager_;
+	}
+
+	[[nodiscard]] overlay_manager& overlays() noexcept{
+		return overlay_manager_;
+	}
+
+	[[nodiscard]] const overlay_manager& overlays() const noexcept{
+		return overlay_manager_;
+	}
+
+	rect draw_cursor(){
+		assert(is_on_scene_thread(*this));
+		return current_cursor_drawers_.draw(*this, resources_->cursor_collection_manager.get_cursor_size());
+	}
+
+	virtual void draw_impl(rect clip){
+		throw std::runtime_error{"Draw is not impl"};
+	}
+
+private:
 	void init_root() const;
 
 public:
-
-	[[nodiscard]] explicit scene(const scene_shared_resources& resources)
-		: scene_base(resources){
-	}
-
-	[[nodiscard]] scene(scene_resources& resources, renderer_frontend&& renderer)
-		: scene_base(resources, std::move(renderer)){
-	}
-
 	template <std::derived_from<elem> T, typename ...Args>
 	[[nodiscard]] explicit(false) scene(
 		scene_resources& resources,
@@ -896,13 +928,6 @@ public:
 	scene(scene&& other) noexcept = delete;
 	scene& operator=(const scene& other) = delete;
 	scene& operator=(scene&& other) noexcept = delete;
-
-protected:
-	virtual void draw_impl(rect clip){
-		throw std::runtime_error{"Draw is not impl"};
-	}
-
-public:
 
 	void enable_forked_scene_tasks(bool enable);
 
@@ -955,7 +980,7 @@ public:
 		auto alloc = get_heap_allocator<scene>();
 		auto* rst = allocator_traits::allocate(alloc, 1);
 		try{
-			std::construct_at(rst, static_cast<scene_shared_resources>(*this));
+			::new (static_cast<void*>(rst)) scene(static_cast<scene_shared_resources>(*this));
 		}catch(...){
 			allocator_traits::deallocate(alloc, rst, 1);
 			throw;
@@ -972,14 +997,12 @@ public:
 		return std::unique_ptr<scene, scene_submodule::scene_deleter>{rst};
 	}
 
-	virtual void join(scene&& scene){
-		consume_gui_inbox_from(scene);
-		merge(std::move(scene));
-		assert(scene.scene_root_ == nullptr && "target scene must drop all element ownership");
-		scene.check_ref_count_zero_();
+	virtual void join(scene&& target){
+		consume_gui_inbox_from(target);
+		merge(std::move(target));
+		assert(target.scene_root_ == nullptr && "target scene must drop all element ownership");
+		target.check_ref_count_zero_();
 	}
-
-	virtual ~scene() = default;
 
 	void draw(){
 		draw_impl(get_region());
@@ -1193,7 +1216,7 @@ async_operation_handle request_forked(
 		std::move(reply));
 }
 
-bool is_on_scene_thread(const scene_base& scene) noexcept{
+bool is_on_scene_thread(const scene& scene) noexcept{
 	return std::this_thread::get_id() == scene.ui_main_thread_id;
 }
 

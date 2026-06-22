@@ -17,10 +17,9 @@ namespace mo_yanxi::gui{
 
 export struct elem;
 export struct scene;
-export struct scene_base;
 
 export
-bool is_on_scene_thread(const scene_base& scene) noexcept;
+bool is_on_scene_thread(const scene& scene) noexcept;
 
 export
 enum struct elem_lifecycle_state : std::uint8_t{

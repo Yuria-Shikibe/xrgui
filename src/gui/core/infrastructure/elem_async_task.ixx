@@ -555,6 +555,10 @@ private:
 	std::jthread async_task_thread_{};
 
 public:
+	scene& get_scene(){
+		return *forked_scene_;
+	}
+
 	[[nodiscard]] forked_scene_worker(const mr::heap_allocator<async_task_ptr>& alloc,
 	                                     std::unique_ptr<scene, scene_deleter>&& scene)
 		:

@@ -14,7 +14,7 @@ export import mo_yanxi.math.rect_ortho;
 export import mo_yanxi.math.vector2;
 
 namespace mo_yanxi::gui{
-struct scene_base;
+struct scene;
 
 namespace style{
 export
