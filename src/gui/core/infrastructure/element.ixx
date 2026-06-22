@@ -350,10 +350,8 @@ private:
 	void push_to_action_queue();
 public:
 
-	template <typename E, std::invocable<E&> Fn>
-	void post_task(this E& e, Fn&& fn);
-
-	template <typename E, std::invocable<> Fn>
+	template <typename E, typename Fn>
+		requires (std::invocable<Fn&&, E&> || std::invocable<Fn&&>)
 	void post_task(this E& e, Fn&& fn);
 
 	void set_audio_group(sound::asset_group_handle group) noexcept;

@@ -369,8 +369,6 @@ struct default_application::state{
 			if(loop){
 				loop->get_window_dispatcher().drain();
 				loop->join();
-				loop->get_window_dispatcher().drain();
-				loop->get_window_dispatcher().stop();
 			}
 		} catch(...){
 		}

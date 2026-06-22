@@ -449,6 +449,7 @@ bool elem::try_retain_external_ref_live_() noexcept{
 }
 
 void elem::retain_external_ref_existing_() noexcept{
+	//TODO use unreachable in release?
 	auto state = lifecycle_ref_.load(std::memory_order_acquire);
 	while(!elem::is_lifecycle_destroying_(state)){
 		const auto count = elem::lifecycle_ref_count_(state);

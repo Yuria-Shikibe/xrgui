@@ -111,14 +111,10 @@ void native_communicator::request_clipboard(E& owner, Fn&& on_ready){
 		owner.get_scene().make_native_clipboard_request(owner, std::forward<Fn>(on_ready)));
 }
 
-template <typename E, std::invocable<E&> Fn>
+template <typename E, typename Fn>
+	requires (std::invocable<Fn&&, E&> || std::invocable<Fn&&>)
 void elem::post_task(this E& e, Fn&& fn){
-	static_cast<const elem&>(e).get_scene().post(e, std::forward<Fn>(fn));
-}
-
-template <typename E, std::invocable<> Fn>
-void elem::post_task(this E& e, Fn&& fn){
-	static_cast<const elem&>(e).get_scene().post(e, std::forward<Fn>(fn));
+	(void)static_cast<const elem&>(e).get_scene().post_gui(e, std::forward<Fn>(fn));
 }
 
 namespace util{
@@ -155,14 +151,6 @@ inline void sync_set_elem_audio_group(elem& e, std::string_view sound_family_nam
 	});
 }
 
-export
-template <std::derived_from<elem> E, typename ProcessFn, typename Reply>
-async_operation_handle request_forked(E& e, ProcessFn&& process_fn, Reply&& reply){
-	return static_cast<const elem&>(e).get_scene().request_forked(
-		e,
-		std::forward<ProcessFn>(process_fn),
-		std::forward<Reply>(reply));
-}
 }
 
 }

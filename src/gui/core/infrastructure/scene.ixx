@@ -376,49 +376,56 @@ struct scene_deleter{
 };
 
 template <
-	std::derived_from<elem> E,
-	typename ProcessFn,
-	typename Reply,
-	typename Result = std::invoke_result_t<ProcessFn&, async_task_context&, scene&>,
-	bool IsVoid = std::is_void_v<Result>>
-struct forked_scene_request_task;
-
-template <std::derived_from<elem> E, typename ProcessFn, typename Reply, typename Result>
-struct forked_scene_request_task<E, ProcessFn, Reply, Result, false> : forked_scene_task_base{
+	typename Result>
+struct forked_scene_task_result{
 	static_assert(!std::is_reference_v<Result>);
 
-	ADAPTED_NO_UNIQUE_ADDRESS ProcessFn process_fn_;
-	ADAPTED_NO_UNIQUE_ADDRESS Reply reply_;
 	std::optional<Result> result_{};
 
-	[[nodiscard]] forked_scene_request_task(ProcessFn process_fn, Reply reply)
-		: process_fn_(std::move(process_fn)),
-		  reply_(std::move(reply)){
+	template <typename ProcessFn>
+	void process(ProcessFn& process_fn, async_task_context& context, scene& async_scene){
+		result_.emplace(std::invoke(process_fn, context, async_scene));
 	}
 
-	void process_impl(async_task_context& context, scene& async_scene) override{
-		result_.emplace(std::invoke(process_fn_, context, async_scene));
-	}
-
-	void on_done(elem&, scene&) override{
+	template <typename Reply>
+	void complete(Reply& reply){
 		if(result_.has_value()){
-			std::move(reply_).set_value(std::move(*result_));
+			std::move(reply).set_value(std::move(*result_));
 		}else{
-			std::move(reply_).set_cancelled();
+			std::move(reply).set_cancelled();
 		}
-	}
-
-	bool on_error(elem&, scene&, std::exception_ptr exception) override{
-		std::move(reply_).set_error(std::move(exception));
-		return true;
 	}
 };
 
-template <std::derived_from<elem> E, typename ProcessFn, typename Reply, typename Result>
-struct forked_scene_request_task<E, ProcessFn, Reply, Result, true> : forked_scene_task_base{
+template <>
+struct forked_scene_task_result<void>{
+	bool processed_{false};
+
+	template <typename ProcessFn>
+	void process(ProcessFn& process_fn, async_task_context& context, scene& async_scene){
+		std::invoke(process_fn, context, async_scene);
+		processed_ = true;
+	}
+
+	template <typename Reply>
+	void complete(Reply& reply){
+		if(processed_){
+			std::move(reply).set_value();
+		}else{
+			std::move(reply).set_cancelled();
+		}
+	}
+};
+
+template <
+	std::derived_from<elem> E,
+	typename ProcessFn,
+	typename Reply,
+	typename Result = std::invoke_result_t<ProcessFn&, async_task_context&, scene&>>
+struct forked_scene_request_task : forked_scene_task_base{
 	ADAPTED_NO_UNIQUE_ADDRESS ProcessFn process_fn_;
 	ADAPTED_NO_UNIQUE_ADDRESS Reply reply_;
-	bool processed_{false};
+	forked_scene_task_result<Result> result_{};
 
 	[[nodiscard]] forked_scene_request_task(ProcessFn process_fn, Reply reply)
 		: process_fn_(std::move(process_fn)),
@@ -426,16 +433,11 @@ struct forked_scene_request_task<E, ProcessFn, Reply, Result, true> : forked_sce
 	}
 
 	void process_impl(async_task_context& context, scene& async_scene) override{
-		std::invoke(process_fn_, context, async_scene);
-		processed_ = true;
+		result_.process(process_fn_, context, async_scene);
 	}
 
 	void on_done(elem&, scene&) override{
-		if(processed_){
-			std::move(reply_).set_value();
-		}else{
-			std::move(reply_).set_cancelled();
-		}
+		result_.complete(reply_);
 	}
 
 	bool on_error(elem&, scene&, std::exception_ptr exception) override{
@@ -454,7 +456,7 @@ private:
 	mr::heap_allocator<forked_scene_task_base> task_allocator_{};
 
 	std::atomic<forked_scene_task_base*> current_done_task_{};
-	std::deque<async_operation_state> task_runtime_states_{};
+	async_operation_state_pool_ptr task_runtime_state_pool_{};
 	std::unique_ptr<scene, scene_deleter> forked_scene_{};
 	std::jthread async_task_thread_{};
 
@@ -464,6 +466,7 @@ public:
 		:
 		async_tasks_pending_(alloc),
 		task_allocator_(alloc),
+		task_runtime_state_pool_(std::in_place, mr::heap_allocator<>{alloc}),
 		forked_scene_((assert(scene != nullptr), std::move(scene))),
 		async_task_thread_([this](std::stop_token&& stop_token){
 			exchange_scene_thread(*forked_scene_, std::this_thread::get_id());
@@ -476,8 +479,8 @@ public:
 	}
 
 	~async_async_task_queue(){
-		for(auto& state : task_runtime_states_){
-			state.mark_cancelled();
+		if(task_runtime_state_pool_){
+			task_runtime_state_pool_->cancel_all();
 		}
 		async_task_thread_.request_stop();
 		async_tasks_pending_.notify();
@@ -508,10 +511,11 @@ private:
 		}
 	}
 
-	[[nodiscard]] async_operation_state& create_task_runtime_state(){
-		auto& state = task_runtime_states_.emplace_back();
-		state.report_progress(0u, 0u);
-		return state;
+	[[nodiscard]] async_operation_state_ptr create_task_runtime_state(){
+		if(!task_runtime_state_pool_){
+			throw std::runtime_error{"async operation state pool is unavailable"};
+		}
+		return task_runtime_state_pool_->create_operation();
 	}
 
 	void async_tasks_process(std::stop_token stop_token){
@@ -563,7 +567,16 @@ public:
 	}
 
 	void cancel_owner(const elem* owner) noexcept{
-		(void)owner;
+		if(owner == nullptr){
+			return;
+		}
+		async_tasks_pending_.erase_if([owner](const async_task_ptr& task) noexcept {
+			if(!task || !task->owned_by(owner)){
+				return false;
+			}
+			task->mark_cancelled();
+			return true;
+		});
 	}
 
 	template <std::derived_from<elem> E, std::invocable<E&> Prov>
@@ -572,20 +585,23 @@ public:
 		static_assert(std::derived_from<task_type, forked_scene_task_base>);
 		auto task = std::invoke_r<task_type>(std::forward<Prov>(prov), e);
 		elem_ref<> owner_ref{e};
-		async_operation_state* task_runtime_state{};
+		async_operation_state_ptr task_runtime_state{};
 		try{
-			task_runtime_state = std::addressof(this->create_task_runtime_state());
-			task.bind_async_owner(std::move(owner_ref), elem_ref_access::stop_token(std::addressof(e)), *task_runtime_state);
+			task_runtime_state = this->create_task_runtime_state();
+			task.bind_async_owner(
+				std::move(owner_ref),
+				elem_ref_access::stop_token(std::addressof(e)),
+				task_runtime_state);
 			async_tasks_pending_.push(
 				mo_yanxi::make_allocate_aware_poly_unique<task_type, forked_scene_task_base>(
 					task_allocator_, std::move(task)));
 		}catch(...){
-			if(task_runtime_state != nullptr){
+			if(task_runtime_state){
 				task_runtime_state->mark_cancelled();
 			}
 			throw;
 		}
-		return async_operation_handle{*task_runtime_state};
+		return async_operation_handle{std::move(task_runtime_state)};
 	}
 };
 
@@ -681,10 +697,10 @@ protected:
 	UI_TRANSIENT elem_tree_channel display_state_changed_channel_{};
 
 
-	UI_MERGE_ON_JOIN associated_async_sync_task_queue<elem> instant_task_queue_{get_heap_allocator()};
+	UI_MERGE_ON_JOIN associated_async_sync_task_queue<elem> elem_gui_tasks_{get_heap_allocator()};
 	UI_MERGE_ON_JOIN scene_submodule::action_queue action_queue_{get_heap_allocator()};
 
-	std::unique_ptr<scene_submodule::async_async_task_queue> async_task_queue_{};
+	std::unique_ptr<scene_submodule::async_async_task_queue> forked_scene_tasks_{};
 	UI_TRANSIENT scene_submodule::input_state input_handler_{get_heap_allocator()};
 
 private:
@@ -715,10 +731,6 @@ private:
 		friend constexpr bool operator==(const update_entry& s, const gui::elem* o) noexcept{
 			return s.elem == o;
 		}
-
-		friend constexpr bool operator==(const gui::elem* o, const update_entry& s) noexcept{
-			return s.elem == o;
-		}
 	};
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY linear_flat_set<mr::heap_vector<update_entry>> active_update_elems_{get_heap_allocator()};
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY mr::heap_vector<update_entry> active_update_elems_state_changes{get_heap_allocator()};
@@ -735,8 +747,8 @@ protected:
 	elem_owned_nodes_{get_heap_allocator()};
 
 private:
-	UI_MERGE_ON_JOIN fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_communicate_async_task_queues_{};
-	async_sync_task_queue<scene&> input_communicate_async_task_queue_{get_heap_allocator()};
+	UI_MERGE_ON_JOIN fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_channels_{};
+	async_sync_task_queue<scene&> gui_inbox_{get_heap_allocator()};
 	std::atomic_bool accepting_gui_tasks_{true};
 
 	struct retired_elem_record{
@@ -758,7 +770,7 @@ protected:
 
 	~scene_base(){
 		begin_shutdown();
-		async_task_queue_ = nullptr;
+		forked_scene_tasks_ = nullptr;
 		tooltip_manager_.clear();
 		overlay_manager_.clear();
 		collect_retired_elements();
@@ -782,70 +794,49 @@ public:
 	}
 
 	std::size_t output_channel_count() const noexcept{
-		return output_communicate_async_task_queues_.size();
+		return output_channels_.size();
 	}
 
 	void reset_output_channels(std::size_t total_channels){
-		output_communicate_async_task_queues_ = decltype(output_communicate_async_task_queues_){std::allocator_arg, get_heap_allocator(), total_channels};
-	}
-
-	[[nodiscard]] call_stream_endpoint_ref get_output_communicate_endpoint(std::size_t channel){
-		return call_stream_endpoint_ref{std::addressof(output_communicate_async_task_queues_.at(channel))};
+		output_channels_ = decltype(output_channels_){std::allocator_arg, get_heap_allocator(), total_channels};
 	}
 
 	template <typename Fn, typename... Args>
 		requires (std::invocable<Fn&&, Args&&...>)
 	[[nodiscard]] bool post_output(std::size_t channel, Fn&& fn, Args&&... args){
-		return get_output_communicate_endpoint(channel).try_post(
+		return output_channels_.at(channel).try_post(
 			std::forward<Fn>(fn),
 			std::forward<Args>(args)...);
 	}
 
 	void consume_output(std::size_t channel){
-		output_communicate_async_task_queues_.at(channel).consume();
-	}
-
-	[[nodiscard]] async_sync_endpoint_ref<scene&> get_gui_inbox_endpoint() noexcept{
-		return async_sync_endpoint_ref<scene&>{std::addressof(input_communicate_async_task_queue_)};
-	}
-
-	[[nodiscard]] associated_async_endpoint_ref<elem> get_elem_gui_task_endpoint() noexcept{
-		return associated_async_endpoint_ref<elem>{std::addressof(instant_task_queue_)};
-	}
-
-	template <std::invocable<scene&> Fn>
-	[[nodiscard]] bool try_post_scene_task(Fn&& fn){
-		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
-			return false;
-		}
-		return get_gui_inbox_endpoint().try_post(std::forward<Fn>(fn));
+		output_channels_.at(channel).consume();
 	}
 
 	template <std::invocable<scene&> Fn>
 	[[nodiscard]] bool post_gui(Fn&& fn){
-		return this->try_post_scene_task(std::forward<Fn>(fn));
+		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
+			return false;
+		}
+		return gui_inbox_.try_post(std::forward<Fn>(fn));
 	}
 
-	template <std::derived_from<elem> E, std::invocable<E&> Fn>
+	template <std::derived_from<elem> E, typename Fn>
+		requires (std::invocable<Fn&&, E&> || std::invocable<Fn&&>)
 	[[nodiscard]] bool post_gui(E& owner, Fn&& fn){
 		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
 			return false;
 		}
-		return get_elem_gui_task_endpoint().try_post(owner, std::forward<Fn>(fn));
-	}
-
-	template <std::derived_from<elem> E, std::invocable<> Fn>
-	[[nodiscard]] bool post_gui(E& owner, Fn&& fn){
-		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
-			return false;
-		}
-		return get_elem_gui_task_endpoint().try_post(owner, std::forward<Fn>(fn));
+		return elem_gui_tasks_.try_post(owner, std::forward<Fn>(fn));
 	}
 
 	void begin_shutdown() noexcept{
 		const bool was_accepting = accepting_gui_tasks_.exchange(false, std::memory_order_acq_rel);
-		input_communicate_async_task_queue_.close();
-		instant_task_queue_.close();
+		gui_inbox_.close();
+		elem_gui_tasks_.close();
+		for(auto& channel : output_channels_){
+			channel.close();
+		}
 		if(was_accepting && resources_ != nullptr && resources_->communicator_){
 			resources_->communicator_->begin_shutdown();
 		}
@@ -887,21 +878,7 @@ public:
 		current_time_ = current_time;
 	}
 
-#pragma region AsyncTask
-	template <std::derived_from<elem> E, std::invocable<E&> Fn>
-	void post(E& e, Fn&& fn){
-		(void)this->post_gui(e, std::forward<Fn>(fn));
-	}
-
-	template <std::derived_from<elem> E, std::invocable<> Fn>
-	void post(E& e, Fn&& fn){
-		(void)this->post_gui(e, std::forward<Fn>(fn));
-	}
-
-#pragma endregion
-
 #pragma region IndependentUpdate
-
 	void insert_update(elem& p, update_channel channel){
 		assert(is_on_scene_thread(*this));
 		active_update_elems_state_changes.emplace_back(&p, channel);
@@ -1141,7 +1118,7 @@ private:
 
 protected:
 	void consume_gui_inbox_from(scene& source){
-		input_communicate_async_task_queue_.consume(source);
+		gui_inbox_.consume(source);
 	}
 
 	void merge(scene_base&& target){
@@ -1149,7 +1126,7 @@ protected:
 		target.overlay_manager_.clear();
 
 
-		for (auto&& [lhs, rhs] : std::views::zip(output_communicate_async_task_queues_, target.output_communicate_async_task_queues_)){
+		for (auto&& [lhs, rhs] : std::views::zip(output_channels_, target.output_channels_)){
 			lhs.merge(std::move(rhs));
 		}
 
@@ -1174,7 +1151,7 @@ protected:
 		}
 
 		action_queue_.merge(std::move(target.action_queue_));
-		instant_task_queue_.merge(std::move(target.instant_task_queue_));
+		elem_gui_tasks_.merge(std::move(target.elem_gui_tasks_));
 	}
 };
 
@@ -1251,8 +1228,8 @@ public:
 			return async_operation_handle{};
 		}
 
-		if(async_task_queue_){
-			return async_task_queue_->post(owner, [
+		if(forked_scene_tasks_){
+			return forked_scene_tasks_->post(owner, [
 				process = std::move(process),
 				completion = std::move(completion)
 			](E&) mutable {
@@ -1271,34 +1248,6 @@ public:
 		}
 		task.mark_finished();
 		return async_operation_handle{};
-	}
-
-	template <
-		std::derived_from<elem> E,
-		typename ProcessFn,
-		typename ValueFn,
-		typename ErrorFn = std::nullptr_t,
-		typename CancelFn = std::nullptr_t>
-		requires std::invocable<std::decay_t<ProcessFn>&, async_task_context&, scene&>
-		      && scene_submodule::gui_reply_value_callback_for<
-			      ValueFn,
-			      E,
-			      scene_submodule::forked_scene_process_result_t<ProcessFn>>
-		      && scene_submodule::gui_reply_error_callback_for<ErrorFn, E>
-		      && scene_submodule::gui_reply_cancel_callback_for<CancelFn, E>
-	async_operation_handle request_forked(
-		E& owner,
-		ProcessFn&& process_fn,
-		ValueFn&& on_value,
-		ErrorFn&& on_error = nullptr,
-		CancelFn&& on_cancel = nullptr){
-		using result_type = scene_submodule::forked_scene_process_result_t<ProcessFn>;
-		auto reply = gui::make_gui_reply<result_type>(
-			owner,
-			std::forward<ValueFn>(on_value),
-			std::forward<ErrorFn>(on_error),
-			std::forward<CancelFn>(on_cancel));
-		return this->request_forked(owner, std::forward<ProcessFn>(process_fn), std::move(reply));
 	}
 
 	//TODO since them share the same heap, using mimalloc instead of operator new?
@@ -1488,6 +1437,38 @@ template <typename T, std::derived_from<elem> E, typename ValueFn, typename Erro
 			std::move(error_callback),
 			std::move(cancel_callback));
 	}
+}
+
+export
+template <
+	std::derived_from<elem> E,
+	typename ProcessFn,
+	typename ValueFn,
+	typename ErrorFn = std::nullptr_t,
+	typename CancelFn = std::nullptr_t>
+	requires std::invocable<std::decay_t<ProcessFn>&, async_task_context&, scene&>
+	      && scene_submodule::gui_reply_value_callback_for<
+		      ValueFn,
+		      E,
+		      scene_submodule::forked_scene_process_result_t<ProcessFn>>
+	      && scene_submodule::gui_reply_error_callback_for<ErrorFn, E>
+	      && scene_submodule::gui_reply_cancel_callback_for<CancelFn, E>
+async_operation_handle request_forked(
+	E& owner,
+	ProcessFn&& process_fn,
+	ValueFn&& on_value,
+	ErrorFn&& on_error = nullptr,
+	CancelFn&& on_cancel = nullptr){
+	using result_type = scene_submodule::forked_scene_process_result_t<ProcessFn>;
+	auto reply = gui::make_gui_reply<result_type>(
+		owner,
+		std::forward<ValueFn>(on_value),
+		std::forward<ErrorFn>(on_error),
+		std::forward<CancelFn>(on_cancel));
+	return owner.get_scene().request_forked(
+		owner,
+		std::forward<ProcessFn>(process_fn),
+		std::move(reply));
 }
 
 bool is_on_scene_thread(const scene_base& scene) noexcept{

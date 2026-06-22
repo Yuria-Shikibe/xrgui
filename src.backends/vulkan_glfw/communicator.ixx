@@ -78,13 +78,13 @@ void push_ime_composition_event(GLFWwindow* window, platform::native_ime_composi
 
 struct native_window_state {
 	GLFWwindow* window{};
-	gui::window_thread_dispatcher* dispatcher{};
+	gui::window_thread_dispatcher& dispatcher;
 	std::atomic_bool stopped{false};
 	platform::native_ime_controller ime_controller{};
 
 	[[nodiscard]] explicit native_window_state(GLFWwindow* target_window, gui::window_thread_dispatcher& target_dispatcher)
 		: window(target_window),
-		  dispatcher(std::addressof(target_dispatcher)),
+		  dispatcher(target_dispatcher),
 		  ime_controller(target_window, [target_window](platform::native_ime_composition_event event) {
 			  push_ime_composition_event(target_window, std::move(event));
 		  }) {
@@ -106,13 +106,10 @@ struct native_window_state {
 		if(window == nullptr) {
 			throw std::runtime_error{"native window state has no GLFW window"};
 		}
-		if(dispatcher == nullptr) {
-			throw std::runtime_error{"native window state has no dispatcher"};
-		}
-		if(!dispatcher->is_window_thread()) {
+		if(!dispatcher.is_window_thread()) {
 			throw std::runtime_error{"native window API called from a non-window thread"};
 		}
-		assert(dispatcher->is_window_thread());
+		assert(dispatcher.is_window_thread());
 	}
 
 	void install_ime_hook() {
@@ -149,22 +146,21 @@ export struct communicator : gui::native_communicator {
 
 	~communicator() override {
 		state_.stop();
-		assert(state_.dispatcher == nullptr || state_.dispatcher->is_closed());
-		assert(state_.dispatcher == nullptr || state_.dispatcher->empty());
+		assert(state_.dispatcher.is_closed());
+		assert(state_.dispatcher.empty());
 	}
 
+	template <typename Fn>
+		requires std::invocable<Fn&&, native_window_state&>
 	static bool post_native(
 		native_window_state& native_state,
-		std::move_only_function<void(native_window_state&)>&& task) {
+		Fn&& task) {
 		if(native_state.is_stopped()) {
 			return false;
 		}
-		if(native_state.dispatcher == nullptr) {
-			throw std::runtime_error{"native window state has no dispatcher"};
-		}
-		return gui::async_send(*native_state.dispatcher, [
+		return gui::async_send(native_state.dispatcher, [
 			native_state = std::addressof(native_state),
-			task = std::move(task)
+			task = std::forward<Fn>(task)
 		]() mutable {
 			if(native_state->is_stopped()) {
 				return;
@@ -177,14 +173,11 @@ export struct communicator : gui::native_communicator {
 protected:
 	void begin_shutdown_impl() noexcept override {
 		state_.stop();
-		if(state_.dispatcher == nullptr) {
-			return;
-		}
-		if(state_.dispatcher->is_window_thread()) {
+		if(state_.dispatcher.is_window_thread()) {
 			state_.uninstall_ime_hook_noexcept();
 			return;
 		}
-		(void)state_.dispatcher->post([native_state = std::addressof(state_)] {
+		(void)gui::async_send(state_.dispatcher, [native_state = std::addressof(state_)] {
 			native_state->uninstall_ime_hook_noexcept();
 		});
 	}
@@ -202,14 +195,9 @@ protected:
 			std::move(request).set_cancelled();
 			return;
 		}
-		if(state_.dispatcher == nullptr) {
-			std::move(request).set_error(std::make_exception_ptr(
-				std::runtime_error{"native window state has no dispatcher"}));
-			return;
-		}
 
 		(void)gui::async_request(
-			*state_.dispatcher,
+			state_.dispatcher,
 			[native_state = std::addressof(state_)] {
 				native_state->require_window_thread();
 				std::string text;

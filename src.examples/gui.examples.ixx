@@ -37,7 +37,7 @@ struct ui_outputs{
 	react_flow::node* tonemap_saturation;
 
 	void apply(scene& scene) const{
-		(void)scene.try_post_scene_task([*this](gui::scene& s){
+		(void)scene.post_gui([*this](gui::scene& s){
 			if(shader_bloom_scale)shader_bloom_scale->pull_and_push(false);
 			if(shader_bloom_src_factor)shader_bloom_src_factor->pull_and_push(false);
 			if(shader_bloom_dst_factor)shader_bloom_dst_factor->pull_and_push(false);

@@ -1,5 +1,11 @@
 module;
 
+#include <cassert>
+
+#ifndef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+#include "plf_hive.h"
+#endif
+
 #include <mo_yanxi/adapted_attributes.hpp>
 
 export module mo_yanxi.gui.util.task_queue;
@@ -10,6 +16,11 @@ import mo_yanxi.concurrent.mpsc_double_buffer;
 import mo_yanxi.concurrent.mpsc_queue;
 import mo_yanxi.allocator_aware_unique_ptr;
 import mo_yanxi.call_stream;
+import mo_yanxi.referenced_ptr;
+
+#ifdef XRGUI_FUCK_MSVC_INCLUDE_CPP_HEADER_IN_MODULE
+import <plf_hive.h>;
+#endif
 
 namespace mo_yanxi::gui{
 export
@@ -22,25 +33,56 @@ enum struct async_operation_status : std::uint8_t{
 
 export
 struct async_progress{
-	unsigned current{};
-	unsigned total{};
+	std::uint32_t current{};
+	std::uint32_t total{};
 };
 
 export
-struct async_operation_state{
+struct async_operation_state;
+
+export
+struct async_operation_state_pool;
+
+struct async_operation_state_pool_owner_deleter{
+	void operator()(mo_yanxi::referenced_object_atomic* pool) const noexcept;
+};
+
+export
+using async_operation_state_pool_ptr = mo_yanxi::referenced_ptr<async_operation_state_pool>;
+
+using async_operation_state_pool_owner_ptr = mo_yanxi::referenced_ptr<
+	mo_yanxi::referenced_object_atomic,
+	async_operation_state_pool_owner_deleter>;
+
+export
+struct async_operation_state_deleter{
+	void operator()(async_operation_state* state) const noexcept;
+};
+
+export
+using async_operation_state_ptr = mo_yanxi::referenced_ptr<
+	async_operation_state,
+	async_operation_state_deleter>;
+
+export
+struct async_operation_state : mo_yanxi::referenced_object_atomic{
+	friend struct async_operation_state_pool;
+	friend struct async_operation_state_deleter;
+
 private:
+	async_operation_state_pool_owner_ptr owner_pool_{};
 	std::stop_source stop_source_{};
 	std::atomic<std::uint64_t> progress_{};
 	std::atomic<async_operation_status> status_{async_operation_status::pending};
 
-	[[nodiscard]] static std::uint64_t pack_progress(unsigned current, unsigned total) noexcept{
+	[[nodiscard]] static std::uint64_t pack_progress(std::uint32_t current, std::uint32_t total) noexcept{
 		return (static_cast<std::uint64_t>(total) << 32u) | static_cast<std::uint64_t>(current);
 	}
 
 	[[nodiscard]] static async_progress unpack_progress(std::uint64_t value) noexcept{
 		return {
-			.current = static_cast<unsigned>(value & 0xffff'ffffull),
-			.total = static_cast<unsigned>(value >> 32u)
+			.current = static_cast<std::uint32_t>(value & 0xffff'ffffull),
+			.total = static_cast<std::uint32_t>(value >> 32u)
 		};
 	}
 
@@ -53,7 +95,19 @@ private:
 			std::memory_order_acquire);
 	}
 
+	void bind_owner_pool(async_operation_state_pool& pool) noexcept;
+
+	[[nodiscard]] async_operation_state_pool_ptr owner_pool() const noexcept;
+
 public:
+	[[nodiscard]] async_operation_state() = default;
+	~async_operation_state() noexcept;
+
+	async_operation_state(const async_operation_state&) = delete;
+	async_operation_state(async_operation_state&&) = delete;
+	async_operation_state& operator=(const async_operation_state&) = delete;
+	async_operation_state& operator=(async_operation_state&&) = delete;
+
 	void request_stop() noexcept{
 		stop_source_.request_stop();
 	}
@@ -68,6 +122,14 @@ public:
 
 	[[nodiscard]] bool is_pending() const noexcept{
 		return this->status() == async_operation_status::pending;
+	}
+
+	[[nodiscard]] bool is_finished() const noexcept{
+		return this->status() != async_operation_status::pending;
+	}
+
+	[[nodiscard]] bool reclaimable() const noexcept{
+		return this->is_finished() && this->ref_count() == 0u;
 	}
 
 	void report_progress(unsigned current, unsigned total) noexcept{
@@ -102,20 +164,108 @@ public:
 };
 
 export
+struct async_operation_state_pool : mo_yanxi::referenced_object_atomic{
+private:
+	using container = plf::hive<async_operation_state, mr::heap_allocator<async_operation_state>>;
+
+	mutable std::mutex mutex_{};
+	container states_{};
+
+public:
+	[[nodiscard]] async_operation_state_pool();
+	[[nodiscard]] explicit async_operation_state_pool(const mr::heap_allocator<>& alloc);
+	~async_operation_state_pool() noexcept;
+
+	async_operation_state_pool(const async_operation_state_pool&) = delete;
+	async_operation_state_pool(async_operation_state_pool&&) = delete;
+	async_operation_state_pool& operator=(const async_operation_state_pool&) = delete;
+	async_operation_state_pool& operator=(async_operation_state_pool&&) = delete;
+
+	[[nodiscard]] async_operation_state_ptr create_operation();
+	void cancel_all() noexcept;
+	void erase_state(async_operation_state* state) noexcept;
+};
+
+inline void async_operation_state::bind_owner_pool(async_operation_state_pool& pool) noexcept{
+	owner_pool_.reset(static_cast<mo_yanxi::referenced_object_atomic*>(std::addressof(pool)));
+}
+
+inline async_operation_state_pool_ptr async_operation_state::owner_pool() const noexcept{
+	return async_operation_state_pool_ptr{static_cast<async_operation_state_pool*>(owner_pool_.get())};
+}
+
+inline async_operation_state::~async_operation_state() noexcept = default;
+
+inline async_operation_state_pool::async_operation_state_pool()
+	: async_operation_state_pool(mr::get_default_heap_allocator()){
+}
+
+inline async_operation_state_pool::async_operation_state_pool(const mr::heap_allocator<>& alloc)
+	: states_(mr::heap_allocator<async_operation_state>{alloc}){
+}
+
+inline async_operation_state_pool::~async_operation_state_pool() noexcept{
+	this->cancel_all();
+}
+
+inline void async_operation_state_pool_owner_deleter::operator()(mo_yanxi::referenced_object_atomic* pool) const noexcept{
+	delete static_cast<async_operation_state_pool*>(pool);
+}
+
+inline async_operation_state_ptr async_operation_state_pool::create_operation(){
+	std::scoped_lock lock{mutex_};
+	auto itr = states_.emplace();
+	auto& state = *itr;
+	state.bind_owner_pool(*this);
+	state.report_progress(0u, 0u);
+	return async_operation_state_ptr{std::addressof(state)};
+}
+
+inline void async_operation_state_pool::cancel_all() noexcept{
+	std::scoped_lock lock{mutex_};
+	for(auto& state : states_){
+		state.mark_cancelled();
+	}
+}
+
+inline void async_operation_state_pool::erase_state(async_operation_state* state) noexcept{
+	if(state == nullptr){
+		return;
+	}
+
+	async_operation_state_pool_ptr keep_alive{this};
+	std::scoped_lock lock{mutex_};
+	auto itr = states_.get_iterator(state);
+	if(itr != states_.end()){
+		states_.erase(itr);
+	}
+}
+
+inline void async_operation_state_deleter::operator()(async_operation_state* state) const noexcept{
+	if(state == nullptr){
+		return;
+	}
+	auto pool = state->owner_pool();
+	assert(pool && "async_operation_state must be owned by an async_operation_state_pool");
+	if(pool){
+		pool->erase_state(state);
+	}
+}
+
+export
 struct async_operation_handle{
 private:
-	async_operation_state* state_{};
+	async_operation_state_ptr state_{};
 
 	[[nodiscard]] bool valid_state() const noexcept{
-		return state_ != nullptr
-			&& state_->is_pending();
+		return state_ && state_->is_pending();
 	}
 
 public:
 	[[nodiscard]] async_operation_handle() = default;
 
-	[[nodiscard]] explicit async_operation_handle(async_operation_state& state) noexcept
-		: state_(std::addressof(state)){
+	[[nodiscard]] explicit async_operation_handle(async_operation_state_ptr state) noexcept
+		: state_(std::move(state)){
 	}
 
 	void request_stop() const noexcept{
@@ -129,7 +279,7 @@ public:
 	}
 
 	[[nodiscard]] async_progress progress_snapshot() const noexcept{
-		if(state_ == nullptr){
+		if(!state_){
 			return {};
 		}
 		return state_->progress_snapshot();
@@ -152,7 +302,7 @@ public:
 	}
 
 	[[nodiscard]] async_operation_status status() const noexcept{
-		if(state_ == nullptr){
+		if(!state_){
 			return async_operation_status::cancelled;
 		}
 		return state_->status();
@@ -161,7 +311,7 @@ public:
 
 namespace detail{
 
-inline constexpr std::size_t inline_bytes = 48;
+inline constexpr std::size_t inline_bytes = 128-16;
 inline constexpr std::size_t inline_align = alignof(std::max_align_t);
 
 struct noop_callback{
@@ -172,13 +322,13 @@ struct noop_callback{
 
 template <typename Fn>
 using normalized_callback_t = std::conditional_t<
-	std::same_as<std::decay_t<Fn>, std::nullptr_t>,
+	std::is_null_pointer_v<std::remove_reference_t<Fn>>,
 	noop_callback,
 	std::decay_t<Fn>>;
 
 template <typename Fn>
 [[nodiscard]] decltype(auto) normalize_callback(Fn&& fn){
-	if constexpr(std::same_as<std::decay_t<Fn>, std::nullptr_t>){
+	if constexpr(std::is_null_pointer_v<std::remove_reference_t<Fn>>){
 		(void)fn;
 		return detail::noop_callback{};
 	}else{
@@ -188,7 +338,7 @@ template <typename Fn>
 
 template <typename T, typename ValueFn, typename ErrorFn, typename CancelFn>
 struct split_reply_handler{
-	static_assert(std::is_void_v<T> || !std::is_reference_v<T>, "async_reply<T> cannot store reference results");
+	static_assert(std::is_void_v<T> || std::is_object_v<T>, "async_reply<T> cannot store reference results");
 
 	ADAPTED_NO_UNIQUE_ADDRESS ValueFn value_fn_;
 	ADAPTED_NO_UNIQUE_ADDRESS ErrorFn error_fn_;
@@ -344,6 +494,8 @@ private:
 	static_assert(std::is_void_v<T> || std::is_object_v<T>);
 
 	detail::storage storage_{};
+
+	//TODO make ops as value instead of pointer to vtable
 	const ops_type* ops_{};
 	bool heap_storage_{false};
 
@@ -609,11 +761,11 @@ template <typename Endpoint, typename Work, typename Reply>
 	return ::mo_yanxi::gui::async_send(endpoint, [
 		work = std::forward<Work>(work),
 		reply = std::forward<Reply>(reply)
-	](auto&&... args) mutable {
-		using result_type = std::invoke_result_t<decltype(work)&, decltype(args)...>;
+	]<typename... Ty>(Ty&&... args) mutable {
+		using result_type = std::invoke_result_t<decltype(work)&, Ty...>;
 		if constexpr(std::is_void_v<result_type>){
 			try{
-				std::invoke(work, std::forward<decltype(args)>(args)...);
+				std::invoke(work, std::forward<Ty>(args)...);
 			}catch(...){
 				std::move(reply).set_error(std::current_exception());
 				return;
@@ -623,7 +775,7 @@ template <typename Endpoint, typename Work, typename Reply>
 			static_assert(!std::is_reference_v<result_type>);
 			std::optional<result_type> result{};
 			try{
-				result.emplace(std::invoke(work, std::forward<decltype(args)>(args)...));
+				result.emplace(std::invoke(work, std::forward<Ty>(args)...));
 			}catch(...){
 				std::move(reply).set_error(std::current_exception());
 				return;
@@ -727,7 +879,8 @@ struct associated_async_sync_task_queue : associated_async_sync_task_queue_base{
 
 	using associated_async_sync_task_queue_base::associated_async_sync_task_queue_base;
 
-	template <std::derived_from<owner_type> E, std::invocable<E&> Fn>
+	template <std::derived_from<owner_type> E, typename Fn>
+		requires (std::invocable<Fn&&, E&> || std::invocable<Fn&&>)
 	[[nodiscard]] bool try_post(E& e, Fn&& fn){
 		auto owner_ref = e.ref();
 		return this->try_emplace(
@@ -736,35 +889,14 @@ struct associated_async_sync_task_queue : associated_async_sync_task_queue_base{
 				return static_cast<E*>(owner)->is_live();
 			},
 			[f = std::forward<Fn>(fn)](void* owner) mutable {
-				std::invoke(f, *static_cast<E*>(owner));
+				if constexpr(std::invocable<Fn&, E&>){
+					std::invoke(f, *static_cast<E*>(owner));
+				}else{
+					std::invoke(f);
+				}
 			},
 			[owner_ref = std::move(owner_ref)]{}
 		);
-	}
-
-	template <std::derived_from<owner_type> E, std::invocable<> Fn>
-	[[nodiscard]] bool try_post(E& e, Fn&& fn){
-		auto owner_ref = e.ref();
-		return this->try_emplace(
-			std::addressof(e),
-			[](void* owner){
-				return static_cast<E*>(owner)->is_live();
-			},
-			[f = std::forward<Fn>(fn)](void*) mutable {
-				std::invoke(f);
-			},
-			[owner_ref = std::move(owner_ref)]{}
-		);
-	}
-
-	template <std::derived_from<owner_type> E, std::invocable<E&> Fn>
-	void post(E& e, Fn&& fn){
-		(void)this->try_post(e, std::forward<Fn>(fn));
-	}
-
-	template <std::derived_from<owner_type> E, std::invocable<> Fn>
-	void post(E& e, Fn&& fn){
-		(void)this->try_post(e, std::forward<Fn>(fn));
 	}
 
 	void erase(const owner_type* e) noexcept {
@@ -808,11 +940,6 @@ public:
 		return true;
 	}
 
-	template <std::invocable<CtxArgs...> Fn>
-	void post(Fn&& fn){
-		(void)this->try_post(std::forward<Fn>(fn));
-	}
-
 	void consume(CtxArgs... args){
 		if(closed_.load(std::memory_order_acquire)){
 			return;
@@ -851,15 +978,10 @@ public:
 		}
 		async_tasks_.emplace_back(std::forward<Fn>(fn), std::forward<Args>(args)...);
 		if(closed_.load(std::memory_order_acquire)){
+			this->clear();
 			return false;
 		}
 		return true;
-	}
-
-	template <typename Fn, typename ...Args>
-		requires (std::invocable<Fn&&, Args&&...>)
-	void post(Fn&& fn, Args&&... args){
-		(void)this->try_post(std::forward<Fn>(fn), std::forward<Args>(args)...);
 	}
 
 	void consume(){
@@ -873,71 +995,24 @@ public:
 
 	void merge(call_stream_task_queue&& other){
 		if(closed_.load(std::memory_order_acquire)){
+			other.clear();
 			return;
 		}
 		async_tasks_.merge(std::move(other).async_tasks_);
 	}
 
+	void clear() noexcept{
+		async_tasks_.modify([](auto& tasks) noexcept {
+			tasks.clear();
+		});
+		if(auto* tasks = async_tasks_.fetch()){
+			tasks->clear();
+		}
+	}
+
 	void close() noexcept{
 		closed_.store(true, std::memory_order_release);
-	}
-};
-
-export
-template <typename ...CtxArgs>
-struct async_sync_endpoint_ref{
-	async_sync_task_queue<CtxArgs...>* queue{};
-
-	template <std::invocable<CtxArgs...> Fn>
-	[[nodiscard]] bool try_post(Fn&& fn) const{
-		return queue != nullptr && queue->try_post(std::forward<Fn>(fn));
-	}
-
-	void close() const noexcept{
-		if(queue != nullptr){
-			queue->close();
-		}
-	}
-};
-
-template <typename ...CtxArgs>
-async_sync_endpoint_ref(async_sync_task_queue<CtxArgs...>&) -> async_sync_endpoint_ref<CtxArgs...>;
-
-export
-template <typename Owner>
-struct associated_async_endpoint_ref{
-	associated_async_sync_task_queue<Owner>* queue{};
-
-	template <std::derived_from<Owner> E, typename Fn>
-		requires (std::invocable<Fn&&, E&> || std::invocable<Fn&&>)
-	[[nodiscard]] bool try_post(E& owner, Fn&& fn) const{
-		return queue != nullptr && queue->try_post(owner, std::forward<Fn>(fn));
-	}
-
-	void close() const noexcept{
-		if(queue != nullptr){
-			queue->close();
-		}
-	}
-};
-
-template <typename Owner>
-associated_async_endpoint_ref(associated_async_sync_task_queue<Owner>&) -> associated_async_endpoint_ref<Owner>;
-
-export
-struct call_stream_endpoint_ref{
-	call_stream_task_queue* queue{};
-
-	template <typename Fn, typename ...Args>
-		requires (std::invocable<Fn&&, Args&&...>)
-	[[nodiscard]] bool try_post(Fn&& fn, Args&&... args) const{
-		return queue != nullptr && queue->try_post(std::forward<Fn>(fn), std::forward<Args>(args)...);
-	}
-
-	void close() const noexcept{
-		if(queue != nullptr){
-			queue->close();
-		}
+		this->clear();
 	}
 };
 

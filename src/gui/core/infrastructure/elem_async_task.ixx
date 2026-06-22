@@ -51,7 +51,7 @@ private:
 	elem_ref<> owner_ref_{};
 	std::stop_token owner_stop_token_{};
 	std::stop_token task_stop_token_{};
-	async_operation_state* runtime_state_{};
+	async_operation_state_ptr runtime_state_{};
 	std::exception_ptr exception_{};
 
 protected:
@@ -65,15 +65,19 @@ public:
 	void bind_async_owner(
 		elem_ref<> owner_ref,
 		std::stop_token owner_stop_token,
-		async_operation_state& runtime_state) noexcept{
+		async_operation_state_ptr runtime_state) noexcept{
 		owner_ref_ = std::move(owner_ref);
 		owner_stop_token_ = std::move(owner_stop_token);
-			runtime_state_ = std::addressof(runtime_state);
-		task_stop_token_ = runtime_state.stop_token();
+		task_stop_token_ = runtime_state ? runtime_state->stop_token() : std::stop_token{};
+		runtime_state_ = std::move(runtime_state);
 	}
 
 	[[nodiscard]] elem* owner() const noexcept{
 		return owner_ref_.get_live();
+	}
+
+	[[nodiscard]] bool owned_by(const elem* owner) const noexcept{
+		return owner_ref_.get_retained() == owner;
 	}
 
 	[[nodiscard]] bool stop_requested() const noexcept{
@@ -89,7 +93,7 @@ public:
 	}
 
 	void mark_finished() noexcept{
-		if(runtime_state_ != nullptr){
+		if(runtime_state_){
 			if(this->stop_requested()){
 				runtime_state_->mark_cancelled();
 			}else if(this->has_exception()){
@@ -100,8 +104,14 @@ public:
 		}
 	}
 
+	void mark_cancelled() noexcept{
+		if(runtime_state_){
+			runtime_state_->mark_cancelled();
+		}
+	}
+
 	void process(scene& async_scene){
-		async_task_context context{owner_stop_token_, task_stop_token_, runtime_state_};
+		async_task_context context{owner_stop_token_, task_stop_token_, runtime_state_.get()};
 		if(context.stop_requested()){
 			return;
 		}

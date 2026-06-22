@@ -21,7 +21,9 @@ public:
 		return std::this_thread::get_id() == window_thread_id_;
 	}
 
-	[[nodiscard]] bool post(std::move_only_function<void()>&& task){
+	template <std::invocable<> Fn>
+	[[nodiscard]] bool try_post(Fn&& fn){
+		std::move_only_function<void()> task{std::forward<Fn>(fn)};
 		if(!task){
 			throw std::runtime_error{"window thread dispatcher received an empty task"};
 		}
@@ -32,11 +34,6 @@ public:
 		}
 		pending_tasks_.push_back(std::move(task));
 		return true;
-	}
-
-	template <std::invocable<> Fn>
-	[[nodiscard]] bool try_post(Fn&& fn){
-		return post(std::move_only_function<void()>{std::forward<Fn>(fn)});
 	}
 
 	void drain(){
@@ -61,10 +58,6 @@ public:
 	void close() noexcept{
 		std::scoped_lock lock{mutex_};
 		closed_ = true;
-	}
-
-	void stop() noexcept{
-		close();
 	}
 
 	[[nodiscard]] bool is_closed() const noexcept{

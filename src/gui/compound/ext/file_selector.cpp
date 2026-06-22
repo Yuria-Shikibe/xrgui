@@ -662,7 +662,7 @@ file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode
 				prog.set_progress_state(progress_state::rough);
 			}).cell().set_passive();
 
-			util::request_forked(
+			gui::request_forked(
 				*this,
 				[](gui::async_task_context& context, gui::scene& s){
 					(void)s;

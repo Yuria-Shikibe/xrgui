@@ -110,11 +110,11 @@ void scene_base::drop_(const elem* target) noexcept{
 
 	target->drop_tooltip();
 
-	instant_task_queue_.erase(target);
+	elem_gui_tasks_.erase(target);
 	active_update_elems_.erase({const_cast<elem*>(target)});
 	std::erase(active_update_elems_state_changes, const_cast<elem*>(target));
 
-	if(async_task_queue_)async_task_queue_->cancel_owner(target);
+	if(forked_scene_tasks_)forked_scene_tasks_->cancel_owner(target);
 	action_queue_.erase(target);
 
 	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
@@ -137,11 +137,11 @@ void scene_base::update_cursor_type(){
 void scene_base::update(double delta_in_tick){
 	assert(is_on_scene_thread(*this));
 	const auto delta_in_tick_f = static_cast<float>(delta_in_tick);
-	input_communicate_async_task_queue_.consume(static_cast<scene&>(*this));
+	gui_inbox_.consume(static_cast<scene&>(*this));
 
 	react_flow_.update();
-	if(async_task_queue_)async_task_queue_->process_done();
-	instant_task_queue_.consume();
+	if(forked_scene_tasks_)forked_scene_tasks_->process_done();
+	elem_gui_tasks_.consume();
 	input_handler_.update_bindings(delta_in_tick_f);
 
 	tooltip_manager_.update(delta_in_tick_f, get_cursor_pos(), input_handler_.is_mouse_pressed());
@@ -297,15 +297,15 @@ void scene::init_root() const{
 }
 
 void scene::enable_forked_scene_tasks(bool enable){
-	if(enable != (async_task_queue_ != nullptr)){
+	if(enable != (forked_scene_tasks_ != nullptr)){
 		if(enable){
-			async_task_queue_ = std::make_unique<decltype(async_task_queue_)::element_type>(get_heap_allocator(), fork());
-			platform::set_thread_attributes(async_task_queue_->get_async_task_thread().native_handle(), {
+			forked_scene_tasks_ = std::make_unique<decltype(forked_scene_tasks_)::element_type>(get_heap_allocator(), fork());
+			platform::set_thread_attributes(forked_scene_tasks_->get_async_task_thread().native_handle(), {
 				                                .name = "xrgui ui async task",
 				                                .priority = platform::thread_priority::normal
 			                                });
 		}else{
-			async_task_queue_ = nullptr;
+			forked_scene_tasks_ = nullptr;
 		}
 	}
 }
