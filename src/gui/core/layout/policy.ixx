@@ -21,7 +21,7 @@ export struct illegal_layout : std::exception{
 
 export constexpr float inline pending_size = std::numeric_limits<float>::infinity();
 
-export bool is_size_pending(float size) noexcept{
+export inline bool is_size_pending(float size) noexcept{
 	return std::isinf(size);
 }
 
@@ -793,7 +793,7 @@ export{
 	}
 
 
-	paired_target<float> get_pad_extent(layout_policy policy, const align::spacing& border) noexcept{
+	inline paired_target<float> get_pad_extent(layout_policy policy, const align::spacing& border) noexcept{
 		const auto [
 			pad_major_src,
 			pad_major_dst,
@@ -811,7 +811,7 @@ export{
 namespace mo_yanxi::gui{
 
 export
-[[nodiscard]] layout::stated_extent clip_border_from(layout::stated_extent extent, const math::vec2 border_extent) noexcept{
+[[nodiscard]] inline layout::stated_extent clip_border_from(layout::stated_extent extent, const math::vec2 border_extent) noexcept{
 	if(extent.width.mastering()){extent.width.value = std::fdim(extent.width.value, border_extent.x);}
 	if(extent.height.mastering()){extent.height.value = std::fdim(extent.height.value, border_extent.y);}
 
@@ -819,7 +819,7 @@ export
 }
 
 export
-[[nodiscard]] layout::optional_mastering_extent clip_border_from(layout::optional_mastering_extent extent, const math::vec2 border_extent) noexcept{
+[[nodiscard]] inline layout::optional_mastering_extent clip_border_from(layout::optional_mastering_extent extent, const math::vec2 border_extent) noexcept{
 	extent.set_width(std::fdim(extent.potential_width(), border_extent.x));
 	extent.set_height(std::fdim(extent.potential_height(), border_extent.y));
 

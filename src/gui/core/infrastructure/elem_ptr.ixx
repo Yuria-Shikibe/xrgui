@@ -239,7 +239,7 @@ struct elem_ptr{
 
 	[[nodiscard]] elem_ptr() = default;
 
-	[[nodiscard]] explicit elem_ptr(elem* element)
+	[[nodiscard]] inline explicit elem_ptr(elem* element)
 		: element{element}{
 	}
 
@@ -277,52 +277,52 @@ struct elem_ptr{
 		: element{elem_ptr::new_elem<T>(scene, group, std::forward<Args>(args)...)}{
 	}
 
-	elem& operator*() const noexcept{
+	inline elem& operator*() const noexcept{
 		assert(element != nullptr && "dereference on a null element");
 		return *element;
 	}
 
-	elem* operator->() const noexcept{
+	inline elem* operator->() const noexcept{
 		return element;
 	}
 
-	explicit operator bool() const noexcept{
+	inline explicit operator bool() const noexcept{
 		return element != nullptr;
 	}
 
-	[[nodiscard]] elem* get() const noexcept{
+	[[nodiscard]] inline elem* get() const noexcept{
 		return element;
 	}
 
-	[[nodiscard]] elem* release() noexcept{
+	[[nodiscard]] inline elem* release() noexcept{
 		return std::exchange(element, nullptr);
 	}
 
-	void reset() noexcept{
+	inline void reset() noexcept{
 		this->operator=(elem_ptr{});
 	}
 
-	void reset(elem* e) noexcept{
+	inline void reset(elem* e) noexcept{
 		this->operator=(elem_ptr{e});
 	}
 
-	~elem_ptr(){
+	inline ~elem_ptr(){
 		if(element) delete_elem(element);
 	}
 
 	friend bool operator==(const elem_ptr& lhs, const elem_ptr& rhs) noexcept = default;
 
-	bool operator==(std::nullptr_t) const noexcept{
+	inline bool operator==(std::nullptr_t) const noexcept{
 		return element == nullptr;
 	}
 
 	elem_ptr(const elem_ptr& other) = delete;
 
-	elem_ptr(elem_ptr&& other) noexcept
+	inline elem_ptr(elem_ptr&& other) noexcept
 		: element{other.release()}{
 	}
 
-	elem_ptr& operator=(elem_ptr&& other) noexcept{
+	inline elem_ptr& operator=(elem_ptr&& other) noexcept{
 		if(this == &other) return *this;
 		if(element) delete_elem(element);
 		this->element = other.release();
@@ -371,6 +371,6 @@ private:
 	static void dynamic_init(T& ptr);
 
 public:
-	[[nodiscard]] elem* const* raw_addr() const noexcept{ return &element; }
+	[[nodiscard]] inline elem* const* raw_addr() const noexcept{ return &element; }
 };
 }

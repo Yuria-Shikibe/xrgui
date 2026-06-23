@@ -41,11 +41,11 @@ struct blit_config{
 	blit_pipeline_config pipe_info;
 	bool reserve_original;
 
-	bool use_default_inouts() const noexcept{
+	inline bool use_default_inouts() const noexcept{
 		return pipe_info.inout_define_index == std::numeric_limits<std::uint32_t>::max();
 	}
 
-	void get_clamped_to_positive() noexcept{
+	inline void get_clamped_to_positive() noexcept{
 		if(blit_region.src.x < 0){
 			blit_region.extent.x += blit_region.src.x;
 			blit_region.src.x = 0;
@@ -58,7 +58,7 @@ struct blit_config{
 		}
 	}
 
-	math::usize2 get_dispatch_groups() const noexcept{
+	inline math::usize2 get_dispatch_groups() const noexcept{
 		return (blit_region.extent.as<unsigned>() + math::usize2{15, 15}) / math::usize2{16, 16};
 	}
 };
@@ -735,7 +735,7 @@ union color_clear_value{
 #ifdef HAS_VULKAN
 	VkClearColorValue vk;
 
-	explicit(false) operator const VkClearColorValue&() const noexcept{
+	inline explicit(false) operator const VkClearColorValue&() const noexcept{
 		return vk;
 	}
 #endif
@@ -743,7 +743,7 @@ union color_clear_value{
 	constexpr bool is_clear() const noexcept;
 };
 
-constexpr bool color_clear_value::is_clear() const noexcept{
+inline constexpr bool color_clear_value::is_clear() const noexcept{
 	static constexpr std::array<std::byte, sizeof(color_clear_value)> empty{};
 	if consteval{
 		return std::bit_cast<decltype(empty)>(*this) == empty;

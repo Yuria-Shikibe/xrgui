@@ -51,7 +51,7 @@ struct create_config{
 	bool auto_release{true};
 	float min_hover_time{def_tooltip_hover_time};
 
-	[[nodiscard]] bool auto_build() const noexcept{
+	[[nodiscard]] inline bool auto_build() const noexcept{
 		return std::isfinite(min_hover_time);
 	}
 };
@@ -85,11 +85,11 @@ public:
 		return false;
 	}
 
-	[[nodiscard]] bool has_tooltip() const noexcept{
+	[[nodiscard]] inline bool has_tooltip() const noexcept{
 		return tooltip_handle != nullptr;
 	}
 
-	elem_ptr tooltip_setup(){
+	inline elem_ptr tooltip_setup(){
 		assert(this->tooltip_handle == nullptr);
 		//TODO deal the previous tooltip here?
 		auto ptr = tooltip_build_impl();
@@ -97,7 +97,7 @@ public:
 		return ptr;
 	}
 
-	void on_tooltip_drop(){
+	inline void on_tooltip_drop(){
 		tooltip_handle = nullptr;
 		tooltip_on_drop_behavior_impl();
 		//TODO Call scene drop

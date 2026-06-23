@@ -75,18 +75,18 @@ private:
 	std::atomic<std::uint64_t> progress_{};
 	std::atomic<async_operation_status> status_{async_operation_status::pending};
 
-	[[nodiscard]] static std::uint64_t pack_progress(std::uint32_t current, std::uint32_t total) noexcept{
+	[[nodiscard]] inline static std::uint64_t pack_progress(std::uint32_t current, std::uint32_t total) noexcept{
 		return (static_cast<std::uint64_t>(total) << 32u) | static_cast<std::uint64_t>(current);
 	}
 
-	[[nodiscard]] static async_progress unpack_progress(std::uint64_t value) noexcept{
+	[[nodiscard]] inline static async_progress unpack_progress(std::uint64_t value) noexcept{
 		return {
 			.current = static_cast<std::uint32_t>(value & 0xffff'ffffull),
 			.total = static_cast<std::uint32_t>(value >> 32u)
 		};
 	}
 
-	bool mark_status(async_operation_status next) noexcept{
+	inline bool mark_status(async_operation_status next) noexcept{
 		auto expected = async_operation_status::pending;
 		return status_.compare_exchange_strong(
 			expected,
@@ -108,27 +108,27 @@ public:
 	async_operation_state& operator=(const async_operation_state&) = delete;
 	async_operation_state& operator=(async_operation_state&&) = delete;
 
-	void request_stop() noexcept{
+	inline void request_stop() noexcept{
 		stop_source_.request_stop();
 	}
 
-	[[nodiscard]] bool stop_requested() const noexcept{
+	[[nodiscard]] inline bool stop_requested() const noexcept{
 		return stop_source_.stop_requested();
 	}
 
-	[[nodiscard]] std::stop_token stop_token() const noexcept{
+	[[nodiscard]] inline std::stop_token stop_token() const noexcept{
 		return stop_source_.get_token();
 	}
 
-	[[nodiscard]] bool is_pending() const noexcept{
+	[[nodiscard]] inline bool is_pending() const noexcept{
 		return this->status() == async_operation_status::pending;
 	}
 
-	[[nodiscard]] bool is_finished() const noexcept{
+	[[nodiscard]] inline bool is_finished() const noexcept{
 		return this->status() != async_operation_status::pending;
 	}
 
-	void report_progress(unsigned current, unsigned total) noexcept{
+	inline void report_progress(unsigned current, unsigned total) noexcept{
 		if(total == 0u){
 			current = 0u;
 		}else{
@@ -137,23 +137,23 @@ public:
 		progress_.store(async_operation_state::pack_progress(current, total), std::memory_order_release);
 	}
 
-	[[nodiscard]] async_progress progress_snapshot() const noexcept{
+	[[nodiscard]] inline async_progress progress_snapshot() const noexcept{
 		return async_operation_state::unpack_progress(progress_.load(std::memory_order_acquire));
 	}
 
-	[[nodiscard]] async_operation_status status() const noexcept{
+	[[nodiscard]] inline async_operation_status status() const noexcept{
 		return status_.load(std::memory_order_acquire);
 	}
 
-	void mark_completed() noexcept{
+	inline void mark_completed() noexcept{
 		(void)this->mark_status(async_operation_status::completed);
 	}
 
-	void mark_failed() noexcept{
+	inline void mark_failed() noexcept{
 		(void)this->mark_status(async_operation_status::failed);
 	}
 
-	void mark_cancelled() noexcept{
+	inline void mark_cancelled() noexcept{
 		this->request_stop();
 		(void)this->mark_status(async_operation_status::cancelled);
 	}
@@ -264,32 +264,32 @@ public:
 		: state_(std::move(state)){
 	}
 
-	void request_stop() const noexcept{
+	inline void request_stop() const noexcept{
 		if(this->valid_state()){
 			state_->request_stop();
 		}
 	}
 
-	[[nodiscard]] bool stop_requested() const noexcept{
+	[[nodiscard]] inline bool stop_requested() const noexcept{
 		return this->valid_state() && state_->stop_requested();
 	}
 
-	[[nodiscard]] async_progress progress_snapshot() const noexcept{
+	[[nodiscard]] inline async_progress progress_snapshot() const noexcept{
 		if(!state_){
 			return {};
 		}
 		return state_->progress_snapshot();
 	}
 
-	[[nodiscard]] unsigned progress() const noexcept{
+	[[nodiscard]] inline unsigned progress() const noexcept{
 		return this->progress_snapshot().current;
 	}
 
-	[[nodiscard]] unsigned progress_total() const noexcept{
+	[[nodiscard]] inline unsigned progress_total() const noexcept{
 		return this->progress_snapshot().total;
 	}
 
-	[[nodiscard]] float progress_ratio() const noexcept{
+	[[nodiscard]] inline float progress_ratio() const noexcept{
 		const auto progress = this->progress_snapshot();
 		if(progress.total == 0u){
 			return 0.f;
@@ -297,7 +297,7 @@ public:
 		return static_cast<float>(progress.current) / static_cast<float>(progress.total);
 	}
 
-	[[nodiscard]] async_operation_status status() const noexcept{
+	[[nodiscard]] inline async_operation_status status() const noexcept{
 		if(!state_){
 			return async_operation_status::cancelled;
 		}
@@ -769,7 +769,7 @@ protected:
 			  keep_alive(std::move(keep_alive)){
 		}
 
-		void exec(){
+		inline void exec(){
 			if(!is_live || !func){
 				throw std::runtime_error{"associated task entry is empty"};
 			}
@@ -778,7 +778,7 @@ protected:
 			}
 		}
 
-		[[nodiscard]] bool owned_by(const void* element) const noexcept{
+		[[nodiscard]] inline bool owned_by(const void* element) const noexcept{
 			return owner == element;
 		}
 	};
@@ -793,7 +793,7 @@ public:
 		: async_tasks_(alloc){
 	}
 
-	void consume(){
+	inline void consume(){
 		if(closed_.load(std::memory_order_acquire)){
 			return;
 		}
@@ -804,11 +804,11 @@ public:
 		}
 	}
 
-	void clear(){
+	inline void clear(){
 		async_tasks_.clear();
 	}
 
-	void close() noexcept{
+	inline void close() noexcept{
 		closed_.store(true, std::memory_order_release);
 		async_tasks_.clear();
 	}
@@ -934,7 +934,7 @@ private:
 	mutable std::mutex consumer_thread_mutex_{};
 	std::thread::id consumer_thread_id_{};
 
-	void ensure_consumer_thread_(){
+	inline void ensure_consumer_thread_(){
 		const auto current_thread = std::this_thread::get_id();
 		std::scoped_lock lock{consumer_thread_mutex_};
 		if(consumer_thread_id_ == std::thread::id{}){
@@ -963,7 +963,7 @@ public:
 		return true;
 	}
 
-	void consume(){
+	inline void consume(){
 		this->ensure_consumer_thread_();
 		if(closed_.load(std::memory_order_acquire)){
 			return;
@@ -973,12 +973,12 @@ public:
 		}
 	}
 
-	[[nodiscard]] bool is_consumer_thread() const{
+	[[nodiscard]] inline bool is_consumer_thread() const{
 		std::scoped_lock lock{consumer_thread_mutex_};
 		return consumer_thread_id_ == std::this_thread::get_id();
 	}
 
-	void merge(call_stream_task_queue&& other){
+	inline void merge(call_stream_task_queue&& other){
 		if(closed_.load(std::memory_order_acquire)){
 			other.clear();
 			return;
@@ -986,7 +986,7 @@ public:
 		async_tasks_.merge(std::move(other).async_tasks_);
 	}
 
-	void clear() noexcept{
+	inline void clear() noexcept{
 		async_tasks_.modify([](auto& tasks) noexcept {
 			tasks.clear();
 		});
@@ -995,7 +995,7 @@ public:
 		}
 	}
 
-	void close() noexcept{
+	inline void close() noexcept{
 		closed_.store(true, std::memory_order_release);
 		this->clear();
 	}

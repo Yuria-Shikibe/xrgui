@@ -25,7 +25,7 @@ private:
 public:
 	[[nodiscard]] async_task_context() = default;
 
-	[[nodiscard]] async_task_context(
+	[[nodiscard]] inline async_task_context(
 		std::stop_token owner_stop_token,
 		std::stop_token task_stop_token,
 		async_operation_state* runtime_state) noexcept
@@ -34,19 +34,19 @@ public:
 		  runtime_state_(runtime_state){
 	}
 
-	[[nodiscard]] bool stop_requested() const noexcept{
+	[[nodiscard]] inline bool stop_requested() const noexcept{
 		return owner_stop_token_.stop_requested() || task_stop_token_.stop_requested();
 	}
 
-	[[nodiscard]] std::stop_token owner_stop_token() const noexcept{
+	[[nodiscard]] inline std::stop_token owner_stop_token() const noexcept{
 		return owner_stop_token_;
 	}
 
-	[[nodiscard]] std::stop_token task_stop_token() const noexcept{
+	[[nodiscard]] inline std::stop_token task_stop_token() const noexcept{
 		return task_stop_token_;
 	}
 
-	void report_progress(unsigned current, unsigned total) const noexcept{
+	inline void report_progress(unsigned current, unsigned total) const noexcept{
 		if(runtime_state_ == nullptr){
 			return;
 		}
@@ -121,7 +121,7 @@ private:
 	std::stop_token owner_stop_token_{};
 	async_operation_state_ptr runtime_state_{};
 
-	void cancel_pending_noexcept_() noexcept{
+	inline void cancel_pending_noexcept_() noexcept{
 		if(runtime_state_ && runtime_state_->is_pending()){
 			runtime_state_->mark_cancelled();
 		}
@@ -130,7 +130,7 @@ private:
 public:
 	[[nodiscard]] async_operation_binding() = default;
 
-	[[nodiscard]] async_operation_binding(
+	[[nodiscard]] inline async_operation_binding(
 		elem_ref<> owner_ref,
 		std::stop_token owner_stop_token,
 		async_operation_state_ptr runtime_state = {}) noexcept
@@ -139,7 +139,7 @@ public:
 		  runtime_state_(std::move(runtime_state)){
 	}
 
-	~async_operation_binding() noexcept{
+	inline ~async_operation_binding() noexcept{
 		cancel_pending_noexcept_();
 	}
 
@@ -148,7 +148,7 @@ public:
 
 	[[nodiscard]] async_operation_binding(async_operation_binding&& other) noexcept = default;
 
-	async_operation_binding& operator=(async_operation_binding&& other) noexcept{
+	inline async_operation_binding& operator=(async_operation_binding&& other) noexcept{
 		if(this != std::addressof(other)){
 			cancel_pending_noexcept_();
 			owner_ref_ = std::move(other.owner_ref_);
@@ -158,24 +158,24 @@ public:
 		return *this;
 	}
 
-	[[nodiscard]] elem* owner() const noexcept{
+	[[nodiscard]] inline elem* owner() const noexcept{
 		return owner_ref_.get_live();
 	}
 
-	[[nodiscard]] bool owned_by(const elem* owner) const noexcept{
+	[[nodiscard]] inline bool owned_by(const elem* owner) const noexcept{
 		return owner_ref_.get_retained() == owner;
 	}
 
-	[[nodiscard]] bool stop_requested() const noexcept{
+	[[nodiscard]] inline bool stop_requested() const noexcept{
 		return owner_stop_token_.stop_requested()
 			|| (runtime_state_ && runtime_state_->stop_requested());
 	}
 
-	[[nodiscard]] async_operation_handle handle() const noexcept{
+	[[nodiscard]] inline async_operation_handle handle() const noexcept{
 		return async_operation_handle{runtime_state_};
 	}
 
-	[[nodiscard]] async_task_context make_context() const noexcept{
+	[[nodiscard]] inline async_task_context make_context() const noexcept{
 		return async_task_context{
 			owner_stop_token_,
 			runtime_state_ ? runtime_state_->stop_token() : std::stop_token{},
@@ -183,19 +183,19 @@ public:
 		};
 	}
 
-	void mark_completed() noexcept{
+	inline void mark_completed() noexcept{
 		if(runtime_state_ && runtime_state_->is_pending()){
 			runtime_state_->mark_completed();
 		}
 	}
 
-	void mark_failed() noexcept{
+	inline void mark_failed() noexcept{
 		if(runtime_state_ && runtime_state_->is_pending()){
 			runtime_state_->mark_failed();
 		}
 	}
 
-	void mark_cancelled() noexcept{
+	inline void mark_cancelled() noexcept{
 		if(runtime_state_ && runtime_state_->is_pending()){
 			runtime_state_->mark_cancelled();
 		}
@@ -362,11 +362,11 @@ struct native_clipboard_request{
 	async_operation_binding binding{};
 	async_reply<std::string> reply{};
 
-	[[nodiscard]] async_operation_handle handle() const noexcept{
+	[[nodiscard]] inline async_operation_handle handle() const noexcept{
 		return binding.handle();
 	}
 
-	void set_value(std::string text) &&{
+	inline void set_value(std::string text) &&{
 		if(binding.stop_requested()){
 			binding.mark_cancelled();
 			std::move(reply).set_cancelled();
@@ -376,12 +376,12 @@ struct native_clipboard_request{
 		std::move(reply).set_value(std::move(text));
 	}
 
-	void set_error(std::exception_ptr exception) &&{
+	inline void set_error(std::exception_ptr exception) &&{
 		binding.mark_failed();
 		std::move(reply).set_error(std::move(exception));
 	}
 
-	void set_cancelled() &&{
+	inline void set_cancelled() &&{
 		binding.mark_cancelled();
 		std::move(reply).set_cancelled();
 	}
@@ -405,31 +405,31 @@ public:
 	[[nodiscard]] forked_scene_task_base(forked_scene_task_base&&) noexcept = default;
 	forked_scene_task_base& operator=(forked_scene_task_base&&) noexcept = default;
 
-	void bind_async_operation(async_operation_binding binding) noexcept{
+	inline void bind_async_operation(async_operation_binding binding) noexcept{
 		binding_ = std::move(binding);
 	}
 
-	[[nodiscard]] elem* owner() const noexcept{
+	[[nodiscard]] inline elem* owner() const noexcept{
 		return binding_.owner();
 	}
 
-	[[nodiscard]] bool owned_by(const elem* owner) const noexcept{
+	[[nodiscard]] inline bool owned_by(const elem* owner) const noexcept{
 		return binding_.owned_by(owner);
 	}
 
-	[[nodiscard]] bool stop_requested() const noexcept{
+	[[nodiscard]] inline bool stop_requested() const noexcept{
 		return binding_.stop_requested();
 	}
 
-	[[nodiscard]] bool has_exception() const noexcept{
+	[[nodiscard]] inline bool has_exception() const noexcept{
 		return exception_ != nullptr;
 	}
 
-	[[nodiscard]] std::exception_ptr exception() const noexcept{
+	[[nodiscard]] inline std::exception_ptr exception() const noexcept{
 		return exception_;
 	}
 
-	void mark_finished() noexcept{
+	inline void mark_finished() noexcept{
 		if(this->stop_requested()){
 			binding_.mark_cancelled();
 		}else if(this->has_exception()){
@@ -439,11 +439,11 @@ public:
 		}
 	}
 
-	void mark_cancelled() noexcept{
+	inline void mark_cancelled() noexcept{
 		binding_.mark_cancelled();
 	}
 
-	void process(scene& async_scene){
+	inline void process(scene& async_scene){
 		async_task_context context = binding_.make_context();
 		if(context.stop_requested()){
 			return;
@@ -555,11 +555,11 @@ private:
 	std::jthread async_task_thread_{};
 
 public:
-	scene& get_scene(){
+	inline scene& get_scene(){
 		return *forked_scene_;
 	}
 
-	[[nodiscard]] forked_scene_worker(const mr::heap_allocator<async_task_ptr>& alloc,
+	[[nodiscard]] inline forked_scene_worker(const mr::heap_allocator<async_task_ptr>& alloc,
 	                                     std::unique_ptr<scene, scene_deleter>&& scene)
 		:
 		async_tasks_pending_(alloc),
@@ -572,11 +572,11 @@ public:
 		}){
 	}
 
-	[[nodiscard]] std::jthread& get_async_task_thread() noexcept{
+	[[nodiscard]] inline std::jthread& get_async_task_thread() noexcept{
 		return async_task_thread_;
 	}
 
-	~forked_scene_worker(){
+	inline ~forked_scene_worker(){
 		if(task_runtime_state_pool_){
 			task_runtime_state_pool_->cancel_all();
 		}
@@ -596,7 +596,7 @@ public:
 	}
 
 private:
-	static void log_async_task_exception(std::exception_ptr exception){
+	inline static void log_async_task_exception(std::exception_ptr exception){
 		if(exception == nullptr){
 			return;
 		}
@@ -609,14 +609,14 @@ private:
 		}
 	}
 
-	[[nodiscard]] async_operation_state_ptr create_task_runtime_state(){
+	[[nodiscard]] inline async_operation_state_ptr create_task_runtime_state(){
 		if(!task_runtime_state_pool_){
 			throw std::runtime_error{"async operation state pool is unavailable"};
 		}
 		return task_runtime_state_pool_->create_operation();
 	}
 
-	void async_tasks_process(std::stop_token stop_token){
+	inline void async_tasks_process(std::stop_token stop_token){
 		while(!stop_token.stop_requested()){
 			auto task = async_tasks_pending_.consume([&] noexcept {
 				return stop_token.stop_requested();
@@ -633,7 +633,7 @@ private:
 	}
 
 public:
-	void process_done(){
+	inline void process_done(){
 		if(auto task = current_done_task_.load(std::memory_order_acquire)){
 			auto thread = std::this_thread::get_id();
 			auto last = exchange_scene_thread(*forked_scene_, thread);
@@ -664,7 +664,7 @@ public:
 		}
 	}
 
-	void cancel_owner(const elem* owner) noexcept{
+	inline void cancel_owner(const elem* owner) noexcept{
 		if(owner == nullptr){
 			return;
 		}

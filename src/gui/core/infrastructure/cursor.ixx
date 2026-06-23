@@ -107,7 +107,7 @@ struct cursor{
 	virtual rect draw(gui::renderer_frontend& renderer, math::raw_frect region,
 		std::span<const elem* const> inbound_stack) const = 0;
 
-	rect get_bound(math::raw_frect region) const{
+	inline rect get_bound(math::raw_frect region) const{
 		return rect{tags::from_extent, region.src - region.extent, region.extent * 2}.expand(16);
 	}
 };
@@ -214,18 +214,18 @@ private:
 
 	math::vec2 cursor_size_{32, 32};
 
-	void add(container cursor_collection::* which, std::size_t where, ptr_type&& ptr){
+	inline void add(container cursor_collection::* which, std::size_t where, ptr_type&& ptr){
 		auto& cont = this->*which;
 		cont.resize(std::max(cursors_.size(), where + 1));
 		cont[where] = std::move(ptr);
 	}
 
 public:
-	[[nodiscard]] math::vec2 get_cursor_size() const noexcept{
+	[[nodiscard]] inline math::vec2 get_cursor_size() const noexcept{
 		return cursor_size_;
 	}
 
-	void set_cursor_size(const math::vec2 cursor_size) noexcept{
+	inline void set_cursor_size(const math::vec2 cursor_size) noexcept{
 		cursor_size_ = cursor_size;
 	}
 
@@ -247,7 +247,7 @@ public:
 				std::forward<Args>(args)...));
 	}
 
-	[[nodiscard]] cursor_drawer get_drawers(style::cursor_style style_pair) const noexcept{
+	[[nodiscard]] inline cursor_drawer get_drawers(style::cursor_style style_pair) const noexcept{
 		const auto sz_main = std::to_underlying(style_pair.main);
 		auto sz = style_pair.get_dcor_size();
 

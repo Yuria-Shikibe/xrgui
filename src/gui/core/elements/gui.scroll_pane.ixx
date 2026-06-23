@@ -36,7 +36,7 @@ public:
 	float scroll_velocity_sensitivity{1.f};
 	float scroll_scale{55.0f};
 
-	void set_scroll_mode(scroll_pane_mode mode, float sensitivity){
+	inline void set_scroll_mode(scroll_pane_mode mode, float sensitivity){
 		sensitivity_mode = mode;
 		scroll_scale = sensitivity;
 	}

@@ -67,69 +67,69 @@ private:
 	std::vector<input_event_variant> consumer_cache_{};
 
 public:
-	void push(raw_input_event event){
+	inline void push(raw_input_event event){
 		if(event.timestamp == std::chrono::steady_clock::time_point{}){
 			event.timestamp = std::chrono::steady_clock::now();
 		}
 		buffer_.push(std::move(event));
 	}
 
-	void push_key(const key_set k){
+	inline void push_key(const key_set k){
 		push(input_event_variant{
 				.type = input_event_type::input_key,
 				.input_key = k
 			});
 	}
 
-	void push_mouse(const key_set k){
+	inline void push_mouse(const key_set k){
 		push(input_event_variant{
 				.type = input_event_type::input_mouse,
 				.input_key = k
 			});
 	}
 
-	void push_scroll(const math::vec2 cursor){
+	inline void push_scroll(const math::vec2 cursor){
 		push(input_event_variant{
 				.type = input_event_type::input_scroll,
 				.cursor = cursor
 			});
 	}
 
-	void push_u32(const char32_t val){
+	inline void push_u32(const char32_t val){
 		push(input_event_variant{
 				.type = input_event_type::input_u32,
 				.input_char = val
 			});
 	}
 
-	void push_ime_composition(ime_composition_event event){
+	inline void push_ime_composition(ime_composition_event event){
 		push(input_event_variant{
 				.type = input_event_type::input_ime_composition,
 				.ime_composition = std::move(event)
 			});
 	}
 
-	void push_cursor_inbound(const bool inbound){
+	inline void push_cursor_inbound(const bool inbound){
 		push(input_event_variant{
 				.type = input_event_type::cursor_inbound,
 				.is_inbound = inbound
 			});
 	}
 
-	void push_cursor_move(const math::vec2 cursor){
+	inline void push_cursor_move(const math::vec2 cursor){
 		push(input_event_variant{
 				.type = input_event_type::cursor_move,
 				.cursor = cursor
 			});
 	}
 
-	void push_focus_lost(){
+	inline void push_focus_lost(){
 		push(input_event_variant{
 				.type = input_event_type::focus_lost
 			});
 	}
 
-	void push_frame_split(const std::chrono::duration<double> dt){
+	inline void push_frame_split(const std::chrono::duration<double> dt){
 		push(input_event_variant{
 				.type = input_event_type::frame_split,
 				.frame_delta_time = dt

@@ -22,7 +22,7 @@ private:
 	mr::vector<accumulated_state> stack_states;
 
 public:
-	color_stack() {
+	inline color_stack() {
 		stack_states.emplace_back(accumulated_state{
 			.overlay_color = graphic::color{},
 			.base_mult = graphic::color{1.0f, 1.0f, 1.0f, 1.0f}
@@ -30,7 +30,7 @@ public:
 	}
 
 	// 同时推入颜色和强度修饰符 (Alpha覆盖混合 + 强度折叠)
-	void push(const color_modifier& mod) {
+	inline void push(const color_modifier& mod) {
 		const auto& current = stack_states.back();
 
 		float eff_mult = math::cpo::fma(mod.intensity, mod.intensity_influence, 1.0f);
@@ -52,7 +52,7 @@ public:
 	}
 
 	// 仅推入颜色和影响 (常规 Alpha 覆盖混合，保持当前强度比例)
-	void push_color(const graphic::color& col, float influence) {
+	inline void push_color(const graphic::color& col, float influence) {
 		const auto& current = stack_states.back();
 		float remain_ratio = 1.0f - influence;
 
@@ -67,7 +67,7 @@ public:
 	}
 
 	// 新增：推入乘算滤镜色 (正片叠底 / Tint)
-	void push_multiply_color(const graphic::color& mult) {
+	inline void push_multiply_color(const graphic::color& mult) {
 		const auto& current = stack_states.back();
 
 
@@ -79,7 +79,7 @@ public:
 	}
 
 	// 仅推入强度和影响 (只折叠进 RGB，不改变 Alpha)
-	void push_intensity(float intensity_offset, float influence) {
+	inline void push_intensity(float intensity_offset, float influence) {
 		const auto& current = stack_states.back();
 		float eff_mult = math::cpo::fma(intensity_offset, influence, 1.0f);
 
@@ -90,21 +90,21 @@ public:
 		stack_states.push_back(next_state);
 	}
 
-	void pop() {
+	inline void pop() {
 		if (stack_states.size() > 1) {
 			stack_states.pop_back();
 		}
 	}
 
-	void clear() {
+	inline void clear() {
 		stack_states.resize(1);
 	}
 
-	[[nodiscard]] const accumulated_state& top() const noexcept {
+	[[nodiscard]] inline const accumulated_state& top() const noexcept {
 		return stack_states.back();
 	}
 
-	[[nodiscard]] std::size_t size() const noexcept {
+	[[nodiscard]] inline std::size_t size() const noexcept {
 		return stack_states.size() - 1;
 	}
 };

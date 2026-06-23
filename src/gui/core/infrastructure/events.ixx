@@ -70,21 +70,21 @@ public:
 	/**
 	 * @brief Mark the event as handled by the given element.
 	 */
-	void mark_handled(elem& handler) noexcept{
+	inline void mark_handled(elem& handler) noexcept{
 		handled_by_ = std::addressof(handler);
 	}
 
 	/**
 	 * @brief Stop delivery to later elements in the current route.
 	 */
-	void stop_propagation() noexcept{
+	inline void stop_propagation() noexcept{
 		propagation_stopped_ = true;
 	}
 
 	/**
 	 * @brief Mark as handled and stop further propagation.
 	 */
-	void consume(elem& handler) noexcept{
+	inline void consume(elem& handler) noexcept{
 		mark_handled(handler);
 		stop_propagation();
 	}
@@ -92,31 +92,31 @@ public:
 	/**
 	 * @brief Skip the target default action phase.
 	 */
-	void prevent_default() noexcept{
+	inline void prevent_default() noexcept{
 		default_prevented_ = true;
 	}
 
-	[[nodiscard]] bool handled() const noexcept{
+	[[nodiscard]] inline bool handled() const noexcept{
 		return handled_by_ != nullptr;
 	}
 
-	[[nodiscard]] elem* handled_by() const noexcept{
+	[[nodiscard]] inline elem* handled_by() const noexcept{
 		return handled_by_;
 	}
 
-	[[nodiscard]] bool propagation_stopped() const noexcept{
+	[[nodiscard]] inline bool propagation_stopped() const noexcept{
 		return propagation_stopped_;
 	}
 
-	[[nodiscard]] bool default_prevented() const noexcept{
+	[[nodiscard]] inline bool default_prevented() const noexcept{
 		return default_prevented_;
 	}
 
-	[[nodiscard]] dispatch_result result() const noexcept{
+	[[nodiscard]] inline dispatch_result result() const noexcept{
 		return handled() ? dispatch_result::handled : dispatch_result::unhandled;
 	}
 
-	[[nodiscard]] explicit operator bool() const noexcept{
+	[[nodiscard]] inline explicit operator bool() const noexcept{
 		return handled();
 	}
 };
@@ -151,30 +151,30 @@ private:
 	event_control* control_;
 
 public:
-	[[nodiscard]] event_context(
+	[[nodiscard]] inline event_context(
 		const event_route& route_value,
 		event_control& control_value) noexcept
 		: route_(route_value),
 		  control_(std::addressof(control_value)){
 	}
 
-	[[nodiscard]] gui_event_type type() const noexcept{
+	[[nodiscard]] inline gui_event_type type() const noexcept{
 		return route_.type;
 	}
 
-	[[nodiscard]] event_phase phase() const noexcept{
+	[[nodiscard]] inline event_phase phase() const noexcept{
 		return route_.phase;
 	}
 
-	[[nodiscard]] elem* target() const noexcept{
+	[[nodiscard]] inline elem* target() const noexcept{
 		return route_.target;
 	}
 
-	[[nodiscard]] elem* current() const noexcept{
+	[[nodiscard]] inline elem* current() const noexcept{
 		return route_.current;
 	}
 
-	[[nodiscard]] std::span<elem* const> path() const noexcept{
+	[[nodiscard]] inline std::span<elem* const> path() const noexcept{
 		return route_.path;
 	}
 
@@ -186,31 +186,31 @@ public:
 	/**
 	 * @brief True for phases intended for normal element interaction logic.
 	 */
-	[[nodiscard]] bool is_target_or_bubble_phase() const noexcept{
+	[[nodiscard]] inline bool is_target_or_bubble_phase() const noexcept{
 		return phase() == event_phase::target || phase() == event_phase::bubble;
 	}
 
-	void mark_handled(elem& handler) noexcept{
+	inline void mark_handled(elem& handler) noexcept{
 		control_->mark_handled(handler);
 	}
 
-	void stop_propagation() noexcept{
+	inline void stop_propagation() noexcept{
 		control_->stop_propagation();
 	}
 
-	void consume(elem& handler) noexcept{
+	inline void consume(elem& handler) noexcept{
 		control_->consume(handler);
 	}
 
-	void prevent_default() noexcept{
+	inline void prevent_default() noexcept{
 		control_->prevent_default();
 	}
 
-	[[nodiscard]] elem* handled_by() const noexcept{
+	[[nodiscard]] inline elem* handled_by() const noexcept{
 		return control_->handled_by();
 	}
 
-	[[nodiscard]] bool handled() const noexcept{
+	[[nodiscard]] inline bool handled() const noexcept{
 		return control_->handled();
 	}
 };
@@ -257,14 +257,14 @@ struct pointer_drag_event{
 	/**
 	 * @brief Drag delta in scene coordinates.
 	 */
-	[[nodiscard]] math::vec2 scene_delta() const noexcept{
+	[[nodiscard]] inline math::vec2 scene_delta() const noexcept{
 		return scene_dst - scene_src;
 	}
 
 	/**
 	 * @brief Drag delta in the current receiver's local coordinates.
 	 */
-	[[nodiscard]] math::vec2 local_delta() const noexcept{
+	[[nodiscard]] inline math::vec2 local_delta() const noexcept{
 		return local_dst - local_src;
 	}
 };
@@ -286,14 +286,14 @@ struct pointer_move_event{
 	/**
 	 * @brief Movement delta in scene coordinates.
 	 */
-	[[nodiscard]] math::vec2 scene_delta() const noexcept{
+	[[nodiscard]] inline math::vec2 scene_delta() const noexcept{
 		return scene_dst - scene_src;
 	}
 
 	/**
 	 * @brief Movement delta in the current receiver's local coordinates.
 	 */
-	[[nodiscard]] math::vec2 local_delta() const noexcept{
+	[[nodiscard]] inline math::vec2 local_delta() const noexcept{
 		return local_dst - local_src;
 	}
 };

@@ -30,31 +30,43 @@ public:
 
 	~elem_owning_container(){ clear(); }
 
-	void push_back(elem_ptr&& p){ data_.push_back(p.release()); }
+	void push_back(elem_ptr&& p)
+		requires requires(Container& c, elem* e){ c.push_back(e); }
+	{ data_.push_back(p.release()); }
 
-	elem& insert(std::size_t where, elem_ptr&& p){
+	elem& insert(std::size_t where, elem_ptr&& p)
+		requires requires(Container& c, elem* e){ c.insert(c.begin(), e); }
+	{
 		auto* raw = p.release();
 		return **data_.insert(data_.begin() + where, raw);
 	}
 
-	[[nodiscard]] elem_ptr extract(std::size_t where){
+	[[nodiscard]] elem_ptr extract(std::size_t where) noexcept requires requires(Container& c){
+		{ c.erase(c.begin()) } noexcept;
+	}{
 		elem_ptr p{data_[where]};
 		data_.erase(data_.begin() + where);
 		return p;
 	}
 
-	[[nodiscard]] elem_ptr exchange(std::size_t where, elem_ptr&& p){
+	[[nodiscard]] elem_ptr exchange(std::size_t where, elem_ptr&& p)
+		requires requires(Container& c, elem* e){ c[0] = e; }
+	{
 		elem_ptr old{data_[where]};
 		data_[where] = p.release();
 		return old;
 	}
 
-	void erase(std::size_t where){
+	void erase(std::size_t where)
+		requires requires(Container& c){ c.erase(c.begin()); }
+	{
 		elem_ptr{data_[where]};
 		data_.erase(data_.begin() + where);
 	}
 
-	void swap_with_ptr(std::size_t i, elem_ptr& p) noexcept{
+	void swap_with_ptr(std::size_t i, elem_ptr& p) noexcept
+		requires requires(Container& c, elem* e){ c[0] = e; }
+	{
 		elem* tmp = p.release();
 		p.reset(data_[i]);
 		data_[i] = tmp;
@@ -65,14 +77,24 @@ public:
 		data_.clear();
 	}
 
-	[[nodiscard]] std::span<elem* const> as_span() const noexcept{ return data_; }
+	[[nodiscard]] std::span<elem* const> as_span() const noexcept
+		requires std::ranges::contiguous_range<Container>
+	{ return data_; }
 
 	[[nodiscard]] std::size_t size()  const noexcept{ return data_.size(); }
 	[[nodiscard]] bool        empty() const noexcept{ return data_.empty(); }
-	[[nodiscard]] elem*  operator[](std::size_t i) const noexcept{ return data_[i]; }
-	[[nodiscard]] elem*& operator[](std::size_t i)       noexcept{ return data_[i]; }
-	[[nodiscard]] elem*  front() const noexcept{ return data_.front(); }
-	[[nodiscard]] elem*  back()  const noexcept{ return data_.back(); }
+	[[nodiscard]] elem*  operator[](std::size_t i) const noexcept
+		requires requires(const Container& c){ c[0]; }
+	{ return data_[i]; }
+	[[nodiscard]] elem*& operator[](std::size_t i) noexcept
+		requires requires(Container& c, elem* e){ c[0] = e; }
+	{ return data_[i]; }
+	[[nodiscard]] elem*  front() const noexcept
+		requires requires(const Container& c){ c.front(); }
+	{ return data_.front(); }
+	[[nodiscard]] elem*  back()  const noexcept
+		requires requires(const Container& c){ c.back(); }
+	{ return data_.back(); }
 
 	// C++23 deducing this: 4 const/non-const overloads → 2
 	[[nodiscard]] auto begin(this auto& self) noexcept{ return self.data_.begin(); }

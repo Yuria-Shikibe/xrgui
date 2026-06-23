@@ -49,7 +49,7 @@ struct layer_viewport{
 
 	[[nodiscard]] layer_viewport() = default;
 
-	[[nodiscard]] layer_viewport(
+	[[nodiscard]] inline layer_viewport(
 		const math::frect& viewport,
 		const scissor_raw_& scissors,
 		std::nullptr_t allocator_, //TODO
@@ -61,31 +61,31 @@ struct layer_viewport{
 		element_local_transform({{math::mat3_idt, math::mat3_idt}}/*, alloc*/){
 	}
 
-	[[nodiscard]] scissor_raw_ top_scissor() const noexcept{
+	[[nodiscard]] inline scissor_raw_ top_scissor() const noexcept{
 		assert(!scissors.empty());
 		return scissors.back();
 	}
 
-	void pop_scissor() noexcept{
+	inline void pop_scissor() noexcept{
 		assert(scissors.size() > 1);
 		scissors.pop_back();
 	}
 
-	void push_scissor(const scissor_raw_& scissor){
+	inline void push_scissor(const scissor_raw_& scissor){
 		scissors.push_back(scissor.intersection_with(top_scissor()));
 	}
 
-	[[nodiscard]] math::mat3 get_element_to_root_screen() const noexcept{
+	[[nodiscard]] inline math::mat3 get_element_to_root_screen() const noexcept{
 		assert(!element_local_transform.empty());
 		return transform_to_root_screen * element_local_transform.back().accumul;
 	}
 
-	void push_local_transform(const math::mat3& mat){
+	inline void push_local_transform(const math::mat3& mat){
 		assert(!element_local_transform.empty());
 		auto& last = element_local_transform.back();
 		element_local_transform.push_back({mat, last.accumul * mat});
 	}
-	void push_local_transform(const math::vec2 offset){
+	inline void push_local_transform(const math::vec2 offset){
 		assert(!element_local_transform.empty());
 		auto& last = element_local_transform.back();
 		auto lm = last.accumul;
@@ -97,18 +97,18 @@ struct layer_viewport{
 	/**
 	 * @brief used to open a new transform layer
 	 */
-	void push_local_transform(){
+	inline void push_local_transform(){
 		assert(!element_local_transform.empty());
 		auto& last = element_local_transform.back();
 		element_local_transform.push_back({math::mat3_idt, last.accumul});
 	}
 
-	void pop_local_transform() noexcept{
+	inline void pop_local_transform() noexcept{
 		assert(element_local_transform.size() > 1);
 		element_local_transform.pop_back();
 	}
 
-	void set_local_transform(const math::mat3& mat) noexcept{
+	inline void set_local_transform(const math::mat3& mat) noexcept{
 		assert(!element_local_transform.empty() && "cannot set empty transform");
 		auto& last = element_local_transform.back();
 		last.current = mat;
@@ -119,7 +119,7 @@ struct layer_viewport{
 		}
 	}
 
-	void set_local_transform_idt() noexcept{
+	inline void set_local_transform_idt() noexcept{
 		assert(!element_local_transform.empty() && "cannot set empty transform");
 		auto& last = element_local_transform.back();
 		last.current = math::mat3_idt;
@@ -130,7 +130,7 @@ struct layer_viewport{
 		}
 	}
 
-	math::mat3 get_local_transform() const noexcept{
+	inline math::mat3 get_local_transform() const noexcept{
 		assert(!element_local_transform.empty() && "cannot set empty transform");
 		auto& last = element_local_transform.back();
 		return last.current;
@@ -180,15 +180,15 @@ public:
 	}
 
 #pragma region Getter
-	[[nodiscard]] math::frect get_region() const noexcept{
+	[[nodiscard]] inline math::frect get_region() const noexcept{
 		return region_;
 	}
 
-	layer_viewport& top_viewport() noexcept{
+	inline layer_viewport& top_viewport() noexcept{
 		return viewports_.back();
 	}
 
-	const layer_viewport& top_viewport() const noexcept{
+	inline const layer_viewport& top_viewport() const noexcept{
 		return viewports_.back();
 	}
 
@@ -196,11 +196,11 @@ public:
 
 
 
-	fx::scissor get_full_screen_scissor() const noexcept{
+	inline fx::scissor get_full_screen_scissor() const noexcept{
 		return {region_.src.round<int>(), region_.extent().round<unsigned>()};
 	}
 
-	fx::viewport get_full_screen_viewport() const noexcept{
+	inline fx::viewport get_full_screen_viewport() const noexcept{
 		return {region_.src, region_.extent()};
 	}
 #pragma endregion
@@ -291,7 +291,7 @@ private:
 	}
 
 public:
-	void update_state(
+	inline void update_state(
 		const fx::state_push_config& config,
 		const std::span<const std::byte> data_span,
 		binary_diff_trace::tag tag,
@@ -375,13 +375,13 @@ public:
 			}, tag, offset);
 	}
 
-	void set_blend_equation(const fx::blend_equation& equation, unsigned attachment_index){
+	inline void set_blend_equation(const fx::blend_equation& equation, unsigned attachment_index){
 		this->update_state(fx::state_push_config{},
 			equation,
 			fx::make_state_tag(fx::state_type::set_color_blend_equation, attachment_index));
 	}
 
-	void set_blend_equation(const fx::blend_equation& equation, fx::render_target_mask mask){
+	inline void set_blend_equation(const fx::blend_equation& equation, fx::render_target_mask mask){
 		mask.for_each_popbit([&](unsigned idx){
 			set_blend_equation(equation, idx);
 		});
@@ -398,11 +398,11 @@ public:
 		this->update_state(fx::state_type_deduce<T>::make_push_config(), instr, fx::make_state_tag(fx::state_type_deduce<T>::type, minor_tag), offset);
 	}
 
-	void update_state(fx::batch_draw_mode mode){
+	inline void update_state(fx::batch_draw_mode mode){
 		this->update_state({}, mode, fx::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT));
 	}
 
-	void push(const std::span<const graphic::g2d::instruction_head> heads, const std::byte* payload){
+	inline void push(const std::span<const graphic::g2d::instruction_head> heads, const std::byte* payload){
 		batch_backend_interface_.push(heads, payload);
 	}
 
@@ -416,7 +416,7 @@ public:
 		this->push(instr, args...);
 	}
 
-	void operator()(const std::span<const graphic::g2d::instruction_head> heads, const std::byte* payload){
+	inline void operator()(const std::span<const graphic::g2d::instruction_head> heads, const std::byte* payload){
 		push(heads, payload);
 	}
 
@@ -429,12 +429,12 @@ public:
 
 #pragma endregion
 
-	void resize(const math::frect region){
+	inline void resize(const math::frect region){
 		if(region_ == region) return;
 		region_ = region;
 	}
 
-	void init_timeline_variable(){
+	inline void init_timeline_variable(){
 		viewports_.clear();
 		viewports_.push_back(layer_viewport{region_, {{region_}}, nullptr, math::mat3_idt});
 		uniform_proj_ = math::mat3{}.set_orthogonal(region_.get_src(), region_.extent());
@@ -444,7 +444,7 @@ public:
 		notify_viewport_changed();
 	}
 
-	void notify_viewport_changed(){
+	inline void notify_viewport_changed(){
 		const auto& vp = top_viewport();
 		push(ubo_layer_info{vp.get_element_to_root_screen(), vp.top_scissor()});
 		update_state(fx::scissor{
@@ -453,7 +453,7 @@ public:
 		});
 	}
 
-	void push_viewport(const math::frect viewport, scissor_raw_ scissor_raw){
+	inline void push_viewport(const math::frect viewport, scissor_raw_ scissor_raw){
 		assert(!viewports_.empty());
 
 		const auto& last = viewports_.back();
@@ -466,20 +466,20 @@ public:
 		viewports_.push_back(layer_viewport{viewport, {scissor_raw}, nullptr, last.get_element_to_root_screen() * trs});
 	}
 
-	[[nodiscard]] color_stack& get_color_stack() noexcept{
+	[[nodiscard]] inline color_stack& get_color_stack() noexcept{
 		return color_stack_;
 	}
 
-	void push_viewport(const math::frect viewport){
+	inline void push_viewport(const math::frect viewport){
 		push_viewport(viewport, {viewport});
 	}
 
-	void pop_viewport() noexcept{
+	inline void pop_viewport() noexcept{
 		assert(viewports_.size() > 1);
 		viewports_.pop_back();
 	}
 
-	void push_scissor(scissor_raw_ scissor_in_layer_space){
+	inline void push_scissor(scissor_raw_ scissor_in_layer_space){
 		auto& vp = top_viewport();
 
 		scissor_in_layer_space.uniform(vp.get_element_to_root_screen());
@@ -487,23 +487,23 @@ public:
 		top_viewport().push_scissor(scissor_in_layer_space);
 	}
 
-	void pop_scissor() noexcept{
+	inline void pop_scissor() noexcept{
 		top_viewport().pop_scissor();
 	}
 
-	[[nodiscard]] math::vec2 map_local_to_viewport_space(this const renderer_frontend& self, math::vec2 local_pt) noexcept {
+	[[nodiscard]] inline math::vec2 map_local_to_viewport_space(this const renderer_frontend& self, math::vec2 local_pt) noexcept {
 		assert(!self.viewports_.empty());
 		return self.top_viewport().element_local_transform.back().accumul * local_pt;
 	}
 
 
-	[[nodiscard]] math::vec2 map_viewport_to_screen_space(this const renderer_frontend& self, math::vec2 vp_pt) noexcept {
+	[[nodiscard]] inline math::vec2 map_viewport_to_screen_space(this const renderer_frontend& self, math::vec2 vp_pt) noexcept {
 		assert(!self.viewports_.empty());
 		return self.top_viewport().transform_to_root_screen * vp_pt;
 	}
 
 
-	[[nodiscard]] math::vec2 map_local_to_screen_space(this const renderer_frontend& self, math::vec2 local_pt) noexcept {
+	[[nodiscard]] inline math::vec2 map_local_to_screen_space(this const renderer_frontend& self, math::vec2 local_pt) noexcept {
 		assert(!self.viewports_.empty());
 		return self.top_viewport().get_element_to_root_screen() * local_pt;
 	}
@@ -512,7 +512,7 @@ public:
 
 
 
-	[[nodiscard]] fx::viewport get_absolute_viewport(
+	[[nodiscard]] inline fx::viewport get_absolute_viewport(
 		const fx::viewport& local_vp,
 		math::vec2(*trans)(const renderer_frontend&, math::vec2) = &renderer_frontend::map_local_to_screen_space) const noexcept {
 		const math::vec2 screen_src = std::invoke(trans, *this, local_vp.src);
@@ -524,7 +524,7 @@ public:
 		};
 	}
 
-	[[nodiscard]] fx::scissor get_absolute_scissor(
+	[[nodiscard]] inline fx::scissor get_absolute_scissor(
 		const fx::scissor& local_sc,
 		math::vec2(*trans)(const renderer_frontend&, math::vec2) = &renderer_frontend::map_local_to_screen_space) const noexcept {
 		const math::vec2 float_src = local_sc.pos.as<float>();
@@ -589,20 +589,20 @@ struct viewport_guard : guard_base<viewport_guard>{
 private:
 	friend guard_base;
 
-	void pop() const{
+	inline void pop() const{
 		renderer_->pop_viewport();
 		renderer_->notify_viewport_changed();
 	}
 
 public:
-	[[nodiscard]] viewport_guard(renderer_frontend& renderer, const math::frect viewport,
+	[[nodiscard]] inline viewport_guard(renderer_frontend& renderer, const math::frect viewport,
 		const scissor_raw_& scissor_raw) :
 		guard_base(renderer){
 		renderer.push_viewport(viewport, scissor_raw);
 		renderer.notify_viewport_changed();
 	}
 
-	[[nodiscard]] viewport_guard(renderer_frontend& renderer, const math::frect viewport) :
+	[[nodiscard]] inline viewport_guard(renderer_frontend& renderer, const math::frect viewport) :
 		guard_base(renderer){
 		renderer.push_viewport(viewport);
 		renderer.notify_viewport_changed();
@@ -614,13 +614,13 @@ struct scissor_guard : guard_base<scissor_guard>{
 private:
 	friend guard_base;
 
-	void pop() const{
+	inline void pop() const{
 		renderer_->pop_scissor();
 		renderer_->notify_viewport_changed();
 	}
 
 public:
-	[[nodiscard]] scissor_guard(renderer_frontend& renderer, const scissor_raw_& scissor_raw) :
+	[[nodiscard]] inline scissor_guard(renderer_frontend& renderer, const scissor_raw_& scissor_raw) :
 		guard_base(renderer){
 		renderer.push_scissor(scissor_raw);
 		renderer.notify_viewport_changed();
@@ -632,31 +632,31 @@ struct color_guard : guard_base<color_guard>{
 private:
 	friend guard_base;
 
-	void pop() const{
+	inline void pop() const{
 		renderer_->get_color_stack().pop();
 		renderer_->push(renderer_->get_color_stack().top());
 	}
 
 public:
-	[[nodiscard]] color_guard(renderer_frontend& renderer, const color_modifier& m) :
+	[[nodiscard]] inline color_guard(renderer_frontend& renderer, const color_modifier& m) :
 		guard_base(renderer){
 		renderer.get_color_stack().push(m);
 		renderer.push(renderer.get_color_stack().top());
 	}
 
-	[[nodiscard]] color_guard(renderer_frontend& renderer, const graphic::color& blend_c, float influence) :
+	[[nodiscard]] inline color_guard(renderer_frontend& renderer, const graphic::color& blend_c, float influence) :
 		guard_base(renderer){
 		renderer.get_color_stack().push_color(blend_c, influence);
 		renderer.push(renderer.get_color_stack().top());
 	}
 
-	[[nodiscard]] color_guard(renderer_frontend& renderer, const graphic::color& mul_c) :
+	[[nodiscard]] inline color_guard(renderer_frontend& renderer, const graphic::color& mul_c) :
 		guard_base(renderer){
 		renderer.get_color_stack().push_multiply_color(mul_c);
 		renderer.push(renderer.get_color_stack().top());
 	}
 
-	[[nodiscard]] color_guard(renderer_frontend& renderer, const float luma_intensity, float influence) :
+	[[nodiscard]] inline color_guard(renderer_frontend& renderer, const float luma_intensity, float influence) :
 		guard_base(renderer){
 		renderer.get_color_stack().push_intensity(luma_intensity, influence);
 		renderer.push(renderer.get_color_stack().top());
@@ -668,13 +668,13 @@ struct transform_guard : guard_base<transform_guard>{
 private:
 	friend guard_base;
 
-	void pop() const{
+	inline void pop() const{
 		renderer_->top_viewport().pop_local_transform();
 		renderer_->notify_viewport_changed();
 	}
 
 public:
-	[[nodiscard]] transform_guard(renderer_frontend& renderer, const math::mat3& transform) :
+	[[nodiscard]] inline transform_guard(renderer_frontend& renderer, const math::mat3& transform) :
 		guard_base(renderer){
 		renderer.top_viewport().push_local_transform(transform);
 		renderer.notify_viewport_changed();
@@ -689,7 +689,7 @@ private:
 	binary_config_trace::tag tag_;
 	binary_config_trace::record_fix fix_;
 
-	void pop() const{
+	inline void pop() const{
 		if(fix_.data){
 			renderer_->update_state_(fx::state_push_config{
 					.commit_mode = fx::state_commit_mode::accumulate,
@@ -702,7 +702,7 @@ private:
 public:
 	[[nodiscard]] state_guard() = default;
 
-	[[nodiscard]] state_guard(renderer_frontend& renderer,
+	[[nodiscard]] inline state_guard(renderer_frontend& renderer,
 		const std::span<const std::byte> data, const graphic::g2d::state_tag tag, unsigned offset = 0) :
 		guard_base(renderer), tag_(tag), fix_(renderer.state_trace_.load_tag(tag)){
 		renderer.update_state(fx::state_push_config{
@@ -732,7 +732,7 @@ public:
 		state_guard(renderer, value, fx::make_state_tag(fx::state_type_deduce<T>::type), offset){
 	}
 
-	[[nodiscard]] state_guard(renderer_frontend& renderer, fx::batch_draw_mode mode) : state_guard(renderer, mode, fx::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)){
+	[[nodiscard]] inline state_guard(renderer_frontend& renderer, fx::batch_draw_mode mode) : state_guard(renderer, mode, fx::make_state_tag(fx::state_type::push_constant, VK_SHADER_STAGE_FRAGMENT_BIT)){
 	}
 
 

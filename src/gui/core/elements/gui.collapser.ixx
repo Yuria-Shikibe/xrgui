@@ -45,7 +45,7 @@ private:
 	void update_collapse(float delta) noexcept;
 
 protected:
-	[[nodiscard]] bool is_clicked() const{
+	[[nodiscard]] inline bool is_clicked() const{
 		return clicked_;
 	}
 

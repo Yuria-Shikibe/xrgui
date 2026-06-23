@@ -28,11 +28,11 @@ struct scene_add_result{
 export
 struct ui_manager{
 
-	[[nodiscard]]  ui_manager() : ui_manager(128){
+	[[nodiscard]] inline ui_manager() : ui_manager(128){
 
 	}
 
-	[[nodiscard]] explicit ui_manager(const std::size_t PoolSize_MB) : pool_(PoolSize_MB > 0 ? mr::make_memory_pool(PoolSize_MB) : mr::raw_memory_pool{}){
+	[[nodiscard]] inline explicit ui_manager(const std::size_t PoolSize_MB) : pool_(PoolSize_MB > 0 ? mr::make_memory_pool(PoolSize_MB) : mr::raw_memory_pool{}){
 
 	}
 
@@ -48,14 +48,14 @@ private:
 	std::atomic<scene*> focus{nullptr};
 
 public:
-	scene_resources& add_scene_resources(
+	inline scene_resources& add_scene_resources(
 		std::string_view name,
 		audio::audio_channel audio_channel){
 		std::lock_guard lock(resources_mutex_);
 		return resources.try_emplace(name, audio_channel, get_arena_id()).first->second;
 	}
 
-	scene* switch_scene_to(std::string_view name) noexcept{
+	inline scene* switch_scene_to(std::string_view name) noexcept{
 		std::lock_guard lock(scenes_mutex_);
 		if(auto scene_itr = scenes.try_find(name)){
 
@@ -64,7 +64,7 @@ public:
 		return nullptr;
 	}
 
-	[[nodiscard]] scene& get_current_focus() const noexcept{
+	[[nodiscard]] inline scene& get_current_focus() const noexcept{
 		scene* current_focus = focus.load(std::memory_order_acquire);
 		assert(current_focus);
 		return *current_focus;
@@ -84,7 +84,7 @@ private:
 		return static_cast<S&>(*itr.first->second.get());
 	}
 public:
-	[[nodiscard]] mr::raw_memory_pool& get_pool() noexcept{
+	[[nodiscard]] inline mr::raw_memory_pool& get_pool() noexcept{
 		return pool_;
 	}
 
@@ -109,7 +109,7 @@ public:
 		return {scene_, root};
 	}
 
-	bool erase_scene(std::string_view name) /*noexcept*/{
+	inline bool erase_scene(std::string_view name) /*noexcept*/{
 		std::lock_guard lock(scenes_mutex_);
 		if(auto itr = scenes.find(name); itr != scenes.end()){
 			scene* expected = itr->second.get();
@@ -123,12 +123,12 @@ public:
 		return false;
 	}
 
-	void erase_resource(std::string_view name) noexcept {
+	inline void erase_resource(std::string_view name) noexcept {
 		std::lock_guard lock(resources_mutex_);
 		resources.erase(name);
 	}
 
-	scene* get_scene(const std::string_view sceneName){
+	inline scene* get_scene(const std::string_view sceneName){
 		std::lock_guard lock(scenes_mutex_);
 		auto ptr = scenes.try_find(sceneName);
 		return ptr ? ptr->get() : nullptr;
@@ -145,17 +145,17 @@ public:
 		throw std::invalid_argument{"In-exist Scene Name"};
 	}
 
-	[[nodiscard]] bool is_scroll_idle() const noexcept{
+	[[nodiscard]] inline bool is_scroll_idle() const noexcept{
 		scene* current_focus = focus.load(std::memory_order_acquire);
 		return !current_focus || !current_focus->has_scroll_focus();
 	}
 
-	[[nodiscard]] bool is_focus_idle() const noexcept{
+	[[nodiscard]] inline bool is_focus_idle() const noexcept{
 		scene* current_focus = focus.load(std::memory_order_acquire);
 		return !current_focus || !current_focus->has_cursor_focus();
 	}
 
-	[[nodiscard]] mr::arena_id_t get_arena_id() const{
+	[[nodiscard]] inline mr::arena_id_t get_arena_id() const{
 		return pool_.get_arena_id();
 	}
 
