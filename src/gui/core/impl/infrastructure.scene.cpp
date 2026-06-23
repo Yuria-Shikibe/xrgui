@@ -119,7 +119,6 @@ void scene::drop_(const elem* target) noexcept{
 
 	target->drop_tooltip();
 
-	elem_gui_tasks_.erase(target);
 	active_update_elems_.erase({const_cast<elem*>(target)});
 	std::erase(active_update_elems_state_changes, const_cast<elem*>(target));
 
@@ -136,7 +135,10 @@ void scene::resize(const math::frect region){
 		root().resize(region.extent());
 		overlay_manager_.resize(region);
 		if(forked_scene_worker_){
-			forked_scene_worker_->get_scene().resize(region);
+			//TODO resize forked scene?
+			// (void)forked_scene_worker_->get_scene().post_gui([region](scene& s){
+			// 	s.resize(region);
+			// });
 		}
 	}
 }
@@ -153,7 +155,6 @@ void scene::update(double delta_in_tick){
 
 	react_flow_.update();
 	if(forked_scene_worker_)forked_scene_worker_->process_done();
-	elem_gui_tasks_.consume();
 	input_handler_.update_bindings(delta_in_tick_f);
 
 	tooltip_manager_.update(delta_in_tick_f, get_cursor_pos(), input_handler_.is_mouse_pressed());

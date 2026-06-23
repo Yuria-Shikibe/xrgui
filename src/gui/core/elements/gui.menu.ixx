@@ -3,6 +3,7 @@ export module mo_yanxi.gui.elem.menu;
 import mo_yanxi.gui.elem.sequence;
 import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.elem.head_body_elem;
+import mo_yanxi.gui.elem_containers;
 import std;
 
 namespace mo_yanxi::gui{
@@ -27,7 +28,7 @@ private:
 	 * @brief Current Entry Index, or the index of the end of the entries when use default element.
 	 */
 	std::size_t current_showing_{};
-	mr::heap_vector<elem_ptr> entries{get_scene().get_heap_allocator()};
+	elem_vector entries{get_heap_allocator<elem*>()};
 
 	void init(elem_ptr&& default_content){
 		interactivity = interactivity_flag::children_only;
@@ -76,7 +77,7 @@ public:
 		auto hdl = get_button_pane().get_elem().insert_and_get(index, std::move(head));
 		auto& body_ref = *body;
 		body->on_display_state_changed(false, false);
-		entries.insert(entries.begin() + index, std::move(body));
+		entries.insert(index, std::move(body));
 		return {std::move(hdl), body_ref};
 	}
 
@@ -116,15 +117,15 @@ public:
 		auto* old_item = items[1].get();
 
 		if(index == entries.size()){
-			std::swap(entries[current_showing_], items[1]);
+			entries.swap_with_ptr(current_showing_, items[1]);
 		} else{
 			get_button_pane().get_elem().exposed_children()[index]->set_toggled(true);
 
 			if(current_showing_ == entries.size()){
-				std::swap(entries[index], items[1]);
+				entries.swap_with_ptr(index, items[1]);
 			} else{
-				std::swap(entries[current_showing_], items[1]);
-				std::swap(items[1], entries[index]);
+				entries.swap_with_ptr(current_showing_, items[1]);
+				entries.swap_with_ptr(index, items[1]);
 			}
 		}
 
@@ -150,7 +151,7 @@ public:
 	}
 
 	element_collect_buffer collect_children() const override{
-		return element_collect_buffer{elem_wrapper{elem_span{items, elem_ptr::cvt_mptr}}, elem_wrapper{elem_span{entries, elem_ptr::cvt_mptr}}};
+		return element_collect_buffer{elem_wrapper{items.as_span()}, elem_wrapper{entries.as_span()}};
 	}
 
 protected:

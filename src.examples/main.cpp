@@ -50,6 +50,7 @@ import mo_yanxi.gui.examples.loop_exec;
 import mo_yanxi.gui.cfg.builtin.colored_cerr;
 import mo_yanxi.gui.cfg.builtin.font_styles;
 import mo_yanxi.gui.cfg.builtin.log_channels;
+import mo_yanxi.gui.cfg.builtin.lifecycle;
 import mo_yanxi.gui.cfg.render_context;
 import mo_yanxi.gui.cfg.audio_assets;
 import mo_yanxi.log;
@@ -484,7 +485,7 @@ int main(int argc, char** argv){
 
 	gui::cfg::builtin::configure_gui_log_channels();
 	configure_example_runtime_working_directory(argc > 0 ? argv[0] : nullptr);
-	log::info({"Assets"}, "using runtime working directory {}", std::filesystem::current_path().string());
+	log::info({"App"}, "using runtime working directory {}", std::filesystem::current_path().string());
 
 #ifndef NDEBUG
 	if(platform::environment_flag_enabled("NSIGHT")){
@@ -494,9 +495,7 @@ int main(int argc, char** argv){
 	}
 #endif
 
-	platform::initialize();
-	font::initialize();
-	backend::glfw::initialize();
+	gui::cfg::builtin::platform_runtime platform_rt{};
 
 	VkApplicationInfo appInfo{
 		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -526,7 +525,4 @@ int main(int argc, char** argv){
 		prepare(gui_context);
 	}
 
-	backend::glfw::terminate();
-	font::terminate();
-	platform::terminate();
 }

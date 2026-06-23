@@ -304,14 +304,22 @@ void elem::detach_from_scene() noexcept{
 	}
 
 	scene_refs_attached_ = false;
-	const auto previous_state = lifecycle_ref_.fetch_and(
-		static_cast<lifecycle_ref_word>(~lifecycle_live_bit_),
-		std::memory_order_acq_rel);
+	lifetime_stop_source_.request_stop();
+	// atomically clear live_bit and bump generation so weak_handle<> sees the detach
+	auto old_state = lifecycle_ref_.load(std::memory_order_relaxed);
+	lifecycle_ref_word previous_state;
+	do {
+		previous_state = old_state;
+		const auto new_state = (old_state & ~lifecycle_live_bit_) + lifecycle_generation_inc_;
+		if(lifecycle_ref_.compare_exchange_weak(old_state, new_state,
+			std::memory_order_acq_rel, std::memory_order_relaxed)){
+			break;
+		}
+	} while(true);
 	if(elem::is_lifecycle_destroying_(previous_state)){
 		assert(false && "cannot detach a destroying elem");
 		std::terminate();
 	}
-	lifetime_stop_source_.request_stop();
 	scene_->layer_altitude_record_.erase(layer_altitude_, 1);
 	scene_->drop_(this);
 	if(is_at_display_stage()){
@@ -489,6 +497,16 @@ void elem::release_external_ref_() noexcept{
 
 	assert(false && "cannot release a destroying elem");
 	std::terminate();
+}
+
+std::uint32_t elem_ref_access::generation(const elem* e) noexcept{
+	if(!e) return 0u;
+	return e->lifecycle_generation();
+}
+
+bool elem_ref_access::is_live_generation(const elem* e, std::uint32_t gen) noexcept{
+	if(!e) return false;
+	return e->is_live_generation(gen);
 }
 
 void elem::update_altitude_(altitude_t height){

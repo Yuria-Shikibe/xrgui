@@ -662,10 +662,9 @@ file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode
 				prog.set_progress_state(progress_state::rough);
 			}).cell().set_passive();
 
-			gui::request_forked(
+			gui::request_async(
 				*this,
-				[](gui::async_task_context& context, gui::scene& s){
-					(void)s;
+				[](gui::async_task_context& context){
 					context.report_progress(0u, 1u);
 					auto folders = platform::get_quick_access_folders()
 						| std::views::filter([](const std::filesystem::path& p){

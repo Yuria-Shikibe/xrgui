@@ -1001,4 +1001,31 @@ public:
 	}
 };
 
+// Wraps async_reply<T> so that set_* dispatches to the UI thread via a call_stream_task_queue,
+// eliminating the need for callers to block the worker thread waiting for UI acknowledgement.
+export
+template <typename T>
+struct deferred_reply{
+	async_reply<T>          inner_;
+	call_stream_task_queue* ui_queue_{};   // non-owning; points to scene::gui_inbox_
+
+	// satisfies async_reply_object_for<deferred_reply<T>, T>
+	void set_value(T val) && requires (!std::is_void_v<T>){
+		ui_queue_->try_post([r = std::move(inner_), v = std::move(val)]() mutable{
+			std::move(r).set_value(std::move(v));
+		});
+	}
+	void set_value() && requires (std::is_void_v<T>){
+		ui_queue_->try_post([r = std::move(inner_)]() mutable{ std::move(r).set_value(); });
+	}
+	void set_error(std::exception_ptr e) &&{
+		ui_queue_->try_post([r = std::move(inner_), e = std::move(e)]() mutable{
+			std::move(r).set_error(std::move(e));
+		});
+	}
+	void set_cancelled() &&{
+		ui_queue_->try_post([r = std::move(inner_)]() mutable{ std::move(r).set_cancelled(); });
+	}
+};
+
 }

@@ -78,9 +78,9 @@ export inline i18n_load_result apply_i18n_bundle_to_resources(
 export [[nodiscard]] inline async_operation_handle load_scene_i18n_for_system_locale(
 	elem& owner,
 	i18n_load_options options = {}) {
-	return request_forked(
+	return request_async(
 		owner,
-		[options = std::move(options)](async_task_context& context, scene&) mutable {
+		[options = std::move(options)](async_task_context& context) mutable {
 			context.report_progress(0u, 1u);
 			if(context.stop_requested()) {
 				return i18n_loaded_bundle{};

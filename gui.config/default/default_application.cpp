@@ -30,6 +30,7 @@ import mo_yanxi.gui.cfg.builtin.font_styles;
 import mo_yanxi.gui.cfg.builtin.log_channels;
 import mo_yanxi.gui.cfg.builtin.main_loop;
 import mo_yanxi.gui.cfg.builtin.scene;
+import mo_yanxi.gui.cfg.builtin.lifecycle;
 import mo_yanxi.gui.cfg.audio_assets;
 import mo_yanxi.gui.cfg.render_context;
 
@@ -105,6 +106,8 @@ void set_default_scene_pass_config(builtin::example_scene& scene){
 struct default_application::state{
 	default_application& app;
 
+	builtin::teardown_stack teardown{};
+	std::optional<builtin::platform_runtime> platform{};
 	std::optional<render_context> gui_render_context{};
 	std::optional<audio::audio_system> audio_system{};
 	std::optional<audio::audio_resource_manager> audio_resources{};
@@ -116,9 +119,6 @@ struct default_application::state{
 
 	gui::scene* scene_ptr{};
 
-	bool platform_initialized{};
-	bool font_initialized{};
-	bool glfw_initialized{};
 	bool scene_created{};
 	bool shutdown_done{};
 
@@ -153,36 +153,48 @@ struct default_application::state{
 	}
 
 	void initialize(){
+		log::info({"Lifecycle"}, "default_application initialization started");
 		builtin::configure_gui_log_channels();
 		configure_runtime_working_directory(app.config_.executable_path);
 
-		platform::initialize();
-		platform_initialized = true;
+		platform.emplace();
+		teardown.push("platform_runtime", [this]{ platform.reset(); });
 
-		font::initialize();
-		font_initialized = true;
-
-		backend::glfw::initialize();
-		glfw_initialized = true;
-
+		log::debug({"Lifecycle"}, "Initializing audio system");
 		audio_system.emplace(backend::miniaudio::make_audio_driver(app.config_.audio_device));
 		audio_resources.emplace(*audio_system);
+		teardown.push("audio_system", [this]{
+			audio_resources.reset();
+			audio_system.reset();
+		});
 
 		vk::enable_validation_layers = app.config_.enable_validation_layers;
 		if(platform::environment_flag_enabled("NSIGHT")){
 			vk::enable_validation_layers = false;
 		}
 
+		log::debug({"Lifecycle"}, "Initializing render context");
 		auto app_info = make_application_info(app.config_);
 		gui_render_context.emplace(render_context_config{
 			.app_info = app_info
 		});
 		auto& ctx = gui_render_context->context();
+		teardown.push("gui_render_context", [this]{
+			if(gui_render_context){
+				gui_render_context->wait_on_device();
+			}
+			post_commands.clear();
+			post_command_pool.reset();
+			gui_render_context.reset();
+		});
+
+		log::debug({"Lifecycle"}, "Creating post command pool");
 		post_command_pool.emplace(
 			ctx.get_device(),
 			ctx.graphic_family(),
 			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
+		log::debug({"Lifecycle"}, "Creating main loop");
 		auto renderer_create_bundle = gui_render_context->make_renderer_create_info();
 		backend::vulkan::renderer renderer{std::move(renderer_create_bundle.create_info)};
 
@@ -196,6 +208,12 @@ struct default_application::state{
 			.exit_fn = [this](const default_application_loop&){
 				clear_scene();
 			}
+		});
+		teardown.push("main_loop", [this]{
+			if(loop){
+				loop->join();
+			}
+			loop.reset();
 		});
 
 		ctx.register_post_resize("xrgui.default_application", [this](
@@ -217,6 +235,8 @@ struct default_application::state{
 			});
 			record_context_post_commands(context);
 		});
+
+		log::info({"Lifecycle"}, "default_application initialization completed");
 	}
 
 	int run(){
@@ -351,6 +371,7 @@ struct default_application::state{
 			return;
 		}
 
+		log::debug({"Lifecycle"}, "Clearing scene");
 		auto& ui_root = gui::global::manager;
 		ui_root.erase_scene(default_scene_name);
 		ui_root.erase_resource(default_scene_name);
@@ -364,41 +385,10 @@ struct default_application::state{
 		}
 		shutdown_done = true;
 
-		try{
-			if(loop){
-				loop->join();
-			}
-		} catch(...){
-		}
-
+		log::info({"Lifecycle"}, "default_application shutdown started");
 		clear_scene();
-
-		if(gui_render_context){
-			try{
-				gui_render_context->wait_on_device();
-			} catch(...){
-			}
-		}
-
-		loop.reset();
-		audio_resources.reset();
-		audio_system.reset();
-		post_commands.clear();
-		post_command_pool.reset();
-		gui_render_context.reset();
-
-		if(glfw_initialized){
-			backend::glfw::terminate();
-			glfw_initialized = false;
-		}
-		if(font_initialized){
-			font::terminate();
-			font_initialized = false;
-		}
-		if(platform_initialized){
-			platform::terminate();
-			platform_initialized = false;
-		}
+		teardown.run_all();
+		log::info({"Lifecycle"}, "default_application shutdown completed");
 	}
 
 	backend::vulkan::context& context(){

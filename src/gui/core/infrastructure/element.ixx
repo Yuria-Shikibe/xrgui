@@ -32,7 +32,6 @@ import :defines;
 import :flags;
 
 export import :elem_ptr;
-import mo_yanxi.transparent_span;
 import mo_yanxi.function_call_stack;
 
 
@@ -118,7 +117,7 @@ struct cursor_states{
 };
 
 export
-using elem_span = transparent_span<elem* const>;
+using elem_span = std::span<elem* const>;
 
 export
 struct elem_wrapper{
@@ -205,14 +204,17 @@ private:
 	scene* scene_{};
 	elem* parent_{};
 
-	using lifecycle_ref_word = std::uint32_t;
-	static constexpr lifecycle_ref_word lifecycle_destroying_bit_ =
-		lifecycle_ref_word{1u} << (std::numeric_limits<lifecycle_ref_word>::digits - 1u);
-	static constexpr lifecycle_ref_word lifecycle_live_bit_ = lifecycle_destroying_bit_ >> 1u;
-	static constexpr lifecycle_ref_word lifecycle_ref_mask_ = lifecycle_live_bit_ - 1u;
+	using lifecycle_ref_word = std::uint64_t;
+	// bit 63: destroying | bit 62: live | bit 61..32: generation (30 bits) | bit 31..0: refcount
+	static constexpr lifecycle_ref_word lifecycle_destroying_bit_  = lifecycle_ref_word{1u} << 63u;
+	static constexpr lifecycle_ref_word lifecycle_live_bit_        = lifecycle_ref_word{1u} << 62u;
+	static constexpr lifecycle_ref_word lifecycle_generation_inc_  = lifecycle_ref_word{1u} << 32u;
+	static constexpr lifecycle_ref_word lifecycle_generation_mask_ = lifecycle_ref_word{0x3FFF'FFFFu} << 32u;
+	static constexpr lifecycle_ref_word lifecycle_ref_mask_        = lifecycle_ref_word{0xFFFF'FFFFu};
 	static_assert((lifecycle_destroying_bit_ & lifecycle_live_bit_) == 0u);
 	static_assert((lifecycle_destroying_bit_ & lifecycle_ref_mask_) == 0u);
 	static_assert((lifecycle_live_bit_ & lifecycle_ref_mask_) == 0u);
+	static_assert((lifecycle_generation_mask_ & lifecycle_ref_mask_) == 0u);
 
 	std::atomic<lifecycle_ref_word> lifecycle_ref_{lifecycle_live_bit_};
 	bool scene_refs_attached_{true};
@@ -1055,6 +1057,15 @@ public:
 		return elem::is_lifecycle_destroying_(lifecycle_ref_.load(std::memory_order_acquire));
 	}
 
+	[[nodiscard]] std::uint32_t lifecycle_generation() const noexcept{
+		return elem::lifecycle_generation_(lifecycle_ref_.load(std::memory_order_acquire));
+	}
+
+	[[nodiscard]] bool is_live_generation(std::uint32_t gen) const noexcept{
+		const auto state = lifecycle_ref_.load(std::memory_order_acquire);
+		return elem::is_lifecycle_live_(state) && elem::lifecycle_generation_(state) == gen;
+	}
+
 	template <std::derived_from<elem> T = elem>
 	[[nodiscard]] elem_ref<T> ref(){
 		if constexpr (std::same_as<T, elem>){
@@ -1324,6 +1335,10 @@ private:
 
 	[[nodiscard]] static constexpr bool is_lifecycle_destroying_(const lifecycle_ref_word state) noexcept{
 		return (state & lifecycle_destroying_bit_) != 0u;
+	}
+
+	[[nodiscard]] static constexpr std::uint32_t lifecycle_generation_(const lifecycle_ref_word state) noexcept{
+		return static_cast<std::uint32_t>((state & lifecycle_generation_mask_) >> 32u);
 	}
 
 	void mark_destroying_no_external_refs_() noexcept;

@@ -12,6 +12,8 @@ import std;
 import magic_enum;
 import mo_yanxi.platform;
 
+//Spec: the only reason why this trash log module exists is that spdlog has issue with module...
+
 namespace mo_yanxi::log{
 
 export

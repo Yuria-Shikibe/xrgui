@@ -78,13 +78,11 @@ void push_ime_composition_event(GLFWwindow* window, platform::native_ime_composi
 
 struct native_window_state {
 	GLFWwindow* window{};
-	gui::call_stream_task_queue& output_queue;
 	std::atomic_bool stopped{false};
 	platform::native_ime_controller ime_controller{};
 
-	[[nodiscard]] explicit native_window_state(GLFWwindow* target_window, gui::call_stream_task_queue& target_output_queue)
+	[[nodiscard]] explicit native_window_state(GLFWwindow* target_window)
 		: window(target_window),
-		  output_queue(target_output_queue),
 		  ime_controller(target_window, [target_window](platform::native_ime_composition_event event) {
 			  push_ime_composition_event(target_window, std::move(event));
 		  }) {
@@ -99,21 +97,17 @@ struct native_window_state {
 		ime_controller.stop();
 	}
 
-	void require_window_thread() const {
+	void require_live_window() const {
 		if(is_stopped()) {
 			throw std::runtime_error{"native window state is stopped"};
 		}
 		if(window == nullptr) {
 			throw std::runtime_error{"native window state has no GLFW window"};
 		}
-		if(!output_queue.is_consumer_thread()) {
-			throw std::runtime_error{"native window API called from a non-window thread"};
-		}
-		assert(output_queue.is_consumer_thread());
 	}
 
 	void install_ime_hook() {
-		require_window_thread();
+		require_live_window();
 		ime_controller.install();
 	}
 
@@ -122,23 +116,24 @@ struct native_window_state {
 	}
 
 	void set_ime_enabled_native(const bool enabled) {
-		require_window_thread();
+		require_live_window();
 		ime_controller.set_enabled(enabled);
 	}
 
 	void set_ime_cursor_rect_native(const math::raw_frect region) {
-		require_window_thread();
+		require_live_window();
 		ime_controller.set_cursor_rect(normalize_client_rect(window, region));
 	}
 };
 
 export struct communicator : gui::native_communicator {
 	native_window_state state_;
+	gui::call_stream_task_queue& output_queue_;
 
 	[[nodiscard]] explicit communicator(GLFWwindow* window, gui::call_stream_task_queue& output_queue)
-		: state_(window, output_queue) {
-		communicator::post_native(
-			state_,
+		: state_(window),
+		  output_queue_(output_queue) {
+		this->post_native(
 			[](native_window_state& native_state) {
 				native_state.install_ime_hook();
 		});
@@ -150,47 +145,54 @@ export struct communicator : gui::native_communicator {
 
 	template <typename Fn>
 		requires std::invocable<Fn&&, native_window_state&>
-	static bool post_native(
-		native_window_state& native_state,
-		Fn&& task) {
-		return communicator::post_native(
-			native_state,
+	bool post_native(Fn&& task) {
+		return this->post_native(
 			gui::async_operation_binding{},
 			std::forward<Fn>(task));
 	}
 
 	template <typename Fn>
 		requires std::invocable<Fn&&, native_window_state&>
-	static bool post_native(
-		native_window_state& native_state,
+	bool post_native(
 		gui::async_operation_binding binding,
 		Fn&& task) {
-		if(native_state.is_stopped()) {
+		if(state_.is_stopped()) {
 			binding.mark_cancelled();
 			return false;
 		}
-		return gui::async_send(native_state.output_queue, std::move(binding), [
-			native_state = std::addressof(native_state),
+		return gui::async_send(output_queue_, std::move(binding), [
+			native_state = std::addressof(state_),
+			output_queue = std::addressof(output_queue_),
 			task = std::forward<Fn>(task)
 		](gui::async_operation_binding& binding, gui::async_task_context&) mutable {
 			if(native_state->is_stopped()) {
 				binding.mark_cancelled();
 				return;
 			}
-			native_state->require_window_thread();
+			communicator::require_window_thread(*native_state, *output_queue);
 			std::invoke(std::move(task), *native_state);
 		});
+	}
+
+	static void require_window_thread(
+		native_window_state& native_state,
+		gui::call_stream_task_queue& output_queue) {
+		native_state.require_live_window();
+		if(!output_queue.is_consumer_thread()) {
+			throw std::runtime_error{"native window API called from a non-window thread"};
+		}
+		assert(output_queue.is_consumer_thread());
 	}
 
 protected:
 	void begin_shutdown_impl() noexcept override {
 		state_.stop();
-		if(state_.output_queue.is_consumer_thread()) {
+		if(output_queue_.is_consumer_thread()) {
 			state_.uninstall_ime_hook_noexcept();
 			return;
 		}
 		(void)gui::async_send(
-			state_.output_queue,
+			output_queue_,
 			gui::async_operation_binding{},
 			[native_state = std::addressof(state_)] {
 				native_state->uninstall_ime_hook_noexcept();
@@ -198,8 +200,7 @@ protected:
 	}
 
 	void set_clipboard_impl(std::string&& text) override {
-		communicator::post_native(
-			state_,
+		this->post_native(
 			[text = std::move(text)](native_window_state& native_state) mutable {
 				glfwSetClipboardString(native_state.window, text.c_str());
 			});
@@ -212,10 +213,10 @@ protected:
 		}
 
 		(void)gui::async_request(
-			state_.output_queue,
+			output_queue_,
 			std::move(request.binding),
-			[native_state = std::addressof(state_)] {
-				native_state->require_window_thread();
+			[native_state = std::addressof(state_), output_queue = std::addressof(output_queue_)] {
+				communicator::require_window_thread(*native_state, *output_queue);
 				std::string text;
 				if(const auto value = glfwGetClipboardString(native_state->window); value != nullptr) {
 					text = value;
@@ -227,24 +228,21 @@ protected:
 
 public:
 	void set_native_cursor_visibility(bool show) override {
-		communicator::post_native(
-			state_,
+		this->post_native(
 			[show](native_window_state& native_state) {
 				glfwSetInputMode(native_state.window, GLFW_CURSOR, show ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_HIDDEN);
 			});
 	}
 
 	void set_ime_enabled(bool enabled) override {
-		communicator::post_native(
-			state_,
+		this->post_native(
 			[enabled](native_window_state& native_state) {
 				native_state.set_ime_enabled_native(enabled);
 			});
 	}
 
 	void set_ime_cursor_rect(const math::raw_frect region) override {
-		communicator::post_native(
-			state_,
+		this->post_native(
 			[region](native_window_state& native_state) {
 				native_state.set_ime_cursor_rect_native(region);
 			});

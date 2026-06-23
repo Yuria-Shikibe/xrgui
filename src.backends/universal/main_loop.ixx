@@ -14,6 +14,7 @@ import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.concurrent.mpsc_double_buffer;
 
 import mo_yanxi.platform.thread;
+import mo_yanxi.log;
 
 namespace mo_yanxi::gui::cfg::builtin{
 
@@ -119,12 +120,14 @@ public:
 		  ctx_ptr(&ctx_ptr),
 		  functions_(std::move(functions)), payload(std::move(payload)), exec_thread{
 			  [](std::stop_token stoptoken, main_loop& self){
+				  log::info({"Lifecycle"}, "UI thread started");
 				  self.init();
 				  while(true){
 					  if(self.sync_main_loop(stoptoken)){
 						  break;
 					  }
 				  }
+				  log::info({"Lifecycle"}, "UI thread exiting");
 			  },
 			  std::ref(*this)
 		  }{
@@ -166,13 +169,16 @@ public:
 	}
 
 	void join(){
+		log::debug({"Lifecycle"}, "Requesting UI thread stop");
 		exec_thread.request_stop();
 		permit_burst();
 		sync_ctrl.wait_for_b_done();
 
+		log::debug({"Lifecycle"}, "Requesting UI thread final cleanup");
 		shutdown_destroy_requested_.store(true, std::memory_order_release);
 		permit_burst();
 		exec_thread.join();
+		log::info({"Lifecycle"}, "UI thread joined");
 		propagate_exception();
 	}
 
@@ -249,10 +255,12 @@ private:
 
 	void init(){
 		this->term([this]{
+			log::info({"Lifecycle"}, "UI thread initialization started");
 			if(functions_.init_fn){
 				const main_loop_init_return_t rst = functions_.init_fn(*this);
 				target_scene = rst.main_scene;
 			}
+			log::info({"Lifecycle"}, "UI thread initialization completed");
 		});
 	}
 
@@ -262,16 +270,21 @@ private:
 		bool should_stop = this->term([&, this]{
 			if(stoptoken.stop_requested()){
 				if(!shutdown_prepared_){
+					log::info({"Lifecycle"}, "UI thread shutdown requested - preparing exit");
 					if(target_scene != nullptr){
+						log::debug({"Lifecycle"}, "Cancelling scene async operations");
 						target_scene->begin_shutdown();
 					}
 					if(functions_.prepare_exit_fn)functions_.prepare_exit_fn(*this);
 					shutdown_prepared_ = true;
+					log::info({"Lifecycle"}, "UI thread exit preparation completed");
 					return false;
 				}
 				if(shutdown_destroy_requested_.load(std::memory_order_acquire)){
+					log::info({"Lifecycle"}, "UI thread final cleanup started");
 					if(functions_.exit_fn)functions_.exit_fn(*this);
 					target_scene = nullptr;
+					log::info({"Lifecycle"}, "UI thread final cleanup completed");
 					return true;
 				}
 				return false;

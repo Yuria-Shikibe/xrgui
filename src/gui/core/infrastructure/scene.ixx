@@ -29,6 +29,7 @@ import mo_yanxi.handle_wrapper;
 import mo_yanxi.math.rect_ortho;
 import mo_yanxi.concurrent.mpsc_double_buffer;
 import mo_yanxi.audio;
+import mo_yanxi.thread_pool;
 
 export import mo_yanxi.gui.util;
 export import mo_yanxi.gui.style.tree.manager;
@@ -399,11 +400,11 @@ private:
 	UI_TRANSIENT elem_tree_channel display_state_changed_channel_{};
 
 
-	UI_MERGE_ON_JOIN associated_async_sync_task_queue<elem> elem_gui_tasks_{get_heap_allocator()};
 	UI_MERGE_ON_JOIN scene_submodule::action_queue action_queue_{get_heap_allocator()};
 
 	async_operation_state_pool_ptr async_operation_state_pool_{std::in_place, get_heap_allocator()};
 	std::unique_ptr<scene_submodule::forked_scene_worker> forked_scene_worker_{};
+	thread_pool worker_pool_{};
 	UI_TRANSIENT scene_submodule::input_state input_handler_{get_heap_allocator()};
 
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap_allocator()}};
@@ -447,15 +448,19 @@ private:
 		mr::heap_allocator<std::pair<const elem* const, react_flow::node*>>>
 	elem_owned_nodes_{get_heap_allocator()};
 
+#pragma region FastAsyncPath
 	UI_MERGE_ON_JOIN fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_channels_{};
 	async_sync_task_queue<scene&> gui_inbox_{get_heap_allocator()};
 	std::atomic_bool accepting_gui_tasks_{true};
+#pragma endregion
 
+#pragma region ElemLifeCycle
 	struct retired_elem_record{
 		elem* element{};
 	};
 
 	mr::heap_vector<retired_elem_record> retired_elements_{get_heap_allocator<retired_elem_record>()};
+#pragma endregion
 
 	UI_TRANSIENT tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
 	UI_TRANSIENT overlay_manager overlay_manager_{get_heap_allocator()};
@@ -532,13 +537,20 @@ public:
 		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
 			return false;
 		}
-		return elem_gui_tasks_.try_post(owner, std::forward<Fn>(fn));
+		return gui_inbox_.try_post([wh = make_weak<E>(owner), f = std::forward<Fn>(fn)](scene&) mutable {
+			if(auto* p = wh.lock()){
+				if constexpr(std::invocable<std::decay_t<Fn>&, E&>){
+					std::invoke(f, *p);
+				}else{
+					std::invoke(f);
+				}
+			}
+		});
 	}
 
 	void begin_shutdown() noexcept{
 		const bool was_accepting = accepting_gui_tasks_.exchange(false, std::memory_order_acq_rel);
 		gui_inbox_.close();
-		elem_gui_tasks_.close();
 		if(async_operation_state_pool_){
 			async_operation_state_pool_->cancel_all();
 		}
@@ -869,7 +881,6 @@ private:
 		}
 
 		action_queue_.merge(std::move(target.action_queue_));
-		elem_gui_tasks_.merge(std::move(target.elem_gui_tasks_));
 	}
 
 protected:
@@ -971,6 +982,26 @@ public:
 		}
 		task.mark_finished();
 		return async_operation_handle{};
+	}
+
+	// Runs work on the thread pool and routes the reply back to the GUI thread
+	// via gui_inbox_. Work signature: (async_task_context&) -> R
+	template <std::derived_from<elem> E, typename Work, typename Reply>
+	async_operation_handle request_async(E& owner, Work&& work, Reply&& reply){
+		if(!accepts_gui_tasks_()){
+			std::forward<Reply>(reply).set_cancelled();
+			return {};
+		}
+		auto state = create_async_operation_state();
+		async_operation_handle handle{state};
+		::mo_yanxi::gui::async_request(worker_pool_,
+			async_operation_binding{
+				elem_ref<>{owner},
+				elem_ref_access::stop_token(std::addressof(owner)),
+				std::move(state)},
+			std::forward<Work>(work),
+			std::forward<Reply>(reply));
+		return handle;
 	}
 
 	virtual std::unique_ptr<scene, scene_submodule::scene_deleter> fork(){
@@ -1214,6 +1245,24 @@ async_operation_handle request_forked(
 		owner,
 		std::forward<ProcessFn>(process_fn),
 		std::move(reply));
+}
+
+export
+template <std::derived_from<elem> E, typename Work, typename ValueFn,
+          typename ErrorFn = std::nullptr_t, typename CancelFn = std::nullptr_t>
+	requires std::invocable<std::decay_t<Work>&, async_task_context&>
+async_operation_handle request_async(
+	E& owner, Work&& work,
+	ValueFn&& on_value,
+	ErrorFn&& on_error = nullptr,
+	CancelFn&& on_cancel = nullptr){
+	using result_type = std::invoke_result_t<std::decay_t<Work>&, async_task_context&>;
+	auto reply = gui::make_gui_reply<result_type>(
+		owner,
+		std::forward<ValueFn>(on_value),
+		std::forward<ErrorFn>(on_error),
+		std::forward<CancelFn>(on_cancel));
+	return owner.get_scene().request_async(owner, std::forward<Work>(work), std::move(reply));
 }
 
 bool is_on_scene_thread(const scene& scene) noexcept{

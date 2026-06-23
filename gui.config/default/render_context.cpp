@@ -17,6 +17,7 @@ import mo_yanxi.gui.cfg.builtin.assets;
 import mo_yanxi.gui.cfg.builtin.font_styles;
 
 import mo_yanxi.font;
+import mo_yanxi.log;
 
 namespace mo_yanxi::gui::cfg{
 namespace{
@@ -340,26 +341,37 @@ render_context::~render_context(){
 }
 
 void render_context::initialize(){
+	log::info({"Lifecycle"}, "render_context initialization started");
+
+	log::debug({"Lifecycle"}, "Setting rich_text lookup table");
 	typesetting::look_up_table = &rich_text_table_;
 
 	if(config_.initialize_gui_globals){
+		log::debug({"Lifecycle"}, "Initializing GUI globals");
 		gui::global::initialize();
 		gui_initialized_ = true;
 
 		//TODO shuold this be set in render context??
 		ctx_.window().set_input_sink(&gui::global::event_queue);
+
+		log::debug({"Lifecycle"}, "Initializing assets manager");
 		gui::global::initialize_assets_manager(gui::global::manager.get_arena_id());
 		assets_manager_initialized_ = true;
 	}
 
+	log::debug({"Lifecycle"}, "Initializing font manager");
 	builtin::init_font_manager(fonts_, atlas_);
 
 	if(config_.load_default_assets){
 		load_default_assets();
 	}
+
+	log::info({"Lifecycle"}, "render_context initialization completed");
 }
 
 void render_context::load_default_assets(){
+	log::debug({"Lifecycle"}, "Loading default assets");
+
 	auto& logo_page = atlas_.create_image_page("tex.logo", {
 		.extent = {1920, 1080},
 		.format = VK_FORMAT_R8G8B8A8_SRGB,
@@ -381,6 +393,8 @@ void render_context::load_default_assets(){
 	builtin::generate_default_shapes(atlas_);
 	builtin::load_default_icons(atlas_);
 	generated_shapes_initialized_ = true;
+
+	log::debug({"Lifecycle"}, "Default assets loaded");
 }
 
 backend::vulkan::context& render_context::context(){
@@ -434,32 +448,43 @@ void render_context::shutdown() noexcept{
 	}
 	shutdown_done_ = true;
 
+	log::info({"Lifecycle"}, "render_context shutdown started");
+
 	if(generated_shapes_initialized_){
+		log::debug({"Lifecycle"}, "Disposing generated shapes");
 		builtin::dispose_generated_shapes();
 		generated_shapes_initialized_ = false;
 	}
 
+	log::debug({"Lifecycle"}, "Stopping image atlas async operations");
 	atlas_.request_stop();
 
+	log::debug({"Lifecycle"}, "Waiting on Vulkan device");
 	try{
 		ctx_.wait_on_device();
 	} catch(...){
+		log::error({"Lifecycle"}, "Exception during wait_on_device in render_context shutdown");
 	}
 
 	if(assets_manager_initialized_){
+		log::debug({"Lifecycle"}, "Terminating assets manager");
 		// The global assets manager stores borrowed image regions owned by atlas_.
 		global::terminate_assets_manager();
 		assets_manager_initialized_ = false;
 	}
 
+	log::debug({"Lifecycle"}, "Clearing font and typesetting globals");
 	font::default_font_manager = nullptr;
 	typesetting::look_up_table = nullptr;
 
 	if(gui_initialized_){
+		log::debug({"Lifecycle"}, "Terminating GUI globals");
 		ctx_.window().set_input_sink(nullptr);
 		global::terminate();
 		gui_initialized_ = false;
 	}
+
+	log::info({"Lifecycle"}, "render_context shutdown completed");
 }
 
 }

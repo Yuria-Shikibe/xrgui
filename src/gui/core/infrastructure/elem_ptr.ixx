@@ -10,7 +10,6 @@ export import mo_yanxi.math.rect_ortho;
 import mo_yanxi.gui.alloc;
 import mo_yanxi.function_manipulate;
 import mo_yanxi.concepts;
-import mo_yanxi.transparent_span;
 import std;
 
 namespace mo_yanxi::gui{
@@ -35,6 +34,8 @@ struct elem_ref_access{
 	static void release(elem* element) noexcept;
 	static bool is_live(const elem* element) noexcept;
 	static std::stop_token stop_token(const elem* element) noexcept;
+	static std::uint32_t generation(const elem* element) noexcept;
+	static bool is_live_generation(const elem* element, std::uint32_t gen) noexcept;
 };
 
 export
@@ -162,6 +163,26 @@ concept constructible_elem = std::constructible_from<Elem, scene&, elem*, Args&&
 export
 template <typename Fn>
 concept elem_init_func = func_initializer_of<std::remove_const_t<Fn>, elem>;
+
+export
+template <std::derived_from<elem> T = elem>
+struct weak_handle{
+	T*            ptr_{};
+	std::uint32_t generation_{};
+
+	[[nodiscard]] T* lock() const noexcept{
+		if(!ptr_) return nullptr;
+		return elem_ref_access::is_live_generation(ptr_, generation_) ? ptr_ : nullptr;
+	}
+	[[nodiscard]] bool expired() const noexcept{ return lock() == nullptr; }
+	[[nodiscard]] explicit operator bool() const noexcept{ return !expired(); }
+};
+
+export
+template <std::derived_from<elem> T>
+[[nodiscard]] weak_handle<T> make_weak(T& e) noexcept{
+	return { std::addressof(e), elem_ref_access::generation(std::addressof(e)) };
+}
 
 export
 template <typename Fn>
@@ -350,6 +371,6 @@ private:
 	static void dynamic_init(T& ptr);
 
 public:
-	static constexpr auto cvt_mptr = transparent_convert<&elem_ptr::element>;
+	[[nodiscard]] elem* const* raw_addr() const noexcept{ return &element; }
 };
 }
