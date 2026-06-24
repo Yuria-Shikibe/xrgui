@@ -32,27 +32,27 @@ struct mouse_state{
 	mouse_capture_owner owner{mouse_capture_owner::none};
 	elem* target{};
 
-	void reset(const math::vec2 pos, const mouse_capture_owner owner_value, elem* target_value = nullptr) noexcept{
+	inline void reset(const math::vec2 pos, const mouse_capture_owner owner_value, elem* target_value = nullptr) noexcept{
 		src = pos;
 		owner = owner_value;
 		target = target_value;
 	}
 
-	void clear() noexcept{
+	inline void clear() noexcept{
 		src.reset();
 		owner = mouse_capture_owner::none;
 		target = nullptr;
 	}
 
-	[[nodiscard]] bool is_ui_owned() const noexcept{
+	[[nodiscard]] inline bool is_ui_owned() const noexcept{
 		return src.has_value() && owner == mouse_capture_owner::ui;
 	}
 
-	[[nodiscard]] bool is_passthrough_owned() const noexcept{
+	[[nodiscard]] inline bool is_passthrough_owned() const noexcept{
 		return src.has_value() && owner == mouse_capture_owner::passthrough;
 	}
 
-	[[nodiscard]] elem* capture_target() const noexcept{
+	[[nodiscard]] inline elem* capture_target() const noexcept{
 		return is_ui_owned() ? target : nullptr;
 	}
 

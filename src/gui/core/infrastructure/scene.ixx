@@ -79,7 +79,7 @@ public:
 	explicit layer_altitude_record(const mr::heap_allocator<unsigned>& alloc) : records_(alloc) {
 	}
 
-	void insert(altitude_t alt, unsigned count = 1) {
+	inline void insert(altitude_t alt, unsigned count = 1) {
 		if(alt >= records_.size()){
 			records_.resize(alt + 1);
 		}
@@ -89,7 +89,7 @@ public:
 		}
 	}
 
-	void erase(altitude_t alt, unsigned count = 1) noexcept {
+	inline void erase(altitude_t alt, unsigned count = 1) noexcept {
 		if(alt >= records_.size()){
 			return;
 		}
@@ -101,7 +101,7 @@ public:
 		}
 	}
 
-	altitude_t get_max() const noexcept {
+	inline altitude_t get_max() const noexcept {
 		return max_used_;
 	}
 };
@@ -133,7 +133,7 @@ struct native_communicator{
 	 * Fire-and-forget operations may be called from the GUI thread; backend
 	 * implementations decide how to dispatch to the native window thread.
 	 */
-	void set_clipboard(std::string text){
+	inline void set_clipboard(std::string text){
 		set_clipboard_impl(std::move(text));
 	}
 
@@ -149,14 +149,14 @@ struct native_communicator{
 	/**
 	 * @brief Enable or disable native IME composition support.
 	 */
-	virtual void set_ime_enabled(bool enabled){
+	inline virtual void set_ime_enabled(bool enabled){
 
 	}
 
 	/**
 	 * @brief Report the caret rectangle for native IME candidate placement.
 	 */
-	virtual void set_ime_cursor_rect(const math::raw_frect region){
+	inline virtual void set_ime_cursor_rect(const math::raw_frect region){
 
 	}
 

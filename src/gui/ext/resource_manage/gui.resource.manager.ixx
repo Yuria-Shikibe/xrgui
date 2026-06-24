@@ -120,7 +120,7 @@ private:
 	std::mutex round_square_mutex_{};
 
 public:
-    [[nodiscard]] explicit resource_manager(const mr::arena_id_t arena_id)
+    [[nodiscard]] inline explicit resource_manager(const mr::arena_id_t arena_id)
         : heap_(arena_id, 1), manager_(image_resource_allocator{heap_.get()}) {
 		round_square_page_ = std::addressof(manager_.create_page(round_square::page_name()));
     }
@@ -131,15 +131,15 @@ public:
         return manager_.create_page(std::forward<T>(page_name));
     }
 
-	[[nodiscard]] std::optional<constant_image_region_borrow> operator[](std::string_view page_name, std::string_view alias) const noexcept {
+	[[nodiscard]] inline std::optional<constant_image_region_borrow> operator[](std::string_view page_name, std::string_view alias) const noexcept {
 		return manager_[page_name, alias];
     }
 
-	[[nodiscard]] std::optional<constant_image_region_borrow> operator[](std::string_view page_name, resource_id id) const noexcept {
+	[[nodiscard]] inline std::optional<constant_image_region_borrow> operator[](std::string_view page_name, resource_id id) const noexcept {
 		return manager_[page_name, id];
     }
 
-    [[nodiscard]] std::optional<constant_image_region_borrow> operator[](std::string_view full_name) const noexcept {
+    [[nodiscard]] inline std::optional<constant_image_region_borrow> operator[](std::string_view full_name) const noexcept {
         return manager_[full_name];
     }
 
@@ -226,9 +226,9 @@ namespace global{
 union U{
 	assets::resource_manager resource_manager;
 
-	[[nodiscard]] U(){}
+	[[nodiscard]] inline U(){}
 
-	~U(){}
+	inline ~U(){}
 };
 
 extern U u;

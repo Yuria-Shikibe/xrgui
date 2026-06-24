@@ -32,7 +32,7 @@ struct drawable_base{
 
 	virtual void draw(renderer_frontend& renderer, const math::raw_frect& region, const graphic::color& color_scl) const = 0;
 
-	[[nodiscard]] virtual math::optional_vec2<float> get_preferred_extent() const noexcept{
+	[[nodiscard]] inline virtual math::optional_vec2<float> get_preferred_extent() const noexcept{
 		return math::nullopt_vec2<float>;
 	}
 };

@@ -11,7 +11,7 @@ export import align;
 import std;
 
 namespace mo_yanxi::gui{
-[[nodiscard]] math::vec2 get_expected_size(
+[[nodiscard]] inline math::vec2 get_expected_size(
 	const drawable_base& drawable,
 	const image_display_style& style,
 	const math::vec2 bound) noexcept{
@@ -32,15 +32,15 @@ protected:
 	mr::heap_vector<styled_drawable> drawables_{};
 
 public:
-	[[nodiscard]] image_frame(scene& scene, elem* parent)
+	[[nodiscard]] inline image_frame(scene& scene, elem* parent)
 	: elem(scene, parent){
 	}
 
-	std::size_t get_drawable_size() const noexcept{
+	inline std::size_t get_drawable_size() const noexcept{
 		return drawables_.size();
 	}
 
-	bool is_drawable_empty() const noexcept{
+	inline bool is_drawable_empty() const noexcept{
 		return drawables_.empty();
 	}
 
@@ -66,11 +66,11 @@ public:
 		this->set_drawable<Ty>(0, std::forward<T>(args)...);
 	}
 
-	[[nodiscard]] std::size_t get_index() const noexcept{
+	[[nodiscard]] inline std::size_t get_index() const noexcept{
 		return current_frame_index_;
 	}
 
-	virtual bool set_index(std::size_t idx) {
+	virtual inline bool set_index(std::size_t idx) {
 		if(idx >= drawables_.size()){
 			throw std::out_of_range("set_frame_index");
 		}
@@ -84,7 +84,7 @@ public:
 
 	}
 
-	void record_draw_layer(draw_recorder& call_stack_builder) const override{
+	inline void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 		call_stack_builder.push_call_noop(*this, [](const image_frame& s, const draw_call_param& param,
 		                                            const draw_immut_args& args){
@@ -96,13 +96,13 @@ public:
 
 
 protected:
-	void try_swap_image(const std::size_t ldx, const std::size_t rdx){
+	inline void try_swap_image(const std::size_t ldx, const std::size_t rdx){
 		if(ldx >= drawables_.size() || rdx >= drawables_.size()) return;
 
 		std::swap(drawables_[ldx], drawables_[rdx]);
 	}
 
-	void draw_content_impl(float opacityScl) const{
+	inline void draw_content_impl(float opacityScl) const{
 		auto drawable = get_region();
 		if(!drawable || !drawable->drawable) return;
 		const auto sz = get_expected_size(*drawable->drawable, drawable->style, content_extent());
@@ -114,7 +114,7 @@ protected:
 		drawable->drawable->draw(get_scene().renderer(), math::raw_frect{off, sz}, scl);
 	}
 
-	[[nodiscard]] const styled_drawable* get_region() const noexcept{
+	[[nodiscard]] inline const styled_drawable* get_region() const noexcept{
 		if(current_frame_index_ < drawables_.size()){
 			return &drawables_[current_frame_index_];
 		}
@@ -179,7 +179,7 @@ public:
 
 export
 struct icon_frame : image_frame_single<icon<>>{
-	[[nodiscard]] icon_frame(scene& scene, elem* group, const constant_image_region_borrow& icon_image = {}, const image_display_style& style = {})
+	[[nodiscard]] inline icon_frame(scene& scene, elem* group, const constant_image_region_borrow& icon_image = {}, const image_display_style& style = {})
 	: image_frame_single(scene, group, icon<>{icon_image}, style){
 	}
 
@@ -196,12 +196,12 @@ struct icon_frame : image_frame_single<icon<>>{
 export
 struct row_separator : image_frame_single<drawable_row_patch<component::batch_draw_mode>>{
 public:
-	void set_default_appearance() override{
+	inline void set_default_appearance() override{
 		image_frame_single<drawable_row_patch<component::batch_draw_mode>>::set_default_appearance();
 		set_style_assume_synced();
 	}
 
-	[[nodiscard]] row_separator(
+	[[nodiscard]] inline row_separator(
 		scene& scene, elem* group,
 		const image_row_patch& patch = assets::builtin::get_separator_row_patch(),
 		const image_display_style& style = {align::scale::stretch, align::pos::center})

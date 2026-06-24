@@ -112,15 +112,15 @@ public:
 		uv_coords_[uv_idx_x3] = uvR.v11().x;
 	}
 
-	[[nodiscard]] image_native_handle get_image_view() const noexcept{
+	[[nodiscard]] inline image_native_handle get_image_view() const noexcept{
 		return image_region_->view;
 	}
 
-	[[nodiscard]] auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
+	[[nodiscard]] inline auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_region_->texture_binding();
 	}
 
-	[[nodiscard]] auto texture_binding(
+	[[nodiscard]] inline auto texture_binding(
 		const graphic::sampler_descriptor_index sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_region_->texture_binding(sampler_index);
 	}
@@ -141,13 +141,13 @@ public:
 		return uv_coords_;
 	}
 
-	[[nodiscard]] math::vec2 extent() const noexcept{
+	[[nodiscard]] inline math::vec2 extent() const noexcept{
 		return extent_;
 	}
 
 private:
 
-	[[nodiscard]] std::array<float, 6> calc_sliced_coords(
+	[[nodiscard]] inline std::array<float, 6> calc_sliced_coords(
 		const float major_pos, const float major_size,
 		const float minor_pos, const float minor_size
 	) const noexcept{
@@ -307,7 +307,7 @@ public:
     }
 
 	//TODO return vtx instead
-	[[nodiscard]] std::array<math::fquad, 3> get_regions(math::vec2 src, math::vec2 dst,
+	[[nodiscard]] inline std::array<math::fquad, 3> get_regions(math::vec2 src, math::vec2 dst,
 		float scale = 1.) const noexcept{
 		auto approach = dst - src;
 		auto len = approach.length();
@@ -375,7 +375,7 @@ struct nine_patch_layout{
 		return inner_size + edge.extent();
 	}
 
-	[[nodiscard]] math::vec2 get_size() const noexcept{
+	[[nodiscard]] inline math::vec2 get_size() const noexcept{
 		return inner_size + edge.extent();
 	}
 
@@ -485,11 +485,11 @@ struct image_nine_region : nine_patch_layout{
 		return image_view != nullptr;
 	}
 
-	[[nodiscard]] auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
+	[[nodiscard]] inline auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_view->texture_binding();
 	}
 
-	[[nodiscard]] auto texture_binding(
+	[[nodiscard]] inline auto texture_binding(
 		const graphic::sampler_descriptor_index sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_view->texture_binding(sampler_index);
 	}

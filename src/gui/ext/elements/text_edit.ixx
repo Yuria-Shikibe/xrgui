@@ -100,10 +100,10 @@ protected:
         math::vec2 offset_abs;
         math::vec2 offset_local;
 
-        [[nodiscard]] math::vec2 forward_abs(math::vec2 p) const noexcept{ return p * scale + offset_abs; }
-        [[nodiscard]] math::vec2 forward_local(math::vec2 p) const noexcept{ return p * scale + offset_local; }
+        [[nodiscard]] inline math::vec2 forward_abs(math::vec2 p) const noexcept{ return p * scale + offset_abs; }
+        [[nodiscard]] inline math::vec2 forward_local(math::vec2 p) const noexcept{ return p * scale + offset_local; }
 
-        [[nodiscard]] math::frect forward_abs(const math::frect& r) const noexcept{
+        [[nodiscard]] inline math::frect forward_abs(const math::frect& r) const noexcept{
             math::vec2 p0 = forward_abs(r.vert_00());
             math::vec2 p1 = forward_abs(r.vert_11());
             return math::frect{
@@ -113,7 +113,7 @@ protected:
                 };
         }
 
-        [[nodiscard]] math::frect forward_local(const math::frect& r) const noexcept{
+        [[nodiscard]] inline math::frect forward_local(const math::frect& r) const noexcept{
             math::vec2 p0 = forward_local(r.vert_00());
             math::vec2 p1 = forward_local(r.vert_11());
             return math::frect{
@@ -123,7 +123,7 @@ protected:
                 };
         }
 
-        [[nodiscard]] math::vec2 inverse_local(math::vec2 p) const noexcept{
+        [[nodiscard]] inline math::vec2 inverse_local(math::vec2 p) const noexcept{
             math::vec2 res = p - offset_local;
             if(std::abs(scale.x) > 1e-6f) res.x /= scale.x;
             else res.x = 0.f;
@@ -133,13 +133,13 @@ protected:
         }
     };
 
-	[[nodiscard]] bool is_scrollable_mode() const noexcept {
+	[[nodiscard]] inline bool is_scrollable_mode() const noexcept {
 		return view_mode_ == text_edit_view_type::dyn ||
 			   view_mode_ == text_edit_view_type::align_x ||
 			   view_mode_ == text_edit_view_type::align_y;
 	}
 
-	[[nodiscard]] text_transform_params get_transform_params() const noexcept{
+	[[nodiscard]] inline text_transform_params get_transform_params() const noexcept{
 		const math::vec2 raw_ext = glyph_layout_.extent;
 		const math::vec2 abs_scale = scale_.copy().to_abs() * get_scaling();
 		const math::vec2 trans_ext = raw_ext * abs_scale;
@@ -166,11 +166,11 @@ protected:
 	void apply_paste_text(std::string text);
 	void apply_committed_text(std::u32string text);
 
-	[[nodiscard]] bool has_active_ime_composition() const noexcept{
+	[[nodiscard]] inline bool has_active_ime_composition() const noexcept{
 		return ime_composition_.active;
 	}
 
-	[[nodiscard]] std::u32string_view get_layout_text() const noexcept{
+	[[nodiscard]] inline std::u32string_view get_layout_text() const noexcept{
 		return has_active_ime_composition() ? std::u32string_view{ime_display_text_} : tokenized_text_.get_text();
 	}
 

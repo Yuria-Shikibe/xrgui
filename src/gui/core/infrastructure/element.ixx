@@ -59,11 +59,11 @@ struct cursor_states{
 	bool focused{};
 	bool pressed{};
 
-	void quit_focus() noexcept{
+	inline void quit_focus() noexcept{
 		focused = pressed = false;
 	}
 
-	void update_press(const input_handle::key_set k) noexcept{
+	inline void update_press(const input_handle::key_set k) noexcept{
 		switch(k.action){
 		case input_handle::act::press :
 			pressed = true;
@@ -72,7 +72,7 @@ struct cursor_states{
 		}
 	}
 
-	void update(const float delta_in_ticks) noexcept {
+	inline void update(const float delta_in_ticks) noexcept {
 		constexpr static auto lerp_zero = [](float& v){
 			if(v <  0.0015f)v = 0;
 		};
@@ -102,7 +102,7 @@ struct cursor_states{
 		}
 	}
 
-	bool check_update_exitable() const noexcept{
+	inline bool check_update_exitable() const noexcept{
 		if(inbound || focused || pressed)return false;
 		if(time_inbound > 0.f)return false;
 		if(time_focus > 0.f) [[unlikely]] return false;
@@ -111,7 +111,7 @@ struct cursor_states{
 		return true;
 	}
 
-	[[nodiscard]] float get_factor_of(float cursor_states::* mptr) const noexcept{
+	[[nodiscard]] inline float get_factor_of(float cursor_states::* mptr) const noexcept{
 		return this->*mptr / maximum_duration;
 	}
 };
@@ -144,11 +144,11 @@ private:
 	}
 
 public:
-	[[nodiscard]] explicit(false) elem_wrapper(elem& e) noexcept
+	[[nodiscard]] explicit(false) inline elem_wrapper(elem& e) noexcept
 		: etry({nullptr, &e}){
 	}
 
-	[[nodiscard]] explicit(false) elem_wrapper(elem_span span) noexcept {
+	[[nodiscard]] explicit(false) inline elem_wrapper(elem_span span) noexcept {
 		if(span.empty()){
 			etry = {};
 		}else{
@@ -361,12 +361,12 @@ public:
 
 	void set_default_audio_group_assume_synced();
 
-	void clear_audio_group() noexcept{
+	inline void clear_audio_group() noexcept{
 		assert(is_on_scene_thread(get_scene()));
 		sound_group = {};
 	}
 
-	[[nodiscard]] const sound::asset_group_handle& audio_group() const noexcept{
+	[[nodiscard]] inline const sound::asset_group_handle& audio_group() const noexcept{
 		return sound_group;
 	}
 

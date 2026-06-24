@@ -67,25 +67,25 @@ struct check_box : select_box<2>{
 		react_flow::node_holder_pinned<react_flow::provider_cached<pass_type>> prov_;
 
 protected:
-	void on_selected_val_updated(unsigned value) override{
+	inline void on_selected_val_updated(unsigned value) override{
 		prov_->update_value(value);
 	}
 
 public:
-	void set_default_appearance() override{
+	inline void set_default_appearance() override{
 		select_box<2>::set_default_appearance();
 		set_default_style();
 	}
 
-	react_flow::provider_cached<pass_type>& get_prov() noexcept{
+	inline react_flow::provider_cached<pass_type>& get_prov() noexcept{
 		return prov_.node;
 	}
 
-	[[nodiscard]] check_box(scene& scene, elem* parent)
+	[[nodiscard]] inline check_box(scene& scene, elem* parent)
 		: select_box<2>(scene, parent){
 	}
 
-	[[nodiscard]] check_box(scene& scene, elem* parent, std::in_place_t)
+	[[nodiscard]] inline check_box(scene& scene, elem* parent, std::in_place_t)
 	: select_box<2>(scene, parent){
 	}
 
