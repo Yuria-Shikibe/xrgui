@@ -163,6 +163,15 @@ void cursorPosCallback(glfw::Wptr window, const double xPos, const double yPos){
 }
 
 void cursorEnteredCallback(glfw::Wptr window, const int entered){
+	if(entered != 0){
+		double xPos{};
+		double yPos{};
+		glfwGetCursorPos(window, &xPos, &yPos);
+		push_input_event(window, mo_yanxi::input_handle::raw_input_event{
+			.type = mo_yanxi::input_handle::input_event_type::cursor_move,
+			.cursor = mo_yanxi::math::vector2{xPos, yPos}.as<float>()
+		});
+	}
 	push_input_event(window, mo_yanxi::input_handle::raw_input_event{
 		.type = mo_yanxi::input_handle::input_event_type::cursor_inbound,
 		.is_inbound = entered != 0

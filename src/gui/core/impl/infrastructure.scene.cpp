@@ -246,6 +246,7 @@ events::dispatch_result scene::handle_input_event(const input_handle::input_even
 	}
 	case input_event_type::cursor_inbound:
 		input_handler_.input_inbound(event.is_inbound);
+		request_cursor_update();
 		return events::dispatch_result::handled;
 	case input_event_type::focus_lost:
 		input_handler_.on_focus_lost();

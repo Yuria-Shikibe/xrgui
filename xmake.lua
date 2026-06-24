@@ -103,8 +103,7 @@ local function add_xrgui_core_deps()
 
     add_files("./external/allocator2d/include/mo_yanxi/allocator2d.ixx", {public = true})
     add_files(path.join(magic_enum_dir, "module/magic_enum.cppm"), {
-        public = true,
-        defines = "MAGIC_ENUM_USE_STD_MODULE"
+        public = true
     })
     add_files("./src/**.cpp")
     add_files("./src/**.ixx", {public = true})
@@ -247,8 +246,7 @@ if is_host_project then
         add_includedirs("./external/plf_hive")
         add_includedirs(path.join(magic_enum_dir, "include"), {public = true})
         add_files(path.join(magic_enum_dir, "module/magic_enum.cppm"), {
-            public = true,
-            defines = "MAGIC_ENUM_USE_STD_MODULE"
+            public = true
         })
         add_files("src/util/csv.ixx", {public = true})
         add_files("src/util/double_buffer.ixx", {public = true})
