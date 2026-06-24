@@ -337,6 +337,10 @@ events::dispatch_result scene_input_dispatcher::dispatch_pointer_button(input_ha
 		return control.result();
 	}
 
+	if(a == act::press){
+		state_.set_mouse_capture(c, state_.inputs_.cursor_pos(), mouse_capture_owner::passthrough);
+	}
+
 	return events::dispatch_result::unhandled;
 }
 

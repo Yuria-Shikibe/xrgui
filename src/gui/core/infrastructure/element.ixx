@@ -999,6 +999,14 @@ public:
 		return cursor_states_;
 	}
 
+	/**
+	 *
+	 * @brief generally there is no need to use a mutable cursor state, but just in case...
+	 */
+	[[nodiscard]] FORCE_INLINE inline cursor_states& cursor_state_mut() noexcept{
+		return cursor_states_;
+	}
+
 	[[nodiscard]] FORCE_INLINE inline math::vec2 get_scaling() const noexcept{
 		return context_scaling_ * inherent_scaling_;
 	}
