@@ -144,9 +144,11 @@ protected:
 		file_selector* selector;
 		path path;
 
+		void set_default_appearance() override;
+
 		file_selector& get_file_selector() const noexcept;
 		[[nodiscard]] file_entry(scene& scene, elem* parent, file_selector& selector, file_selector::path&& entry_path);
-		events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override;
+		void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override;
 		bool set_toggled(bool isToggled) override;
 	};
 
@@ -183,6 +185,8 @@ protected:
 	friend struct save_file_name_edit;
 
 public:
+	void set_default_appearance() override;
+
 	[[nodiscard]] file_selector(scene& scene, elem* parent, file_selector_mode mode = file_selector_mode::read);
 	file_selector(const file_selector& other) = delete;
 	file_selector(file_selector&& other) noexcept = delete;

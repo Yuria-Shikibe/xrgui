@@ -12,7 +12,7 @@ export
 class raw_memory_pool {
 public:
 
-    explicit raw_memory_pool(const std::size_t size) : size_(size){
+    inline explicit raw_memory_pool(const std::size_t size) : size_(size){
         if (size > 0) {
             ptr_ = allocate(size);
             if (!ptr_) {
@@ -32,21 +32,21 @@ public:
 
     raw_memory_pool() noexcept = default;
 
-    [[nodiscard]] void* get() const noexcept { return ptr_; }
-    [[nodiscard]] std::size_t size() const noexcept { return size_; }
-    [[nodiscard]] mi_arena_id_t get_arena_id() const noexcept { return arena_id_; }
-    explicit operator bool() const noexcept { return ptr_ != nullptr; }
+    [[nodiscard]] inline void* get() const noexcept { return ptr_; }
+    [[nodiscard]] inline std::size_t size() const noexcept { return size_; }
+    [[nodiscard]] inline mi_arena_id_t get_arena_id() const noexcept { return arena_id_; }
+    inline explicit operator bool() const noexcept { return ptr_ != nullptr; }
 
 private:
     void* ptr_{};
     std::size_t size_{};
     mi_arena_id_t arena_id_{};
 
-    static void* allocate(std::size_t size) {
+    inline static void* allocate(std::size_t size) {
         return platform::reserve_commit_memory(size);
     }
 
-    static void deallocate(void* ptr, std::size_t size) noexcept {
+    inline static void deallocate(void* ptr, std::size_t size) noexcept {
         platform::release_memory(ptr, size);
     }
 };
@@ -60,21 +60,21 @@ public:
 
     [[nodiscard]] heap() = default;
 
-    [[nodiscard]] explicit(false) heap(std::in_place_t)
+    [[nodiscard]] inline explicit(false) heap(std::in_place_t)
         : heap_(::mi_heap_new()){
     }
 
-    [[nodiscard]] explicit(false) heap(mi_heap_t* heap)
+    [[nodiscard]] inline explicit(false) heap(mi_heap_t* heap)
         : heap_(heap){
     }
 
-    [[nodiscard]] explicit heap(mi_arena_id_t arena_id, int /*tag*/ = 0) : heap_(mi_heap_new_in_arena(arena_id)){
+    [[nodiscard]] inline explicit heap(mi_arena_id_t arena_id, int /*tag*/ = 0) : heap_(mi_heap_new_in_arena(arena_id)){
         if(!heap_){
             throw std::bad_alloc();
         }
     }
 
-    ~heap(){
+    inline ~heap(){
         if(heap_){
             mi_heap_destroy(heap_);
         }
@@ -82,13 +82,13 @@ public:
 
     heap(const heap& other) = delete;
 
-    heap(heap&& other) noexcept
+    inline heap(heap&& other) noexcept
         : heap_{std::exchange(other.heap_, {})}{
     }
 
     heap& operator=(const heap& other) = delete;
 
-    heap& operator=(heap&& other) noexcept{
+    inline heap& operator=(heap&& other) noexcept{
         if(this == &other) return *this;
         if(heap_) mi_heap_destroy(heap_);
 
@@ -96,15 +96,15 @@ public:
         return *this;
     }
 
-    explicit operator bool() const noexcept{
+    inline explicit operator bool() const noexcept{
         return heap_ != nullptr;
     }
 
-    [[nodiscard]] mi_heap_t* get() const noexcept{
+    [[nodiscard]] inline mi_heap_t* get() const noexcept{
         return heap_;
     }
 
-    [[nodiscard]] mi_heap_t* release() noexcept{
+    [[nodiscard]] inline mi_heap_t* release() noexcept{
         return std::exchange(heap_, {});
     }
 };
@@ -190,7 +190,7 @@ bool operator==(const aligned_heap_allocator<T1, align1>& x, const aligned_heap_
 }
 
 export
-raw_memory_pool make_memory_pool(std::size_t MB){
+inline raw_memory_pool make_memory_pool(std::size_t MB){
     return raw_memory_pool{MB * 1024 * 1024};
 }
 

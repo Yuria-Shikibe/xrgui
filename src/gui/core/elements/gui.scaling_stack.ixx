@@ -6,13 +6,13 @@ namespace mo_yanxi::gui{
 	using passive_cell_adaptor = cell_adaptor<layout::scaled_cell>;
 
 	export struct scaling_stack : celled_group<passive_cell_adaptor>{
-		[[nodiscard]] scaling_stack(scene& scene, elem* parent)
+		[[nodiscard]] inline scaling_stack(scene& scene, elem* parent)
 			: universal_group<layout::scaled_cell>(scene, parent){
 			layout_state.ignore_children();
 			layout_state.intercept_lower_to_isolated = true;
 		}
 
-		void layout_elem() override{
+		inline void layout_elem() override{
 			for (adaptor_type& cell : cells_){
 				layout_cell(cell);
 			}
@@ -21,12 +21,12 @@ namespace mo_yanxi::gui{
 		}
 
 	protected:
-		void on_element_add(adaptor_type& adaptor) override{
+		inline void on_element_add(adaptor_type& adaptor) override{
 			universal_group::on_element_add(adaptor);
 			layout_cell(adaptor);
 		}
 
-		void layout_cell(adaptor_type& adaptor){
+		inline void layout_cell(adaptor_type& adaptor){
 			const auto bound = content_extent();
 			const auto src = adaptor.cell.region_scale.get_src() * bound;
 

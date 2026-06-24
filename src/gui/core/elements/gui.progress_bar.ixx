@@ -20,7 +20,7 @@ export enum struct progress_state{
     approach_linear,
     approach_scaled,
     approach_smooth,
-    approach_smooth_lerp 
+    approach_smooth_lerp
 };
 
 struct bar_progress{
@@ -36,7 +36,7 @@ private:
 
 public:
     constexpr void set_speed(value_type speed) noexcept{
-       speed_scale = math::max(speed, 0.0f); 
+       speed_scale = math::max(speed, 0.0f);
     }
 
     constexpr bool set_target(value_type target) noexcept{
@@ -58,7 +58,7 @@ public:
 
     constexpr void set_to_target() noexcept{
        current = target;
-       current_speed_ = 0; 
+       current_speed_ = 0;
     }
 
     [[nodiscard]] constexpr progress_state get_state() const noexcept{ return state; }
@@ -94,21 +94,21 @@ public:
        case progress_state::approach_smooth:{
           const auto dist = target - current;
 
-          
+
           if(math::zero(dist, 1e-4f) && math::zero(current_speed_, 1e-3f)){
               current = target;
               current_speed_ = 0.0f;
               return true;
           }
 
-          
+
           auto accel = math::constrain_resolve::smooth_approach(dist, current_speed_, speed_scale);
 
-          
+
           current_speed_ += accel * delta_in_tick;
           const auto delta_pos = current_speed_ * delta_in_tick;
 
-          
+
           if ((dist > 0 && delta_pos >= dist) || (dist < 0 && delta_pos <= dist)) {
               current = target;
               current_speed_ = 0.0f;
@@ -120,7 +120,7 @@ public:
        }
 
        case progress_state::approach_smooth_lerp:{
-          
+
           const auto dist = target - current;
 
           if(math::zero(dist, 1e-4f) && math::zero(current_speed_, 1e-3f)){
@@ -189,7 +189,7 @@ export inline auto make_default_progress_style(){
 struct progress_bar_terminal final : react_flow::terminal<float>{
 	progress_bar* target;
 
-	[[nodiscard]] explicit progress_bar_terminal(progress_bar& target)	: target(std::addressof(target)){
+	[[nodiscard]] inline explicit progress_bar_terminal(progress_bar& target)	: target(std::addressof(target)){
 	}
 
 protected:
@@ -212,11 +212,11 @@ public:
 	bar_progress progress{};
 	progress_draw_config draw_config{};
 
-	[[nodiscard]] progress_bar(scene& scene, elem* parent)
+	[[nodiscard]] inline progress_bar(scene& scene, elem* parent)
 	: elem(scene, parent){
 	}
 
-	progress_bar_terminal& request_receiver(){
+	inline progress_bar_terminal& request_receiver(){
 		if(notifier_){
 			return *notifier_;
 		}
@@ -228,36 +228,36 @@ public:
 public:
 	using elem::set_style;
 
-	[[nodiscard]] const style::target_known_node_ptr<progress_bar>& get_content_style() const noexcept{
+	[[nodiscard]] inline const style::target_known_node_ptr<progress_bar>& get_content_style() const noexcept{
 		return content_style_;
 	}
 
-	void set_style(style::target_known_node_ptr<progress_bar> style){
+	inline void set_style(style::target_known_node_ptr<progress_bar> style){
 		if(util::try_modify(this->content_style_, std::move(style))){
 			get_scene().notify_display_state_changed(get_channel());
 		}
 	}
 
-	void set_progress_target(bar_progress::value_type value){
+	inline void set_progress_target(bar_progress::value_type value){
 		if(progress.set_target(value)){
 			util::update_insert(*this, update_channel::value_approach);
 		}
 	}
 
-	void set_progress_state(progress_state state){
+	inline void set_progress_state(progress_state state){
 		if(progress.set_state(state)){
 			util::update_insert(*this, update_channel::value_approach);
 		}
 	}
 
-	void record_draw_layer(draw_recorder& call_stack_builder) const override{
+	inline void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 		if(style::present(content_style_))record_content_drawer_draw_context(call_stack_builder, [](const progress_bar& s, draw_recorder& r){
 			style::draw_record(s.content_style_, r);
 		});
 	}
 
-	bool update(float delta_in_ticks) override{
+	inline bool update(float delta_in_ticks) override{
 		if(elem::update(delta_in_ticks)){
 			if(progress.update(delta_in_ticks)){
 				util::update_erase(*this, update_channel::value_approach);

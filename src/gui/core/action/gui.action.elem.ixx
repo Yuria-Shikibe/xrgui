@@ -29,27 +29,27 @@ private:
 public:
 	float dst_alpha{};
 
-	[[nodiscard]] alpha_action(const mr::heap_allocator<>& allocator, float lifetime, interp_func_t interpFunc,
+	[[nodiscard]] inline alpha_action(const mr::heap_allocator<>& allocator, float lifetime, interp_func_t interpFunc,
 		float dst_alpha)
 		: action<elem>(allocator, lifetime, interpFunc),
 		dst_alpha(dst_alpha){
 	}
 
-	[[nodiscard]] alpha_action(const mr::heap_allocator<>& allocator, float lifetime, float dst_alpha)
+	[[nodiscard]] inline alpha_action(const mr::heap_allocator<>& allocator, float lifetime, float dst_alpha)
 		: action<elem>(allocator, lifetime),
 		dst_alpha(dst_alpha){
 	}
 
 protected:
-	void apply(elem& elem, const float progress) override{
+	inline void apply(elem& elem, const float progress) override{
 		elem.set_propagate_opacity(math::lerp(initialAlpha, dst_alpha, progress));
 	}
 
-	void begin(elem& elem) override{
+	inline void begin(elem& elem) override{
 		initialAlpha = elem.get_propagate_opacity();
 	}
 
-	void end(elem& elem) override{
+	inline void end(elem& elem) override{
 		elem.set_propagate_opacity(dst_alpha);
 	}
 };
@@ -60,16 +60,16 @@ private:
 	float initialAlpha{};
 public:
 
-	[[nodiscard]] alpha_ctx_fade_in_action(const mr::heap_allocator<>& allocator, float lifetime, float initial, interp_func_t interpFunc)
+	[[nodiscard]] inline alpha_ctx_fade_in_action(const mr::heap_allocator<>& allocator, float lifetime, float initial, interp_func_t interpFunc)
 		: action<elem>(allocator, lifetime, interpFunc){
 	}
 
-	[[nodiscard]] alpha_ctx_fade_in_action(const mr::heap_allocator<>& allocator, float lifetime, float initial = 0)
+	[[nodiscard]] inline alpha_ctx_fade_in_action(const mr::heap_allocator<>& allocator, float lifetime, float initial = 0)
 		: action<elem>(allocator, lifetime), initialAlpha(initial){
 	}
 
 protected:
-	void apply(elem& elem, const float progress) override{
+	inline void apply(elem& elem, const float progress) override{
 		elem.set_propagate_opacity(math::lerp(initialAlpha, 1.f, progress));
 	}
 };

@@ -23,7 +23,6 @@ import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.gui.infrastructure;
 import mo_yanxi.gui.elem.scroll_pane;
 import mo_yanxi.gui.image_regions;
-import align;
 
 namespace svgs{
 MY_PUSH_IGNORE_MODULE_INCLUDE_WARNING
@@ -45,29 +44,9 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 	auto& atlas = image_atlas;
 	auto& page = atlas.create_image_page("ui", {.usage = graphic::image_page_usage::msdf});
 
-	constexpr static math::usize2 extent{96, 96};
-
 	auto& line = load(page, "line", {
 			graphic::msdf::msdf_generator{graphic::msdf::create_capsule(32, 16)},
 			math::usize2{80u, 64u}, 2
-		});
-
-	auto& border = load(page,
-			"edge",
-			graphic::sdf_load{
-				graphic::msdf::msdf_generator{graphic::msdf::create_border(8.f, 2.f)}, extent, 3
-			});
-
-	auto& border_thin = load(page,
-		"edge_thin",
-		graphic::sdf_load{
-			graphic::msdf::msdf_generator{graphic::msdf::create_border(8.f, 1.f)}, extent, 3
-		});
-
-	auto& base = load(page,
-		"base",
-		graphic::sdf_load{
-			graphic::msdf::msdf_generator{graphic::msdf::create_solid_border(8.f)}, extent, 3
 		});
 
 	auto& side_bar = load(page,
@@ -80,14 +59,12 @@ void generate_default_shapes(graphic::image_atlas& image_atlas){
 
 	builtin_page.insert(assets::builtin::shape_id::white, constant_image_region_borrow{});
 	builtin_page.insert(assets::builtin::shape_id::row_separator, line);
-	builtin_page.insert(assets::builtin::shape_id::round_square_edge, border);
-	builtin_page.insert(assets::builtin::shape_id::round_square_edge_thin, border_thin);
-	builtin_page.insert(assets::builtin::shape_id::round_square_base, base);
 	builtin_page.insert(assets::builtin::shape_id::side_bar, side_bar);
 
-	assets::builtin::default_round_square_border = {border, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
-	assets::builtin::default_round_square_border_thin = {border_thin, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
-	assets::builtin::default_round_square_base = {base, align::padding2d<std::uint32_t>{}.set(12).expand(graphic::msdf::sdf_image_border), graphic::msdf::sdf_image_border};
+	assets::round_square::bind_image_page(page);
+	(void) assets::round_square::border();
+	(void) assets::round_square::thin_border();
+	(void) assets::round_square::base();
 
 }
 
@@ -133,8 +110,6 @@ void load_default_icons(graphic::image_atlas& image_atlas){
 }
 
 void dispose_generated_shapes(){
-	assets::builtin::default_round_square_border = {};
-	assets::builtin::default_round_square_border_thin = {};
-	assets::builtin::default_round_square_base = {};
+	assets::round_square::clear();
 }
 }

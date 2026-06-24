@@ -140,8 +140,21 @@ public:
 
 	}
 
+	void reset_active_inputs() noexcept{
+		isInbound = false;
+		main_binds.deactivate();
+		main_binds.activate();
+		for(auto& subInput : subInputs | std::views::values){
+			subInput->deactivate();
+			subInput->activate();
+		}
+	}
+
 	void update(const float delta_in_tick){
-		main_binds.on_push(delta_in_tick);
+		const float safe_delta = delta_in_tick > std::numeric_limits<float>::epsilon()
+			? delta_in_tick
+			: 1.f;
+		main_binds.update(delta_in_tick);
 
 		mouse_velocity_ = cursor_pos_;
 		mouse_velocity_ -= last_cursor_pos_;
@@ -151,7 +164,7 @@ public:
 		for(auto& subInput : subInputs | std::views::values){
 			subInput->inform_input(pos_binding_target::cursor_delta, mouse_velocity_);
 		}
-		mouse_velocity_ /= delta_in_tick;
+		mouse_velocity_ /= safe_delta;
 
 		main_binds.inform_input(pos_binding_target::cursor_velocity, mouse_velocity_);
 		for(auto& subInput : subInputs | std::views::values){

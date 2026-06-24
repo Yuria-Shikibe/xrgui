@@ -150,7 +150,7 @@ struct poly_fringe_at_to_draw{
 	poly instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const{
+	inline void operator()(emit_t emit, auto& sink) const{
 		emit(sink, make_poly_fringe_instr(instr, fringe, edge_position::to));
 	}
 };
@@ -160,7 +160,7 @@ struct poly_fringe_only_draw{
 	poly instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const{
+	inline void operator()(emit_t emit, auto& sink) const{
 		if(is_draw_meaningful(instr.radius.from)){
 			emit(sink, poly_fringe_at_from_draw{instr, fringe});
 		}
@@ -176,7 +176,7 @@ struct poly_draw{
 	poly instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const{
+	inline void operator()(emit_t emit, auto& sink) const{
 		emit(sink, instr);
 		emit(sink, poly_fringe_only_draw{instr, fringe});
 	}
@@ -187,7 +187,7 @@ struct poly_partial_draw{
 	poly_partial instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const{
+	inline void operator()(emit_t emit, auto& sink) const{
 		emit(sink, instr);
 
 		if(is_draw_meaningful(instr.radius.from)){
@@ -207,7 +207,7 @@ struct poly_partial_with_cap_draw{
 	float dst_cap_fringe = fringe_size;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const{
+	inline void operator()(emit_t emit, auto& sink) const{
 		emit(sink, poly_partial_draw{instr, fringe});
 
 		if(is_draw_meaningful(src_cap_fringe)) [[likely]] {
@@ -229,7 +229,7 @@ struct curve_draw{
 	parametric_curve instr;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const{
+	inline void operator()(emit_t emit, auto& sink) const{
 		emit(sink, instr);
 		emit(sink, make_curve_fringe_instr(instr, fringe, stroke_band::outer));
 		emit(sink, make_curve_fringe_instr(instr, fringe, stroke_band::inner));
@@ -285,7 +285,7 @@ struct curve_with_cap_draw{
 	float cap_length_dst = fringe_size;
 	float fringe = fringe_size;
 
-	void operator()(emit_t emit, auto& sink) const{
+	inline void operator()(emit_t emit, auto& sink) const{
 		emit(sink, curve_draw{instr, fringe});
 
 		if(cap_length_src <= 0.0f && cap_length_dst <= 0.0f) return;

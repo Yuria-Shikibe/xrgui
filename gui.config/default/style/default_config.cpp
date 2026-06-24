@@ -42,8 +42,8 @@ mo_yanxi::gui::cfg::builtin::make_style_result mo_yanxi::gui::cfg::builtin::make
 	{
 		auto& manager = scene.style_tree_manager;
 		manager.register_style<slider1d>(style::spec::make_round_slider_style({
-				.handle_shape = assets::builtin::default_round_square_base,
-				.bar_shape = assets::builtin::default_round_square_base,
+				.handle_shape = assets::round_square::base(),
+				.bar_shape = assets::round_square::base(),
 				.handle_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .3f)),
 				.bar_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .3f)),
 				.bar_back_palette = style::make_theme_palette(graphic::colors::ROYAL.create_lerp(graphic::colors::aqua, .3f)),
@@ -62,9 +62,9 @@ mo_yanxi::gui::cfg::builtin::make_style_result mo_yanxi::gui::cfg::builtin::make
 #pragma region ElemStyles
 		{
 			style::spec::create_entry e{
-				.edge = {assets::builtin::default_round_square_border_thin, {pal_front_distributor}},
+				.edge = {assets::round_square::thin_border(), {pal_front_distributor}},
 				.base = {},
-				.back = {assets::builtin::default_round_square_base, {pal_back_distributor}}
+				.back = {assets::round_square::base(), {pal_back_distributor}}
 			};
 
 			auto [itr, rst] = manager.register_style<elem>(style::make_tree_node_ptr(e.make_general()));
@@ -124,7 +124,7 @@ mo_yanxi::gui::cfg::builtin::make_style_result mo_yanxi::gui::cfg::builtin::make
 
 			{
 				auto gst = e;
-				gst.base.patch = {assets::builtin::default_round_square_base};
+				gst.base.patch = {assets::round_square::base()};
 				auto base_pal = gst.back.pal.node.get_value().copy();
 				base_pal.mul_alpha(2.f);
 				gst.base.pal = {base_pal};
@@ -136,7 +136,7 @@ mo_yanxi::gui::cfg::builtin::make_style_result mo_yanxi::gui::cfg::builtin::make
 
 		{
 			style::spec::create_entry e{
-					.base = {assets::builtin::default_round_square_base, {style::pal::pastel_gray.copy().mul_rgb(.3f).mul_alpha(.5f)}},
+					.base = {assets::round_square::base(), {style::pal::pastel_gray.copy().mul_rgb(.3f).mul_alpha(.5f)}},
 				};
 
 			auto&& slice = manager.get_slice<elem>().value();
@@ -219,7 +219,7 @@ void example_scene::draw_impl(rect clip){
 		}
 
 		if((flags & elem_tree_channel::tooltip) != elem_tree_channel{}){
-			auto seq = tooltip_manager_.get_draw_sequence();
+			auto seq = tooltips().get_draw_sequence();
 			call_stack_tooltip_.resize(seq.size());
 			for(auto&& [idx, elem] : seq | std::views::enumerate){
 				draw_recorder rec{call_stack_tooltip_[idx]};
@@ -228,7 +228,7 @@ void example_scene::draw_impl(rect clip){
 		}
 
 		if((flags & elem_tree_channel::overlay) != elem_tree_channel{}){
-			auto seq = overlay_manager_.get_draw_sequence();
+			auto seq = overlays().get_draw_sequence();
 			call_stack_overlay_.resize(seq.size());
 			for(auto&& [idx, elem] : seq | std::views::enumerate){
 				draw_recorder rec{call_stack_overlay_[idx]};
@@ -243,7 +243,7 @@ void example_scene::draw_impl(rect clip){
 	{
 		viewport_guard _{renderer(), get_region()};
 
-		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(),
+		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltips().get_draw_sequence(),
 		                                                           call_stack_tooltip_)){
 			if(!tooltip.belowScene) continue;
 			draw_at(tooltip.element->bound_abs(), stack);
@@ -251,19 +251,19 @@ void example_scene::draw_impl(rect clip){
 
 		draw_at(root().bound_abs(), call_stack_regular_);
 
-		for(const auto& [overlay, stack] : std::ranges::views::zip(overlay_manager_.get_draw_sequence(),
+		for(const auto& [overlay, stack] : std::ranges::views::zip(overlays().get_draw_sequence(),
 		                                                           call_stack_overlay_)){
 			draw_at(overlay->bound_abs(), stack);
 		}
 
-		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltip_manager_.get_draw_sequence(),
+		for(const auto& [tooltip, stack] : std::ranges::views::zip(tooltips().get_draw_sequence(),
 		                                                           call_stack_tooltip_)){
 			if(tooltip.belowScene) continue;
 			draw_at(tooltip.element->bound_abs(), stack);
 		}
 	}
 
-	if(input_handler_.inputs_.is_cursor_inbound()){
+	if(inputs().is_cursor_inbound()){
 		renderer().update_state(fx::pipeline_config{
 				.pipeline_index = gpip::idx::cursor_outline,
 				.draw_targets = {0b1}
@@ -271,7 +271,7 @@ void example_scene::draw_impl(rect clip){
 
 		renderer().update_state(fx::push_constant{1.f});
 
-		auto region = current_cursor_drawers_.draw(*this, resources_->cursor_collection_manager.get_cursor_size());
+		auto region = draw_cursor();
 
 		renderer().update_state(fx::blit_config{
 				{

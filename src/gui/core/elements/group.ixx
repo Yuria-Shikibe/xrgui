@@ -5,6 +5,7 @@ module;
 export module mo_yanxi.gui.elem.group;
 
 import mo_yanxi.gui.infrastructure;
+import mo_yanxi.gui.elem_containers;
 import std;
 
 namespace mo_yanxi::gui{
@@ -24,12 +25,12 @@ public:
 	};
 
 protected:
-	mr::heap_vector<elem_ptr> expired_{get_heap_allocator<elem_ptr>()};
-	mr::heap_vector<elem_ptr> children_{get_heap_allocator<elem_ptr>()};
+	elem_vector expired_{get_heap_allocator<elem*>()};
+	elem_vector children_{get_heap_allocator<elem*>()};
 	overflowed_state overflowed_state_{overflowed_state::fully_wrapped};
 
 	void layout_children() const{
-		for(const auto& element : children_){
+		for(auto* element : children_){
 			element->try_layout();
 		}
 	}
@@ -78,10 +79,9 @@ public:
 	virtual void erase_afterward(std::size_t where){
 		assert(where < exposed_children().size());
 
-		const auto itr = children_.begin() + where;
-		(*itr)->detach_from_scene_recursively();
-		expired_.push_back(std::move(*itr));
-		children_.erase(itr);
+		auto p = children_.extract(where);
+		p->detach_from_scene_recursively();
+		expired_.push_back(std::move(p));
 
 		notify_layout_changed_on_element_change();
 	}
@@ -89,8 +89,7 @@ public:
 	virtual void erase_instantly(std::size_t where){
 		assert(where < exposed_children().size());
 
-		const auto itr = children_.begin() + where;
-		children_.erase(itr);
+		children_.erase(where);
 
 		notify_layout_changed_on_element_change();
 	}
@@ -102,7 +101,7 @@ public:
 		}
 
 		auto& e = *elem;
-		auto rst = std::exchange(children_[where], std::move(elem));
+		auto rst = children_.exchange(where, std::move(elem));
 		if(force_isolated_notify){
 			notify_isolated_layout_changed();
 		} else{
@@ -126,7 +125,7 @@ public:
 #pragma region Add
 public:
 	virtual elem& insert(std::size_t where, elem_ptr&& elemPtr){
-		elem& e = **children_.insert(children_.begin() + std::min<std::size_t>(where, children_.size()), std::move(elemPtr));
+		elem& e = children_.insert(std::min<std::size_t>(where, children_.size()), std::move(elemPtr));
 		e.set_parent(this);
 		notify_layout_changed_on_element_change();
 		on_element_add(e);
@@ -150,12 +149,12 @@ public:
 #pragma region Override
 public:
 	[[nodiscard]] elem_span exposed_children() const noexcept override{
-		return {children_, elem_ptr::cvt_mptr};
+		return children_.as_span();
 	}
 
 	bool update_abs_src(math::vec2 parent_content_src) noexcept override{
 		if(elem::update_abs_src(parent_content_src)){
-			for (const auto & child : children_){
+			for(auto* child : children_){
 				child->update_abs_src(content_src_pos_abs());
 			}
 
@@ -261,15 +260,19 @@ public:
 
 	template <std::derived_from<elem> Ty = elem, bool unchecked = false>
 	[[nodiscard]] Ty& at(const std::size_t index) const noexcept(unchecked || std::same_as<Ty, elem>){
-		return elem_cast<Ty, unchecked>(*children_.at(index));
+		return elem_cast<Ty, unchecked>(*children_[index]);
 	}
 
-	decltype(children_)::iterator find(elem* elem) noexcept{
-		return std::ranges::find(children_, elem, &elem_ptr::get);
+	std::vector<elem*>::const_iterator find(elem* e) const noexcept{
+		return std::ranges::find(children_, e);
 	}
 
-	std::size_t find_index(elem* elem) noexcept{
-		return std::ranges::distance(children_.begin(), find(elem));
+	std::vector<elem*>::iterator find(elem* e) noexcept{
+		return std::ranges::find(children_, e);
+	}
+
+	std::size_t find_index(elem* e) noexcept{
+		return std::ranges::distance(children_.begin(), find(e));
 	}
 #pragma endregion
 

@@ -19,22 +19,22 @@ import :elem_ptr;
 import :tooltip_manager;
 import :dialog_manager;
 import :cursor;
-import :elem_async_task;
+import :async_task;
 import :object_pool;
 import :flags;
+import :scene_input;
 import std;
 import mo_yanxi.gui.renderer.frontend;
 import mo_yanxi.handle_wrapper;
 import mo_yanxi.math.rect_ortho;
 import mo_yanxi.concurrent.mpsc_double_buffer;
-import mo_yanxi.concurrent.mpsc_queue;
-import mo_yanxi.heterogeneous;
-import mo_yanxi.circular_queue;
-import mo_yanxi.log;
+import mo_yanxi.audio;
+import mo_yanxi.thread_pool;
 
 export import mo_yanxi.gui.util;
-export import mo_yanxi.gui.util.task_queue;
 export import mo_yanxi.gui.style.tree.manager;
+export import mo_yanxi.gui.sound.manager;
+export import mo_yanxi.audio;
 
 export import mo_yanxi.input_handle;
 export import mo_yanxi.input_handle.input_event_queue;
@@ -44,10 +44,9 @@ export import mo_yanxi.gui.fx.config;
 export import mo_yanxi.react_flow;
 export import mo_yanxi.i18n.text_tree.react_flow;
 
-import mo_yanxi.allocator_aware_unique_ptr;
 import mo_yanxi.flat_set;
 import mo_yanxi.fixed_vector;
-import mo_yanxi.call_stream;
+import mo_yanxi.double_buffer;
 
 namespace mo_yanxi::gui{
 std::thread::id exchange_scene_thread(scene& s, std::thread::id id);
@@ -58,6 +57,11 @@ export struct ui_manager;
 export struct elem;
 
 export using i18n_text_root_node = mo_yanxi::i18n::i18n_text_root_node;
+
+namespace util{
+void update_insert(elem& e, update_channel channel);
+void update_erase(const elem& e, update_channel channel);
+}
 
 /**
  * @brief Tracks element count per altitude level with O(1) max query.
@@ -75,7 +79,7 @@ public:
 	explicit layer_altitude_record(const mr::heap_allocator<unsigned>& alloc) : records_(alloc) {
 	}
 
-	void insert(altitude_t alt, unsigned count = 1) {
+	inline void insert(altitude_t alt, unsigned count = 1) {
 		if(alt >= records_.size()){
 			records_.resize(alt + 1);
 		}
@@ -85,7 +89,7 @@ public:
 		}
 	}
 
-	void erase(altitude_t alt, unsigned count = 1) noexcept {
+	inline void erase(altitude_t alt, unsigned count = 1) noexcept {
 		if(alt >= records_.size()){
 			return;
 		}
@@ -97,68 +101,18 @@ public:
 		}
 	}
 
-	altitude_t get_max() const noexcept {
+	inline altitude_t get_max() const noexcept {
 		return max_used_;
 	}
 };
 
-template <typename T>
-struct double_buffer{
-private:
-	bool cur{};
-	T buf_[2]{};
-public:
-
-	constexpr double_buffer() = default;
-
-	template <typename ...Args>
-		requires (std::constructible_from<T, const Args&...>)
-	constexpr explicit double_buffer(const Args& ...args) : buf_{T(args...), T(args...)}{
-
-	}
-
-	template <typename S>
-	constexpr auto&& get_cur(this S&& self) noexcept{
-		return std::forward_like<S>(self.buf_[self.cur]);
-	}
-
-	void clear() noexcept{
-		buf_[0].clear();
-		buf_[1].clear();
-	}
-
-	template <typename S>
-	constexpr auto&& get_bak(this S&& self) noexcept{
-		return std::forward_like<S>(self.buf_[!self.cur]);
-	}
-
-	constexpr void swap() noexcept{
-		cur = !cur;
-	}
-
-	constexpr void swap_internal() noexcept{
-		std::ranges::swap(buf_[0], buf_[1]);
-	}
-};
-
 export
-/**
- * @brief One-shot request object used by native clipboard implementations.
- *
- * Window-thread code receives this object, obtains the clipboard text, then
- * calls `std::move(request).set_value(text)`. The completion is routed back to
- * the GUI scene through an owner-bound callback.
- */
-struct native_clipboard_request{
-	std::move_only_function<void(std::string)> complete{};
-
-	void set_value(std::string text) &&{
-		if(!complete){
-			throw std::runtime_error{"native clipboard request completed without a receiver"};
-		}
-		std::invoke(std::move(complete), std::move(text));
-	}
-};
+template <typename T, std::derived_from<elem> E, typename ValueFn, typename ErrorFn = std::nullptr_t, typename CancelFn = std::nullptr_t>
+[[nodiscard]] async_reply<T> make_gui_reply(
+	E& owner,
+	ValueFn&& value_fn,
+	ErrorFn&& error_fn = nullptr,
+	CancelFn&& cancel_fn = nullptr);
 
 export
 /**
@@ -179,7 +133,7 @@ struct native_communicator{
 	 * Fire-and-forget operations may be called from the GUI thread; backend
 	 * implementations decide how to dispatch to the native window thread.
 	 */
-	void set_clipboard(std::string text){
+	inline void set_clipboard(std::string text){
 		set_clipboard_impl(std::move(text));
 	}
 
@@ -190,19 +144,19 @@ struct native_communicator{
 	 * capture raw element pointers in the callback; use the owner parameter.
 	 */
 	template <typename E, typename Fn>
-	void request_clipboard(E& owner, Fn&& on_ready);
+	async_operation_handle request_clipboard(E& owner, Fn&& on_ready);
 
 	/**
 	 * @brief Enable or disable native IME composition support.
 	 */
-	virtual void set_ime_enabled(bool enabled){
+	inline virtual void set_ime_enabled(bool enabled){
 
 	}
 
 	/**
 	 * @brief Report the caret rectangle for native IME candidate placement.
 	 */
-	virtual void set_ime_cursor_rect(const math::raw_frect region){
+	inline virtual void set_ime_cursor_rect(const math::raw_frect region){
 
 	}
 
@@ -226,90 +180,16 @@ public:
 
 	}
 
-	//TODO sound interface
-};
-
-enum struct mouse_capture_owner : std::uint8_t{
-	none,
-	ui,
-	passthrough
-};
-
-struct mouse_state{
-	math::optional_vec2<float> src{math::nullopt_vec2<float>};
-	mouse_capture_owner owner{mouse_capture_owner::none};
-
-	void reset(const math::vec2 pos, const mouse_capture_owner owner_value) noexcept{
-		src = pos;
-		owner = owner_value;
+	void begin_shutdown() noexcept{
+		begin_shutdown_impl();
 	}
 
-	void clear() noexcept{
-		src.reset();
-		owner = mouse_capture_owner::none;
-	}
-
-	[[nodiscard]] constexpr bool is_ui_owned() const noexcept{
-		return src.has_value() && owner == mouse_capture_owner::ui;
-	}
-
-	[[nodiscard]] constexpr bool is_passthrough_owned() const noexcept{
-		return src.has_value() && owner == mouse_capture_owner::passthrough;
-	}
-
-	constexpr explicit operator bool() const noexcept{
-		return src.has_value();
+protected:
+	virtual void begin_shutdown_impl() noexcept{
 	}
 };
 
-struct native_gui_callback_entry{
-	elem_ref<> owner{};
-	std::move_only_function<void(elem&)> callback{};
-
-	void exec(){
-		if(!callback){
-			throw std::runtime_error{"native GUI callback entry is empty"};
-		}
-		if(!owner){
-			throw std::runtime_error{"native GUI callback entry has no owner"};
-		}
-		if(auto* live_owner = owner.get_live()){
-			std::invoke(std::move(callback), *live_owner);
-		}
-	}
-};
-
-struct native_gui_callback_state{
-private:
-	using container = mr::heap_vector<native_gui_callback_entry>;
-	ccur::mpsc_double_buffer<native_gui_callback_entry, container> callbacks_{};
-	std::atomic_bool stopped_{false};
-
-public:
-	[[nodiscard]] explicit native_gui_callback_state(const container::allocator_type& alloc)
-		: callbacks_(alloc){
-	}
-
-	void post(native_gui_callback_entry&& entry){
-		if(stopped_.load(std::memory_order_acquire)){
-			throw std::runtime_error{"native GUI callback state is stopped"};
-		}
-		callbacks_.emplace(std::move(entry));
-	}
-
-	void consume(){
-		if(auto callbacks = callbacks_.fetch()){
-			for(auto&& callback : *callbacks){
-				callback.exec();
-			}
-		}
-	}
-
-	void stop() noexcept{
-		stopped_.store(true, std::memory_order_release);
-		callbacks_.clear();
-	}
-};
+struct scene_shared_resources;
 
 export
 /**
@@ -320,7 +200,7 @@ export
  * resource managers is intended from the scene/UI thread.
  */
 struct scene_resources{
-	friend scene_base;
+	friend scene_shared_resources;
 	friend scene;
 private:
 	mr::heap heap{};
@@ -331,14 +211,17 @@ public:
 	any_pool<false, mr::unvs_allocator<std::byte>> object_pool{};
 
 	UI_MAIN_THREAD_ACCESS_ONLY style::style_tree_manager style_tree_manager{};
+	UI_MAIN_THREAD_ACCESS_ONLY sound::manager sound_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY cursor_collection cursor_collection_manager{};
 	UI_MAIN_THREAD_ACCESS_ONLY react_flow::node_holder_pinned<i18n_text_root_node> i18n_prov{};
+
+	UI_MAIN_THREAD_ACCESS_ONLY audio::audio_channel audio_channel_;
 
 	/**
 	 * @brief Install the backend communicator used by GUI elements.
 	 *
 	 * For GLFW this is normally called during scene setup with the native window
-	 * handle and the window-thread dispatcher.
+	 * handle and the window-thread output queue.
 	 */
 	template <std::derived_from<native_communicator> Ty, typename ...Args>
 	void set_native_communicator(Args&& ...args){
@@ -346,19 +229,33 @@ public:
 			mr::heap_allocator<native_communicator>{heap.get()}, std::forward<Args>(args)...);
 	}
 
+	[[nodiscard]] audio::audio_channel& audio_channel() noexcept{
+		return audio_channel_;
+	}
+
+	[[nodiscard]] const audio::audio_channel& audio_channel() const noexcept{
+		return audio_channel_;
+	}
+
 	template <typename Target, std::invocable<Target&, std::string_view> ApplyFn>
 	decltype(auto) bind_i18n(i18n::text_subscription&& subscription, Target& tgt, ApplyFn&& fn) noexcept{
 		return i18n::bind_i18n_text(i18n_prov.node, tgt, std::move(subscription), std::forward<ApplyFn>(fn));
 	}
 
-	[[nodiscard]] scene_resources() = default;
+	scene_resources() = delete;
 
-	[[nodiscard]] explicit scene_resources(mr::heap&& heap)
-		: heap(std::move(heap)), style_tree_manager(init_style_tree_manager_()){
+	[[nodiscard]] explicit scene_resources(audio::audio_channel audio_channel)
+		: audio_channel_(audio_channel){
 	}
 
-	[[nodiscard]] explicit scene_resources(mr::arena_id_t arena_id)
-		: scene_resources{mr::heap{arena_id}}{
+	[[nodiscard]] scene_resources(audio::audio_channel audio_channel, mr::heap&& heap)
+		: heap(std::move(heap)),
+		  style_tree_manager(init_style_tree_manager_()),
+		  audio_channel_(audio_channel){
+	}
+
+	[[nodiscard]] scene_resources(audio::audio_channel audio_channel, mr::arena_id_t arena_id)
+		: scene_resources{audio_channel, mr::heap{arena_id}}{
 	}
 };
 
@@ -394,258 +291,12 @@ public:
 	}
 };
 
-enum struct input_key_result{
-	intercepted,
-	fall_through,
-	esc_required
-};
-
-struct input{
-	struct cursor_update_result{
-		events::op_afterwards op;
-		style::cursor_style style;
-	};
-	std::array<mouse_state, std::to_underlying(input_handle::mouse::Count)> mouse_states_{};
-	input_handle::input_manager<scene&> inputs_{};
-	double_buffer<mr::heap_vector<elem*>> inbounds_{};
-	linear_flat_set<mr::heap_vector<elem*>> cursor_event_active_elems_{};
-
-	elem* focus_scroll{nullptr};
-	elem* focus_cursor{nullptr};
-	elem* focus_key{nullptr};
-	elem* last_inbound_click{nullptr};
-
-	bool request_cursor_update_{};
-
-	explicit input(const mr::heap_allocator<elem*>& alloc) :
-		inbounds_{alloc}, cursor_event_active_elems_{alloc} {
-	}
-
-	void update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manager& tooltip) noexcept;
-
-	void drop_event_focus(const elem* target) noexcept{
-		if(focus_scroll == target)focus_scroll = nullptr;
-		if(focus_cursor == target)focus_cursor = nullptr;
-		if(focus_key == target)focus_key = nullptr;
-		if(last_inbound_click == target)last_inbound_click = nullptr;
-	}
-
-	void drop_elem(const elem* target) noexcept{
-		drop_event_focus(target);
-		std::erase(inbounds_.get_bak(), target);
-		std::erase(inbounds_.get_cur(), target);
-		cursor_event_active_elems_.erase(const_cast<elem*>(target));
-	}
-
-	void request_cursor_update() noexcept{
-		request_cursor_update_ = true;
-	}
-
-	void overwrite_last_inbound_click_quiet(elem* elem) noexcept{
-		last_inbound_click = elem;
-	}
-
-	void input_inbound(bool is_inbound){
-		inputs_.set_inbound(is_inbound);
-	}
-
-	[[nodiscard]] std::span<elem * const> get_inbounds() const noexcept{
-		return inbounds_.get_cur();
-	}
-
-	[[nodiscard]] bool is_mouse_pressed() const noexcept{
-		return std::ranges::any_of(mouse_states_, &mouse_state::operator bool);
-	}
-
-	[[nodiscard]] bool is_mouse_pressed(input_handle::mouse mouse_button_code) const noexcept{
-		return mouse_states_[std::to_underlying(mouse_button_code)] ? true : false;
-	}
-
-	[[nodiscard]] bool has_passthrough_mouse_capture() const noexcept{
-		return std::ranges::any_of(mouse_states_, &mouse_state::is_passthrough_owned);
-	}
-
-	math::vec2 get_cursor_pos() const noexcept{
-		return inputs_.cursor_pos();
-	}
-
-
-	void switch_key_focus(elem* element);
-	void try_swap_focus();
-	void swap_focus(elem* newFocus);
-
-	input_key_result on_key_input(input_handle::key_set key);
-
-	events::op_afterwards on_unicode_input(char32_t val) const;
-	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) const;
-	events::op_afterwards on_scroll(math::vec2 scroll) const;
-	events::op_afterwards on_mouse_input(input_handle::key_set k);
-
-	void update_inbounds();
-
-	cursor_update_result update_cursor(overlay_manager& overlays, tooltip::tooltip_manager& tooltips, elem& scene_root);
-
-	style::cursor_style get_cursor_style(math::vec2 cursor_local_pos) const;
-
-	style::cursor_style get_cursor_style() const;
-};
-
-struct scene_deleter{
-	static void operator()(scene* ptr) noexcept;;
-};
-
-struct async_async_task_queue{
-	using elem_async_task_ptr = allocator_aware_poly_unique_ptr<basic_elem_async_task, mr::heap_allocator<basic_elem_async_task>>;
-
-private:
-	ccur::mpsc_queue<elem_async_task_ptr, std::deque<
-			elem_async_task_ptr, mr::heap_allocator<elem_async_task_ptr>
-		>> element_async_tasks_pending_{};
-	mr::heap_allocator<basic_elem_async_task> task_allocator_{};
-
-	std::atomic<basic_elem_async_task*> current_done_task_{};
-	std::deque<elem_async_task_runtime_state> task_runtime_states_{};
-	std::unique_ptr<scene, scene_deleter> forked_scene_{};
-	std::jthread element_async_task_thread_{};
-
-public:
-	[[nodiscard]] async_async_task_queue(const mr::heap_allocator<elem_async_task_ptr>& alloc,
-	                                     std::unique_ptr<scene, scene_deleter>&& scene)
-		:
-		element_async_tasks_pending_(alloc),
-		task_allocator_(alloc),
-		forked_scene_((assert(scene != nullptr), std::move(scene))),
-		element_async_task_thread_([this](std::stop_token&& stop_token){
-			exchange_scene_thread(*forked_scene_, std::this_thread::get_id());
-			elem_async_tasks_process(std::move(stop_token));
-		}){
-	}
-
-	[[nodiscard]] std::jthread& get_element_async_task_thread() noexcept{
-		return element_async_task_thread_;
-	}
-
-	~async_async_task_queue(){
-		for(auto& state : task_runtime_states_){
-			state.stop_source.request_stop();
-			state.active.store(false, std::memory_order_release);
-		}
-		element_async_task_thread_.request_stop();
-		element_async_tasks_pending_.notify();
-
-		current_done_task_.store(nullptr, std::memory_order_relaxed);
-		current_done_task_.notify_one();
-
-		if(element_async_task_thread_.joinable()
-			&& element_async_task_thread_.get_id() != std::this_thread::get_id()){
-			element_async_task_thread_.join();
-		}
-		element_async_tasks_pending_.clear();
-		current_done_task_.store(nullptr, std::memory_order_relaxed);
-		exchange_scene_thread(*forked_scene_, std::this_thread::get_id());
-	}
-
-private:
-	static void log_async_task_exception(std::exception_ptr exception){
-		if(exception == nullptr){
-			return;
-		}
-		try{
-			std::rethrow_exception(std::move(exception));
-		}catch(const std::exception& e){
-			log::error({"GUI"}, "elem async task failed: {}", e.what());
-		}catch(...){
-			log::error({"GUI"}, "elem async task failed with an unknown exception");
-		}
-	}
-
-	[[nodiscard]] elem_async_task_runtime_state& create_task_runtime_state(){
-		auto& state = task_runtime_states_.emplace_back();
-		state.progress_current.store(0u, std::memory_order_release);
-		state.progress_total.store(0u, std::memory_order_release);
-		state.active.store(true, std::memory_order_release);
-		return state;
-	}
-
-	void elem_async_tasks_process(std::stop_token stop_token){
-		while(!stop_token.stop_requested()){
-			auto task = element_async_tasks_pending_.consume([&] noexcept {
-				return stop_token.stop_requested();
-			});
-
-			if(task){
-				(*task)->process(*forked_scene_);
-				auto addr = std::to_address(*task);
-				current_done_task_.store(addr, std::memory_order_release);
-				if(stop_token.stop_requested())break;
-				current_done_task_.wait(addr, std::memory_order_relaxed);
-			}
-		}
-	}
-
-public:
-	void process_done(){
-		if(auto elem_async_task = current_done_task_.load(std::memory_order_acquire)){
-			auto thread = std::this_thread::get_id();
-			auto last = exchange_scene_thread(*forked_scene_, thread);
-			std::exception_ptr ui_exception{};
-			try{
-				elem* owner = elem_async_task->owner();
-				if(owner != nullptr && !elem_async_task->stop_requested()){
-					if(elem_async_task->has_exception()){
-						if(!elem_async_task->on_error(*owner, *forked_scene_, elem_async_task->exception())){
-							log_async_task_exception(elem_async_task->exception());
-						}
-					}else{
-						elem_async_task->on_done(*owner, *forked_scene_);
-					}
-				}else if(elem_async_task->has_exception()){
-					log_async_task_exception(elem_async_task->exception());
-				}
-			}catch(...){
-				ui_exception = std::current_exception();
-			}
-			elem_async_task->mark_finished();
-			exchange_scene_thread(*forked_scene_, last);
-			current_done_task_.store(nullptr, std::memory_order_relaxed);
-			current_done_task_.notify_one();
-			if(ui_exception != nullptr){
-				std::rethrow_exception(ui_exception);
-			}
-		}
-	}
-
-	void cancel_owner(const elem* owner) noexcept{
-		(void)owner;
-	}
-
-	template <std::derived_from<elem> E, std::invocable<E&> Prov>
-	elem_async_task_handle post(E& e, Prov&& prov){
-		using task_type = std::decay_t<std::invoke_result_t<Prov&&, E&>>;
-		static_assert(std::derived_from<task_type, basic_elem_async_task>);
-		auto task = std::invoke_r<task_type>(std::forward<Prov>(prov), e);
-		elem_ref<> owner_ref{e};
-		elem_async_task_runtime_state* task_runtime_state{};
-		try{
-			task_runtime_state = std::addressof(this->create_task_runtime_state());
-			task.bind_async_owner(std::move(owner_ref), elem_ref_access::stop_token(std::addressof(e)), *task_runtime_state);
-			element_async_tasks_pending_.push(
-				mo_yanxi::make_allocate_aware_poly_unique<task_type, basic_elem_async_task>(
-					task_allocator_, std::move(task)));
-		}catch(...){
-			if(task_runtime_state != nullptr){
-				task_runtime_state->active.store(false, std::memory_order_release);
-			}
-			throw;
-		}
-		return elem_async_task_handle{*task_runtime_state};
-	}
-};
-
 }
 
 struct scene_shared_resources{
-protected:
+	friend scene;
+
+private:
 	scene_resources* resources_{};
 	UI_MAIN_THREAD_ACCESS_ONLY rect region_{};
 
@@ -664,38 +315,50 @@ public:
 		return region_.extent();
 	}
 
-
-};
-
-struct scene_base : scene_shared_resources{
-	friend elem;
-	friend ui_manager;
-
-protected:
-
+private:
 	[[nodiscard]] mr::heap_handle get_heap() const noexcept{
 		return resources_->heap.get();
 	}
+
 
 public:
 	template <typename T = std::byte>
 	[[nodiscard]] mr::heap_allocator<T> get_heap_allocator() const noexcept {
 		return mr::heap_allocator<T>{get_heap()};
 	}
+};
+
+export
+/**
+ * @brief Main retained GUI scene.
+ *
+ * A scene owns the element tree root, input focus state, update queues, overlay
+ * and tooltip managers, react-flow graph, and the renderer frontend used by GUI
+ * drawing. Public methods that mutate GUI state assert the scene/UI thread.
+ */
+struct scene : scene_shared_resources{
+	friend elem;
+	friend elem_ptr;
+	friend ui_manager;
+	friend native_communicator;
+	friend struct react_flow_create_access;
+	friend struct scene_submodule::scene_deleter;
+	friend struct scene_submodule::forked_scene_worker;
+	friend std::thread::id exchange_scene_thread(scene& s, std::thread::id id);
+	friend bool is_on_scene_thread(const scene& scene) noexcept;
+	friend void util::update_insert(elem& e, update_channel channel);
+	friend void util::update_erase(const elem& e, update_channel channel);
 
 private:
 	UI_MAIN_THREAD_ACCESS_ONLY UI_TRANSIENT renderer_frontend renderer_{};
-
-public:
 	std::thread::id ui_main_thread_id{std::this_thread::get_id()};
 
-private:
 #ifdef SCENE_REFERENCE_COUNT_CHECK
 	UI_TRANSIENT std::size_t element_on_this_scene_{};
 	struct check_on_destruction{
-		scene_base* scene_base{nullptr};
+		scene* scene{nullptr};
 		~check_on_destruction(){
-			assert(scene_base->element_on_this_scene_ == 0);
+			assert(scene->element_on_this_scene_ == 0);
 		}
 	} check_on_destruction_{this};
 
@@ -714,30 +377,36 @@ private:
 #endif
 	}
 
-protected:
-
 	FORCE_INLINE inline void check_ref_count_zero_() noexcept{
 #ifdef SCENE_REFERENCE_COUNT_CHECK
 		assert(element_on_this_scene_ == 0);
 #endif
 	}
 
-public:
+	[[nodiscard]] bool accepts_gui_tasks_() const noexcept{
+		return accepting_gui_tasks_.load(std::memory_order_acquire);
+	}
+
+	[[nodiscard]] async_operation_state_ptr create_async_operation_state(){
+		if(!async_operation_state_pool_){
+			throw std::runtime_error{"scene async operation state pool is unavailable"};
+		}
+		return async_operation_state_pool_->create_operation();
+	}
 
 	UI_TRANSIENT unsigned long long current_frame_{};
 	UI_TRANSIENT double current_time_{};
 
-protected:
 	UI_TRANSIENT elem_tree_channel display_state_changed_channel_{};
 
 
-	UI_MERGE_ON_JOIN associated_async_sync_task_queue<elem> instant_task_queue_{get_heap_allocator()};
 	UI_MERGE_ON_JOIN scene_submodule::action_queue action_queue_{get_heap_allocator()};
 
-	std::unique_ptr<scene_submodule::async_async_task_queue> async_task_queue_{};
-	UI_TRANSIENT scene_submodule::input input_handler_{get_heap_allocator()};
+	async_operation_state_pool_ptr async_operation_state_pool_{std::in_place, get_heap_allocator()};
+	std::unique_ptr<scene_submodule::forked_scene_worker> forked_scene_worker_{};
+	thread_pool worker_pool_{};
+	UI_TRANSIENT scene_submodule::input_state input_handler_{get_heap_allocator()};
 
-private:
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY double_buffer<linear_flat_set<mr::heap_vector<elem*>>> independent_layouts_{mr::heap_allocator<elem*>{get_heap_allocator()}};
 
 #pragma region Updates
@@ -765,17 +434,12 @@ private:
 		friend constexpr bool operator==(const update_entry& s, const gui::elem* o) noexcept{
 			return s.elem == o;
 		}
-
-		friend constexpr bool operator==(const gui::elem* o, const update_entry& s) noexcept{
-			return s.elem == o;
-		}
 	};
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY linear_flat_set<mr::heap_vector<update_entry>> active_update_elems_{get_heap_allocator()};
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY mr::heap_vector<update_entry> active_update_elems_state_changes{get_heap_allocator()};
 
 #pragma endregion
 
-protected:
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY react_flow::manager react_flow_{};
 
 	UI_MERGE_ON_JOIN UI_MAIN_THREAD_ACCESS_ONLY std::unordered_multimap<
@@ -784,46 +448,46 @@ protected:
 		mr::heap_allocator<std::pair<const elem* const, react_flow::node*>>>
 	elem_owned_nodes_{get_heap_allocator()};
 
-private:
-	UI_MERGE_ON_JOIN fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_communicate_async_task_queues_{};
-	async_sync_task_queue<scene&> input_communicate_async_task_queue_{get_heap_allocator()};
-	std::shared_ptr<native_gui_callback_state> native_gui_callbacks_{
-		std::make_shared<native_gui_callback_state>(get_heap_allocator<native_gui_callback_entry>())
-	};
+#pragma region FastAsyncPath
+	UI_MERGE_ON_JOIN fixed_vector<call_stream_task_queue, mr::heap_allocator<call_stream_task_queue>> output_channels_{};
+	async_sync_task_queue<scene&> gui_inbox_{get_heap_allocator()};
+	std::atomic_bool accepting_gui_tasks_{true};
+#pragma endregion
 
+#pragma region ElemLifeCycle
 	struct retired_elem_record{
 		elem* element{};
 	};
 
 	mr::heap_vector<retired_elem_record> retired_elements_{get_heap_allocator<retired_elem_record>()};
+#pragma endregion
 
-protected:
 	UI_TRANSIENT tooltip::tooltip_manager tooltip_manager_{get_heap_allocator()};
 	UI_TRANSIENT overlay_manager overlay_manager_{get_heap_allocator()};
 	UI_TRANSIENT cursor_drawer current_cursor_drawers_{};
 	UI_TRANSIENT layer_altitude_record layer_altitude_record_{get_heap_allocator<unsigned>()};
 	elem* scene_root_{};
 
-	[[nodiscard]] scene_base() = default;
+	[[nodiscard]] scene() = default;
 
-	explicit(false) scene_base(scene_resources& resources, renderer_frontend&& renderer);
+public:
+	explicit(false) scene(scene_resources& resources, renderer_frontend&& renderer);
 
-	~scene_base(){
-		native_gui_callbacks_->stop();
-		async_task_queue_ = nullptr;
-		input_communicate_async_task_queue_.clear();
-		instant_task_queue_.clear();
+	virtual ~scene(){
+		begin_shutdown();
+		forked_scene_worker_ = nullptr;
 		tooltip_manager_.clear();
 		overlay_manager_.clear();
 		collect_retired_elements();
 		assert(retired_elements_.empty() && "scene destroyed while retired elements are still externally referenced");
 	}
 
-public:
-
-	[[nodiscard]] explicit scene_base(const scene_shared_resources& resources)
+protected:
+	[[nodiscard]] explicit scene(const scene_shared_resources& resources)
 		: scene_shared_resources(resources){
 	}
+
+public:
 
 	template <std::derived_from<elem> T = elem, bool unchecked = false>
 	T& root(){
@@ -835,31 +499,74 @@ public:
 		}
 	}
 
-	std::size_t get_output_communicate_async_task_queues_size() const noexcept{
-		return output_communicate_async_task_queues_.size();
+	std::size_t output_channel_count() const noexcept{
+		return output_channels_.size();
 	}
 
-	void drop_and_reset_communicate_async_task_queue_size(std::size_t total_channels){
-		output_communicate_async_task_queues_ = decltype(output_communicate_async_task_queues_){std::allocator_arg, get_heap_allocator(), total_channels};
+	void reset_output_channels(std::size_t total_channels){
+		output_channels_ = decltype(output_channels_){std::allocator_arg, get_heap_allocator(), total_channels};
 	}
 
-	/**
-	 * @brief Queue used by GUI code to send work out to the renderer/main loop side.
-	 *
-	 * The default examples use channel 0 for post-render updates such as
-	 * compositor parameter changes.
-	 */
-	auto& get_output_communicate_async_task_queue(std::size_t channel){
-		return output_communicate_async_task_queues_.at(channel);
+	[[nodiscard]] call_stream_task_queue& output_queue(std::size_t channel){
+		return output_channels_.at(channel);
 	}
 
-	/**
-	 * @brief Queue consumed on the GUI thread before scene update work.
-	 */
-	auto& get_input_communicate_async_task_queue(){
-		return input_communicate_async_task_queue_;
+	template <typename Fn, typename... Args>
+		requires (std::invocable<Fn&&, Args&&...>)
+	[[nodiscard]] bool post_output(std::size_t channel, Fn&& fn, Args&&... args){
+		return output_channels_.at(channel).try_post(
+			std::forward<Fn>(fn),
+			std::forward<Args>(args)...);
 	}
 
+	void consume_output(std::size_t channel){
+		output_channels_.at(channel).consume();
+	}
+
+	template <std::invocable<scene&> Fn>
+	[[nodiscard]] bool post_gui(Fn&& fn){
+		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
+			return false;
+		}
+		return gui_inbox_.try_post(std::forward<Fn>(fn));
+	}
+
+	template <std::derived_from<elem> E, typename Fn>
+		requires (std::invocable<Fn&&, E&> || std::invocable<Fn&&>)
+	[[nodiscard]] bool post_gui(E& owner, Fn&& fn){
+		if(!accepting_gui_tasks_.load(std::memory_order_acquire)){
+			return false;
+		}
+		return gui_inbox_.try_post([wh = make_weak<E>(owner), f = std::forward<Fn>(fn)](scene&) mutable {
+			if(auto* p = wh.lock()){
+				if constexpr(std::invocable<std::decay_t<Fn>&, E&>){
+					std::invoke(f, *p);
+				}else{
+					std::invoke(f);
+				}
+			}
+		});
+	}
+
+	void begin_shutdown() noexcept{
+		const bool was_accepting = accepting_gui_tasks_.exchange(false, std::memory_order_acq_rel);
+		gui_inbox_.close();
+		if(async_operation_state_pool_){
+			async_operation_state_pool_->cancel_all();
+		}
+		for(auto& channel : output_channels_){
+			channel.close();
+		}
+		if(was_accepting && resources_ != nullptr && resources_->communicator_){
+			resources_->communicator_->begin_shutdown();
+		}
+	}
+
+	std::thread::id exchange_thread_id(std::thread::id id) noexcept{
+		return std::exchange(ui_main_thread_id, id);
+	}
+
+private:
 	/**
 	 * @brief Create an owner-bound native clipboard completion.
 	 *
@@ -870,28 +577,22 @@ public:
 	native_clipboard_request make_native_clipboard_request(E& owner, Fn&& on_ready){
 		assert(is_on_scene_thread(*this));
 		assert(std::addressof(owner.get_scene()) == this);
-		auto callbacks = native_gui_callbacks_;
-		elem_ref<> owner_ref{owner};
 
 		return native_clipboard_request{
-			.complete = [
-				callbacks = std::move(callbacks),
-				owner_ref = std::move(owner_ref),
-				on_ready = std::forward<Fn>(on_ready)
-			](std::string text) mutable {
-				callbacks->post(native_gui_callback_entry{
-					.owner = std::move(owner_ref),
-					.callback = [
-						on_ready = std::move(on_ready),
-						text = std::move(text)
-					](elem& owner) mutable {
-						std::invoke(std::move(on_ready), static_cast<E&>(owner), std::move(text));
-					}
-				});
-			}
+			.binding = async_operation_binding{
+				elem_ref<>{owner},
+				owner.lifetime_stop_token(),
+				this->create_async_operation_state()
+			},
+			.reply = gui::make_gui_reply<std::string>(
+				owner,
+				[on_ready = std::forward<Fn>(on_ready)](E& live_owner, std::string text) mutable {
+					std::invoke(std::move(on_ready), live_owner, std::move(text));
+				})
 		};
 	}
 
+public:
 	[[nodiscard]] unsigned long long get_current_frame() const noexcept{
 		return current_frame_;
 	}
@@ -908,21 +609,8 @@ public:
 		current_time_ = current_time;
 	}
 
-#pragma region AsyncTask
-	template <std::derived_from<elem> E, std::invocable<E&> Fn>
-	void post(E& e, Fn&& fn){
-		instant_task_queue_.post(e, std::forward<Fn>(fn));
-	}
-
-	template <std::derived_from<elem> E, std::invocable<> Fn>
-	void post(E& e, Fn&& fn){
-		instant_task_queue_.post(e, std::forward<Fn>(fn));
-	}
-
-#pragma endregion
-
+private:
 #pragma region IndependentUpdate
-
 	void insert_update(elem& p, update_channel channel){
 		assert(is_on_scene_thread(*this));
 		active_update_elems_state_changes.emplace_back(&p, channel);
@@ -955,6 +643,7 @@ public:
 
 #pragma endregion
 
+public:
 	[[nodiscard]] native_communicator* get_communicator() const noexcept{
 		assert(is_on_scene_thread(*this));
 		return resources_->communicator_.get();
@@ -976,6 +665,29 @@ public:
 		return *resources_;
 	}
 
+	void request_audio_from_scene_proxy(
+		const elem& element,
+		const sound::play_event event) const{
+		assert(is_on_scene_thread(*this));
+		input_handler_.request_audio(std::addressof(element), event, sound::request_origin::input_fallback);
+	}
+
+	void request_semantic_audio_from_scene_proxy(
+		const elem& element,
+		const sound::play_event event) const{
+		assert(is_on_scene_thread(*this));
+		input_handler_.request_semantic_audio(std::addressof(element), event);
+	}
+
+	void record_state_audio_delta(
+		const elem& element,
+		const sound::state_family family,
+		const bool before,
+		const bool after) const{
+		assert(is_on_scene_thread(*this));
+		input_handler_.record_state_audio_delta(std::addressof(element), family, before, after);
+	}
+
 	void notify_display_state_changed(elem_tree_channel channel) noexcept{
 		assert(is_on_scene_thread(*this));
 		if(channel == elem_tree_channel::deduced){
@@ -985,29 +697,43 @@ public:
 		}
 	}
 
+protected:
 	elem_tree_channel check_display_state_changed() noexcept{
 		assert(is_on_scene_thread(*this));
 		return std::exchange(display_state_changed_channel_, elem_tree_channel{});
 	}
 
-
+private:
 	[[nodiscard]] auto* get_memory_resource() const noexcept {
 		return get_heap();
 	}
 
+public:
 	[[nodiscard]] vec2 get_cursor_pos() const noexcept{
 		assert(is_on_scene_thread(*this));
-		return input_handler_.inputs_.cursor_pos();
+		return input_handler_.get_cursor_pos();
 	}
 
 	[[nodiscard]] std::span<elem * const> get_inbounds() const noexcept{
 		assert(is_on_scene_thread(*this));
-		return input_handler_.inbounds_.get_cur();
+		return input_handler_.get_inbounds();
 	}
 
-	[[nodiscard]] input_handle::input_manager<scene&>& get_inputs() noexcept{
+	template <std::derived_from<input_handle::key_mapping_interface> Mapping>
+	Mapping& register_input_mapping(std::string_view name){
 		assert(is_on_scene_thread(*this));
-		return input_handler_.inputs_;
+		return input_handler_.template register_input_mapping<Mapping>(name);
+	}
+
+	template <std::derived_from<input_handle::key_mapping_interface> Mapping = input_handle::key_mapping_interface>
+	[[nodiscard]] Mapping* find_input_mapping(std::string_view name) const noexcept{
+		assert(is_on_scene_thread(*this));
+		return input_handler_.template find_input_mapping<Mapping>(name);
+	}
+
+	bool erase_input_mapping(std::string_view name){
+		assert(is_on_scene_thread(*this));
+		return input_handler_.erase_input_mapping(name);
 	}
 
 	[[nodiscard]] bool is_mouse_pressed(input_handle::mouse mouse_button_code) const noexcept{
@@ -1017,28 +743,24 @@ public:
 
 	void capture_mouse(elem& target, input_handle::mouse mouse_button_code, math::vec2 press_scene_pos);
 
-	[[nodiscard]] input_handle::key_mapping_interface* find_input(std::string_view name) const noexcept{
-		assert(is_on_scene_thread(*this));
-		return input_handler_.inputs_.find_sub_input(name);
+	[[nodiscard]] bool has_scroll_focus() const noexcept{
+		return input_handler_.has_scroll_focus();
+	}
+
+	[[nodiscard]] bool has_cursor_focus() const noexcept{
+		return input_handler_.has_cursor_focus();
 	}
 
 	void overwrite_last_inbound_click_quiet(elem* elem) noexcept{
 		assert(is_on_scene_thread(*this));
-		input_handler_.last_inbound_click = elem;
+		input_handler_.overwrite_last_inbound_click_quiet(elem);
 	}
 
+private:
 	void retire_elem(elem* target) noexcept;
 
 	void collect_retired_elements() noexcept;
 
-	[[nodiscard]] react_flow::manager& get_react_flow() noexcept{
-		assert(is_on_scene_thread(*this));
-		return react_flow_;
-	}
-
-	friend struct react_flow_create_access;
-
-protected:
 	void drop_elem_nodes(const elem* elem) noexcept{
 		assert(is_on_scene_thread(*this));
 		auto [begin, end] = elem_owned_nodes_.equal_range(elem);
@@ -1104,76 +826,12 @@ public:
 
 	void update(double delta_in_tick);
 
-	events::op_afterwards on_cursor_move(math::vec2 pos){
-		assert(is_on_scene_thread(*this));
-		input_handler_.inputs_.cursor_move_inform(pos);
-		auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
-		current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
-		return op;
-	}
+	events::dispatch_result handle_input_event(const input_handle::input_event_variant& event);
 
-	events::op_afterwards on_mouse_input(const input_handle::key_set key){
-		assert(is_on_scene_thread(*this));
-		input_handler_.inputs_.inform(key);
-		switch(overlay_manager_.handle_external_press(input_handler_.inputs_.cursor_pos(), key)){
-		case overlay_external_press_result::ignored:
-			break;
-		case overlay_external_press_result::intercepted:{
-			auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
-			static_cast<void>(op);
-			current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
-			return events::op_afterwards::intercepted;
-		}
-		case overlay_external_press_result::retarget:{
-			auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
-			static_cast<void>(op);
-			current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
-			break;
-		}
-		default:
-			std::unreachable();
-		}
-		auto rst = input_handler_.on_mouse_input(key);
-		update_cursor_type();
-		return rst;
-	}
-
-	events::op_afterwards on_unicode_input(char32_t val) const{
-		assert(is_on_scene_thread(*this));
-		return input_handler_.on_unicode_input(val);
-	}
-
-	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) const{
-		assert(is_on_scene_thread(*this));
-		return input_handler_.on_ime_composition(event);
-	}
-
-	events::op_afterwards on_scroll(const math::vec2 scroll) const{
-		assert(is_on_scene_thread(*this));
-		return input_handler_.on_scroll(scroll);
-	}
-
-	events::op_afterwards on_key_input(input_handle::key_set key){
-		assert(is_on_scene_thread(*this));
-		switch(input_handler_.on_key_input(key)){
-		case scene_submodule::input_key_result::intercepted :
-			return events::op_afterwards::intercepted;
-		case scene_submodule::input_key_result::esc_required :
-			return on_esc();
-		default :
-			return events::op_afterwards::fall_through;
-		}
-	}
-
-	void on_inbound_changed(bool inbounded){
-		assert(is_on_scene_thread(*this));
-		input_handler_.input_inbound(inbounded);
-	}
-
-	events::op_afterwards on_esc();
+	events::dispatch_result on_esc();
 
 	void request_cursor_update() noexcept{
-		input_handler_.request_cursor_update_ = true;
+		input_handler_.request_cursor_update();
 	}
 
 	void layout();
@@ -1186,17 +844,23 @@ private:
 		independent_layouts_.get_bak().insert(element);
 	}
 
-protected:
-	void merge(scene_base&& target){
+private:
+	void consume_gui_inbox_from(scene& source){
+		gui_inbox_.consume(source);
+	}
+
+	void merge(scene&& target){
 		target.tooltip_manager_.clear();
 		target.overlay_manager_.clear();
 
 
-		for (auto&& [lhs, rhs] : std::views::zip(output_communicate_async_task_queues_, target.output_communicate_async_task_queues_)){
+		for (auto&& [lhs, rhs] : std::views::zip(output_channels_, target.output_channels_)){
 			lhs.merge(std::move(rhs));
 		}
 
-		//TODO ensure target has no child to avoid resource leaking
+		assert(target.scene_root_ == nullptr && "forked scene roots must be moved before scene state is joined");
+		target.collect_retired_elements();
+		target.check_ref_count_zero_();
 		{
 			target.independent_layouts_.swap();
 			independent_layouts_.get_bak().merge(target.independent_layouts_.get_cur());
@@ -1217,36 +881,52 @@ protected:
 		}
 
 		action_queue_.merge(std::move(target.action_queue_));
-		instant_task_queue_.merge(std::move(target.instant_task_queue_));
 	}
-};
-
-export
-/**
- * @brief Main retained GUI scene.
- *
- * A scene owns the element tree root, input focus state, update queues, overlay
- * and tooltip managers, react-flow graph, and the renderer frontend used by GUI
- * drawing. Public methods that mutate GUI state assert the scene/UI thread.
- */
-struct scene : scene_base{
-	friend elem;
-	friend ui_manager;
 
 protected:
+	void set_root(elem& root){
+		input_handler_.bind_scene_context(*this);
+		scene_root_ = std::addressof(root);
+		init_root();
+	}
 
+	[[nodiscard]] scene_submodule::input_state& inputs() noexcept{
+		return input_handler_;
+	}
+
+	[[nodiscard]] const scene_submodule::input_state& inputs() const noexcept{
+		return input_handler_;
+	}
+
+	[[nodiscard]] tooltip::tooltip_manager& tooltips() noexcept{
+		return tooltip_manager_;
+	}
+
+	[[nodiscard]] const tooltip::tooltip_manager& tooltips() const noexcept{
+		return tooltip_manager_;
+	}
+
+	[[nodiscard]] overlay_manager& overlays() noexcept{
+		return overlay_manager_;
+	}
+
+	[[nodiscard]] const overlay_manager& overlays() const noexcept{
+		return overlay_manager_;
+	}
+
+	rect draw_cursor(){
+		assert(is_on_scene_thread(*this));
+		return current_cursor_drawers_.draw(*this, resources_->cursor_collection_manager.get_cursor_size());
+	}
+
+	virtual void draw_impl(rect clip){
+		throw std::runtime_error{"Draw is not impl"};
+	}
+
+private:
 	void init_root() const;
 
 public:
-
-	[[nodiscard]] explicit scene(const scene_shared_resources& resources)
-		: scene_base(resources){
-	}
-
-	[[nodiscard]] scene(scene_resources& resources, renderer_frontend&& renderer)
-		: scene_base(resources, std::move(renderer)){
-	}
-
 	template <std::derived_from<elem> T, typename ...Args>
 	[[nodiscard]] explicit(false) scene(
 		scene_resources& resources,
@@ -1260,60 +940,100 @@ public:
 	scene& operator=(const scene& other) = delete;
 	scene& operator=(scene&& other) noexcept = delete;
 
-protected:
-	virtual void draw_impl(rect clip){
-		throw std::runtime_error{"Draw is not impl"};
-	}
-
-public:
-
-	void enable_elem_async_task_post(bool enable);
+	void enable_forked_scene_tasks(bool enable);
 
 	/**
-	 * @brief Post an element-owned async task.
+	 * @brief Run work on the forked scene and complete a one-shot reply on the GUI thread.
 	 *
-	 * When async posting is enabled, the task is processed on the forked scene
-	 * worker and completed back on the GUI thread. Otherwise it is processed
-	 * synchronously on the current scene.
+	 * `process_fn(context, async_scene)` runs on the forked scene worker when
+	 * async posting is enabled, or synchronously on this scene otherwise. Its
+	 * return value is delivered through `reply` only if `owner` is still live.
 	 */
-	template <std::derived_from<elem> E, std::invocable<E&> Prov>
-	elem_async_task_handle post_elem_async_task(E& e, Prov&& prov){
-		if(async_task_queue_){
-			return async_task_queue_->post(e, std::forward<Prov>(prov));
-		}else{
-			std::derived_from<basic_elem_async_task> auto task = std::invoke(std::forward<Prov>(prov), e);
-			task.process(*this);
-			if(!task.stop_requested() && !task.has_exception()){
-				task.on_done(e, *this);
-			}
-			if(task.has_exception()){
-				std::rethrow_exception(task.exception());
-			}
-			return elem_async_task_handle{};
+	template <std::derived_from<elem> E, typename ProcessFn, typename Reply>
+		requires std::invocable<std::decay_t<ProcessFn>&, async_task_context&, scene&>
+		      && scene_submodule::async_reply_object_for<
+			      Reply,
+			      scene_submodule::forked_scene_process_result_t<ProcessFn>>
+	async_operation_handle request_forked(E& owner, ProcessFn&& process_fn, Reply&& reply){
+		using process_type = std::decay_t<ProcessFn>;
+		using reply_type = std::decay_t<Reply>;
+		using task_type = scene_submodule::forked_scene_request_task<process_type, reply_type>;
+
+		process_type process{std::forward<ProcessFn>(process_fn)};
+		reply_type completion{std::forward<Reply>(reply)};
+
+		if(!accepts_gui_tasks_()){
+			std::move(completion).set_cancelled();
+			return async_operation_handle{};
 		}
+
+		if(forked_scene_worker_){
+			return forked_scene_worker_->post(owner, task_type{std::move(process), std::move(completion)});
+		}
+
+		task_type task{std::move(process), std::move(completion)};
+		task.process(*this);
+		if(!task.stop_requested()){
+			if(task.has_exception()){
+				(void)task.on_error(owner, *this, task.exception());
+			}else{
+				task.on_done(owner, *this);
+			}
+		}
+		task.mark_finished();
+		return async_operation_handle{};
 	}
 
+	// Runs work on the thread pool and routes the reply back to the GUI thread
+	// via gui_inbox_. Work signature: (async_task_context&) -> R
+	template <std::derived_from<elem> E, typename Work, typename Reply>
+	async_operation_handle request_async(E& owner, Work&& work, Reply&& reply){
+		if(!accepts_gui_tasks_()){
+			std::forward<Reply>(reply).set_cancelled();
+			return {};
+		}
+		auto state = create_async_operation_state();
+		async_operation_handle handle{state};
+		::mo_yanxi::gui::async_request(worker_pool_,
+			async_operation_binding{
+				elem_ref<>{owner},
+				elem_ref_access::stop_token(std::addressof(owner)),
+				std::move(state)},
+			std::forward<Work>(work),
+			std::forward<Reply>(reply));
+		return handle;
+	}
 
 	virtual std::unique_ptr<scene, scene_submodule::scene_deleter> fork(){
-		auto rst = new scene{static_cast<scene_shared_resources>(*this)};
+		using allocator_type = mr::heap_allocator<scene>;
+		using allocator_traits = std::allocator_traits<allocator_type>;
+
+		auto alloc = get_heap_allocator<scene>();
+		auto* rst = allocator_traits::allocate(alloc, 1);
 		try{
-			rst->drop_and_reset_communicate_async_task_queue_size(get_output_communicate_async_task_queues_size());
+			::new (static_cast<void*>(rst)) scene(static_cast<scene_shared_resources>(*this));
 		}catch(...){
-			delete rst;
+			allocator_traits::deallocate(alloc, rst, 1);
+			throw;
+		}
+
+		try{
+			rst->reset_output_channels(output_channel_count());
+		}catch(...){
+			std::destroy_at(rst);
+			allocator_traits::deallocate(alloc, rst, 1);
 			throw;
 		}
 
 		return std::unique_ptr<scene, scene_submodule::scene_deleter>{rst};
 	}
 
-	virtual void join(scene&& scene){
-		get_input_communicate_async_task_queue().consume(scene);
-		merge(std::move(scene));
-		assert(scene.scene_root_ == nullptr && "target scene must drop all element ownership");
-		scene.check_ref_count_zero_();
+	virtual void join(scene&& target){
+		consume_gui_inbox_from(target);
+		merge(std::move(target));
+		assert(target.scene_root_ == nullptr && "target scene must drop all element ownership");
+		target.check_ref_count_zero_();
 	}
-
-	virtual ~scene() = default;
 
 	void draw(){
 		draw_impl(get_region());
@@ -1361,7 +1081,191 @@ public:
 	}
 };
 
-bool is_on_scene_thread(const scene_base& scene) noexcept{
+namespace scene_submodule{
+
+template <std::derived_from<elem> E>
+struct gui_reply_target{
+	scene* target_scene_{};
+	std::stop_token owner_lifetime_{};
+	elem_ref<E> owner_ref_{};
+
+	[[nodiscard]] explicit gui_reply_target(E& owner)
+		: target_scene_(std::addressof(owner.get_scene())),
+		  owner_lifetime_(owner.lifetime_stop_token()),
+		  owner_ref_(owner){
+	}
+
+	gui_reply_target(const gui_reply_target&) = delete;
+	gui_reply_target& operator=(const gui_reply_target&) = delete;
+	[[nodiscard]] gui_reply_target(gui_reply_target&&) noexcept = default;
+	gui_reply_target& operator=(gui_reply_target&&) noexcept = default;
+
+	template <typename Fn>
+	void dispatch(Fn&& fn) &&{
+		if(owner_lifetime_.stop_requested() || target_scene_ == nullptr){
+			return;
+		}
+
+		auto run = [
+			owner_ref = std::move(owner_ref_),
+			owner_lifetime = std::move(owner_lifetime_),
+			fn = std::forward<Fn>(fn)
+		]() mutable {
+			if(owner_lifetime.stop_requested()){
+				return;
+			}
+			if(auto* live_owner = owner_ref.get_live()){
+				std::invoke(std::move(fn), *live_owner);
+			}
+		};
+
+		if(is_on_scene_thread(*target_scene_)){
+			std::invoke(std::move(run));
+			return;
+		}
+
+		(void)target_scene_->post_gui([run = std::move(run)](scene&) mutable {
+			std::invoke(std::move(run));
+		});
+	}
+};
+
+}
+
+export
+template <typename T, std::derived_from<elem> E, typename ValueFn, typename ErrorFn, typename CancelFn>
+[[nodiscard]] async_reply<T> make_gui_reply(
+	E& owner,
+	ValueFn&& value_fn,
+	ErrorFn&& error_fn,
+	CancelFn&& cancel_fn){
+	static_assert(scene_submodule::gui_reply_value_callback_for<ValueFn, E, T>);
+	static_assert(scene_submodule::gui_reply_error_callback_for<ErrorFn, E>);
+	static_assert(scene_submodule::gui_reply_cancel_callback_for<CancelFn, E>);
+
+	auto make_target = [&owner]{
+		return scene_submodule::gui_reply_target<E>{owner};
+	};
+
+	auto make_error_callback = [&]<typename Fn>(Fn&& fn){
+		if constexpr(!std::same_as<std::decay_t<ErrorFn>, std::nullptr_t>){
+			return [
+				target = make_target(),
+				error_fn = std::forward<Fn>(fn)
+			](std::exception_ptr exception) mutable {
+				std::move(target).dispatch([
+					error_fn = std::move(error_fn),
+					exception = std::move(exception)
+				](E& live_owner) mutable {
+					std::invoke(std::move(error_fn), live_owner, std::move(exception));
+				});
+			};
+		}else{
+			(void)fn;
+			return nullptr;
+		}
+	};
+
+	auto make_cancel_callback = [&]<typename Fn>(Fn&& fn){
+		if constexpr(!std::same_as<std::decay_t<CancelFn>, std::nullptr_t>){
+			return [
+				target = make_target(),
+				cancel_fn = std::forward<Fn>(fn)
+			]() mutable {
+				std::move(target).dispatch([cancel_fn = std::move(cancel_fn)](E& live_owner) mutable {
+					std::invoke(std::move(cancel_fn), live_owner);
+				});
+			};
+		}else{
+			(void)fn;
+			return nullptr;
+		}
+	};
+
+	auto error_callback = make_error_callback(std::forward<ErrorFn>(error_fn));
+	auto cancel_callback = make_cancel_callback(std::forward<CancelFn>(cancel_fn));
+
+	if constexpr(std::is_void_v<T>){
+		return gui::make_async_reply<void>(
+			[
+				target = make_target(),
+				value_fn = std::forward<ValueFn>(value_fn)
+			]() mutable {
+				std::move(target).dispatch([value_fn = std::move(value_fn)](E& live_owner) mutable {
+					std::invoke(std::move(value_fn), live_owner);
+				});
+			},
+			std::move(error_callback),
+			std::move(cancel_callback));
+	}else{
+		return gui::make_async_reply<T>(
+			[
+				target = make_target(),
+				value_fn = std::forward<ValueFn>(value_fn)
+			](T value) mutable {
+				std::move(target).dispatch([
+					value_fn = std::move(value_fn),
+					value = std::move(value)
+				](E& live_owner) mutable {
+					std::invoke(std::move(value_fn), live_owner, std::move(value));
+				});
+			},
+			std::move(error_callback),
+			std::move(cancel_callback));
+	}
+}
+
+export
+template <
+	std::derived_from<elem> E,
+	typename ProcessFn,
+	typename ValueFn,
+	typename ErrorFn = std::nullptr_t,
+	typename CancelFn = std::nullptr_t>
+	requires std::invocable<std::decay_t<ProcessFn>&, async_task_context&, scene&>
+	      && scene_submodule::gui_reply_value_callback_for<
+		      ValueFn,
+		      E,
+		      scene_submodule::forked_scene_process_result_t<ProcessFn>>
+	      && scene_submodule::gui_reply_error_callback_for<ErrorFn, E>
+	      && scene_submodule::gui_reply_cancel_callback_for<CancelFn, E>
+async_operation_handle request_forked(
+	E& owner,
+	ProcessFn&& process_fn,
+	ValueFn&& on_value,
+	ErrorFn&& on_error = nullptr,
+	CancelFn&& on_cancel = nullptr){
+	using result_type = scene_submodule::forked_scene_process_result_t<ProcessFn>;
+	auto reply = gui::make_gui_reply<result_type>(
+		owner,
+		std::forward<ValueFn>(on_value),
+		std::forward<ErrorFn>(on_error),
+		std::forward<CancelFn>(on_cancel));
+	return owner.get_scene().request_forked(
+		owner,
+		std::forward<ProcessFn>(process_fn),
+		std::move(reply));
+}
+
+export
+template <std::derived_from<elem> E, typename Work, typename ValueFn,
+          typename ErrorFn = std::nullptr_t, typename CancelFn = std::nullptr_t>
+	requires std::invocable<std::decay_t<Work>&, async_task_context&>
+async_operation_handle request_async(
+	E& owner, Work&& work,
+	ValueFn&& on_value,
+	ErrorFn&& on_error = nullptr,
+	CancelFn&& on_cancel = nullptr){
+	using result_type = std::invoke_result_t<std::decay_t<Work>&, async_task_context&>;
+	auto reply = gui::make_gui_reply<result_type>(
+		owner,
+		std::forward<ValueFn>(on_value),
+		std::forward<ErrorFn>(on_error),
+		std::forward<CancelFn>(on_cancel));
+	return owner.get_scene().request_async(owner, std::forward<Work>(work), std::move(reply));
+}
+
+bool is_on_scene_thread(const scene& scene) noexcept{
 	return std::this_thread::get_id() == scene.ui_main_thread_id;
 }
 

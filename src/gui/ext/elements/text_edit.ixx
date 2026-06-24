@@ -100,10 +100,10 @@ protected:
         math::vec2 offset_abs;
         math::vec2 offset_local;
 
-        [[nodiscard]] math::vec2 forward_abs(math::vec2 p) const noexcept{ return p * scale + offset_abs; }
-        [[nodiscard]] math::vec2 forward_local(math::vec2 p) const noexcept{ return p * scale + offset_local; }
+        [[nodiscard]] inline math::vec2 forward_abs(math::vec2 p) const noexcept{ return p * scale + offset_abs; }
+        [[nodiscard]] inline math::vec2 forward_local(math::vec2 p) const noexcept{ return p * scale + offset_local; }
 
-        [[nodiscard]] math::frect forward_abs(const math::frect& r) const noexcept{
+        [[nodiscard]] inline math::frect forward_abs(const math::frect& r) const noexcept{
             math::vec2 p0 = forward_abs(r.vert_00());
             math::vec2 p1 = forward_abs(r.vert_11());
             return math::frect{
@@ -113,7 +113,7 @@ protected:
                 };
         }
 
-        [[nodiscard]] math::frect forward_local(const math::frect& r) const noexcept{
+        [[nodiscard]] inline math::frect forward_local(const math::frect& r) const noexcept{
             math::vec2 p0 = forward_local(r.vert_00());
             math::vec2 p1 = forward_local(r.vert_11());
             return math::frect{
@@ -123,7 +123,7 @@ protected:
                 };
         }
 
-        [[nodiscard]] math::vec2 inverse_local(math::vec2 p) const noexcept{
+        [[nodiscard]] inline math::vec2 inverse_local(math::vec2 p) const noexcept{
             math::vec2 res = p - offset_local;
             if(std::abs(scale.x) > 1e-6f) res.x /= scale.x;
             else res.x = 0.f;
@@ -133,13 +133,13 @@ protected:
         }
     };
 
-	[[nodiscard]] bool is_scrollable_mode() const noexcept {
+	[[nodiscard]] inline bool is_scrollable_mode() const noexcept {
 		return view_mode_ == text_edit_view_type::dyn ||
 			   view_mode_ == text_edit_view_type::align_x ||
 			   view_mode_ == text_edit_view_type::align_y;
 	}
 
-	[[nodiscard]] text_transform_params get_transform_params() const noexcept{
+	[[nodiscard]] inline text_transform_params get_transform_params() const noexcept{
 		const math::vec2 raw_ext = glyph_layout_.extent;
 		const math::vec2 abs_scale = scale_.copy().to_abs() * get_scaling();
 		const math::vec2 trans_ext = raw_ext * abs_scale;
@@ -166,11 +166,11 @@ protected:
 	void apply_paste_text(std::string text);
 	void apply_committed_text(std::u32string text);
 
-	[[nodiscard]] bool has_active_ime_composition() const noexcept{
+	[[nodiscard]] inline bool has_active_ime_composition() const noexcept{
 		return ime_composition_.active;
 	}
 
-	[[nodiscard]] std::u32string_view get_layout_text() const noexcept{
+	[[nodiscard]] inline std::u32string_view get_layout_text() const noexcept{
 		return has_active_ime_composition() ? std::u32string_view{ime_display_text_} : tokenized_text_.get_text();
 	}
 
@@ -501,21 +501,23 @@ public:
 		};
 	}
 
-	events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override;
+	void on_wheel(events::event_context& ctx, const events::wheel_event& event) override;
 
-	events::op_afterwards on_drag(const events::drag event) override;
+	void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event) override;
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		elem::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		elem::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(!event.key.on_release()){
 			if(has_active_ime_composition()){
 				cancel_ime_composition_preview();
 				reset_blink();
-				return events::op_afterwards::intercepted;
+				ctx.consume(*this);
+				return;
 			}
 
 			auto t_params = get_transform_params();
-			math::vec2 raw_hit_pos = t_params.inverse_local(event.pos);
+			math::vec2 raw_hit_pos = t_params.inverse_local(event.local_pos);
 
 			if(core_.action_hit_test(glyph_layout_, tokenized_text_.get_text(), raw_hit_pos,
 				render_cache_.get_line_align(), false)){
@@ -525,18 +527,18 @@ public:
 					scroll_to_caret();
 					update_ime_position();
 				}
-				return events::op_afterwards::intercepted;
+				ctx.consume(*this);
+				return;
 			}
 		}else {
 			last_drag_dst_.reset();
 		}
-		return events::op_afterwards::fall_through;
 	}
 
-	events::op_afterwards on_key_input(const input_handle::key_set key) override;
-	events::op_afterwards on_unicode_input(const char32_t val) override;
-	events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event) override;
-	events::op_afterwards on_esc() override;
+	void on_key(events::event_context& ctx, const events::key_event& event) override;
+	void on_text(events::event_context& ctx, const events::text_event& event) override;
+	void on_ime(events::event_context& ctx, const events::ime_event& event) override;
+	events::dispatch_result on_esc() override;
 
 	void update_ime_position() const;
 

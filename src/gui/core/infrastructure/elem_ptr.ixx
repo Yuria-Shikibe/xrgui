@@ -10,17 +10,15 @@ export import mo_yanxi.math.rect_ortho;
 import mo_yanxi.gui.alloc;
 import mo_yanxi.function_manipulate;
 import mo_yanxi.concepts;
-import mo_yanxi.transparent_span;
 import std;
 
 namespace mo_yanxi::gui{
 
 export struct elem;
 export struct scene;
-export struct scene_base;
 
 export
-bool is_on_scene_thread(const scene_base& scene) noexcept;
+bool is_on_scene_thread(const scene& scene) noexcept;
 
 export
 enum struct elem_lifecycle_state : std::uint8_t{
@@ -36,6 +34,8 @@ struct elem_ref_access{
 	static void release(elem* element) noexcept;
 	static bool is_live(const elem* element) noexcept;
 	static std::stop_token stop_token(const elem* element) noexcept;
+	static std::uint32_t generation(const elem* element) noexcept;
+	static bool is_live_generation(const elem* element, std::uint32_t gen) noexcept;
 };
 
 export
@@ -165,6 +165,26 @@ template <typename Fn>
 concept elem_init_func = func_initializer_of<std::remove_const_t<Fn>, elem>;
 
 export
+template <std::derived_from<elem> T = elem>
+struct weak_handle{
+	T*            ptr_{};
+	std::uint32_t generation_{};
+
+	[[nodiscard]] T* lock() const noexcept{
+		if(!ptr_) return nullptr;
+		return elem_ref_access::is_live_generation(ptr_, generation_) ? ptr_ : nullptr;
+	}
+	[[nodiscard]] bool expired() const noexcept{ return lock() == nullptr; }
+	[[nodiscard]] explicit operator bool() const noexcept{ return !expired(); }
+};
+
+export
+template <std::derived_from<elem> T>
+[[nodiscard]] weak_handle<T> make_weak(T& e) noexcept{
+	return { std::addressof(e), elem_ref_access::generation(std::addressof(e)) };
+}
+
+export
 template <typename Fn>
 concept invocable_elem_init_func = invocable_func_initializer_of<std::remove_const_t<Fn>, elem>;
 
@@ -219,7 +239,7 @@ struct elem_ptr{
 
 	[[nodiscard]] elem_ptr() = default;
 
-	[[nodiscard]] explicit elem_ptr(elem* element)
+	[[nodiscard]] inline explicit elem_ptr(elem* element)
 		: element{element}{
 	}
 
@@ -257,52 +277,52 @@ struct elem_ptr{
 		: element{elem_ptr::new_elem<T>(scene, group, std::forward<Args>(args)...)}{
 	}
 
-	elem& operator*() const noexcept{
+	inline elem& operator*() const noexcept{
 		assert(element != nullptr && "dereference on a null element");
 		return *element;
 	}
 
-	elem* operator->() const noexcept{
+	inline elem* operator->() const noexcept{
 		return element;
 	}
 
-	explicit operator bool() const noexcept{
+	inline explicit operator bool() const noexcept{
 		return element != nullptr;
 	}
 
-	[[nodiscard]] elem* get() const noexcept{
+	[[nodiscard]] inline elem* get() const noexcept{
 		return element;
 	}
 
-	[[nodiscard]] elem* release() noexcept{
+	[[nodiscard]] inline elem* release() noexcept{
 		return std::exchange(element, nullptr);
 	}
 
-	void reset() noexcept{
+	inline void reset() noexcept{
 		this->operator=(elem_ptr{});
 	}
 
-	void reset(elem* e) noexcept{
+	inline void reset(elem* e) noexcept{
 		this->operator=(elem_ptr{e});
 	}
 
-	~elem_ptr(){
+	inline ~elem_ptr(){
 		if(element) delete_elem(element);
 	}
 
 	friend bool operator==(const elem_ptr& lhs, const elem_ptr& rhs) noexcept = default;
 
-	bool operator==(std::nullptr_t) const noexcept{
+	inline bool operator==(std::nullptr_t) const noexcept{
 		return element == nullptr;
 	}
 
 	elem_ptr(const elem_ptr& other) = delete;
 
-	elem_ptr(elem_ptr&& other) noexcept
+	inline elem_ptr(elem_ptr&& other) noexcept
 		: element{other.release()}{
 	}
 
-	elem_ptr& operator=(elem_ptr&& other) noexcept{
+	inline elem_ptr& operator=(elem_ptr&& other) noexcept{
 		if(this == &other) return *this;
 		if(element) delete_elem(element);
 		this->element = other.release();
@@ -348,9 +368,9 @@ private:
 	static void delete_elem(elem* ptr) noexcept;
 
 	template <std::derived_from<elem> T = elem>
-	static void dynamic_init(T& ptr) noexcept;
+	static void dynamic_init(T& ptr);
 
 public:
-	static constexpr auto cvt_mptr = transparent_convert<&elem_ptr::element>;
+	[[nodiscard]] inline elem* const* raw_addr() const noexcept{ return &element; }
 };
 }

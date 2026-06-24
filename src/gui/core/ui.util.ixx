@@ -77,13 +77,13 @@ auto countRowAndColumn_toVector(Rng&& rng, Proj pred_isEndRow = {}){
 }
 
 export
-float flipY(float height, const float height_in_valid, const float itemHeight){
+inline float flipY(float height, const float height_in_valid, const float itemHeight){
 	height = height_in_valid - height - itemHeight;
 	return height;
 }
 
 export
-math::vec2 flipY(math::vec2 pos_in_valid, const float height_in_valid, const float itemHeight){
+inline math::vec2 flipY(math::vec2 pos_in_valid, const float height_in_valid, const float itemHeight){
 	pos_in_valid.y = flipY(pos_in_valid.y, height_in_valid, itemHeight);
 	return pos_in_valid;
 }

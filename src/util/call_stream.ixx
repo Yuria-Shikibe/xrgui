@@ -665,8 +665,8 @@ void basic_call_stream_impl<Allocator, Ret, Args...>::emplace_call_(CtorArgs&&..
 	if constexpr(AllowStaticDispatch){
 		constexpr bool is_static = has_compatible_static_call_operator<PayloadT, Ret, Args...>;
 		constexpr bool is_empty = std::is_empty_v<PayloadT> &&
-		                          std::default_initializable<PayloadT> &&
-		                          call_stream_invocable<Ret, const PayloadT&, Args...>;
+			std::default_initializable<PayloadT> &&
+			call_stream_invocable<Ret, const PayloadT&, Args...>;
 		if constexpr(!std::is_pointer_v<PayloadT> && (is_static || is_empty)){
 			this->emit_instruction(+[](std::byte* base, const std::byte* end, void* invoke_args_ptr) static -> invoke_fn_return_type{
 				ATTR_FORCEINLINE_SENTENCE {
@@ -700,7 +700,7 @@ void basic_call_stream_impl<Allocator, Ret, Args...>::emplace_call_(CtorArgs&&..
 
 	// 2. 决定负载类型 (Payload)
 	constexpr bool is_trivial = std::is_trivially_copyable_v<PayloadT> &&
-	                            std::is_trivially_destructible_v<PayloadT>;
+		std::is_trivially_destructible_v<PayloadT>;
 
 	// 3. 提取共享的静态派发指针
 	static constexpr auto fptr = +[](std::byte* base, const std::byte* end, void* invoke_args_ptr) static -> invoke_fn_return_type{
@@ -794,21 +794,6 @@ void basic_call_stream_impl<Allocator, Ret, Args...>::emplace_call_(CtorArgs&&..
 
 template <typename Allocator, typename Ret, typename... Args>
 template <typename Fn>
-	requires(std::constructible_from<std::decay_t<Fn>, Fn&&> &&
-	         call_stream_invocable<Ret, std::decay_t<Fn>&, Args...>)
-void basic_call_stream_impl<Allocator, Ret, Args...>::emplace_back(Fn&& fn){
-	this->template emplace_call_<std::decay_t<Fn>, true>(std::forward<Fn>(fn));
-}
-
-template <typename Allocator, typename Ret, typename... Args>
-template <typename FnTy, typename... Ts>
-	requires(std::constructible_from<FnTy, Ts&&...> && call_stream_invocable<Ret, FnTy&, Args...>)
-void basic_call_stream_impl<Allocator, Ret, Args...>::emplace_back(Ts&&... args){
-	this->template emplace_call_<FnTy, sizeof...(Ts) == 0>(std::forward<Ts>(args)...);
-}
-
-template <typename Allocator, typename Ret, typename... Args>
-template <typename Fn>
 	requires(std::constructible_from<Fn, const Fn&> && call_stream_invocable<Ret, Fn&, Args...>)
 void basic_call_stream_impl<Allocator, Ret, Args...>::push_back(const cmd_call<Fn>& call){
 	this->emplace_back(call.callable);
@@ -819,6 +804,21 @@ template <typename Fn>
 	requires(std::constructible_from<Fn, Fn&&> && call_stream_invocable<Ret, Fn&, Args...>)
 void basic_call_stream_impl<Allocator, Ret, Args...>::push_back(cmd_call<Fn>&& call){
 	this->emplace_back(std::move(call.callable));
+}
+
+template <typename Allocator, typename Ret, typename... Args>
+template <typename Fn>
+	requires(std::constructible_from<std::decay_t<Fn>, Fn&&> &&
+		call_stream_invocable<Ret, std::decay_t<Fn>&, Args...>)
+void basic_call_stream_impl<Allocator, Ret, Args...>::emplace_back(Fn&& fn){
+	this->template emplace_call_<std::decay_t<Fn>, true>(std::forward<Fn>(fn));
+}
+
+template <typename Allocator, typename Ret, typename... Args>
+template <typename FnTy, typename... Ts>
+	requires(std::constructible_from<FnTy, Ts&&...> && call_stream_invocable<Ret, FnTy&, Args...>)
+void basic_call_stream_impl<Allocator, Ret, Args...>::emplace_back(Ts&&... args){
+	this->template emplace_call_<FnTy, sizeof...(Ts) == 0>(std::forward<Ts>(args)...);
 }
 
 export template <typename Allocator, typename... Spec, typename Fn>

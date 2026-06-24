@@ -291,7 +291,7 @@ public:
 
 	element_collect_buffer collect_children() const override{
 		element_collect_buffer rst{};
-		rst.push_back(elem_span{children_, elem_ptr::cvt_mptr});
+		rst.push_back(children_.as_span());
 		if(overflow_elem_)rst.push_back(*overflow_elem_);
 		return rst;
 	}

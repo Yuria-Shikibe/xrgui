@@ -25,12 +25,12 @@ private:
 	layout::expand_policy expand_policy_{};
 
 public:
-	[[nodiscard]] sequence(scene& scene, elem* parent, const layout::directional_layout_specifier policy)
+	[[nodiscard]] inline sequence(scene& scene, elem* parent, const layout::directional_layout_specifier policy)
 		: universal_group(scene, parent),
 		  policy_(policy){
 	}
 
-	[[nodiscard]] sequence(scene& scene, elem* parent)
+	[[nodiscard]] inline sequence(scene& scene, elem* parent)
 		: sequence(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)){
 	}
 
@@ -38,11 +38,11 @@ protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override;
 
 public:
-	[[nodiscard]] layout::directional_layout_specifier get_layout_specifier() const noexcept{
+	[[nodiscard]] inline layout::directional_layout_specifier get_layout_specifier() const noexcept{
 		return policy_;
 	}
 
-	void set_expand_policy(layout::expand_policy policy){
+	inline void set_expand_policy(layout::expand_policy policy){
 		if(util::try_modify(expand_policy_, policy)){
 			notify_isolated_layout_changed();
 
@@ -56,28 +56,28 @@ public:
 		}
 	}
 
-	void set_align_to_tail(bool align_to_tail){
+	inline void set_align_to_tail(bool align_to_tail){
 		if(util::try_modify(align_to_tail_, align_to_tail)){
 			notify_isolated_layout_changed();
 		}
 	}
 
-	[[nodiscard]] layout::layout_policy get_layout_policy() const noexcept override{
+	[[nodiscard]] inline layout::layout_policy get_layout_policy() const noexcept override{
 		return policy_.self();
 	}
 
-	[[nodiscard]] bool is_align_to_tail() const noexcept{
+	[[nodiscard]] inline bool is_align_to_tail() const noexcept{
 		return align_to_tail_;
 	}
 
-	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
+	[[nodiscard]] inline layout::expand_policy get_expand_policy() const noexcept{
 		return expand_policy_;
 	}
 
 	void layout_elem() override;
 
 protected:
-	bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
+	inline bool set_layout_policy_impl(const layout::layout_policy_setting setting) override{
 		return util::update_layout_policy_setting(
 			setting,
 			policy_,

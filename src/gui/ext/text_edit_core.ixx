@@ -54,10 +54,10 @@ private:
 public:
 	edit_history() = default;
 
-	explicit edit_history(const std::size_t capacity) : history_(capacity){
+	inline explicit edit_history(const std::size_t capacity) : history_(capacity){
 	}
 
-	void commit_insertion(const std::u32string_view content, const caret_section caret, const std::size_t where,
+	inline void commit_insertion(const std::u32string_view content, const caret_section caret, const std::size_t where,
 		const std::u32string_view text){
 		history_.push(text_edit_delta{
 				.type = text_edit_type::insert,
@@ -67,7 +67,7 @@ public:
 			});
 	}
 
-	void commit_delete(const std::u32string_view content, const caret_section caret, const std::size_t where,
+	inline void commit_delete(const std::u32string_view content, const caret_section caret, const std::size_t where,
 		const std::size_t length){
 		history_.push(text_edit_delta{
 				.type = text_edit_type::del,
@@ -77,7 +77,7 @@ public:
 			});
 	}
 
-	void commit_replace(const std::u32string_view content, const caret_section caret, const std::size_t where,
+	inline void commit_replace(const std::u32string_view content, const caret_section caret, const std::size_t where,
 		const std::size_t length, const std::u32string_view inserted){
 		history_.push(text_edit_delta{
 				.type = text_edit_type::replace,
@@ -88,7 +88,7 @@ public:
 			});
 	}
 
-	bool undo(std::u32string& target, caret_section& caret){
+	inline bool undo(std::u32string& target, caret_section& caret){
 		if(auto* op = history_.to_prev()){
 			switch(op->type){
 			case text_edit_type::insert : target.erase(op->position, op->text_after.size());
@@ -104,7 +104,7 @@ public:
 		return false;
 	}
 
-	bool redo(std::u32string& target, caret_section& caret){
+	inline bool redo(std::u32string& target, caret_section& caret){
 		if(auto* op = history_.to_next()){
 			switch(op->type){
 			case text_edit_type::insert : target.insert(op->position, op->text_after);
@@ -122,7 +122,7 @@ public:
 		return false;
 	}
 
-	void clear_redo() noexcept {
+	inline void clear_redo() noexcept {
 		history_.truncate();
 	}
 };
@@ -143,14 +143,14 @@ private:
 		return std::isalnum(code) || code == U'_';
 	}
 
-	void merge_caret(unsigned index, bool select, unsigned max_size) noexcept{
+	inline void merge_caret(unsigned index, bool select, unsigned max_size) noexcept{
 		caret_.dst = std::clamp(index, unsigned{0}, max_size);
 		if(!select){
 			caret_.src = caret_.dst;
 		}
 	}
 
-	void reset_preferred_cross_pos() noexcept{
+	inline void reset_preferred_cross_pos() noexcept{
 		preferred_cross_pos_ = std::nullopt;
 	}
 
@@ -160,7 +160,7 @@ private:
 		unsigned visual_end;
 	};
 
-	[[nodiscard]] line_bounds get_line_bounds(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, unsigned line_idx) const {
+	[[nodiscard]] inline line_bounds get_line_bounds(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, unsigned line_idx) const {
         if (std::cmp_greater_equal(line_idx, layout.lines.size())) {
             return {0, 0, 0};
         }
@@ -197,7 +197,7 @@ private:
         return {start, end, visual_end};
     }
 
-    [[nodiscard]] unsigned get_line_index(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, unsigned pos) const {
+    [[nodiscard]] inline unsigned get_line_index(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, unsigned pos) const {
         if (layout.lines.empty()) return 0;
 
         for (unsigned i = 0; std::cmp_less(i, layout.lines.size()); ++i) {
@@ -211,9 +211,9 @@ private:
 public:
 	text_editor_core() = default;
 
-	[[nodiscard]] caret_section get_caret() const noexcept{ return caret_; }
+	[[nodiscard]] inline caret_section get_caret() const noexcept{ return caret_; }
 
-	void reset_state(){
+	inline void reset_state(){
 		caret_ = {0, 0};
 		history_ = edit_history{64};
 		reset_preferred_cross_pos();
@@ -221,7 +221,7 @@ public:
 
 
 
-	bool insert_text(std::u32string& text_buffer_, std::u32string_view inserted_text){
+	inline bool insert_text(std::u32string& text_buffer_, std::u32string_view inserted_text){
 		if(inserted_text.empty()) return false;
 		reset_preferred_cross_pos();
 
@@ -239,7 +239,7 @@ public:
 		return true;
 	}
 
-	bool delete_selection(std::u32string& text_buffer_){
+	inline bool delete_selection(std::u32string& text_buffer_){
 		if(!caret_.has_region()) return false;
 		reset_preferred_cross_pos();
 		auto sorted = caret_.get_ordered();
@@ -249,7 +249,7 @@ public:
 		return true;
 	}
 
-	bool action_backspace(std::u32string& text_buffer_){
+	inline bool action_backspace(std::u32string& text_buffer_){
 		if(delete_selection(text_buffer_)) return true;
 		if(caret_.dst == 0) return false;
 		reset_preferred_cross_pos();
@@ -261,7 +261,7 @@ public:
 		return true;
 	}
 
-	bool action_delete(std::u32string& text_buffer_){
+	inline bool action_delete(std::u32string& text_buffer_){
 		if(delete_selection(text_buffer_)) return true;
 		if(std::cmp_greater_equal(caret_.dst, text_buffer_.size())) return false;
 		reset_preferred_cross_pos();
@@ -271,22 +271,22 @@ public:
 		return true;
 	}
 
-	bool undo(std::u32string& text_buffer_){
+	inline bool undo(std::u32string& text_buffer_){
 		reset_preferred_cross_pos();
 		return history_.undo(text_buffer_, caret_);
 	}
 
-	bool redo(std::u32string& text_buffer_){
+	inline bool redo(std::u32string& text_buffer_){
 		reset_preferred_cross_pos();
 		return history_.redo(text_buffer_, caret_);
 	}
 
-	void clear_redo() noexcept {
+	inline void clear_redo() noexcept {
 		history_.clear_redo();
 	}
 	
 
-	void action_move_left(const std::u32string_view text_buffer_, bool select){
+	inline void action_move_left(const std::u32string_view text_buffer_, bool select){
 		reset_preferred_cross_pos();
 		if(!select && caret_.has_region()){
 			merge_caret(caret_.get_ordered().src, false, text_index(text_buffer_.size()));
@@ -295,7 +295,7 @@ public:
 		if(caret_.dst > 0) merge_caret(caret_.dst - 1, select, text_index(text_buffer_.size()));
 	}
 
-	void action_move_right(const std::u32string_view text_buffer_, bool select){
+	inline void action_move_right(const std::u32string_view text_buffer_, bool select){
 		reset_preferred_cross_pos();
 		if(!select && caret_.has_region()){
 			merge_caret(caret_.get_ordered().dst, false, text_index(text_buffer_.size()));
@@ -315,7 +315,7 @@ public:
 		return char_class::other;
 	}
 
-	void action_jump_left(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select) {
+	inline void action_jump_left(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select) {
 		reset_preferred_cross_pos();
 		if (!select && caret_.has_region()) {
 			merge_caret(caret_.get_ordered().src, false, text_index(text_buffer_.size()));
@@ -341,7 +341,7 @@ public:
 		merge_caret(p, select, text_index(text_buffer_.size()));
 	}
 
-	void action_jump_right(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select) {
+	inline void action_jump_right(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select) {
 		reset_preferred_cross_pos();
 		if (!select && caret_.has_region()) {
 			merge_caret(caret_.get_ordered().dst, false, text_index(text_buffer_.size()));
@@ -369,7 +369,7 @@ public:
 		merge_caret(p, select, text_index(text_buffer_.size()));
 	}
 
-	void action_move_line_begin(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select){
+	inline void action_move_line_begin(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select){
 		reset_preferred_cross_pos();
 		if(layout.empty()){
 			merge_caret(0, select, text_index(text_buffer_.size()));
@@ -380,7 +380,7 @@ public:
 		merge_caret(bounds.start_idx, select, text_index(text_buffer_.size()));
 	}
 
-	void action_move_line_end(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select){
+	inline void action_move_line_end(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool select){
 		reset_preferred_cross_pos();
 		if(layout.empty()){
 			merge_caret(text_index(text_buffer_.size()), select, text_index(text_buffer_.size()));
@@ -392,13 +392,13 @@ public:
 	}
 
 	
-	void action_select_all(const std::u32string_view text_buffer_) noexcept {
+	inline void action_select_all(const std::u32string_view text_buffer_) noexcept {
 		reset_preferred_cross_pos();
 		caret_.src = 0;
 		caret_.dst = text_index(text_buffer_.size());
 	}
 
-	bool action_hit_test(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, math::vec2 pos, typesetting::line_alignment align,
+	inline bool action_hit_test(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, math::vec2 pos, typesetting::line_alignment align,
 		bool select){
 		reset_preferred_cross_pos();
 		if(layout.empty()){
@@ -443,7 +443,7 @@ public:
 
 	
 
-	void move_vertical(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool move_down, typesetting::line_alignment align, bool select) {
+	inline void move_vertical(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, bool move_down, typesetting::line_alignment align, bool select) {
         if (layout.empty() || layout.lines.empty()) return;
         unsigned line_idx = get_line_index(layout, text_buffer_, caret_.dst);
 
@@ -522,11 +522,11 @@ public:
 		}
     }
 
-	void action_move_up(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, typesetting::line_alignment align, bool select){
+	inline void action_move_up(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, typesetting::line_alignment align, bool select){
 		move_vertical(layout, text_buffer_, false, align, select);
 	}
 
-	void action_move_down(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, typesetting::line_alignment align, bool select){
+	inline void action_move_down(const typesetting::glyph_layout& layout, const std::u32string_view text_buffer_, typesetting::line_alignment align, bool select){
 		move_vertical(layout, text_buffer_, true, align, select);
 	}
 };

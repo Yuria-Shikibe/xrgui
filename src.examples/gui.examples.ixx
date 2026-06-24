@@ -12,6 +12,7 @@ import mo_yanxi.gui.elem.group;
 import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.graphic.image_atlas;
 import mo_yanxi.react_flow;
+import mo_yanxi.audio;
 
 
 
@@ -36,7 +37,7 @@ struct ui_outputs{
 	react_flow::node* tonemap_saturation;
 
 	void apply(scene& scene) const{
-		scene.get_input_communicate_async_task_queue().post([*this](gui::scene& s){
+		(void)scene.post_gui([*this](gui::scene& s){
 			if(shader_bloom_scale)shader_bloom_scale->pull_and_push(false);
 			if(shader_bloom_src_factor)shader_bloom_src_factor->pull_and_push(false);
 			if(shader_bloom_dst_factor)shader_bloom_dst_factor->pull_and_push(false);
@@ -56,7 +57,8 @@ ui_outputs build_main_ui(
 	backend::vulkan::context& ctx,
 	renderer_frontend r,
 	graphic::image_atlas& image_atlas,
-	window_thread_dispatcher& window_dispatcher);
+	audio::audio_channel audio_channel,
+	sound::asset_group_handle default_sound_group);
 
 export
 void clear_main_ui();

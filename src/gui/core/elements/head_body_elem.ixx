@@ -5,6 +5,7 @@ module;
 export module mo_yanxi.gui.elem.head_body_elem;
 
 export import mo_yanxi.gui.infrastructure;
+import mo_yanxi.gui.elem_containers;
 import std;
 
 namespace mo_yanxi::gui{
@@ -14,7 +15,7 @@ namespace mo_yanxi::gui{
 export
 struct head_body_base : elem{
 protected:
-	std::array<elem_ptr, 2> items{};
+	elem_array<2> items{};
 	std::array<layout::stated_size, 2> item_size{};
 	layout::directional_layout_specifier layout_policy_{layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)};
 
@@ -93,7 +94,7 @@ public:
 	}
 
 	[[nodiscard]] elem_span exposed_children() const noexcept final{
-		return {items, elem_ptr::cvt_mptr};
+		return items.as_span();
 	}
 
 public:

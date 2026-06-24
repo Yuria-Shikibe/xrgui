@@ -142,43 +142,45 @@ public:
 		}
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		auto ret = head_body::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		head_body_no_invariant::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.as_mouse() != input_handle::mouse::LMB){
-			return ret;
+			return;
 		}
 
 		if(event.key.action == input_handle::act::press){
-			if(!is_separator_hit(event.pos)){
-				return ret;
+			if(!is_separator_hit(event.local_pos)){
+				return;
 			}
 
 			begin_separator_drag();
-			return events::op_afterwards::intercepted;
+			ctx.consume(*this);
+			return;
 		}
 
 		if(event.key.on_release()){
-			bool intercepted = end_separator_drag();
+			bool handled = end_separator_drag();
 
 			if(separator_position_.is_dirty()){
 				separator_position_.apply();
 				update_separator();
-				intercepted = true;
+				handled = true;
 			}
 
-			if(intercepted)return events::op_afterwards::intercepted;
+			if(handled)ctx.consume(*this);
 		}
-		return ret;
 	}
 
-	events::op_afterwards on_drag(const events::drag event) override{
+	void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event) override{
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.as_mouse() != input_handle::mouse::LMB){
-			return events::op_afterwards::fall_through;
+			return;
 		}
 
 		if(current_drag_state_ == drag_state::idle || current_drag_state_ == drag_state::exiting){
-			if(!is_separator_hit(event.src)){
-				return events::op_afterwards::fall_through;
+			if(!is_separator_hit(event.local_src)){
+				return;
 			}
 
 
@@ -186,8 +188,8 @@ public:
 		}
 
 
-		move_separator(event.delta());
-		return events::op_afterwards::intercepted;
+		move_separator(event.local_delta());
+		ctx.consume(*this);
 	}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{

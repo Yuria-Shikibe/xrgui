@@ -59,11 +59,11 @@ export struct direct_label;
 export struct label_text_prov : react_flow::terminal<std::string>{
 	label_text_prov() = default;
 
-	explicit label_text_prov(label& label)
+	explicit inline label_text_prov(label& label)
 		: terminal(react_flow::propagate_type::eager), label(&label){
 	}
 
-	void set_label(label& l){
+	inline void set_label(label& l){
 		label = std::addressof(l);
 	}
 
@@ -75,7 +75,7 @@ protected:
 export struct direct_label_text_prov : react_flow::terminal<typesetting::tokenized_text>{
 	direct_label_text_prov() = default;
 
-	explicit direct_label_text_prov(direct_label& label)
+	explicit inline direct_label_text_prov(direct_label& label)
 		: terminal(react_flow::propagate_type::eager), label(&label){
 	}
 
@@ -108,7 +108,7 @@ private:
 	label_fit_type fit_type_{label_fit_type::fix};
 
 
-	bool is_layout_expired_() const noexcept{
+	inline bool is_layout_expired_() const noexcept{
 		return change_mark_ != change_type{};
 	}
 
@@ -119,15 +119,15 @@ public:
 
 	using elem::elem;
 
-	[[nodiscard]] graphic::color get_draw_scl_color(float opacityScl) const noexcept{
+	[[nodiscard]] inline graphic::color get_draw_scl_color(float opacityScl) const noexcept{
 		return text_color_scl.copy().mul_a((is_disabled() ? .5f : 1.f) * opacityScl);
 	}
 
-	[[nodiscard]] layout::expand_policy get_expand_policy() const noexcept{
+	[[nodiscard]] inline layout::expand_policy get_expand_policy() const noexcept{
 		return expand_policy_;
 	}
 
-	void set_expand_policy(const layout::expand_policy expand_policy){
+	inline void set_expand_policy(const layout::expand_policy expand_policy){
 		if(util::try_modify(expand_policy_, expand_policy)){
 			notify_isolated_layout_changed();
 		}
@@ -135,12 +135,12 @@ public:
 
 #pragma region LabelSetter
 
-	[[nodiscard]] label_fit_type get_fit_type() const noexcept{
+	[[nodiscard]] inline label_fit_type get_fit_type() const noexcept{
 		return fit_type_;
 	}
 
 
-	void set_fit_type(const label_fit_type type){
+	inline void set_fit_type(const label_fit_type type){
 		if(util::try_modify(fit_type_, type)){
 			change_mark_ |= change_type::max_extent | change_type::config;
 			notify_isolated_layout_changed();
@@ -148,44 +148,44 @@ public:
 	}
 
 
-	void set_fit(bool fit = true){
+	inline void set_fit(bool fit = true){
 		set_fit_type(fit ? label_fit_type::fit : label_fit_type::fix);
 	}
 
-	const typesetting::tokenized_text& get_tokenized_text() const noexcept{
+	inline const typesetting::tokenized_text& get_tokenized_text() const noexcept{
 		return tokenized_text_;
 	}
 
-	void set_line_align(typesetting::line_alignment line_alignment){
+	inline void set_line_align(typesetting::line_alignment line_alignment){
 		if(render_cache_.set_line_align(line_alignment)){
 			render_cache_.update_buffer(glyph_layout_, layout_config_.direction);
 		}
 	}
 
 
-	void set_tokenized_text(typesetting::tokenized_text&& tokenized_text){
+	inline void set_tokenized_text(typesetting::tokenized_text&& tokenized_text){
 		if(util::try_modify(tokenized_text_, std::move(tokenized_text))){
 			change_mark_ |= change_type::text;
 			notify_isolated_layout_changed();
 		}
 	}
 
-	void set_tokenized_text(const typesetting::tokenized_text& tokenized_text){
+	inline void set_tokenized_text(const typesetting::tokenized_text& tokenized_text){
 		if(util::try_modify(tokenized_text_, tokenized_text)){
 			change_mark_ |= change_type::text;
 			notify_isolated_layout_changed();
 		}
 	}
 
-	void set_tokenized_text_quiet(typesetting::tokenized_text&& tokenized_text){
+	inline void set_tokenized_text_quiet(typesetting::tokenized_text&& tokenized_text){
 		tokenized_text_ = std::move(tokenized_text);
 	}
 
-	[[nodiscard]] text_transform_config get_transform_config() const noexcept{
+	[[nodiscard]] inline text_transform_config get_transform_config() const noexcept{
 		return transform_config_;
 	}
 
-	void set_transform_config(const text_transform_config& config){
+	inline void set_transform_config(const text_transform_config& config){
 		const bool rot_changed_axis = transform_config_.is_vertical() != config.is_vertical();
 		transform_config_ = config;
 
@@ -195,7 +195,7 @@ public:
 		}
 	}
 
-	void set_typesetting_config(const typesetting::layout_config& config){
+	inline void set_typesetting_config(const typesetting::layout_config& config){
 		if(util::try_modify(layout_config_, config)){
 			change_mark_ |= change_type::config;
 			notify_isolated_layout_changed();
@@ -220,7 +220,7 @@ public:
 
 #pragma endregion
 
-	void layout_elem() override{
+	inline void layout_elem() override{
 		elem::layout_elem();
 		if(is_layout_expired_()){
 			auto maxSz = restriction_extent.potential_extent();
@@ -232,7 +232,7 @@ public:
 		}
 	}
 
-	void record_draw_layer(draw_recorder& call_stack_builder) const override{
+	inline void record_draw_layer(draw_recorder& call_stack_builder) const override{
 		elem::record_draw_layer(call_stack_builder);
 
 		call_stack_builder.push_call_noop(*this, [](const direct_label& s, const draw_call_param& p,
@@ -246,7 +246,7 @@ public:
 
 protected:
 
-	bool resize_impl(const math::vec2 size) override{
+	inline bool resize_impl(const math::vec2 size) override{
 		if(elem::resize_impl(size)){
 			layout_text(content_extent());
 			return true;
@@ -254,7 +254,7 @@ protected:
 		return false;
 	}
 
-	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
+	inline std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{
 		if(get_expand_policy() == layout::expand_policy::passive){
 			return std::nullopt;
 		}
@@ -295,7 +295,7 @@ protected:
 	}
 
 
-	[[nodiscard]] math::vec2 get_glyph_draw_extent() const noexcept{
+	[[nodiscard]] inline math::vec2 get_glyph_draw_extent() const noexcept{
 		math::vec2 base_ext = glyph_layout_.extent;
 
 		base_ext *= math::vec2{std::abs(transform_config_.scale.x), std::abs(transform_config_.scale.y)} * get_scaling();
@@ -316,21 +316,21 @@ protected:
 		}
 	}
 
-	[[nodiscard]] math::vec2 get_glyph_src_local() const noexcept{
+	[[nodiscard]] inline math::vec2 get_glyph_src_local() const noexcept{
 		const auto sz = get_glyph_draw_extent();
 
 		return mo_yanxi::gui::align::get_offset_of(text_entire_align, sz, rect{content_extent()});
 	}
 
-	[[nodiscard]] math::vec2 get_glyph_src_abs() const noexcept{
+	[[nodiscard]] inline math::vec2 get_glyph_src_abs() const noexcept{
 		return get_glyph_src_local() + content_src_pos_abs();
 	}
 
-	[[nodiscard]] math::vec2 get_glyph_src_rel() const noexcept{
+	[[nodiscard]] inline math::vec2 get_glyph_src_rel() const noexcept{
 		return get_glyph_src_local() + content_src_pos_rel();
 	}
 
-	text_layout_result layout_text(math::vec2 bound){
+	inline text_layout_result layout_text(math::vec2 bound){
 		if(fit_type_ == label_fit_type::fix && bound.area() < 32.0f) return {};
 
 		math::vec2 local_bound = bound;
@@ -420,7 +420,7 @@ public:
 		}
 	}
 
-	bool set_text_quiet(std::string_view text){
+	inline bool set_text_quiet(std::string_view text){
 		if(util::try_modify(raw_string_, text)){
 			raw_string_ = text;
 			update_tokenized_text_(raw_string_);
@@ -429,13 +429,13 @@ public:
 		return false;
 	}
 
-	void set_tokenizer_tag(const typesetting::tokenize_tag tag){
+	inline void set_tokenizer_tag(const typesetting::tokenize_tag tag){
 		if(util::try_modify(tokenize_tag_, tag)){
 			update_tokenized_text_(raw_string_);
 		}
 	}
 
-	[[nodiscard]] std::string_view get_text() const noexcept{
+	[[nodiscard]] inline std::string_view get_text() const noexcept{
 		return raw_string_;
 	}
 };

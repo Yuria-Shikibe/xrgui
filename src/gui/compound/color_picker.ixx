@@ -765,6 +765,8 @@ public:
 
 			set_body_size(input_area_height);
 		} else {
+			const float controls_height = input_area_height * (has_alpha ? 3.f : 4.f);
+
 			// 提取一个通用的 Lambda，用于创建单个通道（Label + Input）的横向结构
 			auto create_channel_view = [&](head_body_no_invariant& s, int i) {
 				s.set_expand_policy(layout::expand_policy::passive);
@@ -832,12 +834,12 @@ public:
 								};
 						}, math::vector2<grid_dim_spec>{
 							grid_uniformed_passive{2, {4, 4}},
-							grid_uniformed_mastering{2, input_area_height, {4, 4}}
-						}).cell().set_size({layout::size_category::pending});
+							grid_uniformed_passive{2, {4, 4}}
+						}).cell().set_passive(2.f);
 
 						controls.create_back([&](head_body_no_invariant& row){
 							create_hex_view(row);
-						}, layout::layout_policy::hori_major).cell().set_size(input_area_height);
+						}, layout::layout_policy::hori_major).cell().set_passive(1.f);
 					});
 			} else{
 				create_body([&](sequence& s){
@@ -847,15 +849,15 @@ public:
 					for(int i = 0; i < 3; ++i){
 						s.create_back([&, i](head_body_no_invariant& row){
 							create_channel_view(row, i);
-						}, layout::layout_policy::hori_major).cell().set_size(input_area_height);
+						}, layout::layout_policy::hori_major).cell().set_passive(1.f);
 					}
 					s.create_back([&](head_body_no_invariant& row){
 						create_hex_view(row);
-					}, layout::layout_policy::hori_major).cell().set_size(input_area_height);
+					}, layout::layout_policy::hori_major).cell().set_passive(1.f);
 				}, layout::layout_policy::vert_major);
 			}
 
-			set_body_size({layout::size_category::pending});
+			set_body_size(controls_height);
 		}
 		for(int i = 0; i < rgba_channel_inputs.size(); ++i){
 			if(auto c = rgba_channel_inputs[i])c->set_value_no_propagate(std::numeric_limits<std::uint8_t>::max());

@@ -14,7 +14,7 @@ import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.concurrent.mpsc_double_buffer;
 
 import mo_yanxi.platform.thread;
-import mo_yanxi.gui.window_thread_dispatcher;
+import mo_yanxi.log;
 
 namespace mo_yanxi::gui::cfg::builtin{
 
@@ -89,6 +89,7 @@ struct main_loop{
 	struct functions{
 		std::move_only_function<main_loop_init_return_t(main_loop&)> init_fn{};
 		std::move_only_function<void(main_loop&)> main_loop_fn{};
+		std::move_only_function<void(main_loop&)> prepare_exit_fn{};
 		std::move_only_function<void(main_loop&)> exit_fn{};
 	};
 
@@ -105,9 +106,10 @@ public:
 private:
 	thread_sync_controller sync_ctrl{};
 	std::exception_ptr captured_exception_{nullptr};
-	window_thread_dispatcher window_dispatcher_{};
 	std::jthread exec_thread;
 	scene* target_scene{};
+	bool shutdown_prepared_{false};
+	std::atomic_bool shutdown_destroy_requested_{false};
 
 public:
 	[[nodiscard]] main_loop(
@@ -118,12 +120,14 @@ public:
 		  ctx_ptr(&ctx_ptr),
 		  functions_(std::move(functions)), payload(std::move(payload)), exec_thread{
 			  [](std::stop_token stoptoken, main_loop& self){
+				  log::info({"Lifecycle"}, "UI thread started");
 				  self.init();
 				  while(true){
 					  if(self.sync_main_loop(stoptoken)){
 						  break;
 					  }
 				  }
+				  log::info({"Lifecycle"}, "UI thread exiting");
 			  },
 			  std::ref(*this)
 		  }{
@@ -142,9 +146,9 @@ public:
 		get_renderer().resize({extent.x, extent.y});
 
 		auto& focus = get_scene();
-		auto exec_thread = std::exchange(focus.ui_main_thread_id, std::this_thread::get_id());
+		auto exec_thread = focus.exchange_thread_id(std::this_thread::get_id());
 		focus.resize(math::rect_ortho{tags::from_extent, {}, extent}.as<float>());
-		focus.ui_main_thread_id = exec_thread;
+		focus.exchange_thread_id(exec_thread);
 	}
 
 	[[nodiscard]] backend::vulkan::renderer& get_renderer() noexcept{
@@ -153,10 +157,6 @@ public:
 
 	[[nodiscard]] backend::vulkan::context& get_ctx() const noexcept{
 		return *ctx_ptr;
-	}
-
-	[[nodiscard]] window_thread_dispatcher& get_window_dispatcher() noexcept{
-		return window_dispatcher_;
 	}
 
 	scene& get_scene() const noexcept{
@@ -168,10 +168,18 @@ public:
 		permit_burst();
 	}
 
-	void join() noexcept{
+	void join(){
+		log::debug({"Lifecycle"}, "Requesting UI thread stop");
 		exec_thread.request_stop();
 		permit_burst();
+		sync_ctrl.wait_for_b_done();
+
+		log::debug({"Lifecycle"}, "Requesting UI thread final cleanup");
+		shutdown_destroy_requested_.store(true, std::memory_order_release);
+		permit_burst();
 		exec_thread.join();
+		log::info({"Lifecycle"}, "UI thread joined");
+		propagate_exception();
 	}
 
 	void permit_burst() noexcept{
@@ -247,10 +255,12 @@ private:
 
 	void init(){
 		this->term([this]{
+			log::info({"Lifecycle"}, "UI thread initialization started");
 			if(functions_.init_fn){
 				const main_loop_init_return_t rst = functions_.init_fn(*this);
 				target_scene = rst.main_scene;
 			}
+			log::info({"Lifecycle"}, "UI thread initialization completed");
 		});
 	}
 
@@ -259,10 +269,25 @@ private:
 	bool sync_main_loop(const std::stop_token& stoptoken){
 		bool should_stop = this->term([&, this]{
 			if(stoptoken.stop_requested()){
-				//TODO clear main loop payload
-
-				if(functions_.exit_fn)functions_.exit_fn(*this);
-				return true;
+				if(!shutdown_prepared_){
+					log::info({"Lifecycle"}, "UI thread shutdown requested - preparing exit");
+					if(target_scene != nullptr){
+						log::debug({"Lifecycle"}, "Cancelling scene async operations");
+						target_scene->begin_shutdown();
+					}
+					if(functions_.prepare_exit_fn)functions_.prepare_exit_fn(*this);
+					shutdown_prepared_ = true;
+					log::info({"Lifecycle"}, "UI thread exit preparation completed");
+					return false;
+				}
+				if(shutdown_destroy_requested_.load(std::memory_order_acquire)){
+					log::info({"Lifecycle"}, "UI thread final cleanup started");
+					if(functions_.exit_fn)functions_.exit_fn(*this);
+					target_scene = nullptr;
+					log::info({"Lifecycle"}, "UI thread final cleanup completed");
+					return true;
+				}
+				return false;
 			}
 
 			if(functions_.main_loop_fn) functions_.main_loop_fn(*this);

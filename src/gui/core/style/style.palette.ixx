@@ -82,7 +82,7 @@ struct palette{
 		return lhs.copy().lerp(rhs, factor);
 	}
 
-	[[nodiscard]] graphic::color on_instance(const elem& element) const{
+	[[nodiscard]] inline graphic::color on_instance(const elem& element) const{
 		graphic::color color;
 		auto& state = element.cursor_state();
 		if(state.pressed){

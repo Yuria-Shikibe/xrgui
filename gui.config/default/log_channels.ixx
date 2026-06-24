@@ -18,6 +18,7 @@ inline void configure_gui_log_channels(){
 	log::set_channel_color("Freetype", white);
 	log::set_channel_color("Thread", bright_black);
 	log::set_channel_color("NumericInput", yellow);
+	log::set_channel_color("Lifecycle", bright_green);
 }
 
 }

@@ -661,6 +661,11 @@ private:
 	}
 
 public:
+	void set_default_appearance() override{
+		basic_group::set_default_appearance();
+		set_style_assume_synced();
+	}
+
 	[[nodiscard]] pie_menu(
 		scene& scene,
 		elem* parent,
@@ -675,7 +680,6 @@ public:
 		interactivity = interactivity_flag::enabled;
 		set_focus_extended_by_mouse(true);
 		set_overflow_ignored(true);
-		set_style();
 
 		apply_layout_metrics(compute_pie_menu_layout_metrics(items, config_));
 
@@ -709,22 +713,24 @@ public:
 		return true;
 	}
 
-	events::op_afterwards on_drag(const events::drag event) override{
+	void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event) override{
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.as_mouse() == activation_button_){
-			set_selected(hit_test_local(event.dst));
+			set_selected(hit_test_local(event.local_dst));
 		}
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		elem::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		elem::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.as_mouse() == activation_button_){
-			set_selected(hit_test_local(event.pos));
+			set_selected(hit_test_local(event.local_pos));
 			if(event.key.on_release()){
 				finish_from_current_selection();
 			}
 		}
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
 	}
 
 	void layout_elem() override{

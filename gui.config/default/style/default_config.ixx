@@ -113,9 +113,7 @@ struct example_scene : scene{
 		Args&&... args
 	) : scene(resources, std::move(renderer)),
 	    root_(static_cast<scene&>(*this), nullptr, std::in_place_type<T>, std::forward<Args>(args)...){
-		input_handler_.inputs_.main_binds.set_context(std::ref(static_cast<scene&>(*this)));
-		scene_root_ = root_.get();
-		init_root();
+		set_root(*root_);
 	}
 
 protected:

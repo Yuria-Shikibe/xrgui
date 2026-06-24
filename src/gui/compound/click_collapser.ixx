@@ -79,13 +79,11 @@ public:
 
 	public:
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		auto rst = collapser::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		collapser::on_pointer_button(ctx, event);
 
 		if(is_clicked())get_arrow().arrow_enter(std::identity{});
 		else get_arrow().arrow_exit(std::identity{});
-
-		return rst;
 	}
 
 };

@@ -76,15 +76,15 @@ private:
 
 public:
 
-	[[nodiscard]] bool has_drawable_text() const noexcept {
+	[[nodiscard]] inline bool has_drawable_text() const noexcept {
 		return !draw_instr_buffer_.heads().empty();
 	}
 
-	[[nodiscard]] typesetting::line_alignment get_line_align() const noexcept {
+	[[nodiscard]] inline typesetting::line_alignment get_line_align() const noexcept {
 		return line_align_;
 	}
 
-	bool set_line_align(const typesetting::line_alignment line_align){
+	inline bool set_line_align(const typesetting::line_alignment line_align){
 		if(util::try_modify(line_align_, line_align)){
 			return true;
 		}
@@ -92,19 +92,19 @@ public:
 	}
 
 	// 核心的指令录制，原 update_draw_buffer
-	void update_buffer(const typesetting::glyph_layout& layout) {
+	inline void update_buffer(const typesetting::glyph_layout& layout) {
 		record_glyph_draw_instructions(draw_instr_buffer_, layout, line_align_);
 	}
 
-	void update_buffer(const typesetting::glyph_layout_draw_only& layout, typesetting::layout_direction direction = typesetting::layout_direction::ltr) {
+	inline void update_buffer(const typesetting::glyph_layout_draw_only& layout, typesetting::layout_direction direction = typesetting::layout_direction::ltr) {
 		record_glyph_draw_instructions_draw_only(draw_instr_buffer_, layout, line_align_, direction);
 	}
 
-	void operator()(graphic::g2d::emit_t emit, auto& sink) const {
+	inline void operator()(graphic::g2d::emit_t emit, auto& sink) const {
 		emit(sink, draw_instr_buffer_);
 	}
 
-	void push_to_renderer(renderer_frontend& r) const {
+	inline void push_to_renderer(renderer_frontend& r) const {
 		r << *this;
 	}
 };

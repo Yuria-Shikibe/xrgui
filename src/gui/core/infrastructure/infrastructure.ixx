@@ -13,9 +13,10 @@ export import :tooltip_manager;
 export import :dialog_manager;
 export import :cursor;
 export import :flags;
-export import :elem_async_task;
+export import :async_task;
 
-export import mo_yanxi.gui.window_thread_dispatcher;
+export import mo_yanxi.gui.sound.manager;
+export import mo_yanxi.audio.resources;
 export import mo_yanxi.gui.renderer.frontend;
 export import mo_yanxi.input_handle;
 export import mo_yanxi.gui.alloc;
@@ -25,7 +26,7 @@ namespace mo_yanxi::gui{
 export namespace align = ::mo_yanxi::align;
 
 template <typename Owner>
-concept react_flow_scene_owner = std::derived_from<std::remove_cvref_t<Owner>, scene_base>;
+concept react_flow_scene_owner = std::derived_from<std::remove_cvref_t<Owner>, scene>;
 
 template <typename Owner>
 concept react_flow_elem_owner = std::derived_from<std::remove_cvref_t<Owner>, elem>;
@@ -34,7 +35,7 @@ template <typename Owner>
 concept react_flow_owner = react_flow_scene_owner<Owner> || react_flow_elem_owner<Owner>;
 
 template <react_flow_owner Owner>
-scene_base& react_flow_owner_scene_(Owner& owner) noexcept{
+scene& react_flow_owner_scene_(Owner& owner) noexcept{
 	if constexpr (react_flow_elem_owner<Owner>){
 		return owner.get_scene();
 	}else{
@@ -53,11 +54,11 @@ const elem* react_flow_owner_elem_(Owner& owner) noexcept{
 
 struct react_flow_create_access{
 	template <typename AddFn>
-	static decltype(auto) add_node(scene_base& scene, const elem* owner, AddFn&& add){
+	static decltype(auto) add_node(scene& scene, const elem* owner, AddFn&& add){
 		return scene.react_flow_add_node_(owner, std::forward<AddFn>(add));
 	}
 
-	static bool erase_node(scene_base& scene, react_flow::node& node){
+	static bool erase_node(scene& scene, react_flow::node& node){
 		return scene.react_flow_erase_node_(node);
 	}
 };
@@ -104,19 +105,17 @@ bool react_flow_erase_impl(Owner& owner, react_flow::node& node){
 
 
 template <typename E, typename Fn>
-void native_communicator::request_clipboard(E& owner, Fn&& on_ready){
-	this->request_clipboard_impl(
-		owner.get_scene().make_native_clipboard_request(owner, std::forward<Fn>(on_ready)));
+async_operation_handle native_communicator::request_clipboard(E& owner, Fn&& on_ready){
+	auto request = static_cast<elem&>(owner).get_scene().make_native_clipboard_request(owner, std::forward<Fn>(on_ready));
+	auto handle = request.handle();
+	this->request_clipboard_impl(std::move(request));
+	return handle;
 }
 
-template <typename E, std::invocable<E&> Fn>
+template <typename E, typename Fn>
+	requires (std::invocable<Fn&&, E&> || std::invocable<Fn&&>)
 void elem::post_task(this E& e, Fn&& fn){
-	static_cast<const elem&>(e).get_scene().post(e, std::forward<Fn>(fn));
-}
-
-template <typename E, std::invocable<> Fn>
-void elem::post_task(this E& e, Fn&& fn){
-	static_cast<const elem&>(e).get_scene().post(e, std::forward<Fn>(fn));
+	(void)static_cast<const elem&>(e).get_scene().post_gui(e, std::forward<Fn>(fn));
 }
 
 namespace util{
@@ -126,7 +125,7 @@ template <typename E>
 	requires (std::is_enum_v<E> && std::convertible_to<std::underlying_type_t<E>, std::size_t>)
 void sync_set_elem_style(elem& e, E v){
 	e.sync_run([v](elem& el){
-		el.set_style(el.get_style_tree_manager().get_default<elem>(v));
+		el.set_style_assume_synced(el.get_style_tree_manager().get_default<elem>(v));
 	});
 }
 export
@@ -134,15 +133,25 @@ template <typename E>
 	requires (std::is_enum_v<E> && std::convertible_to<std::underlying_type_t<E>, std::size_t>)
 void sync_set_elem_style(elem& e, E v, std::string_view style_family_name){
 	e.sync_run([v, style_family_name](elem& el){
-		el.set_style(el.get_style_tree_manager().get_slice<elem>().value().get_or_default(style_family_name, std::to_underlying(v)));
+		el.set_style_assume_synced(
+			el.get_style_tree_manager().get_slice<elem>().value().get_or_default(style_family_name, std::to_underlying(v)));
 	});
 }
 
 export
-template <std::derived_from<elem> E, std::invocable<E&> Prov>
-elem_async_task_handle post_elem_async_task(E& e, Prov&& prov){
-	return static_cast<const elem&>(e).get_scene().post_elem_async_task(e, std::forward<Prov>(prov));
+inline void sync_set_elem_audio_group(elem& e, sound::asset_group_handle group){
+	e.sync_run([group = std::move(group)](elem& el) mutable{
+		el.set_audio_group_assume_synced(std::move(group));
+	});
 }
+
+export
+inline void sync_set_elem_audio_group(elem& e, std::string_view sound_family_name){
+	e.sync_run([sound_family_name = std::string{sound_family_name}](elem& el){
+		el.set_audio_group_assume_synced(el.get_sound_manager().lookup(sound_family_name));
+	});
+}
+
 }
 
 }

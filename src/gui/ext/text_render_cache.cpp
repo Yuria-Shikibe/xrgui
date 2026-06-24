@@ -1,5 +1,6 @@
 module mo_yanxi.gui.text_render;
 
+import mo_yanxi.gui.assets.manager;
 import mo_yanxi.gui.image_regions;
 import mo_yanxi.graphic.g2d;
 import mo_yanxi.gui.fx.instruction_extension;
@@ -29,7 +30,7 @@ void record_glyph_draw_instructions(
 	buffer.reserve_heads(glyph_layout.elems.size() + glyph_layout.underlines.size() + glyph_layout.wrap_frames.size() * 3);
 	buffer.reserve_bytes(glyph_layout.elems.size() * sizeof(rect_aabb) + glyph_layout.underlines.size() * sizeof(line));
 
-	const auto& roundRegion = gui::assets::builtin::default_round_square_base;
+	const auto& roundRegion = gui::assets::round_square::base();
 	const bool hasRound = static_cast<bool>(roundRegion);
 	for (const auto & range : glyph_layout.wrap_frames | std::views::chunk_by(&typesetting::sub_line_decoration::chunk_by_line)){
 		auto [line_src, spacing] = glyph_layout.lines[range.front().line_index].calculate_alignment(glyph_layout.extent, line_align, glyph_layout.direction);

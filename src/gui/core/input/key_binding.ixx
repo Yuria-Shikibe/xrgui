@@ -41,7 +41,7 @@ export
         using function_ptr = void*;
         function_ptr func{};
 
-        [[nodiscard]] any_key_binding(const key_set key, const function_ptr func)
+        [[nodiscard]] inline any_key_binding(const key_set key, const function_ptr func)
             : key_set{key}, func(func){
         }
 
@@ -122,7 +122,7 @@ export
         void* func{};
 
         [[nodiscard]] pos_binding() = default;
-        [[nodiscard]] explicit pos_binding(void* func)
+        [[nodiscard]] inline explicit pos_binding(void* func)
             : func(func){
         }
 
@@ -136,11 +136,11 @@ export
         }
 
         bool operator==(const pos_binding&) const noexcept = default;
-        bool friend operator==(const pos_binding& s, const void* func) noexcept{
+        inline bool friend operator==(const pos_binding& s, const void* func) noexcept{
             return s.func == func;
         }
 
-        bool friend operator==(const void* func, const pos_binding& s) noexcept{
+        inline bool friend operator==(const void* func, const pos_binding& s) noexcept{
             return s.func == func;
         }
     };
@@ -149,7 +149,7 @@ export
         void* func{};
 
         [[nodiscard]] inbound_binding() = default;
-        [[nodiscard]] explicit inbound_binding(void* func)
+        [[nodiscard]] inline explicit inbound_binding(void* func)
             : func(func){
         }
 
@@ -163,11 +163,11 @@ export
         }
 
         bool operator==(const inbound_binding&) const noexcept = default;
-        bool friend operator==(const inbound_binding& s, const void* func) noexcept{
+        inline bool friend operator==(const inbound_binding& s, const void* func) noexcept{
             return s.func == func;
         }
 
-        bool friend operator==(const void* func, const inbound_binding& s) noexcept{
+        inline bool friend operator==(const void* func, const inbound_binding& s) noexcept{
             return s.func == func;
         }
     };
@@ -254,13 +254,13 @@ export
 
         virtual ~key_mapping_interface() = default;
 
-        void update(const float delta_in_tick){
+        inline void update(const float delta_in_tick){
             if(!activated_) return;
 
             update_impl(delta_in_tick);
         }
 
-        void set_activated(const bool active) noexcept{
+        inline void set_activated(const bool active) noexcept{
             activated_ = active;
             if(!active){
                 current_mode_ = {};
@@ -268,22 +268,22 @@ export
             }
         }
 
-        [[nodiscard]] bool is_activated() const noexcept{
+        [[nodiscard]] inline bool is_activated() const noexcept{
             return activated_;
         }
 
-        void activate() noexcept{
+        inline void activate() noexcept{
             activated_ = true;
         }
 
-        void deactivate() noexcept{
+        inline void deactivate() noexcept{
             activated_ = false;
             current_mode_ = {};
             reset_key_states();
         }
 
     private:
-        void reset_key_states() noexcept{
+        inline void reset_key_states() noexcept{
             for (binding_state& state : states_){
                 state.double_click_timer = 0;
                 state.press_duration = 0;
@@ -306,11 +306,11 @@ export
             }
         }
 
-        void update_mode(const key_set k) noexcept {
+        inline void update_mode(const key_set k) noexcept {
             current_mode_ = k.mode_bits;
         }
 
-        [[nodiscard]] bool check_pressed_impl(std::uint16_t keyCode) const noexcept{
+        [[nodiscard]] inline bool check_pressed_impl(std::uint16_t keyCode) const noexcept{
             auto* s = find_state_of(keyCode);
             if(!s)return false;
 
@@ -319,7 +319,7 @@ export
 
     protected:
 
-        bool add_raw(any_key_binding erased_binding){
+        inline bool add_raw(any_key_binding erased_binding){
             const auto idx = erased_binding.key_code;
             auto where = std::ranges::lower_bound(keys_, idx, {}, &key_index::key_code);
 
@@ -346,7 +346,7 @@ export
 
     public:
 
-        bool erase_binding(any_key_binding erased_binding) noexcept{
+        inline bool erase_binding(any_key_binding erased_binding) noexcept{
             const auto idx = erased_binding.key_code;
             auto where = std::ranges::lower_bound(keys_, idx, {}, &key_index::key_code);
 
@@ -366,44 +366,44 @@ export
             }
         }
 
-        bool erase_pos_binding(const pos_binding_target target, const pos_binding binding) noexcept{
+        inline bool erase_pos_binding(const pos_binding_target target, const pos_binding binding) noexcept{
             auto& slot = pos_bindingses_[std::to_underlying(target)];
             return std::erase(slot, binding);
         }
 
-        bool erase_inbound_binding(const inbound_binding binding) noexcept{
+        inline bool erase_inbound_binding(const inbound_binding binding) noexcept{
             return std::erase(inbounds_, binding);
         }
 
-        [[nodiscard]] bool check_pressed(key k) const noexcept{
+        [[nodiscard]] inline bool check_pressed(key k) const noexcept{
             return check_pressed_impl(std::to_underlying(k));
         }
 
-        [[nodiscard]] bool check_pressed(mouse k) const noexcept{
+        [[nodiscard]] inline bool check_pressed(mouse k) const noexcept{
             return check_pressed_impl(std::to_underlying(k));
         }
 
-        void inform_input(const key_set k){
+        inline void inform_input(const key_set k){
             if(!activated_)return;
             update_mode(k);
             inform_input_impl(k);
         }
 
-        void inform_input(pos_binding_target target, math::vec2 pos){
+        inline void inform_input(pos_binding_target target, math::vec2 pos){
             if(!activated_)return;
             trigger(target, pos);
         }
 
-        void inform_inbound(bool inbounded, math::vec2 pos){
+        inline void inform_inbound(bool inbounded, math::vec2 pos){
             if(!activated_)return;
             trigger(inbounded, pos);
         }
 
-        [[nodiscard]] mode get_mode() const noexcept{
+        [[nodiscard]] inline mode get_mode() const noexcept{
             return current_mode_;
         }
 
-        [[nodiscard]] bool has_mode(const mode mode) const noexcept{
+        [[nodiscard]] inline bool has_mode(const mode mode) const noexcept{
             return (get_mode() & mode) == mode;
         }
 
@@ -413,7 +413,7 @@ export
         key_mapping_interface& operator=(const key_mapping_interface& other) = delete;
         key_mapping_interface& operator=(key_mapping_interface&& other) noexcept = default;
     private:
-        void update_impl(float delta_in_tick){
+        inline void update_impl(float delta_in_tick){
             for (binding_state& state : states_){
                 if(state.double_click_timer > 0.f){
                     state.double_click_timer -= delta_in_tick;
@@ -426,7 +426,7 @@ export
             }
         }
 
-        void inform_input_impl(key_set key){
+        inline void inform_input_impl(key_set key){
             const auto s = find_state_of(key.key_code);
             if(!s)return;
 

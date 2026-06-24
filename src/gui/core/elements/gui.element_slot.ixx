@@ -280,7 +280,7 @@ struct elem_slot_access : elem_slot_kind<ElementType>{
 	template <typename ValueChildCache>
 	static elem_span exposed_children(const element_type& item, const ValueChildCache& value_child_cache) noexcept{
 		if constexpr(elem_slot_access::is_elem_ptr){
-			return {item, elem_ptr::cvt_mptr};
+			return {item.raw_addr(), 1};
 		} else if constexpr(elem_slot_access::is_elem_value){
 			return {&*value_child_cache, 1};
 		} else{
@@ -289,7 +289,7 @@ struct elem_slot_access : elem_slot_kind<ElementType>{
 	}
 
 	static elem_span elem_ptr_children(const element_type& item) noexcept requires(elem_slot_access::is_elem_ptr){
-		return {item, elem_ptr::cvt_mptr};
+		return {item.raw_addr(), 1};
 	}
 
 	static elem_span elem_value_children(elem* const* child) noexcept requires(elem_slot_access::is_elem_value){

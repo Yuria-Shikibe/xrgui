@@ -83,11 +83,11 @@ struct overlay{
 
 	void update_bound(const rect scene_viewport) const;
 
-	[[nodiscard]] overlay_operation_provider& get_operation_provider(){
+	[[nodiscard]] inline overlay_operation_provider& get_operation_provider(){
 		return operation_provider.node;
 	}
 
-	void notify_operation(overlay_operation operation){
+	inline void notify_operation(overlay_operation operation){
 		operation_provider->update_value(overlay_operation_context{
 			.operation = operation,
 			.dialog = this,
@@ -95,7 +95,7 @@ struct overlay{
 		});
 	}
 
-	[[nodiscard]] elem* get() const noexcept{
+	[[nodiscard]] inline elem* get() const noexcept{
 		return element.get();
 	}
 };
@@ -153,7 +153,7 @@ public:
 
 	overlay_create_result<elem> push_back(const overlay_layout& layout, elem_ptr&& elem_ptr, bool fade_in = true);
 
-	void clear() noexcept{
+	inline void clear() noexcept{
 		draw_sequence_.clear();
 		active_stack_.clear();
 		fading_overlays_.clear();
@@ -161,7 +161,7 @@ public:
 		last_vp_ = {};
 	}
 
-	void pop_back(){
+	inline void pop_back(){
 		if(active_stack_.empty()){
 			//TODO throw instead?
 			return;
@@ -170,35 +170,35 @@ public:
 		truncate(std::prev(active_stack_.end()));
 	}
 
-	[[nodiscard]] auto active_overlays() noexcept{
+	[[nodiscard]] inline auto active_overlays() noexcept{
 		return active_stack_ | std::views::transform([](overlay* dialog) -> overlay&{
 			return *dialog;
 		});
 	}
 
-	[[nodiscard]] auto active_overlays() const noexcept{
+	[[nodiscard]] inline auto active_overlays() const noexcept{
 		return active_stack_ | std::views::transform([](overlay* dialog) -> const overlay&{
 			return *dialog;
 		});
 	}
 
-	[[nodiscard]] overlay* top_active_overlay() noexcept{
+	[[nodiscard]] inline overlay* top_active_overlay() noexcept{
 		return active_stack_.empty() ? nullptr : active_stack_.back();
 	}
 
-	[[nodiscard]] const overlay* top_active_overlay() const noexcept{
+	[[nodiscard]] inline const overlay* top_active_overlay() const noexcept{
 		return active_stack_.empty() ? nullptr : active_stack_.back();
 	}
 
-	[[nodiscard]] bool empty() const noexcept{
+	[[nodiscard]] inline bool empty() const noexcept{
 		return active_stack_.empty();
 	}
 
-	[[nodiscard]] std::span<const elem* const> get_draw_sequence() const noexcept{
+	[[nodiscard]] inline std::span<const elem* const> get_draw_sequence() const noexcept{
 		return draw_sequence_;
 	}
 
-	void truncate(const elem* overlay_elem){
+	inline void truncate(const elem* overlay_elem){
 		const auto itr = std::ranges::find(active_stack_, overlay_elem, [](const overlay* dialog){
 			return dialog->get();
 		});
@@ -213,7 +213,7 @@ public:
 		math::vec2 scene_position,
 		events::key_set key);
 
-	void resize(rect scene_viewport){
+	inline void resize(rect scene_viewport){
 		if(last_vp_ == scene_viewport)return;
 		last_vp_ = scene_viewport;
 		for (overlay* overlay : active_stack_){
@@ -223,6 +223,6 @@ public:
 
 	void update(float delta_in_tick);
 
-	events::op_afterwards on_esc() noexcept;
+	events::dispatch_result on_esc() noexcept;
 };
 }

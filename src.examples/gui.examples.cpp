@@ -5,6 +5,7 @@
 module mo_yanxi.gui.examples;
 
 import mo_yanxi.gui.elem.button;
+import mo_yanxi.gui.assets.manager;
 
 
 import std;
@@ -12,6 +13,7 @@ import std;
 import mo_yanxi.binary_trace;
 
 import mo_yanxi.gui.infrastructure;
+import mo_yanxi.audio;
 import mo_yanxi.gui.elem.group;
 import mo_yanxi.gui.global;
 
@@ -150,6 +152,12 @@ struct fps_counter_label : label{
 	float sample_seconds_{};
 	std::uint32_t sample_frames_{};
 
+public:
+	void set_default_appearance() override{
+		label::set_default_appearance();
+		set_style_assume_synced(style::family_variant::base_only);
+	}
+
 	[[nodiscard]] fps_counter_label(scene& scene, elem* parent)
 		: label(scene, parent){
 		interactivity = interactivity_flag::disabled;
@@ -159,7 +167,6 @@ struct fps_counter_label : label{
 		auto pad = gui::border_t{};
 		pad.set_hori(8.f).set_vert(4.f);
 		set_self_border(pad);
-		set_style(style::family_variant::base_only);
 		text_entire_align = align::pos::center;
 		set_text("FPS --");
 
@@ -197,10 +204,15 @@ struct fps_counter_label : label{
 };
 
 struct pie_menu_demo_area : label{
+public:
+	void set_default_appearance() override{
+		label::set_default_appearance();
+		set_style_assume_synced();
+	}
+
 	[[nodiscard]] pie_menu_demo_area(scene& scene, elem* parent)
 		: label(scene, parent){
 		interactivity = interactivity_flag::enabled;
-		set_style();
 		// set_style(style::family_variant::solid);
 		set_fit_type(label_fit_type::scl);
 		text_entire_align = align::pos::center;
@@ -208,14 +220,15 @@ struct pie_menu_demo_area : label{
 		set_text("Hold RMB, move toward an item, then release");
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		label::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		label::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.action == input_handle::act::press && event.key.as_mouse() == input_handle::mouse::RMB){
 			auto owner = ref<pie_menu_demo_area>();
 
 			cpd::show_pie_menu(
 				get_scene(),
-				util::transform_local2scene(*this, event.pos),
+				util::transform_local2scene(*this, event.local_pos),
 				[&](cpd::pie_menu_item_builder& items){
 					items.reserve(8);
 					auto push_item = [&](std::string text, bool disabled = false){
@@ -256,9 +269,9 @@ struct pie_menu_demo_area : label{
 						}
 					}
 				},
-				input_handle::mouse::RMB);
+					input_handle::mouse::RMB);
+			ctx.consume(*this);
 		}
-		return events::op_afterwards::intercepted;
 	}
 };
 
@@ -280,34 +293,33 @@ struct csv_file_reader : head_body{
 			carrier->get_scene().close_overlay(std::exchange(overlay, nullptr)->element.get());
 
 			const std::filesystem::path selected_path = path;
-			util::post_elem_async_task(*carrier, [selected_path](csv_file_reader&){
-				return elem_async_yield_task<csv_file_reader>{
-						[selected_path](elem_async_task_context& context, scene& s){
-							context.report_progress(0u, 1u);
-							if(context.stop_requested()){
-								return elem_ptr{};
+			gui::request_forked(
+				*carrier,
+				[selected_path](async_task_context& context, scene& s){
+					context.report_progress(0u, 1u);
+					if(context.stop_requested()){
+						return elem_ptr{};
+					}
+					auto table = elem_ptr{
+							s, nullptr, [p = selected_path](cpd::data_table& table){
+								table.set_style();
+								table.get_item() = cpd::data_table_desc::from_csv(p, '|');
+								table.get_item().try_update_glyph_layouts();
+								table.notify_isolated_layout_changed();
 							}
-							auto table = elem_ptr{
-									s, nullptr, [p = selected_path](cpd::data_table& table){
-										table.set_style();
-										table.get_item() = cpd::data_table_desc::from_csv(p, '|');
-										table.get_item().try_update_glyph_layouts();
-										table.notify_isolated_layout_changed();
-									}
-								};
-							context.report_progress(1u, 1u);
-							return table;
-						},
-						[](csv_file_reader& r, scene& s, elem_ptr&& ptr){
-							(void)s;
-							if(ptr == nullptr){
-								return;
-							}
-							util::sync_elem_tree(*ptr, r.get_scene());
-							r.set_body_elem(std::move(ptr));
-						}
-					};
-			});
+						};
+					context.report_progress(1u, 1u);
+					return table;
+				},
+				[](csv_file_reader& owner, elem_ptr&& ptr) mutable {
+					if(ptr == nullptr){
+						return;
+					}
+					if(std::addressof(ptr->get_scene()) != std::addressof(owner.get_scene())){
+						util::sync_elem_tree(*ptr, owner.get_scene());
+					}
+					owner.set_body_elem(std::move(ptr));
+				});
 
 			carrier->create_body([&](progress_bar& prog){
 				prog.set_style();
@@ -324,9 +336,14 @@ struct csv_file_reader : head_body{
 
 	react_flow::node_holder_pinned<file_listener> path_node_{this};
 
+public:
+	void set_default_appearance() override{
+		head_body::set_default_appearance();
+		set_style_assume_synced();
+	}
+
 	[[nodiscard]] csv_file_reader(scene& scene, elem* parent)
 		: head_body(scene, parent){
-		set_style();
 		set_expand_policy(layout::expand_policy::passive);
 
 		create_head([this](button<direct_label>& b){
@@ -647,9 +664,13 @@ ui_outputs build_main_ui(
 	backend::vulkan::context& ctx,
 	renderer_frontend renderer,
 	graphic::image_atlas& image_atlas,
-	window_thread_dispatcher& window_dispatcher){
+	audio::audio_channel audio_channel,
+	sound::asset_group_handle default_sound_group){
 	auto& ui_root = global::manager;
-	auto& res = ui_root.add_scene_resources("main");
+	auto& res = ui_root.add_scene_resources("main", audio_channel);
+	if(default_sound_group){
+		res.sound_manager.insert_or_assign(sound::default_asset_group_name, std::move(default_sound_group));
+	}
 	auto style_pal_prov = make_styles(res);
 
 	const auto scene_add_rst = ui_root.add_scene<example_scene, loose_group>("main", res, true, std::move(renderer));
@@ -659,9 +680,9 @@ ui_outputs build_main_ui(
 	auto& root = scene_add_rst.root_group;
 	style_pal_prov.add_to_scene(scene);
 
-	scene.enable_elem_async_task_post(true);
-	scene.drop_and_reset_communicate_async_task_queue_size(1);
-	(void)load_scene_i18n_for_system_locale(
+	scene.enable_forked_scene_tasks(true);
+	scene.reset_output_channels(output_channel::count);
+	(void)::mo_yanxi::gui::load_scene_i18n_for_system_locale(
 		scene,
 		i18n_load_options{
 			.bundle_dir = std::filesystem::current_path() / "assets/i18n/bundle",
@@ -689,7 +710,7 @@ ui_outputs build_main_ui(
 
 	scene.resources().set_native_communicator<backend::glfw::communicator>(
 		ctx.window().get_handle(),
-		window_dispatcher);
+		scene.output_queue(output_channel::window_thread));
 	scene.get_communicator()->set_native_cursor_visibility(false);
 
 	auto e = scene.create<scaling_stack>();
@@ -839,8 +860,8 @@ ui_outputs build_main_ui(
 						slider->set_smooth_drag(true);
 						slider->bar_handle_extent = {40};
 						slider->set_drawer(style::spec::make_round_slider_style({
-							.handle_shape = assets::builtin::default_round_square_base,
-							.bar_shape = assets::builtin::default_round_square_base,
+							.handle_shape = assets::round_square::base(),
+							.bar_shape = assets::round_square::base(),
 							.handle_palette = style::pal::white,
 							.bar_palette = style::pal::pastel_gray.copy().mul_rgb(.7f),
 							.bar_back_palette = style::pal::pastel_gray.copy().mul_rgb(.2f),
@@ -888,24 +909,6 @@ ui_outputs build_main_ui(
 					"sliders", [&](scroll_adaptor<sequence>& pane){
 						sequence& s = pane.get_elem();
 						pane.set_style();
-
-						// util::post_elem_async_task(s, [](gui::sequence& seq){
-						// 	return elem_async_yield_task{
-						// 			seq,
-						// 			[](elem& e){
-						// 				log::debug({"Task"}, "begin: current thread: {}",
-						// 				             std::this_thread::get_id());
-						// 				std::this_thread::sleep_for(std::chrono::milliseconds(500));
-						// 				log::debug({"Task"}, "end: current thread: {}",
-						// 				             std::this_thread::get_id());
-						// 				return 114;
-						// 			},
-						// 			[](elem& e, int val){
-						// 				log::debug({"Task"}, "done: current thread: {} - {}",
-						// 				             std::this_thread::get_id(), val);
-						// 			}
-						// 		};
-						// });
 
 						s.set_expand_policy(layout::expand_policy::prefer);
 						s.template_cell.set_pending();
@@ -1098,9 +1101,9 @@ ui_outputs build_main_ui(
 													interactivity = interactivity_flag::enabled;
 												}
 
-												events::op_afterwards on_click(
-													const events::click event,
-													std::span<elem* const> aboves) override{
+												void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+													elem::on_pointer_button(ctx, event);
+													if(!ctx.is_target_or_bubble_phase()) return;
 													if(event.key.on_release()){
 														get_scene().create_overlay({
 																.extent = {
@@ -1122,7 +1125,7 @@ ui_outputs build_main_ui(
 																e.end_line().emplace_back<elem>();
 															});
 													}
-													return events::op_afterwards::intercepted;
+													ctx.consume(*this);
 												}
 											};
 											tooltip.emplace_back<dialog_creator>().cell().set_size({

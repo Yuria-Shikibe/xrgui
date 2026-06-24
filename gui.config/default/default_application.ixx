@@ -9,6 +9,7 @@ export import mo_yanxi.backend.vulkan.renderer;
 export import mo_yanxi.graphic.image_atlas;
 export import mo_yanxi.input_handle.input_event_queue;
 export import mo_yanxi.gui.cfg.render_context;
+export import mo_yanxi.audio;
 
 namespace mo_yanxi::gui::cfg{
 
@@ -46,6 +47,14 @@ struct default_application_config{
 	 * flag disables them for profiling.
 	 */
 	bool enable_validation_layers{false};
+
+	/**
+	 * @brief Default audio device configuration.
+	 *
+	 * Audio runs asynchronously. When `require_device` is false, the default
+	 * application falls back to a null driver if device initialization fails.
+	 */
+	audio::device_config audio_device{};
 };
 
 export
@@ -59,8 +68,8 @@ export
  *
  * Derive from this class and implement `build_gui()` to create the root UI once.
  * Per-frame work belongs in `before_frame()` or `after_frame()`. Do not access
- * `context()`, `renderer()`, `image_atlas()`, `scene()`, or
- * `window_dispatcher()` before `run()` has started.
+ * `context()`, `renderer()`, `image_atlas()`, or `scene()` before `run()` has
+ * started.
  */
 class default_application{
 public:
@@ -95,7 +104,7 @@ protected:
 	virtual void after_frame(){}
 
 	/**
-	 * @brief Receives input events that no GUI element intercepted.
+	 * @brief Receives input events that no GUI element handled.
 	 */
 	virtual void on_unhandled_input(input_handle::input_event_variant event){}
 
@@ -120,14 +129,14 @@ protected:
 	gui::scene& scene();
 
 	/**
-	 * @brief Access the window-thread dispatcher used for native clipboard,
-	 * cursor, and IME requests.
+	 * @brief Access the owned asynchronous audio system while the application is running.
 	 */
-	gui::window_thread_dispatcher& window_dispatcher();
+	audio::audio_system& audio();
 
 private:
 	struct state;
 
+	//TODO dont use unique ptr here.
 	std::unique_ptr<state> state_{};
 	default_application_config config_;
 };

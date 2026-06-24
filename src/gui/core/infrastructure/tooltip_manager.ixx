@@ -44,7 +44,7 @@ struct tooltip_instance{
 private:
 	void update_layout(const tooltip_manager& manager, math::vec2 cursor_pos);
 
-	[[nodiscard]] bool is_pos_set() const noexcept{
+	[[nodiscard]] inline bool is_pos_set() const noexcept{
 		return !last_pos.is_NaN();
 	}
 };
@@ -104,13 +104,13 @@ public:
 
 	void update(float delta_in_time, math::vec2 cursor_pos, bool is_mouse_pressed);
 
-	bool request_drop(const spawner* owner){
+	inline bool request_drop(const spawner* owner){
 		const auto be = std::ranges::find(actives_, owner, &tooltip_instance::owner);
 
 		return drop_since(be);
 	}
 
-	bool is_below_scene(const elem* element) const noexcept{
+	inline bool is_below_scene(const elem* element) const noexcept{
 		for(const auto& draw : drawSequence){
 			if(draw.element == element){
 				return draw.belowScene;
@@ -120,17 +120,17 @@ public:
 		return false;
 	}
 
-	auto& get_active_tooltips() noexcept{
+	inline auto& get_active_tooltips() noexcept{
 		return actives_;
 	}
 
-	void clear() noexcept{
+	inline void clear() noexcept{
 		drawSequence.clear();
 		drop_all();
 		dropped.clear();
 	}
 
-	events::op_afterwards on_esc();
+	events::dispatch_result on_esc();
 
 	[[nodiscard]] std::span<const tooltip_draw_info> get_draw_sequence() const{
 		return drawSequence;
@@ -139,20 +139,20 @@ public:
 private:
 	bool drop(ActivesItr be, ActivesItr se);
 
-	bool drop_one(const ActivesItr where){
+	inline bool drop_one(const ActivesItr where){
 		return drop(where, std::ranges::next(where));
 	}
 
-	bool drop_back(){
+	inline bool drop_back(){
 		assert(!actives_.empty());
 		return drop(std::ranges::prev(actives_.end()), actives_.end());
 	}
 
-	bool drop_all(){
+	inline bool drop_all(){
 		return drop(actives_.begin(), actives_.end());
 	}
 
-	bool drop_since(const ActivesItr& where){
+	inline bool drop_since(const ActivesItr& where){
 		return drop(where, actives_.end());
 	}
 

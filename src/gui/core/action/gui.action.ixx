@@ -191,7 +191,7 @@ struct parallel_action : action<T>{
 protected:
 	void select_max_lifetime(){
 		for(auto& action : actions){
-			this->scale.lifetime = std::max(this->scale.lifetimem, action->scale.lifetime);
+			this->scale.lifetime = std::max(this->scale.lifetime, action->scale.lifetime);
 		}
 	}
 
@@ -223,7 +223,7 @@ struct aligned_parallel_action : action<T>{
 protected:
 	void selectMaxLifetime(){
 		for(auto& action : actions){
-			this->scale.lifetime = std::max(this->scale.lifetimem, action->scale.lifetime);
+			this->scale.lifetime = std::max(this->scale.lifetime, action->scale.lifetime);
 		}
 	}
 
@@ -244,8 +244,8 @@ public:
 
 protected:
 	void apply(T& elem, float progress) override{
-		for(auto&& action : actions){
-			action->apply(elem, action.get_progress_of(progress));
+		for(auto& act : actions){
+			act->apply(elem, progress);
 		}
 	}
 

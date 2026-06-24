@@ -45,7 +45,7 @@ private:
 	void update_collapse(float delta) noexcept;
 
 protected:
-	[[nodiscard]] bool is_clicked() const{
+	[[nodiscard]] inline bool is_clicked() const{
 		return clicked_;
 	}
 
@@ -121,27 +121,31 @@ public:
 		}
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
+	inline void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(expand_cond_ == collapser_expand_cond::click){
-			if((!aboves.empty() && aboves.front() == items[0].get())){
+			const auto descendants = ctx.descendants_to_target();
+			if((!descendants.empty() && descendants.front() == items[0].get())){
 				if(event.key.action == input_handle::act::release){
 					clicked_ = !clicked_;
 					util::update_insert(*this, update_channel::layout);
 				}
-				return events::op_afterwards::intercepted;
-			} else if(head().contains(event.pos)){
+				ctx.consume(*descendants.front());
+				return;
+			} else if(head().contains(event.local_pos)){
 				cursor_states_.update_press(event.key);
 				if(event.key.action == input_handle::act::release){
 					clicked_ = !clicked_;
 					util::update_insert(*this, update_channel::layout);
 				}
-				return events::op_afterwards::intercepted;
+				ctx.consume(*this);
+				return;
 			}
 
-			return events::op_afterwards::fall_through;
+			return;
 		}else{
 			util::update_insert(*this, update_channel::layout);
-			return elem::on_click(event, aboves);
+			head_body_base::on_pointer_button(ctx, event);
 		}
 	}
 

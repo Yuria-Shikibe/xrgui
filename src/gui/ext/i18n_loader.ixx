@@ -75,45 +75,32 @@ export inline i18n_load_result apply_i18n_bundle_to_resources(
 	return result;
 }
 
-export class i18n_load_scene_task : public basic_elem_async_task {
-	i18n_load_options options_{};
-	i18n_loaded_bundle bundle_{};
-
-protected:
-	void process_impl(elem_async_task_context& context, scene&) override {
-		context.report_progress(0u, 1u);
-		if(context.stop_requested()) {
-			return;
-		}
-
-		bundle_ = load_system_locale_i18n_bundle(std::move(options_));
-		context.report_progress(1u, 1u);
-	}
-
-public:
-	[[nodiscard]] explicit i18n_load_scene_task(i18n_load_options options = {})
-		: options_(std::move(options)) {
-	}
-
-	void on_done(elem& owner, scene&) override {
-		(void)apply_i18n_bundle_to_resources(owner.get_scene().resources(), std::move(bundle_));
-	}
-};
-
-export [[nodiscard]] inline elem_async_task_handle load_scene_i18n_for_system_locale(
+export [[nodiscard]] inline async_operation_handle load_scene_i18n_for_system_locale(
 	elem& owner,
 	i18n_load_options options = {}) {
-	return owner.get_scene().post_elem_async_task(
+	return request_async(
 		owner,
-		[options = std::move(options)](elem&) mutable {
-			return i18n_load_scene_task{std::move(options)};
+		[options = std::move(options)](async_task_context& context) mutable {
+			context.report_progress(0u, 1u);
+			if(context.stop_requested()) {
+				return i18n_loaded_bundle{};
+			}
+
+			auto bundle = ::mo_yanxi::gui::load_system_locale_i18n_bundle(std::move(options));
+			context.report_progress(1u, 1u);
+			return bundle;
+		},
+		[](elem& live_owner, i18n_loaded_bundle bundle) mutable {
+			(void)::mo_yanxi::gui::apply_i18n_bundle_to_resources(
+				live_owner.get_scene().resources(),
+				std::move(bundle));
 		});
 }
 
-export [[nodiscard]] inline elem_async_task_handle load_scene_i18n_for_system_locale(
+export [[nodiscard]] inline async_operation_handle load_scene_i18n_for_system_locale(
 	scene& scene,
 	i18n_load_options options = {}) {
-	return load_scene_i18n_for_system_locale(scene.root(), std::move(options));
+	return ::mo_yanxi::gui::load_scene_i18n_for_system_locale(scene.root(), std::move(options));
 }
 
 }

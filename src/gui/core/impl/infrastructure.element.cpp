@@ -138,7 +138,7 @@ void style::debug_elem_drawer::draw_background(const elem& element, math::frect 
 }*/
 
 
-style::target_known_node_ptr<elem> elem::get_elem_default_style_() const{
+style::target_known_node_ptr<elem> elem::get_elem_default_style() const{
 	return get_style_tree_manager().get_default<elem>();
 }
 
@@ -153,13 +153,29 @@ elem::elem(scene& scene, elem* parent) noexcept :
 	scene.incr_ref_count_();
 
 	init_altitude_(parent_ ? parent_->layer_altitude_ + 1 : 0);
-	sync_run([](elem& elem){
-		elem.set_style(elem.get_elem_default_style_());
-	});
+}
+
+void elem::set_default_appearance(){
+	assert(is_on_scene_thread(get_scene()));
+	set_default_audio_group_assume_synced();
+	set_style_assume_synced(get_elem_default_style());
 }
 
 void elem::push_to_action_queue(){
 	get_scene().async_push_elem_to_action_pending(this);
+}
+
+void elem::set_audio_group(sound::asset_group_handle group) noexcept{
+	set_audio_group_assume_synced(std::move(group));
+}
+
+void elem::set_audio_group_assume_synced(sound::asset_group_handle group) noexcept{
+	assert(is_on_scene_thread(get_scene()));
+	sound_group = std::move(group);
+}
+
+void elem::set_default_audio_group_assume_synced(){
+	set_audio_group_assume_synced(get_sound_manager().lookup(sound::default_asset_group_name));
 }
 
 tooltip::align_config elem::tooltip_get_align_config() const{
@@ -181,7 +197,7 @@ tooltip::align_config elem::tooltip_get_align_config() const{
 }
 
 void elem::create_tooltip(bool fade_in, bool below_scene){
-	get_scene().tooltip_manager_.append_tooltip(*this, below_scene, fade_in);
+	get_scene().tooltips().append_tooltip(*this, below_scene, fade_in);
 }
 
 bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
@@ -189,7 +205,81 @@ bool elem::tooltip_spawner_contains(math::vec2 cursorPos) const noexcept{
 }
 
 void elem::drop_tooltip() const{
-	if(has_tooltip()) get_scene().tooltip_manager_.request_drop(this);
+	if(has_tooltip()) get_scene().tooltips().request_drop(this);
+}
+
+void elem::on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event){
+	if(!ctx.is_target_or_bubble_phase()){
+		return;
+	}
+	if(!is_interactable()){
+		return;
+	}
+	if(is_focused()){
+		cursor_states_.update_press(event.key);
+	}
+}
+
+void elem::on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event){
+	(void)ctx;
+	(void)event;
+}
+
+void elem::on_pointer_move(events::event_context& ctx, const events::pointer_move_event& event){
+	if(ctx.is_target_or_bubble_phase()){
+		on_cursor_moved(event);
+	}
+}
+
+void elem::on_wheel(events::event_context& ctx, const events::wheel_event& event){
+	(void)ctx;
+	(void)event;
+}
+
+void elem::on_key(events::event_context& ctx, const events::key_event& event){
+	(void)ctx;
+	(void)event;
+}
+
+void elem::on_text(events::event_context& ctx, const events::text_event& event){
+	(void)ctx;
+	(void)event;
+}
+
+void elem::on_ime(events::event_context& ctx, const events::ime_event& event){
+	(void)ctx;
+	(void)event;
+}
+
+void elem::set_style(style::target_known_node_ptr<elem>&& style){
+	set_style_assume_synced(std::move(style));
+}
+
+void elem::set_style_assume_synced(style::target_known_node_ptr<elem>&& style){
+	assert(is_on_scene_thread(get_scene()));
+	if(this->style_ == style){
+		return;
+	}
+
+	this->style_ = std::move(style);
+	get_scene().notify_display_state_changed(get_channel());
+
+	if(util::try_modify(style_border_cache_, this->style_ ? style::query_metrics(this->style_, {}).total_inset() : gui::border_t{})){
+		notify_isolated_layout_changed();
+	}
+}
+
+void elem::set_style_assume_synced(style::family_variant v){
+	set_style_assume_synced(get_style_tree_manager().get_default<elem>(v));
+}
+
+void elem::set_style_assume_synced() noexcept{
+	assert(is_on_scene_thread(get_scene()));
+	style_ = {};
+	get_scene().notify_display_state_changed(get_channel());
+	if(util::try_modify(style_border_cache_, {})){
+		notify_isolated_layout_changed();
+	}
 }
 
 void elem::set_style(style::family_variant v){
@@ -198,90 +288,12 @@ void elem::set_style(style::family_variant v){
 
 void elem::set_style() noexcept{
 	sync_run([](elem& elem){
-		elem.style_ = {};
-		elem.get_scene().notify_display_state_changed(elem.get_channel());
-		if(util::try_modify(elem.style_border_cache_, {})){
-			elem.notify_isolated_layout_changed();
-		}
+		elem.set_style_assume_synced();
 	});
 }
 
 bool elem::update(float delta_in_ticks){
 	return true;
-}
-
-void elem::mark_destroying_no_external_refs_() noexcept{
-	const auto state = lifecycle_ref_.load(std::memory_order_acquire);
-	if(elem::lifecycle_ref_count_(state) != 0u){
-		assert(false && "cannot destroy an externally referenced elem");
-		std::terminate();
-	}
-	lifecycle_ref_.store(lifecycle_destroying_bit_, std::memory_order_release);
-}
-
-bool elem::try_retain_external_ref_live_() noexcept{
-	auto state = lifecycle_ref_.load(std::memory_order_acquire);
-	while(elem::is_lifecycle_live_(state)){
-		const auto count = elem::lifecycle_ref_count_(state);
-		if(count == lifecycle_ref_mask_){
-			assert(false && "elem external reference count overflow");
-			std::terminate();
-		}
-		if(lifecycle_ref_.compare_exchange_weak(
-			state,
-			state + lifecycle_ref_word{1u},
-			std::memory_order_acq_rel,
-			std::memory_order_acquire)){
-			if(is_live()){
-				return true;
-			}
-			release_external_ref_();
-			return false;
-		}
-	}
-	return false;
-}
-
-void elem::retain_external_ref_existing_() noexcept{
-	auto state = lifecycle_ref_.load(std::memory_order_acquire);
-	while(!elem::is_lifecycle_destroying_(state)){
-		const auto count = elem::lifecycle_ref_count_(state);
-		if(count == 0u || count == lifecycle_ref_mask_){
-			assert(false && "invalid elem external reference count");
-			std::terminate();
-		}
-		if(lifecycle_ref_.compare_exchange_weak(
-			state,
-			state + lifecycle_ref_word{1u},
-			std::memory_order_acq_rel,
-			std::memory_order_acquire)){
-			return;
-		}
-	}
-
-	assert(false && "cannot retain a destroying elem");
-	std::terminate();
-}
-
-void elem::release_external_ref_() noexcept{
-	auto state = lifecycle_ref_.load(std::memory_order_acquire);
-	while(!elem::is_lifecycle_destroying_(state)){
-		const auto count = elem::lifecycle_ref_count_(state);
-		if(count == 0u){
-			assert(false && "elem external reference count underflow");
-			std::terminate();
-		}
-		if(lifecycle_ref_.compare_exchange_weak(
-			state,
-			state - lifecycle_ref_word{1u},
-			std::memory_order_acq_rel,
-			std::memory_order_acquire)){
-			return;
-		}
-	}
-
-	assert(false && "cannot release a destroying elem");
-	std::terminate();
 }
 
 void elem::detach_from_scene() noexcept{
@@ -292,14 +304,22 @@ void elem::detach_from_scene() noexcept{
 	}
 
 	scene_refs_attached_ = false;
-	const auto previous_state = lifecycle_ref_.fetch_and(
-		static_cast<lifecycle_ref_word>(~lifecycle_live_bit_),
-		std::memory_order_acq_rel);
+	lifetime_stop_source_.request_stop();
+	// atomically clear live_bit and bump generation so weak_handle<> sees the detach
+	auto old_state = lifecycle_ref_.load(std::memory_order_relaxed);
+	lifecycle_ref_word previous_state;
+	do {
+		previous_state = old_state;
+		const auto new_state = (old_state & ~lifecycle_live_bit_) + lifecycle_generation_inc_;
+		if(lifecycle_ref_.compare_exchange_weak(old_state, new_state,
+			std::memory_order_acq_rel, std::memory_order_relaxed)){
+			break;
+		}
+	} while(true);
 	if(elem::is_lifecycle_destroying_(previous_state)){
 		assert(false && "cannot detach a destroying elem");
 		std::terminate();
 	}
-	lifetime_stop_source_.request_stop();
 	scene_->layer_altitude_record_.erase(layer_altitude_, 1);
 	scene_->drop_(this);
 	if(is_at_display_stage()){
@@ -360,35 +380,133 @@ bool elem::parent_contain_constrain(const math::vec2 pos_relative) const noexcep
 
 bool elem::is_focused_scroll() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.focus_cursor == this;
+	return scene_->inputs().is_scroll_focus(this);
 }
 
 bool elem::is_focused_key() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.focus_key == this;
+	return scene_->inputs().is_key_focus(this);
 }
 
 bool elem::is_focused() const noexcept{
 	assert(scene_ != nullptr);
-	return scene_->input_handler_.focus_cursor == this;
+	return scene_->inputs().is_cursor_focus(this);
 }
 
 bool elem::is_inbounded() const noexcept{
 	assert(scene_ != nullptr);
-	return std::ranges::contains(scene_->input_handler_.get_inbounds(), this);
+	return scene_->inputs().contains_inbound(this);
 }
 
 void elem::set_focused_scroll(const bool focus) noexcept{
-	if(!focus && !is_focused_scroll()) return;
-	this->scene_->input_handler_.focus_scroll = focus ? this : nullptr;
+	this->scene_->inputs().set_scroll_focus(this, focus);
 }
 
 void elem::set_focused_key(const bool focus) noexcept{
-	if(focus){
-		get_scene().input_handler_.switch_key_focus(this);
-	} else if(is_focused_key()){
-		get_scene().input_handler_.switch_key_focus(nullptr);
+	get_scene().inputs().set_key_focus(this, focus);
+}
+
+void elem::relocate_scene(scene& target_scene) noexcept{
+	for(auto&& elem_wrapper : collect_children()){
+		elem_wrapper.for_each([&](elem& e){
+			e.relocate_self_scene(target_scene);
+		});
 	}
+
+	relocate_self_scene(target_scene);
+}
+
+void elem::relocate_self_scene(scene& target_scene) noexcept{
+	assert(&target_scene != scene_);
+
+	scene_->decr_ref_count_();
+	scene_ = &target_scene;
+	scene_->incr_ref_count_();
+}
+
+void elem::mark_destroying_no_external_refs_() noexcept{
+	const auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	if(elem::lifecycle_ref_count_(state) != 0u){
+		assert(false && "cannot destroy an externally referenced elem");
+		std::terminate();
+	}
+	lifecycle_ref_.store(lifecycle_destroying_bit_, std::memory_order_release);
+}
+
+bool elem::try_retain_external_ref_live_() noexcept{
+	auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	while(elem::is_lifecycle_live_(state)){
+		const auto count = elem::lifecycle_ref_count_(state);
+		if(count == lifecycle_ref_mask_){
+			assert(false && "elem external reference count overflow");
+			std::terminate();
+		}
+		if(lifecycle_ref_.compare_exchange_weak(
+			state,
+			state + lifecycle_ref_word{1u},
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)){
+			if(is_live()){
+				return true;
+			}
+			release_external_ref_();
+			return false;
+		}
+	}
+	return false;
+}
+
+void elem::retain_external_ref_existing_() noexcept{
+	//TODO use unreachable in release?
+	auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	while(!elem::is_lifecycle_destroying_(state)){
+		const auto count = elem::lifecycle_ref_count_(state);
+		if(count == 0u || count == lifecycle_ref_mask_){
+			assert(false && "invalid elem external reference count");
+			std::terminate();
+		}
+		if(lifecycle_ref_.compare_exchange_weak(
+			state,
+			state + lifecycle_ref_word{1u},
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)){
+			return;
+		}
+	}
+
+	assert(false && "cannot retain a destroying elem");
+	std::terminate();
+}
+
+void elem::release_external_ref_() noexcept{
+	auto state = lifecycle_ref_.load(std::memory_order_acquire);
+	while(!elem::is_lifecycle_destroying_(state)){
+		const auto count = elem::lifecycle_ref_count_(state);
+		if(count == 0u){
+			assert(false && "elem external reference count underflow");
+			std::terminate();
+		}
+		if(lifecycle_ref_.compare_exchange_weak(
+			state,
+			state - lifecycle_ref_word{1u},
+			std::memory_order_acq_rel,
+			std::memory_order_acquire)){
+			return;
+		}
+	}
+
+	assert(false && "cannot release a destroying elem");
+	std::terminate();
+}
+
+std::uint32_t elem_ref_access::generation(const elem* e) noexcept{
+	if(!e) return 0u;
+	return e->lifecycle_generation();
+}
+
+bool elem_ref_access::is_live_generation(const elem* e, std::uint32_t gen) noexcept{
+	if(!e) return false;
+	return e->is_live_generation(gen);
 }
 
 void elem::update_altitude_(altitude_t height){
@@ -410,31 +528,13 @@ void elem::init_altitude_(altitude_t height){
 	scene_->layer_altitude_record_.insert(height, 1);
 }
 
-void elem::relocate_scene(scene& target_scene) noexcept{
-	for(auto&& elem_wrapper : collect_children()){
-		elem_wrapper.for_each([&](elem& e){
-			e.relocate_self_scene(target_scene);
-		});
-	}
-
-	relocate_self_scene(target_scene);
-}
-
-void elem::relocate_self_scene(scene& target_scene) noexcept{
-	assert(&target_scene != scene_);
-
-	scene_->decr_ref_count_();
-	scene_ = &target_scene;
-	scene_->incr_ref_count_();
-}
-
-events::op_afterwards util::thoroughly_esc(elem* where) noexcept{
+events::dispatch_result util::thoroughly_esc(elem* where) noexcept{
 	while(where){
-		if(where->on_esc() == events::op_afterwards::intercepted){
-			return events::op_afterwards::intercepted;
+		if(where->on_esc() == events::dispatch_result::handled){
+			return events::dispatch_result::handled;
 		}
 		where = where->parent();
 	}
-	return events::op_afterwards::fall_through;
+	return events::dispatch_result::unhandled;
 }
 }

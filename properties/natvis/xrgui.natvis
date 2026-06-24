@@ -565,24 +565,6 @@
     </Expand>
   </Type>
 
-  <!-- scene_base -->
-
-  <Type Name="mo_yanxi::gui::scene_base">
-    <DisplayString>{{frame={current_frame_} root=0x{{scene_root_,x}}}}</DisplayString>
-    <Expand>
-      <Item Name="[frame]">current_frame_</Item>
-      <Item Name="[time]">current_time_</Item>
-      <Item Name="[scene_root]">scene_root_</Item>
-      <Item Name="[resources]">resources_</Item>
-      <Item Name="[region]">region_</Item>
-      <Item Name="[renderer]">renderer_</Item>
-      <Item Name="[ui_thread]">ui_main_thread_id</Item>
-      <Item Name="[overlay_manager]">overlay_manager_</Item>
-      <Item Name="[tooltip_manager]">tooltip_manager_</Item>
-      <Item Name="[input_handler]">input_handler_</Item>
-    </Expand>
-  </Type>
-
   <!-- scene -->
 
   <Type Name="mo_yanxi::gui::scene">

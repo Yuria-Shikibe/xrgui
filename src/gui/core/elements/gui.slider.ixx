@@ -159,7 +159,8 @@ public:
 
     [[nodiscard]] bool is_sliding() const noexcept { return bar.is_sliding(); }
 
-    events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves) override {
+    void on_wheel(events::event_context& ctx, const events::wheel_event& event) override {
+        if(!ctx.is_target_or_bubble_phase()) return;
         math::vec2 move = event.delta;
         if(input_handle::matched(event.mode, input_handle::mode::shift)) move.swap_xy();
 
@@ -176,15 +177,19 @@ public:
         if(!smooth_scroll_) check_apply();
         else update_approach_state();
 
-        return events::op_afterwards::intercepted;
+        ctx.consume(*this);
     }
 
-    events::op_afterwards on_drag(const events::drag event) override {
-        if(event.key.mode_bits == input_handle::mode::ctrl) return events::op_afterwards::fall_through;
-        if(!drag_src_) return events::op_afterwards::intercepted;
+    void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event) override {
+        if(!ctx.is_target_or_bubble_phase()) return;
+        if(event.key.mode_bits == input_handle::mode::ctrl) return;
+        if(!drag_src_) {
+            ctx.consume(*this);
+            return;
+        }
 
         if(event.key.as_mouse() == input_handle::mouse::LMB) {
-            auto move_arr = extract_vec2(event.delta() / content_extent());
+            auto move_arr = extract_vec2(event.local_delta() / content_extent());
             for (std::size_t i = 0; i < Dim; ++i) {
                 move_arr[i] *= sensitivity[i];
             }
@@ -194,18 +199,19 @@ public:
         }
 
         update_approach_state();
-        return events::op_afterwards::intercepted;
+        ctx.consume(*this);
     }
 
-    events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override {
-        elem::on_click(event, aboves);
+    void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override {
+        elem::on_pointer_button(ctx, event);
+        if(!ctx.is_target_or_bubble_phase()) return;
         const auto [key, action, mode] = event.key;
 
         if(static_cast<input_handle::mouse>(key) == input_handle::mouse::_1) {
             if(action == input_handle::act::press) {
                 drag_src_ = bar.get_temp_progress();
                 if(mode == input_handle::mode::ctrl) {
-                    auto diff = event.get_content_pos(*this) - expand_to_vec2(bar.get_progress()) * content_extent();
+                    auto diff = event.get_content_pos(ctx, *this) - expand_to_vec2(bar.get_progress()) * content_extent();
                     auto move_arr = extract_vec2(diff / content_extent());
                     for (std::size_t i = 0; i < Dim; ++i) {
                         float sign = sensitivity[i] > 0.0f ? 1.0f : (sensitivity[i] < 0.0f ? -1.0f : 0.0f);
@@ -224,7 +230,7 @@ public:
             drag_src_.reset();
             bar.resume();
         }
-        return events::op_afterwards::intercepted;
+        ctx.consume(*this);
     }
 
     void set_smooth_scroll(const bool smooth = true) {
@@ -252,11 +258,11 @@ private:
 public:
     using slider_base<1, slider1d>::slider_base;
 
-	const style::target_known_node_ptr<slider1d>& get_drawer() const noexcept{
+	inline const style::target_known_node_ptr<slider1d>& get_drawer() const noexcept{
 		return content_style_;
 	}
 
-    void set_drawer(style::target_known_node_ptr<slider1d> style) {
+    inline void set_drawer(style::target_known_node_ptr<slider1d> style) {
 		sync_run([stl = std::move(style)](slider1d& s) mutable {
 			if(util::try_modify(s.content_style_, std::move(stl))){
 				s.get_scene().notify_display_state_changed(s.get_channel());
@@ -265,15 +271,15 @@ public:
 
     }
 
-    [[nodiscard]] bool is_vertical() const noexcept{
+    [[nodiscard]] inline bool is_vertical() const noexcept{
         return is_vertical_;
     }
 
-    void set_vertical(bool vertical) noexcept{
+    inline void set_vertical(bool vertical) noexcept{
         is_vertical_ = vertical;
     }
 
-    void set_vertical(layout::layout_policy policy) noexcept{
+    inline void set_vertical(layout::layout_policy policy) noexcept{
         switch(policy){
         case layout::layout_policy::none: break;
         case layout::layout_policy::hori_major: is_vertical_ = false; break;
@@ -281,23 +287,23 @@ public:
         }
     }
 
-    [[nodiscard]] float get_progress() const noexcept { return bar.get_progress()[0]; }
-    [[nodiscard]] float get_temp_progress() const noexcept { return bar.get_temp_progress()[0]; }
+    [[nodiscard]] inline float get_progress() const noexcept { return bar.get_progress()[0]; }
+    [[nodiscard]] inline float get_temp_progress() const noexcept { return bar.get_temp_progress()[0]; }
 
-    void set_progress(float progress) {
+    inline void set_progress(float progress) {
         if(bar.set_progress(0, progress)) on_changed();
     }
 
-    void set_progress_from_segments(std::uint32_t current, std::uint32_t total) {
+    inline void set_progress_from_segments(std::uint32_t current, std::uint32_t total) {
         if(bar.set_progress_from_segments(0, current, total)) on_changed();
     }
 
-    void clamp_progress(float from, float to) noexcept {
+    inline void clamp_progress(float from, float to) noexcept {
         bar.clamp({from}, {to});
         check_apply();
     }
 
-	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override {
+	inline style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override {
     	if(is_disabled()) return elem::get_cursor_type(cursor_pos_at_content_local);
     	if(cursor_state().pressed || (cursor_pos_at_content_local.axis_greater(vec2{}) && cursor_pos_at_content_local.axis_less(content_extent()))) {
     		if(is_vertical()){
@@ -322,11 +328,11 @@ private:
 public:
 	using slider_base<2, slider2d>::slider_base;
 
-	const style::target_known_node_ptr<slider2d>& get_drawer() const noexcept{
+	inline const style::target_known_node_ptr<slider2d>& get_drawer() const noexcept{
 		return content_style_;
 	}
 
-	void set_drawer(style::target_known_node_ptr<slider2d> style) {
+	inline void set_drawer(style::target_known_node_ptr<slider2d> style) {
 		sync_run([stl = std::move(style)](slider2d& s) mutable {
 			if(util::try_modify(s.content_style_, std::move(stl))){
 				s.get_scene().notify_display_state_changed(s.get_channel());
@@ -334,14 +340,14 @@ public:
 		});
 	}
 
-    [[nodiscard]] math::vec2 get_progress() const noexcept { return expand_to_vec2(bar.get_progress()); }
-    [[nodiscard]] math::vec2 get_temp_progress() const noexcept { return expand_to_vec2(bar.get_temp_progress()); }
+    [[nodiscard]] inline math::vec2 get_progress() const noexcept { return expand_to_vec2(bar.get_progress()); }
+    [[nodiscard]] inline math::vec2 get_temp_progress() const noexcept { return expand_to_vec2(bar.get_temp_progress()); }
 
-    void set_progress(math::vec2 progress) {
+    inline void set_progress(math::vec2 progress) {
         if(bar.set_progress({progress.x, progress.y})) on_changed();
     }
 
-	style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override {
+	inline style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override {
     	if(is_disabled()) return elem::get_cursor_type(cursor_pos_at_content_local);
     	if(cursor_state().pressed || (cursor_pos_at_content_local.axis_greater(vec2{}) && cursor_pos_at_content_local.axis_less(content_extent()))) {
     		return {style::cursor_type::drag, {style::cursor_decoration_type::to_left, style::cursor_decoration_type::to_right, style::cursor_decoration_type::to_up, style::cursor_decoration_type::to_down}};
@@ -349,13 +355,13 @@ public:
     	return elem::get_cursor_type(cursor_pos_at_content_local);
     }
 
-    void set_progress_from_segments(math::usize2 current, math::usize2 total) {
+    inline void set_progress_from_segments(math::usize2 current, math::usize2 total) {
         bool c1 = bar.set_progress_from_segments(0, current.x, total.x);
         bool c2 = bar.set_progress_from_segments(1, current.y, total.y);
         if(c1 || c2) on_changed();
     }
 
-    void clamp_progress(math::vec2 from, math::vec2 to) noexcept {
+    inline void clamp_progress(math::vec2 from, math::vec2 to) noexcept {
         bar.clamp({from.x, from.y}, {to.x, to.y});
         check_apply();
     }

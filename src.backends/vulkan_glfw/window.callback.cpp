@@ -10,13 +10,51 @@ import mo_yanxi.typesetting.util;
 import mo_yanxi.backend.glfw.window;
 
 import mo_yanxi.input_handle;
-import mo_yanxi.gui.global;
+import mo_yanxi.input_handle.input_event_queue;
 import mo_yanxi.math.vector2;
 
 
 import std;
 
 using namespace mo_yanxi::backend;
+
+namespace{
+[[nodiscard]] mo_yanxi::window_instance* get_window_instance(GLFWwindow* window) noexcept{
+	return static_cast<mo_yanxi::window_instance*>(glfwGetWindowUserPointer(window));
+}
+
+void push_input_event(GLFWwindow* window, mo_yanxi::input_handle::raw_input_event event){
+	if(auto* instance = get_window_instance(window)){
+		instance->push_input_event(std::move(event));
+	}
+}
+
+[[nodiscard]] mo_yanxi::input_handle::act to_input_action(const int action) noexcept{
+	using mo_yanxi::input_handle::act;
+	switch(action){
+	case GLFW_RELEASE:
+		return act::release;
+	case GLFW_PRESS:
+		return act::press;
+	case GLFW_REPEAT:
+		return act::repeat;
+	default:
+		return act::ignore;
+	}
+}
+
+[[nodiscard]] mo_yanxi::input_handle::mode to_input_mode(const int mods) noexcept{
+	using mo_yanxi::input_handle::mode;
+	mode result = mode::none;
+	if((mods & GLFW_MOD_SHIFT) != 0) result |= mode::shift;
+	if((mods & GLFW_MOD_CONTROL) != 0) result |= mode::ctrl;
+	if((mods & GLFW_MOD_ALT) != 0) result |= mode::alt;
+	if((mods & GLFW_MOD_SUPER) != 0) result |= mode::super;
+	if((mods & GLFW_MOD_CAPS_LOCK) != 0) result |= mode::cap_lock;
+	if((mods & GLFW_MOD_NUM_LOCK) != 0) result |= mode::num_lock;
+	return result;
+}
+}
 
 GLFWmonitor* GetMonitorFromWindow(GLFWwindow* window){
 	if(!window) return nullptr;
@@ -103,40 +141,61 @@ mo_yanxi::math::vec2 CalculateWindowPPI(GLFWwindow* window) {
 }
 
 void charInputCallback(glfw::Wptr window, unsigned codepoint){
-	// mo_yanxi::gui::global::manager.input_unicode(codepoint);
-	mo_yanxi::gui::global::event_queue.push_u32(codepoint);
+	push_input_event(window, mo_yanxi::input_handle::raw_input_event{
+		.type = mo_yanxi::input_handle::input_event_type::input_u32,
+		.input_char = static_cast<char32_t>(codepoint)
+	});
 }
 
 void mouseBottomCallBack(glfw::Wptr window, const int button, const int action, const int mods){
 	using namespace mo_yanxi::input_handle;
-	// mo_yanxi::gui::global::manager.input_mouse(key_set{static_cast<std::uint16_t>(button), static_cast<act>(action), static_cast<mode>(mods)});
-	mo_yanxi::gui::global::event_queue.push_mouse(key_set{static_cast<std::uint16_t>(button), static_cast<act>(action), static_cast<mode>(mods)});
+	push_input_event(window, raw_input_event{
+		.type = input_event_type::input_mouse,
+		.input_key = key_set{static_cast<std::uint16_t>(button), to_input_action(action), to_input_mode(mods)}
+	});
 }
 
 void cursorPosCallback(glfw::Wptr window, const double xPos, const double yPos){
-	// mo_yanxi::gui::global::manager.cursor_pos_update(xPos, yPos);
-	mo_yanxi::gui::global::event_queue.push_cursor_move(mo_yanxi::math::vector2{xPos, yPos}.as<float>());
+	push_input_event(window, mo_yanxi::input_handle::raw_input_event{
+		.type = mo_yanxi::input_handle::input_event_type::cursor_move,
+		.cursor = mo_yanxi::math::vector2{xPos, yPos}.as<float>()
+	});
 }
 
 void cursorEnteredCallback(glfw::Wptr window, const int entered){
-	// mo_yanxi::gui::global::manager.input_inbound(entered);
-	mo_yanxi::gui::global::event_queue.push_cursor_inbound(entered);
+	push_input_event(window, mo_yanxi::input_handle::raw_input_event{
+		.type = mo_yanxi::input_handle::input_event_type::cursor_inbound,
+		.is_inbound = entered != 0
+	});
 }
 
 void scrollCallback(glfw::Wptr window, const double xOffset, const double yOffset){
-	// mo_yanxi::gui::global::manager.scroll_update(xOffset, yOffset);
-	mo_yanxi::gui::global::event_queue.push_scroll(mo_yanxi::math::vector2{xOffset, yOffset}.as<float>());
+	push_input_event(window, mo_yanxi::input_handle::raw_input_event{
+		.type = mo_yanxi::input_handle::input_event_type::input_scroll,
+		.cursor = mo_yanxi::math::vector2{xOffset, yOffset}.as<float>()
+	});
 }
 
 void keyCallback(glfw::Wptr window, const int key, const int scanCode, const int action, const int mods){
 	if(key >= 0 && key < GLFW_KEY_LAST){
 		using namespace mo_yanxi::input_handle;
-		// mo_yanxi::gui::global::manager.input_key(key_set{
-		// 		static_cast<std::uint16_t>(key), static_cast<act>(action), static_cast<mode>(mods)
-		// 	});
-		mo_yanxi::gui::global::event_queue.push_key(key_set{
-				static_cast<std::uint16_t>(key), static_cast<act>(action), static_cast<mode>(mods)
-			});
+		push_input_event(window, raw_input_event{
+			.type = input_event_type::input_key,
+			.input_key = key_set{
+				static_cast<std::uint16_t>(key),
+				to_input_action(action),
+				to_input_mode(mods)
+			}
+		});
+	}
+	(void)scanCode;
+}
+
+void windowFocusCallback(glfw::Wptr window, const int focused){
+	if(focused == GLFW_FALSE){
+		push_input_event(window, mo_yanxi::input_handle::raw_input_event{
+			.type = mo_yanxi::input_handle::input_event_type::focus_lost
+		});
 	}
 }
 
@@ -149,6 +208,7 @@ void glfw::set_call_back(Wptr window, void* user){
 	glfwSetMouseButtonCallback(window, mouseBottomCallBack);
 	glfwSetCursorPosCallback(window, cursorPosCallback);
 	glfwSetCursorEnterCallback(window, cursorEnteredCallback);
+	glfwSetWindowFocusCallback(window, windowFocusCallback);
 	glfwSetKeyCallback(window, keyCallback);
 	glfwSetCharCallback(window, charInputCallback);
 

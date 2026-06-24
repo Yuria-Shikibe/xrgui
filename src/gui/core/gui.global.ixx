@@ -27,42 +27,8 @@ template <std::invocable<input_handle::input_event_variant> UnhandledFn>
 void consume(scene& f, std::span<const input_handle::input_event_variant> events, UnhandledFn&& fn) {
 	using namespace input_handle;
 	for(const auto& ev : events){
-
-		events::op_afterwards status = events::op_afterwards::intercepted;
-
-		switch(ev.type){
-		case input_event_type::input_key:
-			status = f.on_key_input(ev.input_key);
-			break;
-		case input_event_type::input_mouse:
-			status = f.on_mouse_input(ev.input_key);
-			break;
-		case input_event_type::input_scroll:
-			status = f.on_scroll(ev.cursor);
-			break;
-		case input_event_type::input_u32:
-			status = f.on_unicode_input(ev.input_char);
-			break;
-		case input_event_type::input_ime_composition:
-			status = f.on_ime_composition(ev.ime_composition);
-			break;
-		case input_event_type::cursor_move:
-			status = f.on_cursor_move(ev.cursor);
-			break;
-
-
-		case input_event_type::cursor_inbound:
-			f.on_inbound_changed(ev.is_inbound);
-			status = events::op_afterwards::intercepted;
-			break;
-		case input_event_type::frame_split:
-			f.update(std::chrono::duration_cast<std::chrono::duration<double, std::ratio<1, 60>>>(ev.frame_delta_time).count());
-			status = events::op_afterwards::intercepted;
-			break;
-		}
-
-
-		if(status == events::op_afterwards::fall_through){
+		const events::dispatch_result status = f.handle_input_event(ev);
+		if(status == events::dispatch_result::unhandled){
 			std::invoke(fn, ev);
 		}
 	}

@@ -76,7 +76,7 @@ public:
 		if(!get_active_elem_ptr()){
 			return {};
 		}
-		return elem_span{get_active_elem_ptr(), elem_ptr::cvt_mptr};
+		return std::span<elem* const>{get_active_elem_ptr().raw_addr(), 1};
 	}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{

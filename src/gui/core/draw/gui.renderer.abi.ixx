@@ -33,11 +33,11 @@ struct scissor_raw_{
 	math::frect rect{};
 	float margin{};
 
-	[[nodiscard]] scissor_raw_ intersection_with(const scissor_raw_& other) const noexcept{
+	[[nodiscard]] inline scissor_raw_ intersection_with(const scissor_raw_& other) const noexcept{
 		return {rect.intersection_with(other.rect), margin};
 	}
 
-	void uniform(const math::mat3& mat) noexcept{
+	inline void uniform(const math::mat3& mat) noexcept{
 		if(rect.area() < 0.05f){
 			rect = {};
 			return;

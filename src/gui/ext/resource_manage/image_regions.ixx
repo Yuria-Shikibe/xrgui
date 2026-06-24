@@ -112,15 +112,15 @@ public:
 		uv_coords_[uv_idx_x3] = uvR.v11().x;
 	}
 
-	[[nodiscard]] image_native_handle get_image_view() const noexcept{
+	[[nodiscard]] inline image_native_handle get_image_view() const noexcept{
 		return image_region_->view;
 	}
 
-	[[nodiscard]] auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
+	[[nodiscard]] inline auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_region_->texture_binding();
 	}
 
-	[[nodiscard]] auto texture_binding(
+	[[nodiscard]] inline auto texture_binding(
 		const graphic::sampler_descriptor_index sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_region_->texture_binding(sampler_index);
 	}
@@ -141,13 +141,13 @@ public:
 		return uv_coords_;
 	}
 
-	[[nodiscard]] math::vec2 extent() const noexcept{
+	[[nodiscard]] inline math::vec2 extent() const noexcept{
 		return extent_;
 	}
 
 private:
 
-	[[nodiscard]] std::array<float, 6> calc_sliced_coords(
+	[[nodiscard]] inline std::array<float, 6> calc_sliced_coords(
 		const float major_pos, const float major_size,
 		const float minor_pos, const float minor_size
 	) const noexcept{
@@ -307,7 +307,7 @@ public:
     }
 
 	//TODO return vtx instead
-	[[nodiscard]] std::array<math::fquad, 3> get_regions(math::vec2 src, math::vec2 dst,
+	[[nodiscard]] inline std::array<math::fquad, 3> get_regions(math::vec2 src, math::vec2 dst,
 		float scale = 1.) const noexcept{
 		auto approach = dst - src;
 		auto len = approach.length();
@@ -375,7 +375,7 @@ struct nine_patch_layout{
 		return inner_size + edge.extent();
 	}
 
-	[[nodiscard]] math::vec2 get_size() const noexcept{
+	[[nodiscard]] inline math::vec2 get_size() const noexcept{
 		return inner_size + edge.extent();
 	}
 
@@ -441,19 +441,30 @@ struct image_nine_region : nine_patch_layout{
 
 	image_nine_region(
 		const region_type& image_region,
-		math::urect internal_in_relative,
+		math::frect internal_in_relative,
 		const float external_margin = 0.f
 	) : image_view(image_region), margin(external_margin){
-		const auto external = image_region->uv.get_region();
+		const auto external = image_region->uv.get_region().as<float>();
 		internal_in_relative.src += external.src;
 		assert(external.contains_loose(internal_in_relative));
 
 
-		this->nine_patch_layout::operator=(nine_patch_layout{external.as<float>(), internal_in_relative.as<float>()});
+		this->nine_patch_layout::operator=(nine_patch_layout{external, internal_in_relative});
 
 		const auto bound_size = image_view->uv.size.as<float>();
-		outer_uv.fetch_into(bound_size, external.as<float>());
-		inner_uv.fetch_into(bound_size, internal_in_relative.as<float>());
+		outer_uv.fetch_into(bound_size, external);
+		inner_uv.fetch_into(bound_size, internal_in_relative);
+	}
+
+	image_nine_region(
+		const region_type& image_region,
+		math::urect internal_in_relative,
+		const float external_margin = 0.f
+	) : image_nine_region{
+			image_region,
+			internal_in_relative.as<float>(),
+			external_margin
+		}{
 	}
 
 	image_nine_region(
@@ -474,11 +485,11 @@ struct image_nine_region : nine_patch_layout{
 		return image_view != nullptr;
 	}
 
-	[[nodiscard]] auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
+	[[nodiscard]] inline auto texture_binding() const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_view->texture_binding();
 	}
 
-	[[nodiscard]] auto texture_binding(
+	[[nodiscard]] inline auto texture_binding(
 		const graphic::sampler_descriptor_index sampler_index) const noexcept -> mo_yanxi::graphic::texture_binding{
 		return image_view->texture_binding(sampler_index);
 	}
@@ -621,8 +632,5 @@ export image_row_patch get_separator_row_patch();
 
 
 
-export inline image_nine_region default_round_square_border;
-export inline image_nine_region default_round_square_border_thin;
-export inline image_nine_region default_round_square_base;
 }
 }

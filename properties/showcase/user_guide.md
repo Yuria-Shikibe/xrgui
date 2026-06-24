@@ -321,13 +321,13 @@ auto& text_provider = input->get_provider();
 struct my_elem : mo_yanxi::gui::elem {
     using elem::elem;
 
-    mo_yanxi::gui::events::op_afterwards on_click(
+    mo_yanxi::gui::events::event_rst on_click(
         mo_yanxi::gui::events::click event,
         std::span<mo_yanxi::gui::elem* const> aboves) override {
         if (event.key.on_release()) {
-            return mo_yanxi::gui::events::op_afterwards::intercepted;
+            return {this};
         }
-        return mo_yanxi::gui::events::op_afterwards::fall_through;
+        return {};
     }
 
     mo_yanxi::gui::events::op_afterwards on_key_input(
@@ -345,8 +345,8 @@ struct my_elem : mo_yanxi::gui::elem {
 
 | 返回值 | 含义 |
 |--------|------|
-| `events::op_afterwards::intercepted` | 事件已处理，停止传播 |
-| `events::op_afterwards::fall_through` | 放行给下一个候选元素或外部 handler |
+| `events::event_rst{this}` | 事件已处理，停止传播，并将后处理归属给当前元素 |
+| `events::event_rst{}` | 放行给下一个候选元素或外部 handler |
 
 常用事件钩子：
 
@@ -403,7 +403,7 @@ scene.get_communicator()->request_clipboard(my_edit, [](gui::text_edit& edit, st
 });
 ```
 
-默认 GLFW 后端在场景资源上安装 communicator，并通过 `window_thread_dispatcher` 把真正的 native 调用放到窗口线程执行。
+默认 GLFW 后端在场景资源上安装 communicator，并通过 `output_channel::window_thread` 把真正的 native 调用放到窗口线程执行。
 
 ## 10. 参考入口
 

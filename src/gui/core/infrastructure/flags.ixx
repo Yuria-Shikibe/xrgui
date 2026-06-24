@@ -131,24 +131,24 @@ private:
 	unsigned short debug_count_{};
 
 public:
-	void clear() noexcept{
+	inline void clear() noexcept{
 		is_self_draw_required_ = {};
 		is_children_draw_required_ = {};
 	}
 
-	bool is_draw_required() const noexcept{
+	inline bool is_draw_required() const noexcept{
 		return is_self_draw_required_ || is_children_draw_required_;
 	}
 
-	bool is_children_draw_required() const noexcept{
+	inline bool is_children_draw_required() const noexcept{
 		return is_children_draw_required_;
 	}
 
-	bool is_self_draw_required() const noexcept{
+	inline bool is_self_draw_required() const noexcept{
 		return is_self_draw_required_;
 	}
 
-	requirement_set_result set_self_draw_required(flag_type required, flag_type mask = std::numeric_limits<flag_type>::max()) noexcept{
+	inline requirement_set_result set_self_draw_required(flag_type required, flag_type mask = std::numeric_limits<flag_type>::max()) noexcept{
 		if((is_self_draw_required_ & mask) == (required & mask))return {};
 		is_self_draw_required_ = (required & mask) | (is_self_draw_required_ & ~mask);
 		if(required && !is_children_draw_required()){
@@ -162,7 +162,7 @@ public:
 		return {};
 	}
 
-	requirement_set_result set_children_draw_required(bool required) noexcept{
+	inline requirement_set_result set_children_draw_required(bool required) noexcept{
 		if(is_children_draw_required_ == required)return {};
 		is_children_draw_required_ = required;
 		if(required && !is_self_draw_required()){
@@ -176,7 +176,7 @@ public:
 		return {};
 	}
 
-	void update_debug_count() noexcept{
+	inline void update_debug_count() noexcept{
 		if(is_self_draw_required()){
 			debug_count_ = max_count;
 		}else{
@@ -185,7 +185,7 @@ public:
 	}
 
 
-	float get_debug_count() const noexcept{
+	inline float get_debug_count() const noexcept{
 		return static_cast<float>(debug_count_) / static_cast<float>(max_count);
 	}
 

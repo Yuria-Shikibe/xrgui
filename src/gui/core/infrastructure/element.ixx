@@ -22,6 +22,8 @@ import mo_yanxi.gui.action.queue;
 
 import mo_yanxi.math;
 import align;
+import mo_yanxi.audio.resources;
+import mo_yanxi.gui.sound.manager;
 
 import :events;
 import :scene;
@@ -30,7 +32,6 @@ import :defines;
 import :flags;
 
 export import :elem_ptr;
-import mo_yanxi.transparent_span;
 import mo_yanxi.function_call_stack;
 
 
@@ -58,11 +59,11 @@ struct cursor_states{
 	bool focused{};
 	bool pressed{};
 
-	void quit_focus() noexcept{
+	inline void quit_focus() noexcept{
 		focused = pressed = false;
 	}
 
-	void update_press(const input_handle::key_set k) noexcept{
+	inline void update_press(const input_handle::key_set k) noexcept{
 		switch(k.action){
 		case input_handle::act::press :
 			pressed = true;
@@ -71,7 +72,7 @@ struct cursor_states{
 		}
 	}
 
-	void update(const float delta_in_ticks) noexcept {
+	inline void update(const float delta_in_ticks) noexcept {
 		constexpr static auto lerp_zero = [](float& v){
 			if(v <  0.0015f)v = 0;
 		};
@@ -101,7 +102,7 @@ struct cursor_states{
 		}
 	}
 
-	bool check_update_exitable() const noexcept{
+	inline bool check_update_exitable() const noexcept{
 		if(inbound || focused || pressed)return false;
 		if(time_inbound > 0.f)return false;
 		if(time_focus > 0.f) [[unlikely]] return false;
@@ -110,13 +111,13 @@ struct cursor_states{
 		return true;
 	}
 
-	[[nodiscard]] float get_factor_of(float cursor_states::* mptr) const noexcept{
+	[[nodiscard]] inline float get_factor_of(float cursor_states::* mptr) const noexcept{
 		return this->*mptr / maximum_duration;
 	}
 };
 
 export
-using elem_span = transparent_span<elem* const>;
+using elem_span = std::span<elem* const>;
 
 export
 struct elem_wrapper{
@@ -143,11 +144,11 @@ private:
 	}
 
 public:
-	[[nodiscard]] explicit(false) elem_wrapper(elem& e) noexcept
+	[[nodiscard]] explicit(false) inline elem_wrapper(elem& e) noexcept
 		: etry({nullptr, &e}){
 	}
 
-	[[nodiscard]] explicit(false) elem_wrapper(elem_span span) noexcept {
+	[[nodiscard]] explicit(false) inline elem_wrapper(elem_span span) noexcept {
 		if(span.empty()){
 			etry = {};
 		}else{
@@ -186,30 +187,34 @@ using element_collect_buffer = gch::small_vector<elem_wrapper, 2, mr::unvs_alloc
 
 namespace scene_submodule{
 struct input;
+struct scene_input_dispatcher;
 }
 
 export struct elem : tooltip::spawner_general<elem>{
 	friend elem_ptr;
 	friend elem_ref_access;
 	friend scene;
-	friend scene_base;
 	friend tooltip::tooltip_manager;
 	friend overlay_manager;
-	friend scene_submodule::input;
+	friend scene_submodule::input_state;
+	friend scene_submodule::scene_input_dispatcher;
 
 private:
 	void(*deleter_)(elem*) noexcept = nullptr;
 	scene* scene_{};
 	elem* parent_{};
 
-	using lifecycle_ref_word = std::uint32_t;
-	static constexpr lifecycle_ref_word lifecycle_destroying_bit_ =
-		lifecycle_ref_word{1u} << (std::numeric_limits<lifecycle_ref_word>::digits - 1u);
-	static constexpr lifecycle_ref_word lifecycle_live_bit_ = lifecycle_destroying_bit_ >> 1u;
-	static constexpr lifecycle_ref_word lifecycle_ref_mask_ = lifecycle_live_bit_ - 1u;
+	using lifecycle_ref_word = std::uint64_t;
+	// bit 63: destroying | bit 62: live | bit 61..32: generation (30 bits) | bit 31..0: refcount
+	static constexpr lifecycle_ref_word lifecycle_destroying_bit_  = lifecycle_ref_word{1u} << 63u;
+	static constexpr lifecycle_ref_word lifecycle_live_bit_        = lifecycle_ref_word{1u} << 62u;
+	static constexpr lifecycle_ref_word lifecycle_generation_inc_  = lifecycle_ref_word{1u} << 32u;
+	static constexpr lifecycle_ref_word lifecycle_generation_mask_ = lifecycle_ref_word{0x3FFF'FFFFu} << 32u;
+	static constexpr lifecycle_ref_word lifecycle_ref_mask_        = lifecycle_ref_word{0xFFFF'FFFFu};
 	static_assert((lifecycle_destroying_bit_ & lifecycle_live_bit_) == 0u);
 	static_assert((lifecycle_destroying_bit_ & lifecycle_ref_mask_) == 0u);
 	static_assert((lifecycle_live_bit_ & lifecycle_ref_mask_) == 0u);
+	static_assert((lifecycle_generation_mask_ & lifecycle_ref_mask_) == 0u);
 
 	std::atomic<lifecycle_ref_word> lifecycle_ref_{lifecycle_live_bit_};
 	bool scene_refs_attached_{true};
@@ -225,13 +230,60 @@ private:
 
 private:
 	style::target_known_node_ptr<elem> style_{};
+public:
 
-	[[nodiscard]] style::target_known_node_ptr<elem> get_elem_default_style_() const;
+	[[nodiscard]] style::target_known_node_ptr<elem> get_elem_default_style() const;
+private:
 
 	border_t border_{};
 	border_t style_border_cache_{};
 
 	mpsc_action_queue<elem> actions{};
+
+public:
+	sound::asset_group_handle sound_group{};
+	bool scene_audio_auto_proxy{true};
+
+private:
+	[[nodiscard]] audio::audio_asset_handle get_audio_asset_(sound::play_event event) const noexcept{
+		if(!sound_group){
+			return {};
+		}
+		return sound_group->get(event);
+	}
+
+	[[nodiscard]] bool play_audio_detached(sound::play_event event, audio::play_settings settings = {}) const{
+		auto asset = get_audio_asset_(event);
+		if(!asset){
+			return false;
+		}
+		const auto resource = asset->load_now();
+		if(!resource){
+			return false;
+		}
+		return get_scene().resources().audio_channel().play_detached(resource, std::move(settings));
+	}
+
+	[[nodiscard]] audio::playback_control_handle play_audio_controlled(
+		sound::play_event event,
+		audio::play_settings settings = {},
+		audio::playback_control_options options = {}) const{
+		auto asset = get_audio_asset_(event);
+		if(!asset){
+			return {};
+		}
+		const auto resource = asset->load_now();
+		if(!resource){
+			return {};
+		}
+		return get_scene().resources().audio_channel().play_controlled(resource, std::move(settings), options);
+	}
+
+	void play_audio_from_scene_proxy(sound::play_event event) const{
+		if(scene_audio_auto_proxy){
+			get_scene().request_audio_from_scene_proxy(*this, event);
+		}
+	}
 
 public:
 	/**
@@ -291,16 +343,40 @@ public:
 	elem& operator=(const elem& other) = delete;
 	elem& operator=(elem&& other) noexcept = delete;
 
+public:
+	virtual void set_default_appearance();
+
 #pragma region Action
 private:
 	void push_to_action_queue();
 public:
 
-	template <typename E, std::invocable<E&> Fn>
+	template <typename E, typename Fn>
+		requires (std::invocable<Fn&&, E&> || std::invocable<Fn&&>)
 	void post_task(this E& e, Fn&& fn);
 
-	template <typename E, std::invocable<> Fn>
-	void post_task(this E& e, Fn&& fn);
+	void set_audio_group(sound::asset_group_handle group) noexcept;
+
+	void set_audio_group_assume_synced(sound::asset_group_handle group) noexcept;
+
+	void set_default_audio_group_assume_synced();
+
+	inline void clear_audio_group() noexcept{
+		assert(is_on_scene_thread(get_scene()));
+		sound_group = {};
+	}
+
+	[[nodiscard]] inline const sound::asset_group_handle& audio_group() const noexcept{
+		return sound_group;
+	}
+
+	void set_scene_audio_proxy_enabled(const bool enabled) noexcept{
+		scene_audio_auto_proxy = enabled;
+	}
+
+	[[nodiscard]] bool scene_audio_proxy_enabled() const noexcept{
+		return scene_audio_auto_proxy;
+	}
 
 	template <typename E, typename Fn, typename ...Args>
 		requires (std::derived_from<std::remove_const_t<E>, elem> && std::invocable<Fn&&, E&, Args&&...>)
@@ -420,71 +496,23 @@ public:
 		if(!is_focused && !is_focus_extended_by_mouse())cursor_states_.pressed = false;
 	}
 
-	/**
-	 * @brief Handle key input delivered to the key focus or inbound stack.
-	 *
-	 * Return `intercepted` to stop propagation. Key input is delivered on the
-	 * scene thread after global input state has been updated.
-	 */
-	virtual events::op_afterwards on_key_input(const input_handle::key_set key){
-		return events::op_afterwards::fall_through;
-	}
-
-	/**
-	 * @brief Handle Unicode text input delivered to the current key focus.
-	 */
-	virtual events::op_afterwards on_unicode_input(const char32_t val){
-		return events::op_afterwards::fall_through;
-	}
-
-	/**
-	 * @brief Handle native IME composition preview/update/commit events.
-	 */
-	virtual events::op_afterwards on_ime_composition(const input_handle::ime_composition_event& event){
-		return events::op_afterwards::fall_through;
-	}
-
-	/**
-	 * @brief Handle mouse button input in this element's local coordinate space.
-	 *
-	 * `aboves` contains elements above this element in the current inbound stack
-	 * and can be used for occlusion-aware behavior.
-	 */
-	virtual events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves){
-		if(!is_interactable()){
-			return events::op_afterwards::fall_through;
-		}else if(is_focused()){
-			cursor_states_.update_press(event.key);
-		}
-
-		return events::op_afterwards::fall_through;
-	}
-
-	/**
-	 * @brief Handle drag updates while a mouse button captured by UI remains down.
-	 */
-	virtual events::op_afterwards on_drag(const events::drag event){
-		return events::op_afterwards::fall_through;
-	}
-
+	virtual void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event);
+	virtual void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& event);
+	virtual void on_pointer_move(events::event_context& ctx, const events::pointer_move_event& event);
+	virtual void on_wheel(events::event_context& ctx, const events::wheel_event& event);
+	virtual void on_key(events::event_context& ctx, const events::key_event& event);
+	virtual void on_text(events::event_context& ctx, const events::text_event& event);
+	virtual void on_ime(events::event_context& ctx, const events::ime_event& event);
 
 	/**
 	 * @brief Handle cursor movement after hit testing and focus updates.
 	 */
-	virtual events::op_afterwards on_cursor_moved(const events::cursor_move event){
+	virtual void on_cursor_moved(const events::pointer_move_event& event){
 		cursor_states_.time_stagnate = 0;
-		if(tooltip_create_config.use_stagnate_time && !event.delta().equals({})){
+		if(tooltip_create_config.use_stagnate_time && !event.local_delta().equals({})){
 			cursor_states_.time_tooltip = 0.;
 			on_tooltip_drop();
 		}
-		return events::op_afterwards::fall_through;
-	}
-
-	/**
-	 * @brief Handle scroll input from focus-scroll or the inbound stack.
-	 */
-	virtual events::op_afterwards on_scroll(const events::scroll event, std::span<elem* const> aboves){
-		return events::op_afterwards::fall_through;
 	}
 
 	/**
@@ -493,8 +521,8 @@ public:
 	 * Scene-level ESC handling first gives tooltips and overlays a chance to
 	 * close, then calls this through the focused element's parent chain.
 	 */
-	virtual events::op_afterwards on_esc(){
-		return events::op_afterwards::fall_through;
+	virtual events::dispatch_result on_esc(){
+		return events::dispatch_result::unhandled;
 	}
 
 #pragma endregion
@@ -506,18 +534,13 @@ public:
 		return style_;
 	}
 
-	void set_style(style::target_known_node_ptr<elem>&& style){
-		if(this->style_ == style){
-			return;
-		}
+	void set_style(style::target_known_node_ptr<elem>&& style);
 
-		this->style_ = std::move(style);
-		get_scene().notify_display_state_changed(get_channel());
+	void set_style_assume_synced(style::target_known_node_ptr<elem>&& style);
 
-		if(util::try_modify(style_border_cache_, style ? style::query_metrics(this->style_, {}).total_inset() : gui::border_t{})){
-			notify_isolated_layout_changed();
-		}
-	}
+	void set_style_assume_synced(style::family_variant v);
+
+	void set_style_assume_synced() noexcept;
 
 	void set_style(style::family_variant v);
 
@@ -931,11 +954,29 @@ public:
 	}
 
 	virtual bool set_toggled(bool isToggled){
-		return util::try_modify(toggled, isToggled);
+		const bool was_toggled = toggled;
+		if(util::try_modify(toggled, isToggled)){
+			get_scene().record_state_audio_delta(
+				*this,
+				sound::state_family::toggle,
+				was_toggled,
+				isToggled);
+			return true;
+		}
+		return false;
 	}
 
 	virtual bool set_disabled(bool isDisabled){
-		return util::try_modify(disabled, isDisabled);
+		const bool was_disabled = disabled;
+		if(util::try_modify(disabled, isDisabled)){
+			get_scene().record_state_audio_delta(
+				*this,
+				sound::state_family::disabled,
+				was_disabled,
+				isDisabled);
+			return true;
+		}
+		return false;
 	}
 
 	virtual style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept{
@@ -948,6 +989,10 @@ public:
 public:
 	style::style_tree_manager& get_style_tree_manager() const noexcept{
 		return get_scene().resources().style_tree_manager;
+	}
+
+	sound::manager& get_sound_manager() const noexcept{
+		return get_scene().resources().sound_manager;
 	}
 
 	[[nodiscard]] FORCE_INLINE inline const cursor_states& cursor_state() const noexcept{
@@ -1010,6 +1055,15 @@ public:
 
 	[[nodiscard]] bool is_destroying() const noexcept{
 		return elem::is_lifecycle_destroying_(lifecycle_ref_.load(std::memory_order_acquire));
+	}
+
+	[[nodiscard]] std::uint32_t lifecycle_generation() const noexcept{
+		return elem::lifecycle_generation_(lifecycle_ref_.load(std::memory_order_acquire));
+	}
+
+	[[nodiscard]] bool is_live_generation(std::uint32_t gen) const noexcept{
+		const auto state = lifecycle_ref_.load(std::memory_order_acquire);
+		return elem::is_lifecycle_live_(state) && elem::lifecycle_generation_(state) == gen;
 	}
 
 	template <std::derived_from<elem> T = elem>
@@ -1283,6 +1337,10 @@ private:
 		return (state & lifecycle_destroying_bit_) != 0u;
 	}
 
+	[[nodiscard]] static constexpr std::uint32_t lifecycle_generation_(const lifecycle_ref_word state) noexcept{
+		return static_cast<std::uint32_t>((state & lifecycle_generation_mask_) >> 32u);
+	}
+
 	void mark_destroying_no_external_refs_() noexcept;
 	[[nodiscard]] bool try_retain_external_ref_live_() noexcept;
 	void retain_external_ref_existing_() noexcept;
@@ -1503,9 +1561,9 @@ export
 	return pos_in_local_space;
 }
 
-events::op_afterwards thoroughly_esc(elem* where) noexcept;
+events::dispatch_result thoroughly_esc(elem* where) noexcept;
 
-FORCE_INLINE inline events::op_afterwards thoroughly_esc(elem& where) noexcept{
+FORCE_INLINE inline events::dispatch_result thoroughly_esc(elem& where) noexcept{
 	return thoroughly_esc(std::addressof(where));
 }
 
@@ -1589,7 +1647,11 @@ void elem_ptr::delete_elem(elem* ptr) noexcept{
 
 
 template <std::derived_from<elem> T>
-void elem_ptr::dynamic_init(T& ptr) noexcept{
+void elem_ptr::dynamic_init(T& ptr){
+
+	ptr.sync_run([](T& elem){
+		elem.T::set_default_appearance();
+	});
 }
 
 
@@ -1639,12 +1701,31 @@ T post_sync_assign(E& e, T E::* mptr, Fn&& fn){
 
 
 namespace events{
-math::vec2 click::get_content_pos(const elem& elem) const noexcept{
-	return pos - elem.content_src_offset();
+std::span<elem* const> event_context::descendants_to_target() const noexcept{
+	const auto route_path = path();
+	auto itr = std::ranges::find(route_path, current());
+	// for(std::size_t i = 0; i < route_path.size(); ++i){
+	// 	if(begin[i] == current()){
+	// 		return {begin + i + 1, route_path.size() - i - 1};
+	// 	}
+	// }
+	if(itr != route_path.end())[[likely]]{
+		++itr;
+	}
+	return {itr, route_path.end()};
 }
 
-bool click::within_elem(const elem& elem, float margin) const noexcept{
-	auto p = pos;
+math::vec2 pointer_button_event::get_content_pos(const event_context& ctx, const elem& elem) const noexcept{
+	if(ctx.current() == std::addressof(elem)){
+		return local_pos - elem.content_src_offset();
+	}
+	return util::transform_scene2local(elem, scene_pos) - elem.content_src_offset();
+}
+
+bool pointer_button_event::within_elem(const event_context& ctx, const elem& elem, float margin) const noexcept{
+	auto p = ctx.current() == std::addressof(elem)
+		? local_pos
+		: util::transform_scene2local(elem, scene_pos);
 	p.x += margin;
 	p.y += margin;
 	return p.axis_greater(0, 0) && p.axis_less(elem.extent().add(margin * 2));

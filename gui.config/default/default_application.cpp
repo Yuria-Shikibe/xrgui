@@ -14,9 +14,11 @@ import mo_yanxi.backend.communicator;
 import mo_yanxi.backend.application_timer;
 import mo_yanxi.backend.vulkan.context;
 import mo_yanxi.backend.vulkan.renderer;
+import mo_yanxi.backend.miniaudio.audio;
 
 import mo_yanxi.graphic.g2d;
 import mo_yanxi.graphic.image_atlas;
+import mo_yanxi.audio;
 
 import mo_yanxi.gui.global;
 import mo_yanxi.gui.assets.manager;
@@ -28,6 +30,8 @@ import mo_yanxi.gui.cfg.builtin.font_styles;
 import mo_yanxi.gui.cfg.builtin.log_channels;
 import mo_yanxi.gui.cfg.builtin.main_loop;
 import mo_yanxi.gui.cfg.builtin.scene;
+import mo_yanxi.gui.cfg.builtin.lifecycle;
+import mo_yanxi.gui.cfg.audio_assets;
 import mo_yanxi.gui.cfg.render_context;
 
 import mo_yanxi.font;
@@ -35,6 +39,7 @@ import mo_yanxi.font.manager;
 import mo_yanxi.typesetting.rich_text;
 
 import mo_yanxi.platform;
+import mo_yanxi.log;
 
 namespace mo_yanxi::gui::cfg{
 namespace{
@@ -101,16 +106,19 @@ void set_default_scene_pass_config(builtin::example_scene& scene){
 struct default_application::state{
 	default_application& app;
 
+	builtin::teardown_stack teardown{};
+	std::optional<builtin::platform_runtime> platform{};
 	std::optional<render_context> gui_render_context{};
+	std::optional<audio::audio_system> audio_system{};
+	std::optional<audio::audio_resource_manager> audio_resources{};
+	default_ui_sound_assets default_audio_assets{};
+	std::vector<audio::audio_event> pending_audio_events{};
 	std::optional<vk::command_pool> post_command_pool{};
 	std::vector<vk::command_buffer> post_commands{};
 	std::optional<default_application_loop> loop{};
 
 	gui::scene* scene_ptr{};
 
-	bool platform_initialized{};
-	bool font_initialized{};
-	bool glfw_initialized{};
 	bool scene_created{};
 	bool shutdown_done{};
 
@@ -145,33 +153,48 @@ struct default_application::state{
 	}
 
 	void initialize(){
+		log::info({"Lifecycle"}, "default_application initialization started");
 		builtin::configure_gui_log_channels();
 		configure_runtime_working_directory(app.config_.executable_path);
 
-		platform::initialize();
-		platform_initialized = true;
+		platform.emplace();
+		teardown.push("platform_runtime", [this]{ platform.reset(); });
 
-		font::initialize();
-		font_initialized = true;
-
-		backend::glfw::initialize();
-		glfw_initialized = true;
+		log::debug({"Lifecycle"}, "Initializing audio system");
+		audio_system.emplace(backend::miniaudio::make_audio_driver(app.config_.audio_device));
+		audio_resources.emplace(*audio_system);
+		teardown.push("audio_system", [this]{
+			audio_resources.reset();
+			audio_system.reset();
+		});
 
 		vk::enable_validation_layers = app.config_.enable_validation_layers;
 		if(platform::environment_flag_enabled("NSIGHT")){
 			vk::enable_validation_layers = false;
 		}
 
+		log::debug({"Lifecycle"}, "Initializing render context");
 		auto app_info = make_application_info(app.config_);
 		gui_render_context.emplace(render_context_config{
 			.app_info = app_info
 		});
 		auto& ctx = gui_render_context->context();
+		teardown.push("gui_render_context", [this]{
+			if(gui_render_context){
+				gui_render_context->wait_on_device();
+			}
+			post_commands.clear();
+			post_command_pool.reset();
+			gui_render_context.reset();
+		});
+
+		log::debug({"Lifecycle"}, "Creating post command pool");
 		post_command_pool.emplace(
 			ctx.get_device(),
 			ctx.graphic_family(),
 			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
+		log::debug({"Lifecycle"}, "Creating main loop");
 		auto renderer_create_bundle = gui_render_context->make_renderer_create_info();
 		backend::vulkan::renderer renderer{std::move(renderer_create_bundle.create_info)};
 
@@ -185,6 +208,12 @@ struct default_application::state{
 			.exit_fn = [this](const default_application_loop&){
 				clear_scene();
 			}
+		});
+		teardown.push("main_loop", [this]{
+			if(loop){
+				loop->join();
+			}
+			loop.reset();
 		});
 
 		ctx.register_post_resize("xrgui.default_application", [this](
@@ -206,6 +235,8 @@ struct default_application::state{
 			});
 			record_context_post_commands(context);
 		});
+
+		log::info({"Lifecycle"}, "default_application initialization completed");
 	}
 
 	int run(){
@@ -217,17 +248,17 @@ struct default_application::state{
 		auto& ctx = gui_render_context->context();
 		while(!ctx.window().should_close()){
 			ctx.window().poll_events();
-			loop->get_window_dispatcher().drain();
+			loop->get_scene().consume_output(gui::output_channel::window_thread);
 
 			timer.fetch_time();
 			gui::global::event_queue.push_frame_split(timer.global_delta());
 
-			loop->get_window_dispatcher().drain();
+			pump_audio_events();
 			loop->permit_burst();
-			loop->get_scene().get_output_communicate_async_task_queue(0).consume();
+			loop->get_scene().consume_output(gui::output_channel::window_thread);
 
 			loop->wait_term();
-			loop->get_window_dispatcher().drain();
+			loop->get_scene().consume_output(gui::output_channel::window_thread);
 
 			vk::cmd::submit_command(
 				ctx.graphic_queue(),
@@ -243,8 +274,11 @@ struct default_application::state{
 
 	builtin::main_loop_init_return_t initialize_scene(default_application_loop& loop){
 		auto& ui_root = gui::global::manager;
-		auto& resources = ui_root.add_scene_resources(default_scene_name);
+		auto ui_audio_channel = audio_system->register_channel(audio::channel_id_from_role(audio::channel_role::ui));
+		auto& resources = ui_root.add_scene_resources(default_scene_name, ui_audio_channel);
 		auto style_pal_prov = builtin::make_styles(resources);
+		default_audio_assets = load_default_ui_sound_assets(*audio_resources);
+		install_default_ui_sound_assets(resources.sound_manager, default_audio_assets);
 
 		const auto scene_add_rst = ui_root.add_scene<builtin::example_scene, gui::loose_group>(
 			default_scene_name,
@@ -258,14 +292,14 @@ struct default_application::state{
 		scene_created = true;
 
 		style_pal_prov.add_to_scene(scene);
-		scene.enable_elem_async_task_post(true);
-		scene.drop_and_reset_communicate_async_task_queue_size(1);
+		scene.enable_forked_scene_tasks(true);
+		scene.reset_output_channels(gui::output_channel::count);
 		builtin::set_cursors(scene);
 		set_default_scene_pass_config(scene);
 
 		scene.resources().set_native_communicator<backend::glfw::communicator>(
 			gui_render_context->context().window().get_handle(),
-			loop.get_window_dispatcher());
+			scene.output_queue(gui::output_channel::window_thread));
 		scene.get_communicator()->set_native_cursor_visibility(!app.config_.hide_native_cursor);
 
 		root.set_style();
@@ -310,11 +344,34 @@ struct default_application::state{
 		app.after_frame();
 	}
 
+	void pump_audio_events(){
+		if(!audio_system){
+			return;
+		}
+
+		audio_system->poll_events_into(pending_audio_events);
+		if(audio_resources){
+			audio_resources->consume_audio_events(pending_audio_events);
+			audio_resources->maintain();
+		}
+		if(pending_audio_events.empty()){
+			return;
+		}
+
+		for(const auto& event : pending_audio_events){
+			if(event.type == audio::audio_event_type::backend_error){
+				log::warn({"Audio"}, "audio backend error");
+			}
+		}
+		pending_audio_events.clear();
+	}
+
 	void clear_scene() noexcept{
 		if(!scene_created){
 			return;
 		}
 
+		log::debug({"Lifecycle"}, "Clearing scene");
 		auto& ui_root = gui::global::manager;
 		ui_root.erase_scene(default_scene_name);
 		ui_root.erase_resource(default_scene_name);
@@ -328,42 +385,10 @@ struct default_application::state{
 		}
 		shutdown_done = true;
 
-		try{
-			if(loop){
-				loop->get_window_dispatcher().drain();
-				loop->join();
-				loop->get_window_dispatcher().drain();
-				loop->get_window_dispatcher().stop();
-			}
-		} catch(...){
-		}
-
+		log::info({"Lifecycle"}, "default_application shutdown started");
 		clear_scene();
-
-		if(gui_render_context){
-			try{
-				gui_render_context->wait_on_device();
-			} catch(...){
-			}
-		}
-
-		loop.reset();
-		post_commands.clear();
-		post_command_pool.reset();
-		gui_render_context.reset();
-
-		if(glfw_initialized){
-			backend::glfw::terminate();
-			glfw_initialized = false;
-		}
-		if(font_initialized){
-			font::terminate();
-			font_initialized = false;
-		}
-		if(platform_initialized){
-			platform::terminate();
-			platform_initialized = false;
-		}
+		teardown.run_all();
+		log::info({"Lifecycle"}, "default_application shutdown completed");
 	}
 
 	backend::vulkan::context& context(){
@@ -394,11 +419,11 @@ struct default_application::state{
 		return *scene_ptr;
 	}
 
-	gui::window_thread_dispatcher& window_dispatcher(){
-		if(!loop){
-			throw std::logic_error{"default_application window dispatcher is not initialized"};
+	audio::audio_system& audio(){
+		if(!audio_system){
+			throw std::logic_error{"default_application audio system is not initialized"};
 		}
-		return loop->get_window_dispatcher();
+		return *audio_system;
 	}
 };
 
@@ -452,11 +477,11 @@ gui::scene& default_application::scene(){
 	return state_->scene();
 }
 
-gui::window_thread_dispatcher& default_application::window_dispatcher(){
+audio::audio_system& default_application::audio(){
 	if(!state_){
 		throw std::logic_error{"default_application is not running"};
 	}
-	return state_->window_dispatcher();
+	return state_->audio();
 }
 
 }

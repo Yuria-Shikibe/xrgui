@@ -19,6 +19,10 @@ template <auto mptr>
 constexpr inline transparent_convert_t<typename mo_yanxi::mptr_info<decltype(mptr)>::value_type, typename
 	mo_yanxi::mptr_info<decltype(mptr)>::class_type, mptr> transparent_convert{};
 
+/**
+ *
+ * @warning THIS STRUCT's pointer usage is not satisfied with ISO C++ requirements
+ */
 export
 template <typename T>
 class transparent_span{
@@ -37,7 +41,7 @@ private:
     size_type size_;
 
     static T* offset_ptr(T* ptr, difference_type step) noexcept{
-       return std::bit_cast<T*>(std::bit_cast<std::uintptr_t>(ptr) + sizeof(T) * step);
+       return reinterpret_cast<T*>(reinterpret_cast<std::uintptr_t>(ptr) + sizeof(T) * step);
     }
 
 public:
@@ -103,8 +107,8 @@ public:
        friend constexpr iterator operator-(iterator it, difference_type n) noexcept{ return it -= n; }
 
        friend constexpr difference_type operator-(iterator a, iterator b) noexcept{
-          return (std::bit_cast<std::uintptr_t>(a.ptr_) -
-             std::bit_cast<std::uintptr_t>(b.ptr_)) / sizeof(T);
+          return (reinterpret_cast<std::uintptr_t>(a.ptr_) -
+             reinterpret_cast<std::uintptr_t>(b.ptr_)) / sizeof(T);
        }
 
        friend constexpr bool operator==(iterator a, iterator b) noexcept = default;

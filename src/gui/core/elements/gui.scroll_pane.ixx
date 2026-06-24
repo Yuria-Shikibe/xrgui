@@ -36,7 +36,7 @@ public:
 	float scroll_velocity_sensitivity{1.f};
 	float scroll_scale{55.0f};
 
-	void set_scroll_mode(scroll_pane_mode mode, float sensitivity){
+	inline void set_scroll_mode(scroll_pane_mode mode, float sensitivity){
 		sensitivity_mode = mode;
 		scroll_scale = sensitivity;
 	}
@@ -86,6 +86,7 @@ private:
 	style::target_known_node_ptr<scroll_adaptor_base> drawer{init_drawer_()};
 
 public:
+
 	float fade_delay_ticks{60.0f * 1.5f};
 	float fade_duration_ticks{60.0f * 0.5f};
 
@@ -96,6 +97,7 @@ public:
 
 		extend_focus_until_mouse_drop = true;
 		layout_state.intercept_lower_to_isolated = true;
+		scene_audio_auto_proxy = false;
 	}
 
 	void set_overlay_bar(bool enable){
@@ -138,21 +140,21 @@ public:
 	}
 
 #pragma region Event
-	events::op_afterwards on_cursor_moved(const events::cursor_move event) override{
-		last_local_cursor_pos_ = event.dst - content_src_offset();
+	void on_cursor_moved(const events::pointer_move_event& event) override{
+		last_local_cursor_pos_ = event.local_dst - content_src_offset();
 		if(overlay_scroll_bars_
 			&& (is_hori_scroll_enabled() || is_vert_scroll_enabled())
 			&& is_pos_in_bar_section(last_local_cursor_pos_)){
 			util::update_insert(*this, update_channel::draw);
 		}
 
-		return elem::on_cursor_moved(event);
+		elem::on_cursor_moved(event);
 	}
 
-	events::op_afterwards on_scroll(const events::scroll e, std::span<elem* const> aboves) override;
+	void on_wheel(events::event_context& ctx, const events::wheel_event& e) override;
 
 
-	events::op_afterwards on_drag(const events::drag e) override;
+	void on_pointer_drag(events::event_context& ctx, const events::pointer_drag_event& e) override;
 
 public:
 
@@ -533,29 +535,29 @@ public:
 	}
 
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		auto ret = elem::on_click(event, aboves);
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		elem::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
 		if(event.key.as_mouse() != input_handle::mouse::LMB){
-			return ret;
+			return;
 		}
 
 		if(event.key.action == input_handle::act::press){
-			if(!is_scroll_bar_drag_hit(event.pos)){
-				return ret;
+			if(!is_scroll_bar_drag_hit(event.local_pos)){
+				return;
 			}
 
 			begin_scroll_bar_drag();
-			return events::op_afterwards::intercepted;
+			ctx.consume(*this);
+			return;
 		}
 
 		if(event.key.action == input_handle::act::release){
-			bool intercepted = end_scroll_bar_drag();
+			bool handled = end_scroll_bar_drag();
 			scroll_.apply();
 			saved_scroll_ratio_ = scroll_progress_at(scroll_.base);
-			if(intercepted)return events::op_afterwards::intercepted;
+			if(handled)ctx.consume(*this);
 		}
-
-		return ret;
 	}
 protected:
 	std::optional<math::vec2> pre_acquire_size_impl(layout::optional_mastering_extent extent) override{

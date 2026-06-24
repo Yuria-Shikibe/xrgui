@@ -4,6 +4,7 @@ module;
 
 module mo_yanxi.gui.infrastructure;
 
+import :scene_input;
 import std;
 import mo_yanxi.platform.thread;
 import mo_yanxi.gui.style.tree;
@@ -11,6 +12,7 @@ import mo_yanxi.gui.style.tree;
 namespace mo_yanxi::gui{
 
 namespace scene_submodule{
+
 
 void action_queue::update(float delta_in_tick) noexcept{
 	if(auto cont = pendings.fetch()){
@@ -37,317 +39,17 @@ void action_queue::erase(const elem* target){
 }
 
 
-void input::update_elem_cursor_state(float delta_in_tick, tooltip::tooltip_manager& tooltip) noexcept{
-	cursor_event_active_elems_.modify_and_erase([&](elem* e){
-		e->cursor_states_.update(delta_in_tick);
-
-		if(e->cursor_states_.focused){
-			tooltip.try_append_tooltip(*e, false);
-		}
-
-		return e->cursor_states_.check_update_exitable();
-	});
-}
-
-
-void input::switch_key_focus(elem* element){
-	if(focus_key == element)return;
-	if(focus_key)focus_key->on_focus_key_changed(false);
-	focus_key = element;
-	if(focus_key)focus_key->on_focus_key_changed(true);
-}
-
-void input::try_swap_focus(){
-	elem* newFocus = nullptr;
-	auto rst = std::ranges::find_last_if(inbounds_.get_cur(), [](const elem* e){
-		return e->is_interactable() && e->interactivity != interactivity_flag::children_only;
-	});
-	if(!rst.empty()){
-		newFocus = *rst.begin();
+void scene_deleter::operator()(scene* ptr) const noexcept{
+	if(ptr == nullptr){
+		return;
 	}
 
-	if(newFocus == focus_cursor) return;
+	using allocator_type = mr::heap_allocator<scene>;
+	using allocator_traits = std::allocator_traits<allocator_type>;
 
-
-	if(focus_cursor){
-		if(focus_cursor->is_focus_extended_by_mouse()){
-			if(!is_mouse_pressed()){
-				swap_focus(newFocus);
-			} else return;
-		} else{
-			swap_focus(newFocus);
-		}
-	} else{
-		swap_focus(newFocus);
-	}
-}
-
-void input::swap_focus(elem* newFocus){
-	if(focus_cursor){
-		for(auto& state : mouse_states_){
-			state.clear();
-		}
-		focus_cursor->on_focus_changed(false);
-		focus_cursor->cursor_states_.quit_focus();
-	}
-
-	focus_cursor = newFocus;
-
-	if(focus_cursor){
-		if(focus_cursor->is_interactable()){
-			focus_cursor->on_focus_changed(true);
-		}
-	}
-}
-
-input_key_result input::on_key_input(input_handle::key_set key){
-	inputs_.inform(key);
-
-	if(key.action == input_handle::act::press && key.key_code == std::to_underlying(input_handle::key::esc)){
-		return input_key_result::esc_required;
-	}else{
-		if(focus_key){
-			if(focus_key->on_key_input(key) == events::op_afterwards::intercepted){
-				return input_key_result::intercepted;
-			}
-		}
-
-		for (auto value : inbounds_.get_cur() | std::views::reverse){
-			if(value->on_key_input(key) == events::op_afterwards::intercepted){
-				return input_key_result::intercepted;
-			}
-		}
-	}
-
-	return input_key_result::fall_through;
-}
-
-events::op_afterwards input::on_unicode_input(char32_t val) const{
-	if(focus_key){
-		return focus_key->on_unicode_input(val);
-	}
-	return events::op_afterwards::fall_through;
-}
-
-events::op_afterwards input::on_ime_composition(const input_handle::ime_composition_event& event) const{
-	if(focus_key){
-		return focus_key->on_ime_composition(event);
-	}
-	return events::op_afterwards::fall_through;
-}
-
-events::op_afterwards input::on_scroll(math::vec2 scroll) const{
-	events::scroll e{scroll, inputs_.main_binds.get_mode()};
-	//TODO provide cursor position?
-
-	if(focus_scroll){
-		auto rst = focus_scroll->on_scroll(e, {});
-		if(rst == events::op_afterwards::intercepted)return events::op_afterwards::intercepted;
-	}
-
-	auto rng = get_inbounds();
-	auto cur = rng.rbegin();
-	while(cur != rng.rend()){
-		std::span aboves{cur.base(), rng.end()};
-		if((*cur)->on_scroll(e, aboves) != events::op_afterwards::intercepted){
-			++cur;
-		}else{
-			return events::op_afterwards::intercepted;
-		}
-	}
-
-	return events::op_afterwards::fall_through;
-}
-
-events::op_afterwards input::on_mouse_input(input_handle::key_set k){
-	using namespace input_handle;
-	auto [c, a, m] = k;
-
-	if(has_passthrough_mouse_capture()){
-		if(a == act::press){
-			mouse_states_[c].reset(inputs_.cursor_pos(), mouse_capture_owner::passthrough);
-		}
-
-		if(a == act::release){
-			mouse_states_[c].clear();
-			if(!has_passthrough_mouse_capture()){
-				request_cursor_update();
-			}
-		}
-
-		return events::op_afterwards::fall_through;
-	}
-
-	auto result = events::op_afterwards::fall_through;
-	if(focus_cursor){
-		const std::span rng = inbounds_.get_cur();
-		auto pos = inputs_.cursor_pos();
-		util::transform_scene2local(rng, std::span{&pos, 1});
-		events::click e{pos, k};
-
-		auto cur = rng.rbegin();
-		while(cur != rng.rend()){
-			const std::span aboves{cur.base(), rng.end()};
-			if((*cur)->on_click(e, aboves) != events::op_afterwards::intercepted){
-				e.pos = util::transform_current2parent(**cur, e.pos);
-				++cur;
-			}else{
-				result = events::op_afterwards::intercepted;
-				if(a == act::press){
-					if(last_inbound_click)last_inbound_click->on_last_clicked_changed(false);
-					last_inbound_click = *cur;
-					last_inbound_click->on_last_clicked_changed(true);
-				}
-
-				goto END;
-			}
-		}
-
-		if(a == act::press){
-			if(last_inbound_click)last_inbound_click->on_last_clicked_changed(false);
-			last_inbound_click = nullptr;
-		}
-
-	END:
-		(void)0;
-	}
-
-	if(a == act::press){
-		const auto owner = result == events::op_afterwards::intercepted
-			? mouse_capture_owner::ui
-			: mouse_capture_owner::passthrough;
-		mouse_states_[c].reset(inputs_.cursor_pos(), owner);
-	}
-
-	if(a == act::release){
-		mouse_states_[c].clear();
-
-		if(focus_cursor && focus_cursor->is_focus_extended_by_mouse()){
-			request_cursor_update();
-		}
-	}
-
-	return result;
-}
-
-void input::update_inbounds(){
-	auto& frontend = inbounds_.get_cur();
-	auto& backend = inbounds_.get_bak();
-
-	if(frontend.size() == backend.size() && (frontend.empty() || frontend.back() == backend.back()))return;
-
-	auto [i1, i2] = std::ranges::mismatch(frontend, backend);
-
-	for(const auto& element : std::ranges::subrange{i1, frontend.end()} | std::views::reverse){
-		element->on_inbound_changed(false, true);
-	}
-
-	auto itr = backend.begin();
-	for(; itr != i2; ++itr){
-		(*itr)->on_inbound_changed(true, false);
-	}
-
-	for(; itr != backend.end(); ++itr){
-		(*itr)->on_inbound_changed(true, true);
-		cursor_event_active_elems_.insert(*itr);
-	}
-
-	inbounds_.swap();
-
-	try_swap_focus();
-}
-
-input::cursor_update_result input::update_cursor(overlay_manager& overlays, tooltip::tooltip_manager& tooltips,
-                                                 elem& scene_root){
-	request_cursor_update_ = false;
-
-	if(has_passthrough_mouse_capture()){
-		return {events::op_afterwards::fall_through, style::cursor_style{style::cursor_type::regular}};
-	}
-
-	if(!(focus_cursor && is_mouse_pressed() && focus_cursor->is_focus_extended_by_mouse())){
-		auto& container = inbounds_.get_bak();
-		container.clear();
-
-		for (auto && activeTooltip : tooltips.get_active_tooltips() | std::views::reverse){
-			if(tooltips.is_below_scene(activeTooltip.element.get()))continue;
-			util::dfs_record_inbound_element(get_cursor_pos(), container, activeTooltip.element.get());
-			if(!container.empty())goto upt;
-		}
-
-		if(const overlay* top = overlays.top_active_overlay()){
-			util::dfs_record_inbound_element(get_cursor_pos(), container, top->get());
-		}else{
-			if(container.empty()){
-				util::dfs_record_inbound_element(get_cursor_pos(), container, &scene_root);
-			}
-
-			if(container.empty()){
-				for (auto && activeTooltip : tooltips.get_active_tooltips() | std::views::reverse){
-					if(!tooltips.is_below_scene(activeTooltip.element.get()))continue;
-					util::dfs_record_inbound_element(get_cursor_pos(), container, activeTooltip.element.get());
-					if(!container.empty())goto upt;
-				}
-			}
-		}
-
-
-	upt:
-
-		update_inbounds();
-	}
-
-	if(!focus_cursor) return {events::op_afterwards::fall_through, style::cursor_style{style::cursor_type::regular}};
-
-
-	const auto rng = get_inbounds();
-	std::array cursor_points{inputs_.last_cursor_pos(), get_cursor_pos()};
-	util::transform_scene2local(rng, std::span<math::vec2>{cursor_points});
-
-	for(const auto& [i, state] : mouse_states_ | std::views::enumerate){
-		if(!state.is_ui_owned()) continue;
-
-		std::array<math::vec2, 2> drag_points{state.src, get_cursor_pos()};
-		util::transform_scene2local(rng, std::span<math::vec2>{drag_points});
-		const auto mode = inputs_.main_binds.get_mode();
-		events::key_set key{static_cast<std::uint16_t>(i), input_handle::act::ignore, mode};
-
-		auto cur = rng.rbegin();
-		while(cur != rng.rend()){
-			if((*cur)->on_drag({drag_points[0], drag_points[1], key}) != events::op_afterwards::intercepted){
-				util::transform_current2parent(**cur, std::span<math::vec2>{drag_points});
-				++cur;
-			}else{
-				break;
-			}
-		}
-	}
-
-	const auto rst = focus_cursor->on_cursor_moved(
-		events::cursor_move{.src = cursor_points[0], .dst = cursor_points[1]});
-
-	return {rst, get_cursor_style(cursor_points[1])};
-}
-
-style::cursor_style input::get_cursor_style(math::vec2 cursor_local_pos) const{
-	if(has_passthrough_mouse_capture() || !focus_cursor){
-		return style::cursor_style{style::cursor_type::regular};
-	}
-	return focus_cursor->get_cursor_type(cursor_local_pos);
-}
-
-style::cursor_style input::get_cursor_style() const{
-	if(has_passthrough_mouse_capture() || !focus_cursor){
-		return style::cursor_style{style::cursor_type::regular};
-	}
-	auto cursor_transformed = inputs_.cursor_pos();
-	util::transform_scene2local(get_inbounds(), std::span{&cursor_transformed, 1});
-
-	return focus_cursor->get_cursor_type(cursor_transformed);
-}
-
-void scene_deleter::operator()(scene* ptr) noexcept{
-	delete ptr;
+	auto alloc = ptr->get_heap_allocator<scene>();
+	std::destroy_at(ptr);
+	allocator_traits::deallocate(alloc, ptr, 1);
 }
 }
 
@@ -362,7 +64,7 @@ style::style_tree_manager scene_resources::init_style_tree_manager_() const{
 }
 
 
-scene_base::scene_base(scene_resources& resources, renderer_frontend&& renderer): scene_shared_resources(resources), renderer_(std::move(renderer)){
+scene::scene(scene_resources& resources, renderer_frontend&& renderer): scene_shared_resources(resources), renderer_(std::move(renderer)){
 	platform::set_thread_attributes(
 		react_flow_.get_async_working_thread().native_handle(), {
 			.name = "xrgui react flow",
@@ -370,24 +72,15 @@ scene_base::scene_base(scene_resources& resources, renderer_frontend&& renderer)
 		});
 }
 
-void scene_base::drop_(const elem* target) noexcept{
-	drop_elem_nodes(target);
-	input_handler_.drop_elem(target);
+void scene::capture_mouse(elem& target, input_handle::mouse mouse_button_code, math::vec2 press_scene_pos){
+	assert(is_on_scene_thread(*this));
+	assert(std::addressof(target.get_scene()) == this);
 
-
-	target->drop_tooltip();
-
-	instant_task_queue_.erase(target);
-	active_update_elems_.erase({const_cast<elem*>(target)});
-	std::erase(active_update_elems_state_changes, const_cast<elem*>(target));
-
-	if(async_task_queue_)async_task_queue_->cancel_owner(target);
-	action_queue_.erase(target);
-
-	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
+	input_handler_.capture_mouse(target, mouse_button_code, press_scene_pos);
+	request_cursor_update();
 }
 
-void scene_base::retire_elem(elem* target) noexcept{
+void scene::retire_elem(elem* target) noexcept{
 	assert(target != nullptr);
 	assert(is_on_scene_thread(*this));
 	assert(std::addressof(target->get_scene()) == this);
@@ -401,7 +94,7 @@ void scene_base::retire_elem(elem* target) noexcept{
 	}
 }
 
-void scene_base::collect_retired_elements() noexcept{
+void scene::collect_retired_elements() noexcept{
 	assert(is_on_scene_thread(*this));
 
 	for(std::size_t index = 0; index < retired_elements_.size();){
@@ -419,72 +112,55 @@ void scene_base::collect_retired_elements() noexcept{
 	}
 }
 
-void scene_base::resize(const math::frect region){
+void scene::drop_(const elem* target) noexcept{
+	drop_elem_nodes(target);
+	input_handler_.drop_elem(target);
+
+
+	target->drop_tooltip();
+
+	active_update_elems_.erase({const_cast<elem*>(target)});
+	std::erase(active_update_elems_state_changes, const_cast<elem*>(target));
+
+	if(forked_scene_worker_)forked_scene_worker_->cancel_owner(target);
+	action_queue_.erase(target);
+
+	independent_layouts_.get_bak().erase(const_cast<elem*>(target));
+}
+
+void scene::resize(const math::frect region){
 	assert(is_on_scene_thread(*this));
 	if(util::try_modify(region_, region)){
 		renderer().resize(region);
 		root().resize(region.extent());
 		overlay_manager_.resize(region);
+		if(forked_scene_worker_){
+			//TODO resize forked scene?
+			// (void)forked_scene_worker_->get_scene().post_gui([region](scene& s){
+			// 	s.resize(region);
+			// });
+		}
 	}
 }
 
-void scene_base::update_cursor_type(){
+void scene::update_cursor_type(){
 	current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(input_handler_.get_cursor_style());
 }
 
-void scene_base::capture_mouse(elem& target, input_handle::mouse mouse_button_code, math::vec2 press_scene_pos){
-	assert(is_on_scene_thread(*this));
-	assert(std::addressof(target.get_scene()) == this);
 
-	auto& current_inbounds = input_handler_.inbounds_.get_cur();
-	for(elem* previous : current_inbounds){
-		if(previous != std::addressof(target)){
-			previous->on_inbound_changed(false, true);
-		}
-	}
-
-	current_inbounds.clear();
-	current_inbounds.push_back(std::addressof(target));
-
-	auto& next_inbounds = input_handler_.inbounds_.get_bak();
-	next_inbounds.clear();
-	next_inbounds.push_back(std::addressof(target));
-
-	target.on_inbound_changed(true, true);
-	input_handler_.cursor_event_active_elems_.insert(std::addressof(target));
-
-	input_handler_.swap_focus(std::addressof(target));
-	input_handler_.mouse_states_[std::to_underlying(mouse_button_code)].reset(
-		press_scene_pos,
-		mouse_capture_owner::ui);
-
-	if(input_handler_.last_inbound_click != std::addressof(target)){
-		if(input_handler_.last_inbound_click){
-			input_handler_.last_inbound_click->on_last_clicked_changed(false);
-		}
-		input_handler_.last_inbound_click = std::addressof(target);
-		input_handler_.last_inbound_click->on_last_clicked_changed(true);
-	}
-
-	target.cursor_states_.update_press(input_handle::key_set{mouse_button_code, input_handle::act::press});
-	request_cursor_update();
-}
-
-
-void scene_base::update(double delta_in_tick){
+void scene::update(double delta_in_tick){
 	assert(is_on_scene_thread(*this));
 	const auto delta_in_tick_f = static_cast<float>(delta_in_tick);
-	native_gui_callbacks_->consume();
-	input_communicate_async_task_queue_.consume(static_cast<scene&>(*this));
+	gui_inbox_.consume(static_cast<scene&>(*this));
 
 	react_flow_.update();
-	if(async_task_queue_)async_task_queue_->process_done();
-	instant_task_queue_.consume();
+	if(forked_scene_worker_)forked_scene_worker_->process_done();
+	input_handler_.update_bindings(delta_in_tick_f);
 
 	tooltip_manager_.update(delta_in_tick_f, get_cursor_pos(), input_handler_.is_mouse_pressed());
 	overlay_manager_.update(delta_in_tick_f);
 
-	if(input_handler_.request_cursor_update_){
+	if(input_handler_.cursor_update_requested()){
 		auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
 		current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
 
@@ -508,29 +184,102 @@ void scene_base::update(double delta_in_tick){
 }
 
 
+events::dispatch_result scene::handle_input_event(const input_handle::input_event_variant& event){
+	assert(is_on_scene_thread(*this));
+	using input_handle::input_event_type;
 
-events::op_afterwards scene_base::on_esc(){
-	if(tooltip_manager_.on_esc() != events::op_afterwards::fall_through){
-		request_cursor_update();
-		return events::op_afterwards::intercepted;
+	switch(event.type){
+	case input_event_type::input_key:{
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
+		switch(input_handler_.handle_key_input(event.input_key)){
+		case scene_submodule::input_key_result::handled:
+			return events::dispatch_result::handled;
+		case scene_submodule::input_key_result::esc_required:
+			return on_esc();
+		default:
+			return events::dispatch_result::unhandled;
+		}
 	}
-	if(overlay_manager_.on_esc() != events::op_afterwards::fall_through){
-		request_cursor_update();
-		return events::op_afterwards::intercepted;
+	case input_event_type::input_mouse:{
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
+		input_handler_.inform_input(event.input_key);
+		switch(overlay_manager_.handle_external_press(input_handler_.get_cursor_pos(), event.input_key)){
+		case overlay_external_press_result::ignored:
+			break;
+		case overlay_external_press_result::intercepted:{
+			auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
+			static_cast<void>(op);
+			current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
+			return events::dispatch_result::handled;
+		}
+		case overlay_external_press_result::retarget:{
+			auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
+			static_cast<void>(op);
+			current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
+			break;
+		}
+		default:
+			std::unreachable();
+		}
+		const auto rst = input_handler_.handle_mouse_input(event.input_key);
+		update_cursor_type();
+		return rst;
 	}
-
-	elem* focus = input_handler_.focus_key;
-	if(!focus) focus = input_handler_.focus_cursor;
-
-	if(util::thoroughly_esc(focus) != events::op_afterwards::fall_through){
-		request_cursor_update();
-		return events::op_afterwards::intercepted;
+	case input_event_type::input_scroll:{
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
+		return input_handler_.handle_scroll(event.cursor);
 	}
-	return events::op_afterwards::fall_through;
+	case input_event_type::input_u32:{
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
+		return input_handler_.handle_text_input(event.input_char);
+	}
+	case input_event_type::input_ime_composition:{
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
+		return input_handler_.handle_ime_composition(event.ime_composition);
+	}
+	case input_event_type::cursor_move:{
+		auto audio_request_transaction = input_handler_.make_audio_request_transaction();
+		input_handler_.inform_cursor_move(event.cursor);
+		auto [op, style] = input_handler_.update_cursor(overlay_manager_, tooltip_manager_, root());
+		current_cursor_drawers_ = resources_->cursor_collection_manager.get_drawers(style);
+		return op;
+	}
+	case input_event_type::cursor_inbound:
+		input_handler_.input_inbound(event.is_inbound);
+		return events::dispatch_result::handled;
+	case input_event_type::focus_lost:
+		input_handler_.on_focus_lost();
+		request_cursor_update();
+		return events::dispatch_result::handled;
+	case input_event_type::frame_split:
+		update(std::chrono::duration_cast<std::chrono::duration<double, std::ratio<1, 60>>>(
+			event.frame_delta_time).count());
+		return events::dispatch_result::handled;
+	}
+	std::unreachable();
 }
 
 
-void scene_base::layout(){
+
+events::dispatch_result scene::on_esc(){
+	if(tooltip_manager_.on_esc() != events::dispatch_result::unhandled){
+		request_cursor_update();
+		return events::dispatch_result::handled;
+	}
+	if(overlay_manager_.on_esc() != events::dispatch_result::unhandled){
+		request_cursor_update();
+		return events::dispatch_result::handled;
+	}
+
+	if(util::thoroughly_esc(input_handler_.esc_focus_candidate()) != events::dispatch_result::unhandled){
+		request_cursor_update();
+		return events::dispatch_result::handled;
+	}
+	return events::dispatch_result::unhandled;
+}
+
+
+void scene::layout(){
 	assert(is_on_scene_thread(*this));
 	std::size_t count{};
 
@@ -560,16 +309,16 @@ void scene::init_root() const{
 	scene_root_->element_channel_ = elem_tree_channel::regular;
 }
 
-void scene::enable_elem_async_task_post(bool enable){
-	if(enable != (async_task_queue_ != nullptr)){
+void scene::enable_forked_scene_tasks(bool enable){
+	if(enable != (forked_scene_worker_ != nullptr)){
 		if(enable){
-			async_task_queue_ = std::make_unique<decltype(async_task_queue_)::element_type>(get_heap_allocator(), fork());
-			platform::set_thread_attributes(async_task_queue_->get_element_async_task_thread().native_handle(), {
+			forked_scene_worker_ = std::make_unique<decltype(forked_scene_worker_)::element_type>(get_heap_allocator(), fork());
+			platform::set_thread_attributes(forked_scene_worker_->get_async_task_thread().native_handle(), {
 				                                .name = "xrgui ui async task",
 				                                .priority = platform::thread_priority::normal
 			                                });
 		}else{
-			async_task_queue_ = nullptr;
+			forked_scene_worker_ = nullptr;
 		}
 	}
 }

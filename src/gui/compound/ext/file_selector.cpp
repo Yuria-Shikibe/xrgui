@@ -133,16 +133,17 @@ public:
 		std::invoke(std::forward<onExit>(onExit), self);
 	}
 
-	events::op_afterwards on_click(const events::click event, std::span<elem* const> aboves) override{
-		elem::on_click(event, aboves);
-		if(!is_disabled() && event.within_elem(*this) && event.key.on_release()){
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		elem::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
+		if(!is_disabled() && event.within_elem(ctx, *this) && event.key.on_release()){
 			arrow_flip([](arrow_button& b){
 				           if(!b.has_tooltip() && !b.invisible) b.create_tooltip();
 			           }, [](arrow_button& b){
-				           b.drop_tooltip();
+			           b.drop_tooltip();
 			           });
 		}
-		return events::op_afterwards::intercepted;
+		ctx.consume(*this);
 	}
 
 	void record_draw_layer(draw_recorder& call_stack_builder) const override{
@@ -177,11 +178,16 @@ struct trace_entry : gui::head_body{
 	file_selector* selector;
 	std::filesystem::path path;
 
+public:
+	void set_default_appearance() override{
+		head_body::set_default_appearance();
+		set_style_assume_synced();
+	}
+
 	[[nodiscard]] trace_entry(scene& scene, elem* parent, file_selector& selector,
 	                          const std::filesystem::path& path_,
 	                          bool is_root = false)
-		: head_body(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)), selector(&selector), path(path_){
-		set_style();
+	: head_body(scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major)), selector(&selector), path(path_){
 		create_head([&](button<direct_label>& l){
 			set_style_base_only(l);
 			l.set_fit_type(label_fit_type::scl);
@@ -271,37 +277,55 @@ struct current_position_bar : flipper<2>{
 	file_selector* selector;
 
 	[[nodiscard]] current_position_bar(scene& scene, elem* parent, file_selector& s)
-		: flipper<2>(scene, parent), selector(&s){
+		: flipper(scene, parent), selector(&s){
 		interactivity = interactivity_flag::enabled;
 		set_expand_policy(layout::expand_policy::passive);
-		set_style_side_bar(*this);
+	}
+
+	void set_default_appearance() override{
+		flipper::set_default_appearance();
+		set_style_assume_synced(style::family_variant::base_only);
+	}
+
+	text_edit& activate_editor(){
+		switch_to(1);
+		auto& edit = at<text_edit>(1);
+		edit.apply_edit([this](std::u32string& s){
+			s = selector->get_current_directory().u32string();
+			return true;
+		});
+		edit.action_select_all();
+		return edit;
 	}
 
 	void on_last_clicked_changed(bool isFocused) override{
 		if(isFocused){
-			switch_to(1);
-			auto& edit = at<text_edit>(1);
-			edit.apply_edit([this](std::u32string& s){
-				s = selector->get_current_directory().u32string();
-				return true;
-			});
+			auto& edit = activate_editor();
 			edit.on_last_clicked_changed(true);
-			edit.action_select_all();
 			get_scene().overwrite_last_inbound_click_quiet(&edit);
 		}
 	}
 
-	events::op_afterwards on_click(events::click event, std::span<elem* const> aboves) override{
-		elem::on_click(event, aboves);
-		return events::op_afterwards::intercepted;
+	void on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event) override{
+		elem::on_pointer_button(ctx, event);
+		if(!ctx.is_target_or_bubble_phase()) return;
+		if(event.key.action == input_handle::act::press){
+			ctx.consume(activate_editor());
+			return;
+		}
+		if(get_current_active_index() == 1){
+			ctx.consume(at<text_edit>(1));
+			return;
+		}
+		ctx.consume(*this);
 	}
 
-	events::op_afterwards on_esc() override{
+	events::dispatch_result on_esc() override{
 		if(get_current_active_index() == 1){
 			switch_to(0);
-			return events::op_afterwards::intercepted;
+			return events::dispatch_result::handled;
 		}
-		return events::op_afterwards::fall_through;
+		return events::dispatch_result::unhandled;
 	}
 
 	gui::style::cursor_style get_cursor_type(math::vec2 cursor_pos_at_content_local) const noexcept override{
@@ -339,9 +363,6 @@ struct path_edit : text_edit{
 		}
 	}
 
-	events::op_afterwards on_key_input(const input_handle::key_set key) override{
-		return text_edit::on_key_input(key);
-	}
 };
 
 struct filter_editor : text_edit{
@@ -442,11 +463,9 @@ file_selector::file_entry::file_entry(scene& scene, elem* parent, file_selector&
 	bool is_dir = std::filesystem::is_directory(path, ec);
 	bool is_root = path == path.parent_path();
 
-	set_style_side_bar(*this);
-
 	auto id = is_root
-		          ? assets::builtin::shape_id::data_server
-		          : (is_dir ? assets::builtin::shape_id::folder : assets::builtin::shape_id::file);
+	          ? assets::builtin::shape_id::data_server
+	          : (is_dir ? assets::builtin::shape_id::folder : assets::builtin::shape_id::file);
 
 	auto& i = this->emplace_head<icon_frame>(id);
 	i.set_style();
@@ -467,9 +486,15 @@ file_selector::file_entry::file_entry(scene& scene, elem* parent, file_selector&
 	set_expand_policy(layout::expand_policy::passive);
 }
 
-events::op_afterwards file_selector::file_entry::on_click(const events::click event, std::span<elem* const> aboves){
-	elem::on_click(event, aboves);
-	if(!is_disabled() && event.key.on_release() && event.within_elem(*this)){
+void file_selector::file_entry::set_default_appearance(){
+	head_body::set_default_appearance();
+	set_style_assume_synced(style::family_variant::base_only);
+}
+
+void file_selector::file_entry::on_pointer_button(events::event_context& ctx, const events::pointer_button_event& event){
+	elem::on_pointer_button(ctx, event);
+	if(!ctx.is_target_or_bubble_phase()) return;
+	if(!is_disabled() && event.key.on_release() && event.within_elem(ctx, *this)){
 		auto& menu = get_file_selector();
 		if(std::filesystem::is_directory(path)){
 			menu.visit_directory(path);
@@ -477,7 +502,7 @@ events::op_afterwards file_selector::file_entry::on_click(const events::click ev
 			menu.handle_file_selection(this, event.key.mode_bits);
 		}
 	}
-	return events::op_afterwards::intercepted;
+	ctx.consume(*this);
 }
 
 bool file_selector::file_entry::set_toggled(bool isToggled){
@@ -487,9 +512,211 @@ bool file_selector::file_entry::set_toggled(bool isToggled){
 	return false;
 }
 
-void file_selector::set_botton_enable_(icon_button_type& which, bool enabled){
-	which.set_disabled(!enabled);
-	which.scale_color = enabled ? graphic::colors::white : graphic::colors::gray;
+void file_selector::set_default_appearance(){
+	head_body::set_default_appearance();
+	set_style_assume_synced(style::family_variant::general_static);
+}
+
+file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode) : head_body(
+		scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)),
+	mode_(mode){
+	prov_path_->update_value_quiet(this);
+	interactivity = interactivity_flag::children_only;
+
+	this->create_head([this](head_body_no_invariant& s){
+		s.set_expand_policy(layout::expand_policy::passive);
+		s.set_style();
+
+		s.create_head([this](sequence& seq){
+			menu = &seq;
+			set_style_edge_only(seq);
+			seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
+			seq.set_expand_policy(layout::expand_policy::passive);
+			seq.template_cell.set_size({layout::size_category::scaling});
+			seq.template_cell.set_pad({2, 2});
+
+			{
+				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::check);
+				set_style_base_only(b.elem());
+				button_done_ = &b.elem();
+				b->set_button_callback([this]{
+					if(prepare_provider_value_()){
+						prov_path_->pull_and_push(false);
+					}
+				});
+			}
+
+			if(mode_ == file_selector_mode::save){
+				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::file_addition_one);
+				set_style_base_only(b.elem());
+				button_create_file_ = &b.elem();
+				b->set_button_callback([this]{
+					if(edit_save_file_name_ == nullptr) return;
+					if(!create_file(path{edit_save_file_name_->get_text()})){
+						static_cast<save_file_name_edit*>(edit_save_file_name_)->mark_input_invalid();
+					}
+				});
+			}
+
+			{
+				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::left);
+				set_style_base_only(b.elem());
+				button_undo_ = &b.elem();
+				b->set_button_callback([this]{ undo(); });
+			}
+
+			{
+				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::right);
+				set_style_base_only(b.elem());
+				button_redo_ = &b.elem();
+				b->set_button_callback([this]{ redo(); });
+			}
+
+			{
+				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::up);
+				set_style_base_only(b.elem());
+				button_to_parent_ = &b.elem();
+				b->set_button_callback([this]{ visit_parent_directory(); });
+			}
+
+			seq.create_back([this](current_position_bar& bar){
+				bar.set_expand_policy(layout::expand_policy::passive);
+				bar.create(0, [this](overflow_sequence& ovf_seq){
+					directory_trace_ = &ovf_seq;
+					util::sync_set_elem_style(ovf_seq, style::family_variant::general_static);
+					ovf_seq.template_cell.set_pending();
+					ovf_seq.template_cell.set_pad({2, 2});
+					ovf_seq.set_style();
+
+					auto [_, cell] = ovf_seq.create_overflow_elem([](icon_frame& i){
+						i.set_style();
+					}, gui::assets::builtin::shape_id::more);
+					cell.set_size({layout::size_category::scaling});
+					ovf_seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
+					ovf_seq.set_split_index(2);
+				});
+
+				bar.create(1, [this](path_edit& edit){
+					edit_current_directory_ = &edit;
+					edit.set_view_type(text_edit_view_type::align_y);
+					edit.set_expand_policy(layout::expand_policy::passive);
+					edit.set_style();
+				});
+			}, *this).cell().set_passive().set_pad({16});
+		});
+
+		s.create_body([this](sequence& seq){
+			seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
+			set_style_edge_only(seq);
+			seq.template_cell.set_from_ratio().set_pad({2, 2});
+
+			seq.create_back([](sort_type_button& b){ set_style_base_only(b); }, *this);
+			seq.create_back([](sort_method_button& b){ set_style_base_only(b); }, *this);
+
+			seq.create_back([this](filter_editor& edit){
+				edit_search_ = &edit;
+				edit.set_hint_text(U"Search...");
+				edit.set_character_filter_mode(false);
+				edit.set_filter_characters(platform::get_invalid_filename_chars());
+				edit.set_view_type(text_edit_view_type::align_y);
+				set_style_side_bar(edit);
+			}, *this).cell().set_passive();
+
+			if(mode_ == file_selector_mode::save){
+				seq.create_back([this](save_file_name_edit& edit){
+					edit_save_file_name_ = &edit;
+					edit.set_view_type(text_edit_view_type::align_y);
+					set_style_side_bar(edit);
+				}, *this).cell().set_passive();
+			}
+
+			seq.set_expand_policy(layout::expand_policy::passive);
+		});
+	});
+
+	this->create_body([&](split_pane& b){
+		b.set_expand_policy(layout::expand_policy::passive);
+		b.set_style();
+		b.set_split_pos(.3f);
+
+		b.create_head([this](scroll_adaptor<sequence>& p){
+			set_style_edge_only(p);
+			p.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
+			auto& seq = p.get_elem();
+			this->quick_access_entries_ = &seq;
+
+			seq.set_style();
+			seq.set_expand_policy(layout::expand_policy::prefer);
+			seq.template_cell.set_size(60);
+			seq.template_cell.set_pad({3, 3});
+
+
+			seq.create_back([&](progress_bar& prog){
+				prog.set_style();
+				prog.progress.set_state(progress_state::approach_smooth);
+				prog.progress.set_speed(.0001f);
+				prog.draw_config.color = {graphic::colors::light_gray, graphic::colors::light_gray};
+
+				prog.set_self_border(gui::border_t{}.set(32));
+				prog.set_style(style::make_ring_progress_style(32));
+				prog.set_progress_state(progress_state::rough);
+			}).cell().set_passive();
+
+			gui::request_async(
+				*this,
+				[](gui::async_task_context& context){
+					context.report_progress(0u, 1u);
+					auto folders = platform::get_quick_access_folders()
+						| std::views::filter([](const std::filesystem::path& p){
+							std::error_code ec{};
+							auto rst = std::filesystem::is_directory(p, ec);
+							return rst;
+						})
+						| std::views::transform(&std::filesystem::path::u32string)
+						| std::ranges::to<std::vector>();
+					context.report_progress(1u, 1u);
+					return folders;
+				},
+				[](file_selector& r, std::vector<std::u32string> fast_accesses) {
+					assert(r.quick_access_entries_ != nullptr);
+					auto& seq = *r.quick_access_entries_;
+					seq.clear();
+
+					for(auto& quick_access_folder : fast_accesses){
+						seq.create_back([&r, &quick_access_folder](button<direct_label>& l){
+							set_style_side_bar(l);
+							l.set_fit(true);
+							l.set_tokenized_text({std::move(quick_access_folder), typesetting::tokenize_tag::raw});
+							l.set_button_callback([&r, sv = l.get_tokenized_text().get_text()]{
+								r.visit_directory(sv);
+							});
+						});
+					}
+				});
+		});
+
+		b.create_body([&](scroll_adaptor<sequence>& p){
+			set_style_edge_only(p);
+			p.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
+			sequence& entries_seq = p.get_elem();
+			entries_seq.set_expand_policy(layout::expand_policy::prefer);
+			entries_seq.set_style();
+			entries_seq.template_cell.set_size(60);
+			entries_seq.template_cell.set_pad({3, 3});
+			this->entries = &entries_seq;
+
+		});
+
+		b.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
+
+	});
+
+	set_head_size({layout::size_category::mastering, 160});
+	set_expand_policy(layout::expand_policy::prefer);
+	set_pad(8);
+
+	visit_directory(std::filesystem::current_path());
+	sync_done_button_state_();
 }
 
 void file_selector::set_sort_category(const file_sort_category sort_type){
@@ -876,212 +1103,42 @@ void file_selector::toggle_file_selection(file_entry* entry){
 	sync_done_button_state_();
 }
 
-file_selector::file_selector(scene& scene, elem* parent, file_selector_mode mode) : head_body(
-	scene, parent, layout::directional_layout_specifier::fixed(layout::layout_policy::hori_major)),
-	mode_(mode){
-	prov_path_->update_value_quiet(this);
-	interactivity = interactivity_flag::children_only;
-
-	util::sync_set_elem_style(*this, style::family_variant::general_static);
-
-	this->create_head([this](head_body_no_invariant& s){
-		s.set_expand_policy(layout::expand_policy::passive);
-		s.set_style();
-
-		s.create_head([this](sequence& seq){
-			menu = &seq;
-			set_style_edge_only(seq);
-			seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
-			seq.set_expand_policy(layout::expand_policy::passive);
-			seq.template_cell.set_size({layout::size_category::scaling});
-			seq.template_cell.set_pad({2, 2});
-
-			{
-				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::check);
-				set_style_base_only(b.elem());
-				button_done_ = &b.elem();
-				b->set_button_callback([this]{
-					if(prepare_provider_value_()){
-						prov_path_->pull_and_push(false);
-					}
-				});
-			}
-
-			if(mode_ == file_selector_mode::save){
-				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::file_addition_one);
-				set_style_base_only(b.elem());
-				button_create_file_ = &b.elem();
-				b->set_button_callback([this]{
-					if(edit_save_file_name_ == nullptr) return;
-					if(!create_file(path{edit_save_file_name_->get_text()})){
-						static_cast<save_file_name_edit*>(edit_save_file_name_)->mark_input_invalid();
-					}
-				});
-			}
-
-			{
-				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::left);
-				set_style_base_only(b.elem());
-				button_undo_ = &b.elem();
-				b->set_button_callback([this]{ undo(); });
-			}
-
-			{
-				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::right);
-				set_style_base_only(b.elem());
-				button_redo_ = &b.elem();
-				b->set_button_callback([this]{ redo(); });
-			}
-
-			{
-				auto b = seq.emplace_back<button<icon_frame>>(assets::builtin::shape_id::up);
-				set_style_base_only(b.elem());
-				button_to_parent_ = &b.elem();
-				b->set_button_callback([this]{ visit_parent_directory(); });
-			}
-
-			seq.create_back([this](current_position_bar& bar){
-				bar.set_expand_policy(layout::expand_policy::passive);
-				bar.create(0, [this](overflow_sequence& ovf_seq){
-					directory_trace_ = &ovf_seq;
-					util::sync_set_elem_style(ovf_seq, style::family_variant::general_static);
-					ovf_seq.template_cell.set_pending();
-					ovf_seq.template_cell.set_pad({2, 2});
-					ovf_seq.set_style();
-
-					auto [_, cell] = ovf_seq.create_overflow_elem([](icon_frame& i){
-						i.set_style();
-					}, gui::assets::builtin::shape_id::more);
-					cell.set_size({layout::size_category::scaling});
-					ovf_seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
-					ovf_seq.set_split_index(2);
-				});
-
-				bar.create(1, [this](path_edit& edit){
-					edit_current_directory_ = &edit;
-					edit.set_view_type(text_edit_view_type::align_y);
-					edit.set_expand_policy(layout::expand_policy::passive);
-					edit.set_style();
-				});
-			}, *this).cell().set_passive().set_pad({16});
-		});
-
-		s.create_body([this](sequence& seq){
-			seq.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
-			set_style_edge_only(seq);
-			seq.template_cell.set_from_ratio().set_pad({2, 2});
-
-			seq.create_back([](sort_type_button& b){ set_style_base_only(b); }, *this);
-			seq.create_back([](sort_method_button& b){ set_style_base_only(b); }, *this);
-
-			seq.create_back([this](filter_editor& edit){
-				edit_search_ = &edit;
-				edit.set_hint_text(U"Search...");
-				edit.set_character_filter_mode(false);
-				edit.set_filter_characters(platform::get_invalid_filename_chars());
-				edit.set_view_type(text_edit_view_type::align_y);
-				set_style_side_bar(edit);
-			}, *this).cell().set_passive();
-
-			if(mode_ == file_selector_mode::save){
-				seq.create_back([this](save_file_name_edit& edit){
-					edit_save_file_name_ = &edit;
-					edit.set_view_type(text_edit_view_type::align_y);
-					set_style_side_bar(edit);
-				}, *this).cell().set_passive();
-			}
-
-			seq.set_expand_policy(layout::expand_policy::passive);
-		});
+void file_selector::build_ui_() noexcept{
+	build_file_entries_();
+	build_trace_();
+	edit_current_directory_->apply_edit([this](std::u32string& s){
+		s = get_current_directory().u32string();
+		return true;
 	});
-
-	this->create_body([&](split_pane& b){
-		b.set_expand_policy(layout::expand_policy::passive);
-		b.set_style();
-		b.set_split_pos(.3f);
-
-		b.create_head([this](scroll_adaptor<sequence>& p){
-			set_style_edge_only(p);
-			p.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
-			auto& seq = p.get_elem();
-			this->quick_access_entries_ = &seq;
-
-			seq.set_style();
-			seq.set_expand_policy(layout::expand_policy::prefer);
-			seq.template_cell.set_size(60);
-			seq.template_cell.set_pad({3, 3});
-
-
-			seq.create_back([&](progress_bar& prog){
-				prog.set_style();
-				prog.progress.set_state(progress_state::approach_smooth);
-				prog.progress.set_speed(.0001f);
-				prog.draw_config.color = {graphic::colors::light_gray, graphic::colors::light_gray};
-
-				prog.set_self_border(gui::border_t{}.set(32));
-				prog.set_style(style::make_ring_progress_style(32));
-				prog.set_progress_state(progress_state::rough);
-			}).cell().set_passive();
-
-			util::post_elem_async_task(*this, [](file_selector&){
-				return elem_async_yield_task<file_selector>{
-						[](gui::elem_async_task_context& context, gui::scene& s){
-							(void)s;
-							context.report_progress(0u, 1u);
-							auto folders = platform::get_quick_access_folders()
-								| std::views::filter([](const std::filesystem::path& p){
-									std::error_code ec{};
-									auto rst = std::filesystem::is_directory(p, ec);
-									return rst;
-								})
-								| std::views::transform(&std::filesystem::path::u32string)
-								| std::ranges::to<std::vector>();
-							context.report_progress(1u, 1u);
-							return folders;
-						},
-						[](file_selector& r, gui::scene& s, std::vector<std::u32string>&& fast_aceesses){
-							(void)s;
-							assert(r.quick_access_entries_ != nullptr);
-							auto& seq = *r.quick_access_entries_;
-							seq.clear();
-
-							for(auto& quick_access_folder : fast_aceesses){
-								seq.create_back([&, &pth = quick_access_folder](button<direct_label>& l){
-									set_style_side_bar(l);
-									l.set_fit(true);
-									l.set_tokenized_text({std::move(pth), typesetting::tokenize_tag::raw});
-									l.set_button_callback([&, sv = l.get_tokenized_text().get_text()]{
-										r.visit_directory(sv);
-									});
-								});
-							}
-						}
-					};
-			});
-		});
-
-		b.create_body([&](scroll_adaptor<sequence>& p){
-			set_style_edge_only(p);
-			p.set_layout_spec(layout::layout_specifier::fixed(layout::layout_policy::hori_major));
-			sequence& entries_seq = p.get_elem();
-			entries_seq.set_expand_policy(layout::expand_policy::prefer);
-			entries_seq.set_style();
-			entries_seq.template_cell.set_size(60);
-			entries_seq.template_cell.set_pad({3, 3});
-			this->entries = &entries_seq;
-
-		});
-
-		b.set_layout_spec(layout::directional_layout_specifier::fixed(layout::layout_policy::vert_major));
-
-	});
-
-	set_head_size({layout::size_category::mastering, 160});
-	set_expand_policy(layout::expand_policy::prefer);
-	set_pad(8);
-
-	visit_directory(std::filesystem::current_path());
 	sync_done_button_state_();
+	get_scene().notify_display_state_changed(get_channel());
+}
+
+void file_selector::build_file_entries_(){
+	std::error_code ec;
+	if(!std::filesystem::exists(current, ec) || !std::filesystem::is_directory(current, ec)){
+		auto pathes = platform::get_drive_letters();
+		transform_list_to_entry_elements(
+			pathes.view()
+			| std::views::transform(convert_to<std::filesystem::path>{})
+			| std::views::filter(std::bind_front(&file_selector::cared_file, this))
+			| std::ranges::to<std::vector>()
+		);
+	} else{
+		try{
+			std::vector<std::filesystem::path> valid_paths;
+			safe_iterate_directory(current, [&](const std::filesystem::directory_entry& entry, std::error_code&){
+				auto p = entry.path();
+				if(cared_file(p)){
+					valid_paths.push_back(std::move(p));
+				}
+			});
+
+			transform_list_to_entry_elements(std::move(valid_paths));
+		} catch(...){
+			pop_visited_and_resume();
+		}
+	}
 }
 
 void file_selector::build_trace_() noexcept{
@@ -1126,41 +1183,8 @@ void file_selector::build_trace_() noexcept{
 	}
 }
 
-void file_selector::build_file_entries_(){
-	std::error_code ec;
-	if(!std::filesystem::exists(current, ec) || !std::filesystem::is_directory(current, ec)){
-		auto pathes = platform::get_drive_letters();
-		transform_list_to_entry_elements(
-			pathes.view()
-			| std::views::transform(convert_to<std::filesystem::path>{})
-			| std::views::filter(std::bind_front(&file_selector::cared_file, this))
-			| std::ranges::to<std::vector>()
-		);
-	} else{
-		try{
-			std::vector<std::filesystem::path> valid_paths;
-			safe_iterate_directory(current, [&](const std::filesystem::directory_entry& entry, std::error_code&){
-				auto p = entry.path();
-				if(cared_file(p)){
-					valid_paths.push_back(std::move(p));
-				}
-			});
-
-			transform_list_to_entry_elements(std::move(valid_paths));
-		} catch(...){
-			pop_visited_and_resume();
-		}
-	}
-}
-
-void file_selector::build_ui_() noexcept{
-	build_file_entries_();
-	build_trace_();
-	edit_current_directory_->apply_edit([this](std::u32string& s){
-		s = get_current_directory().u32string();
-		return true;
-	});
-	sync_done_button_state_();
-	get_scene().notify_display_state_changed(get_channel());
+void file_selector::set_botton_enable_(icon_button_type& which, bool enabled){
+	which.set_disabled(!enabled);
+	which.scale_color = enabled ? graphic::colors::white : graphic::colors::gray;
 }
 }
